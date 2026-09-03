@@ -1,0 +1,63 @@
+package localspace:harness@1.0.0;
+
+/// Services Core provides to harness logic.
+///
+/// This is the whole of a Tier A harness's authority. There is no ambient
+/// filesystem, no socket, no model handle: every call below is checked against
+/// the capabilities declared in `harness.toml` before Core will service it.
+interface host {
+    /// The harness's document, as JSON. `{}` when it has none yet.
+    doc-get: func() -> string;
+
+    /// Replace the document. Core reconciles the JSON into the CRDT field by
+    /// field, records a commit, and pushes patches to the surface.
+    doc-put: func(json: string) -> result<_, string>;
+
+    /// Diagnostic line. Appears in the Core trace, not in the model's context.
+    log: func(message: string);
+
+    /// Wall clock in milliseconds since the Unix epoch.
+    now-ms: func() -> u64;
+
+    /// Inference, routed by Core to whatever model the environment has loaded.
+    /// Requires the `model` capability to list "complete".
+    model-complete: func(prompt: string) -> result<string, string>;
+
+    /// Grammar-constrained inference: the harness gets valid JSON back.
+    /// Requires the `model` capability to list "structured".
+    model-structured: func(schema: string, prompt: string) -> result<string, string>;
+
+    /// Requires the `model` capability to list "embed".
+    model-embed: func(texts: list<string>) -> result<list<list<f32>>, string>;
+
+    /// ACL-filtered retrieval. Returns JSON `[{id, title, snippet, citation}]`.
+    /// The harness never receives the index. Requires `docs = "acl"`.
+    docs-search: func(query: string) -> result<string, string>;
+
+    /// Proxied fetch through the Core gateway — a fetch, never a socket.
+    /// Requires a `net` allowlist covering the host, and an environment
+    /// network mode that permits egress.
+    net-fetch: func(url: string, mode: string) -> result<string, string>;
+}
+
+world harness {
+    import host;
+
+    /// The package's tool declarations, so the manifest and the running module
+    /// cannot disagree about what exists.
+    export tools: func() -> string;
+
+    /// Handle a tool call. Returns JSON:
+    /// `{"ok": bool, "result": any, "diff-summary": string?, "error": string?}`
+    export call: func(name: string, params-json: string) -> string;
+
+    /// Text serialization of the harness's current state, sized to the budget.
+    /// Returns JSON `{"text": string, "expandable": bool}`.
+    export context: func(budget-tokens: u32, focused: bool) -> string;
+
+    /// Declarative widget tree for a `kind = "widgets"` view, as JSON.
+    export view: func(view-id: string) -> string;
+
+    /// Opaque command from a surface to its own logic. Returns an opaque reply.
+    export event: func(view-id: string, payload: list<u8>) -> list<u8>;
+}

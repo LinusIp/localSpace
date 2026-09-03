@@ -1,0 +1,48 @@
+{
+  "cases": [
+    {
+      "name": "three risks as red stickies",
+      "prompt": "Put the three risks on the board as red stickies: supply chain, hiring, FX exposure.",
+      "assertions": [
+        { "path": "shapes", "min_len": 3 },
+        { "path": "shapes.0.fill", "equals": "red" },
+        { "path": "shapes.0.kind", "equals": "sticky" }
+      ]
+    },
+    {
+      "name": "name the board",
+      "prompt": "Call this board \"Q4 planning\".",
+      "assertions": [{ "path": "title", "contains": "Q4 planning" }]
+    },
+    {
+      "name": "one sticky with the given text",
+      "prompt": "Add a yellow sticky that says \"ship the beta\".",
+      "assertions": [
+        { "path": "shapes", "min_len": 1 },
+        { "path": "shapes.0.text", "contains": "ship the beta" },
+        { "path": "shapes.0.fill", "equals": "yellow" }
+      ]
+    },
+    {
+      "name": "a frame to group work",
+      "prompt": "Make a frame called Backlog.",
+      "assertions": [
+        { "path": "frames", "min_len": 1 },
+        { "path": "frames.0.name", "contains": "Backlog" }
+      ]
+    },
+    {
+      "name": "read before writing",
+      "prompt": "What is on the board right now?",
+      "assertions": [{ "path": "shapes", "exists": false }]
+    },
+    {
+      "name": "two stickies and an arrow between them",
+      "prompt": "Add a sticky \"design\" and a sticky \"build\", then draw an arrow from design to build.",
+      "assertions": [
+        { "path": "shapes", "min_len": 3 },
+        { "path": "shapes.2.kind", "equals": "arrow" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+[package]
+name = "whiteboard-surface"
+version = "1.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+localspace-surface-sdk = { path = "../../crates/localspace-surface-sdk" }
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

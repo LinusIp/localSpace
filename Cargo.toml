@@ -1,0 +1,61 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/localspace-proto",
+    "crates/localspace-core",
+    "crates/localspace-client",
+    "crates/localspace-desktop",
+    "crates/localspace-server",
+    "crates/localspace-surface-sdk",
+    "crates/localspace-harness-sdk",
+]
+exclude = ["harnesses"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# --- contract / serialization ---
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+postcard = { version = "1.1", features = ["alloc"] }
+toml = "0.9"
+schemars = "1"
+
+# --- errors / logging ---
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# --- async ---
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "process", "fs"] }
+futures = "0.3"
+async-trait = "0.1"
+
+# --- gui (pinned: part of harness-api) ---
+egui = { version = "0.36", default-features = false, features = ["serde"] }
+epaint = { version = "0.36", default-features = false, features = ["serde"] }
+eframe = { version = "0.36", default-features = false }
+egui_tiles = "0.17"
+
+# --- state ---
+automerge = "0.11"
+blake3 = "1.8"
+redb = "4"
+
+# --- runtime ---
+wasmtime = "48"
+wasmtime-wasi = "48"
+
+# --- server ---
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+
+# --- misc ---
+uuid = { version = "1", features = ["v4", "serde"] }
+time = { version = "0.3", features = ["formatting", "parsing", "serde", "macros"] }
+ureq = { version = "3", features = ["json"] }

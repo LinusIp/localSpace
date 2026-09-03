@@ -1,0 +1,24 @@
+[package]
+name = "localspace-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "localspace serve: Core + HTTP/WS API + wasm Client bundle."
+
+[[bin]]
+name = "localspace-serve"
+path = "src/main.rs"
+
+[dependencies]
+localspace-proto = { path = "../localspace-proto" }
+localspace-core = { path = "../localspace-core" }
+anyhow.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true

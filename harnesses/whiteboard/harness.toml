@@ -1,0 +1,29 @@
+[harness]
+id = "io.localspace.whiteboard"
+version = "1.0.0"
+api = "^1.0"
+title = "Whiteboard"
+publisher = "localSpace"
+tier = "wasm"
+
+[capabilities]
+fs = "none"
+net = "none"
+gpu = false
+clipboard = "on-user-action"
+docs = "none"
+model = []
+
+[contributes]
+views = [
+  { id = "board", kind = "egui", module = "ui/board.wasm", placement = "main", title = "Board" },
+  { id = "settings", kind = "widgets", placement = "side", title = "Board settings" },
+]
+tools = "tools.json"
+context_provider = true
+doc = "crdt"
+file_types = [".lsboard"]
+logic = "logic.wasm"
+
+[model_hints]
+prefers = ["tool-use", "ctx>=16k"]

@@ -1,0 +1,207 @@
+[
+  {
+    "name": "canvas.list",
+    "summary": "List the frames and shapes on the board with their ids, text and colours.",
+    "params": { "type": "object", "properties": {} },
+    "kind": "read",
+    "front_door": true,
+    "undoable": false,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.add_sticky",
+    "summary": "Add a sticky note with text. Colour is one of red, amber, green, blue, yellow, grey.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "fill": { "type": "string", "enum": ["red", "amber", "green", "blue", "yellow", "grey"] },
+        "frame": { "type": "string" }
+      },
+      "required": ["text"]
+    },
+    "kind": "write",
+    "front_door": true,
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.add_shape",
+    "summary": "Add a rectangle or ellipse to the canvas at an optional position and size.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "enum": ["rect", "ellipse", "sticky"] },
+        "text": { "type": "string" },
+        "fill": { "type": "string", "enum": ["red", "amber", "green", "blue", "yellow", "grey"] },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "w": { "type": "number" },
+        "h": { "type": "number" },
+        "frame": { "type": "string" }
+      },
+      "required": ["kind"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.move",
+    "summary": "Move a shape to new board coordinates.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      },
+      "required": ["id", "x", "y"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.resize",
+    "summary": "Resize a shape.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "w": { "type": "number" },
+        "h": { "type": "number" }
+      },
+      "required": ["id", "w", "h"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.set_text",
+    "summary": "Replace the text on a shape.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" }
+      },
+      "required": ["id", "text"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.set_fill",
+    "summary": "Recolour a shape.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fill": { "type": "string", "enum": ["red", "amber", "green", "blue", "yellow", "grey"] }
+      },
+      "required": ["id", "fill"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.delete",
+    "summary": "Delete a shape from the board.",
+    "params": {
+      "type": "object",
+      "properties": { "id": { "type": "string" } },
+      "required": ["id"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "destructive",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.connect",
+    "summary": "Draw a labelled arrow from one shape to another.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "label": { "type": "string" }
+      },
+      "required": ["from", "to"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.add_frame",
+    "summary": "Add a named frame that groups shapes.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "w": { "type": "number" },
+        "h": { "type": "number" }
+      },
+      "required": ["name"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.set_title",
+    "summary": "Rename the board.",
+    "params": {
+      "type": "object",
+      "properties": { "title": { "type": "string" } },
+      "required": ["title"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.select",
+    "summary": "Select shapes, so the context provider reports them in full detail.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "ids": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["ids"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.zoom",
+    "summary": "Full detail for one frame, or the whole board when no frame is given.",
+    "params": {
+      "type": "object",
+      "properties": { "frame": { "type": "string" } }
+    },
+    "kind": "read",
+    "undoable": false,
+    "confirm": "never",
+    "cost_hint": "instant"
+  }
+]

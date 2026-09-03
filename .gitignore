@@ -1,0 +1,11 @@
+/target
+/t
+**/*.rs.bk
+*.pdb
+/dist
+/data
+
+# Built harness artefacts — see docs/BUILD.md
+harnesses/*/logic.wasm
+harnesses/*/ui/*.wasm
+harnesses/*/target/
