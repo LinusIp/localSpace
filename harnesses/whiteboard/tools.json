@@ -2,7 +2,10 @@
   {
     "name": "canvas.list",
     "summary": "List the frames and shapes on the board with their ids, text and colours.",
-    "params": { "type": "object", "properties": {} },
+    "params": {
+      "type": "object",
+      "properties": {}
+    },
     "kind": "read",
     "front_door": true,
     "undoable": false,
@@ -15,11 +18,27 @@
     "params": {
       "type": "object",
       "properties": {
-        "text": { "type": "string" },
-        "fill": { "type": "string", "enum": ["red", "amber", "green", "blue", "yellow", "grey"] },
-        "frame": { "type": "string" }
+        "text": {
+          "type": "string"
+        },
+        "fill": {
+          "type": "string",
+          "enum": [
+            "red",
+            "amber",
+            "green",
+            "blue",
+            "yellow",
+            "grey"
+          ]
+        },
+        "frame": {
+          "type": "string"
+        }
       },
-      "required": ["text"]
+      "required": [
+        "text"
+      ]
     },
     "kind": "write",
     "front_door": true,
@@ -33,16 +52,47 @@
     "params": {
       "type": "object",
       "properties": {
-        "kind": { "type": "string", "enum": ["rect", "ellipse", "sticky"] },
-        "text": { "type": "string" },
-        "fill": { "type": "string", "enum": ["red", "amber", "green", "blue", "yellow", "grey"] },
-        "x": { "type": "number" },
-        "y": { "type": "number" },
-        "w": { "type": "number" },
-        "h": { "type": "number" },
-        "frame": { "type": "string" }
+        "kind": {
+          "type": "string",
+          "enum": [
+            "rect",
+            "ellipse",
+            "sticky"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "fill": {
+          "type": "string",
+          "enum": [
+            "red",
+            "amber",
+            "green",
+            "blue",
+            "yellow",
+            "grey"
+          ]
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "w": {
+          "type": "number"
+        },
+        "h": {
+          "type": "number"
+        },
+        "frame": {
+          "type": "string"
+        }
       },
-      "required": ["kind"]
+      "required": [
+        "kind"
+      ]
     },
     "kind": "write",
     "undoable": true,
@@ -55,11 +105,21 @@
     "params": {
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "x": { "type": "number" },
-        "y": { "type": "number" }
+        "id": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
       },
-      "required": ["id", "x", "y"]
+      "required": [
+        "id",
+        "x",
+        "y"
+      ]
     },
     "kind": "write",
     "undoable": true,
@@ -72,11 +132,21 @@
     "params": {
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "w": { "type": "number" },
-        "h": { "type": "number" }
+        "id": {
+          "type": "string"
+        },
+        "w": {
+          "type": "number"
+        },
+        "h": {
+          "type": "number"
+        }
       },
-      "required": ["id", "w", "h"]
+      "required": [
+        "id",
+        "w",
+        "h"
+      ]
     },
     "kind": "write",
     "undoable": true,
@@ -89,10 +159,17 @@
     "params": {
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "text": { "type": "string" }
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
       },
-      "required": ["id", "text"]
+      "required": [
+        "id",
+        "text"
+      ]
     },
     "kind": "write",
     "undoable": true,
@@ -105,10 +182,25 @@
     "params": {
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "fill": { "type": "string", "enum": ["red", "amber", "green", "blue", "yellow", "grey"] }
+        "id": {
+          "type": "string"
+        },
+        "fill": {
+          "type": "string",
+          "enum": [
+            "red",
+            "amber",
+            "green",
+            "blue",
+            "yellow",
+            "grey"
+          ]
+        }
       },
-      "required": ["id", "fill"]
+      "required": [
+        "id",
+        "fill"
+      ]
     },
     "kind": "write",
     "undoable": true,
@@ -120,8 +212,14 @@
     "summary": "Delete a shape from the board.",
     "params": {
       "type": "object",
-      "properties": { "id": { "type": "string" } },
-      "required": ["id"]
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
     },
     "kind": "write",
     "undoable": true,
@@ -134,11 +232,20 @@
     "params": {
       "type": "object",
       "properties": {
-        "from": { "type": "string" },
-        "to": { "type": "string" },
-        "label": { "type": "string" }
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
       },
-      "required": ["from", "to"]
+      "required": [
+        "from",
+        "to"
+      ]
     },
     "kind": "write",
     "undoable": true,
@@ -151,13 +258,25 @@
     "params": {
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "x": { "type": "number" },
-        "y": { "type": "number" },
-        "w": { "type": "number" },
-        "h": { "type": "number" }
+        "name": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "w": {
+          "type": "number"
+        },
+        "h": {
+          "type": "number"
+        }
       },
-      "required": ["name"]
+      "required": [
+        "name"
+      ]
     },
     "kind": "write",
     "undoable": true,
@@ -169,8 +288,14 @@
     "summary": "Rename the board.",
     "params": {
       "type": "object",
-      "properties": { "title": { "type": "string" } },
-      "required": ["title"]
+      "properties": {
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ]
     },
     "kind": "write",
     "undoable": true,
@@ -183,9 +308,16 @@
     "params": {
       "type": "object",
       "properties": {
-        "ids": { "type": "array", "items": { "type": "string" } }
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       },
-      "required": ["ids"]
+      "required": [
+        "ids"
+      ]
     },
     "kind": "write",
     "undoable": true,
@@ -197,10 +329,186 @@
     "summary": "Full detail for one frame, or the whole board when no frame is given.",
     "params": {
       "type": "object",
-      "properties": { "frame": { "type": "string" } }
+      "properties": {
+        "frame": {
+          "type": "string"
+        }
+      }
     },
     "kind": "read",
     "undoable": false,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.add_text",
+    "summary": "Add a plain text label at a position, with no box around it.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "size": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.duplicate",
+    "summary": "Copy shapes, offset slightly from the originals.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "ids"
+      ]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.order",
+    "summary": "Change stacking: front, back, forward or backward.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "to": {
+          "type": "string",
+          "enum": [
+            "front",
+            "back",
+            "forward",
+            "backward"
+          ]
+        }
+      },
+      "required": [
+        "ids",
+        "to"
+      ]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.align",
+    "summary": "Align shapes to one edge or to their shared centre.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "edge": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right",
+            "top",
+            "bottom",
+            "centre_x",
+            "centre_y"
+          ]
+        }
+      },
+      "required": [
+        "ids",
+        "edge"
+      ]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.distribute",
+    "summary": "Space shapes evenly along an axis.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "axis": {
+          "type": "string",
+          "enum": [
+            "x",
+            "y"
+          ]
+        }
+      },
+      "required": [
+        "ids",
+        "axis"
+      ]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "canvas.lock",
+    "summary": "Lock or unlock shapes against being moved.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "locked": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ids",
+        "locked"
+      ]
+    },
+    "kind": "write",
+    "undoable": true,
     "confirm": "never",
     "cost_hint": "instant"
   }

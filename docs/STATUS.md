@@ -18,7 +18,7 @@ Legend: **built** · **partial** (works, with a stated limit) · **not built**.
 | H§1.1 | Hardware profiles W32 / W96 / S | **built** | `profile.rs`. `localspace doctor` classifies this machine and refuses `serve` below the floor without `--allow-below-floor`. Every budget comes from a `ModelProfile`, never a constant. |
 | H§2 | Two topologies, one binary | **partial** | `localspace` and `localspace-serve` share Core and the whole protocol. The server serves the API; the **browser Client bundle is not built** (see NEXT). |
 | H§3 | Core / Client / two transports | **built** | `localspace-proto` is the only contract. `InProcess` moves typed values over channels; the server encodes the same types with postcard over a binary WebSocket. |
-| H§4.1 | Surfaces | **built** | `widgets` and `egui` kinds both render. `stream` is declared and refused with a clear message. |
+| H§4.1 | Surfaces | **built** | `widgets` and `egui` kinds both render. `stream` is declared and refused with a clear message. The reference `egui` surface carries real direct manipulation: tool palette, marquee and shift multi-select, dragging a selection, eight resize handles, snapping with alignment guides, stacking order, locking, duplicate, clipboard, freehand ink, text labels and keyboard shortcuts — with one commit per gesture rather than one per frame. |
 | H§4.2 | Tools | **built** | `tools.json` parsed and linted at install: summary word budget, ≤ 8 params, ≤ 3 front door, no un-undoable unconfirmed write, total token budget. |
 | H§4.3 | Context providers | **built** | Called before each turn with a real budget, cached by document hash, truncated on a line boundary with an explicit marker. |
 | H§5.2 | Three surface kinds | **partial** | `widgets` + `egui` built; `stream` needs Tier B frame transport. |
@@ -93,7 +93,7 @@ Legend: **built** · **partial** (works, with a stated limit) · **not built**.
 ## How the claims above were checked
 
 ```bash
-cargo test --workspace          # 156 tests
+cargo test --workspace          # 164 tests
 cargo test -p localspace-core --test whiteboard      # end-to-end, real harness
 cargo test -p localspace-client --test surface       # surface ABI conformance
 ./target/release/localspace doctor

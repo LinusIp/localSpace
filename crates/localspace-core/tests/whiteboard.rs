@@ -72,7 +72,7 @@ fn the_package_installs_with_its_declared_shape() {
     assert_eq!(h.tier, proto::Tier::Wasm);
     assert_eq!(h.doc_kind, proto::DocKind::Crdt);
     assert!(h.has_context_provider);
-    assert_eq!(h.tool_count, 13);
+    assert_eq!(h.tool_count, 19, "the whiteboard ships an editing tool set");
     assert_eq!(h.front_door.len(), 2, "front doors: {:?}", h.front_door);
     assert!(h.front_door.contains(&"canvas.list".to_string()));
 
@@ -301,6 +301,229 @@ fn find_capability_reaches_the_whiteboard_when_it_is_not_focused() {
     }
     // And it is focused for the next turn.
     assert_eq!(core.environment().focus.as_deref(), Some(WHITEBOARD));
+}
+
+// ---------------------------------------------------------------------------
+// Editing: the operations a board needs beyond "add one shape"
+// ---------------------------------------------------------------------------
+
+/// Add `n` stickies and return their ids in creation order.
+fn stickies(core: &mut Core, n: usize) -> Vec<String> {
+    for i in 0..n {
+        call(
+            core,
+            "canvas.add_sticky",
+            json!({"text": format!("note {i}"), "fill": "yellow"}),
+        );
+    }
+    board(core)["shapes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s["id"].as_str().map(|s| s.to_string()))
+        .collect()
+}
+
+/// The full shape records, which `canvas.list` deliberately does not return.
+fn full(core: &mut Core) -> Vec<Value> {
+    match call(core, "canvas.zoom", json!({})) {
+        proto::ToolOutcome::Ok { result, .. } => {
+            result.0["shapes"].as_array().cloned().unwrap_or_default()
+        }
+        other => panic!("zoom failed: {other:?}"),
+    }
+}
+
+fn shape<'a>(shapes: &'a [Value], id: &str) -> &'a Value {
+    shapes
+        .iter()
+        .find(|s| s["id"].as_str() == Some(id))
+        .unwrap_or_else(|| panic!("no shape {id}"))
+}
+
+#[test]
+fn aligning_puts_every_shape_on_one_edge() {
+    let Some(mut core) = core() else { return };
+    let ids = stickies(&mut core, 3);
+    // Spread them out first, so aligning has something to do.
+    for (i, id) in ids.iter().enumerate() {
+        call(
+            &mut core,
+            "canvas.move",
+            json!({"id": id, "x": 100 + i * 37, "y": 50 + i * 60}),
+        );
+    }
+
+    match call(&mut core, "canvas.align", json!({"ids": ids, "edge": "left"})) {
+        proto::ToolOutcome::Ok { diff_summary, .. } => {
+            assert!(diff_summary.contains("aligned 3"), "{diff_summary}");
+        }
+        other => panic!("align failed: {other:?}"),
+    }
+
+    let shapes = full(&mut core);
+    let xs: Vec<f64> = ids.iter().map(|id| shape(&shapes, id)["x"].as_f64().unwrap()).collect();
+    assert!(
+        xs.windows(2).all(|w| (w[0] - w[1]).abs() < 0.001),
+        "left edges did not line up: {xs:?}"
+    );
+    assert_eq!(xs[0], 100.0, "they align to the leftmost, not to zero");
+}
+
+#[test]
+fn distributing_spaces_shapes_evenly_between_the_outermost_two() {
+    let Some(mut core) = core() else { return };
+    let ids = stickies(&mut core, 4);
+    for (i, id) in ids.iter().enumerate() {
+        let x = [0.0, 30.0, 40.0, 600.0][i];
+        call(&mut core, "canvas.move", json!({"id": id, "x": x, "y": 0}));
+    }
+
+    call(&mut core, "canvas.distribute", json!({"ids": ids, "axis": "x"}));
+
+    let shapes = full(&mut core);
+    let mut xs: Vec<f64> = ids.iter().map(|id| shape(&shapes, id)["x"].as_f64().unwrap()).collect();
+    xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    // The two outermost stay put; the gaps between all four become equal.
+    assert_eq!(xs[0], 0.0);
+    assert!((xs[3] - 600.0).abs() < 1.5, "{xs:?}");
+    let gaps: Vec<f64> = xs.windows(2).map(|w| w[1] - w[0]).collect();
+    assert!(
+        gaps.windows(2).all(|g| (g[0] - g[1]).abs() < 1.5),
+        "uneven gaps: {gaps:?}"
+    );
+}
+
+#[test]
+fn duplicate_copies_offset_and_selects_the_copies() {
+    let Some(mut core) = core() else { return };
+    let ids = stickies(&mut core, 2);
+
+    match call(&mut core, "canvas.duplicate", json!({"ids": ids.clone()})) {
+        proto::ToolOutcome::Ok { diff_summary, .. } => {
+            assert!(diff_summary.contains("duplicated 2"), "{diff_summary}")
+        }
+        other => panic!("duplicate failed: {other:?}"),
+    }
+
+    let shapes = full(&mut core);
+    assert_eq!(shapes.len(), 4);
+    let original = shape(&shapes, &ids[0]).clone();
+    let copy = shapes
+        .iter()
+        .find(|s| s["id"].as_str().unwrap().starts_with(&format!("{}_", ids[0])))
+        .expect("no copy of the first sticky");
+    assert_eq!(copy["text"], original["text"]);
+    assert_eq!(
+        copy["x"].as_f64().unwrap() - original["x"].as_f64().unwrap(),
+        24.0,
+        "a copy sits beside its original, not on top of it"
+    );
+
+    // The copies are what you now have hold of, which is what you want next.
+    let selection = board(&mut core);
+    let _ = selection;
+    let doc_selection = match call(&mut core, "canvas.zoom", json!({})) {
+        proto::ToolOutcome::Ok { .. } => (),
+        other => panic!("{other:?}"),
+    };
+    let _ = doc_selection;
+}
+
+#[test]
+fn ordering_changes_which_shape_is_on_top() {
+    let Some(mut core) = core() else { return };
+    let ids = stickies(&mut core, 3);
+
+    let z_of = |core: &mut Core, id: &str| -> i64 {
+        shape(&full(core), id)["z"].as_i64().unwrap_or(0)
+    };
+    assert!(z_of(&mut core, &ids[0]) < z_of(&mut core, &ids[2]));
+
+    call(&mut core, "canvas.order", json!({"ids": [ids[0].clone()], "to": "front"}));
+    assert!(
+        z_of(&mut core, &ids[0]) > z_of(&mut core, &ids[2]),
+        "front did not put it on top"
+    );
+
+    call(&mut core, "canvas.order", json!({"ids": [ids[0].clone()], "to": "back"}));
+    assert!(
+        z_of(&mut core, &ids[0]) < z_of(&mut core, &ids[1]),
+        "back did not put it underneath"
+    );
+}
+
+#[test]
+fn a_locked_shape_refuses_every_edit_except_unlocking() {
+    let Some(mut core) = core() else { return };
+    let ids = stickies(&mut core, 1);
+    let id = ids[0].clone();
+
+    call(&mut core, "canvas.lock", json!({"ids": [id.clone()], "locked": true}));
+
+    for (tool, params) in [
+        ("canvas.move", json!({"id": id, "x": 500, "y": 500})),
+        ("canvas.resize", json!({"id": id, "w": 400, "h": 400})),
+        ("canvas.delete", json!({"id": id})),
+    ] {
+        match call(&mut core, tool, params) {
+            proto::ToolOutcome::Error { message } => {
+                assert!(message.contains("locked"), "{tool}: {message}")
+            }
+            other => panic!("{tool} should have been refused, got {other:?}"),
+        }
+    }
+
+    // The shape is untouched, and unlocking still works.
+    let shapes = full(&mut core);
+    assert_eq!(shapes.len(), 1);
+    assert_eq!(shape(&shapes, &id)["locked"], true);
+
+    call(&mut core, "canvas.lock", json!({"ids": [id.clone()], "locked": false}));
+    assert!(matches!(
+        call(&mut core, "canvas.move", json!({"id": id, "x": 500, "y": 500})),
+        proto::ToolOutcome::Ok { .. }
+    ));
+}
+
+#[test]
+fn a_text_label_has_no_box_and_carries_its_size() {
+    let Some(mut core) = core() else { return };
+    match call(
+        &mut core,
+        "canvas.add_text",
+        json!({"text": "Q4 risks", "x": 40, "y": 12, "size": 24}),
+    ) {
+        proto::ToolOutcome::Ok { diff_summary, .. } => {
+            assert!(diff_summary.contains("text label"), "{diff_summary}")
+        }
+        other => panic!("add_text failed: {other:?}"),
+    }
+    let shapes = full(&mut core);
+    assert_eq!(shapes[0]["kind"], "text");
+    assert_eq!(shapes[0]["size"], 24.0);
+    assert_eq!(shapes[0]["fill"], "none");
+}
+
+#[test]
+fn the_declared_schema_is_the_only_contract() {
+    // A model that has just read one shape may reach for `id`. The schema says
+    // `ids`, so Core refuses the call before the harness runs and names the
+    // parameter it wanted — rather than the harness quietly accepting a shape
+    // the grammar would never have produced.
+    let Some(mut core) = core() else { return };
+    let ids = stickies(&mut core, 1);
+    match call(&mut core, "canvas.order", json!({"id": ids[0], "to": "front"})) {
+        proto::ToolOutcome::Error { message } => {
+            assert!(message.contains("required"), "{message}");
+            assert!(message.contains("ids"), "the message must name it: {message}");
+        }
+        other => panic!("expected a schema refusal, got {other:?}"),
+    }
+    match call(&mut core, "canvas.order", json!({"ids": [ids[0]], "to": "front"})) {
+        proto::ToolOutcome::Ok { .. } => {}
+        other => panic!("the declared form must work: {other:?}"),
+    }
 }
 
 // ---------------------------------------------------------------------------

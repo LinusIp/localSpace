@@ -5,8 +5,16 @@ use anyhow::{bail, Context, Result};
 use localspace_proto as proto;
 use serde::{Deserialize, Serialize};
 
-/// Hard budget on total tool-description tokens in context (spec §9).
-pub const TOOL_TOKEN_BUDGET: usize = 1500;
+/// What one *package* may cost, checked once at install.
+///
+/// This is not the per-turn budget. That one comes from the environment's model
+/// profile and is enforced by `exposure`, which drops harnesses — and, when even
+/// the focused one will not fit, its non-front-door tools — and says so in the
+/// trace. A package is distributed to many machines, so the install gate is the
+/// most generous profile: a harness that fits nowhere is a broken package, but a
+/// harness that fits a server and gets trimmed on a workstation is working as
+/// designed.
+pub const TOOL_TOKEN_BUDGET: usize = 4000;
 /// A single summary may not exceed this many words.
 pub const MAX_SUMMARY_WORDS: usize = 25;
 /// A tool's parameter schema may not exceed this many top-level properties.

@@ -88,11 +88,38 @@ impl Exposure<'_> {
                 .filter(|(rank, _)| *rank >= 2)
                 .max_by_key(|(rank, t)| (*rank, token_cost(t)))
                 .map(|(_, t)| t.harness.clone());
-            let Some(victim) = victim else {
-                break; // Only core + focus left; those are not droppable.
+
+            if let Some(victim) = victim {
+                candidates.retain(|(_, t)| t.harness != victim);
+                dropped.push(victim);
+                continue;
+            }
+
+            // Only Core builtins and the focused harness are left, and they still
+            // do not fit. Trim the focused harness rather than silently overrun:
+            // its front doors are the tools it most wants reachable, so they and
+            // the builtins stay, and the widest of the rest goes first.
+            let front_doors: Vec<&str> = self
+                .focus
+                .and_then(|f| self.registry.get(f))
+                .map(|h| h.tools.front_door().map(|t| t.name.as_str()).collect())
+                .unwrap_or_default();
+            let widest = |keep_front_doors: bool| {
+                candidates
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (rank, t))| {
+                        *rank == 1 && !(keep_front_doors && front_doors.contains(&t.name.as_str()))
+                    })
+                    .max_by_key(|(_, (_, t))| token_cost(t))
+                    .map(|(i, (_, t))| (i, t.name.clone()))
             };
-            candidates.retain(|(_, t)| t.harness != victim);
-            dropped.push(victim);
+            let trim = widest(true).or_else(|| widest(false));
+            let Some((index, name)) = trim else {
+                break; // Core builtins alone. Nothing left that may be dropped.
+            };
+            candidates.remove(index);
+            dropped.push(name);
         }
 
         // Emission order: by harness id, then tool name. Stable across focus changes.
@@ -446,23 +473,71 @@ context_provider = true
     #[test]
     fn the_budget_drops_pinned_harnesses_before_the_focused_one() {
         let reg = registry();
-        // A profile so tight that only core plus the focused harness can fit.
-        let tiny = ModelProfile {
-            tool_budget_tokens: 120,
+        let focused_only =
+            exposure(&reg, &ModelProfile::server(), Some("io.localspace.whiteboard"), &[], &[])
+                .active_set()
+                .token_estimate;
+        // Room for the builtins and the whole focused harness, but nothing more.
+        let tight = ModelProfile {
+            tool_budget_tokens: focused_only,
             ..ModelProfile::small()
         };
         let pinned = vec![
             "io.localspace.planner".to_string(),
             "io.localspace.physics".to_string(),
         ];
-        let set = exposure(&reg, &tiny, Some("io.localspace.whiteboard"), &pinned, &[]).active_set();
+        let set =
+            exposure(&reg, &tight, Some("io.localspace.whiteboard"), &pinned, &[]).active_set();
 
         assert!(!set.dropped.is_empty(), "the trace must say what was dropped");
         assert!(
-            set.tools.iter().any(|t| t.name.starts_with("canvas.")),
-            "the focused harness survives"
+            set.tools.iter().any(|t| t.name == "canvas.move"),
+            "a pinned harness goes before any part of the focused one"
         );
         assert!(!set.dropped.contains(&"io.localspace.whiteboard".to_string()));
+    }
+
+    /// What Core's own always-present tools cost. Budgets in these tests are set
+    /// relative to it, so they keep meaning if a builtin's description changes.
+    fn builtin_cost(reg: &Registry) -> usize {
+        exposure(reg, &ModelProfile::server(), None, &[], &[])
+            .active_set()
+            .token_estimate
+    }
+
+    #[test]
+    fn a_focused_harness_that_will_not_fit_is_trimmed_not_overrun() {
+        // A workstation profile can be tighter than one rich harness. Rather than
+        // silently blow the budget, Core drops that harness's widest tools and
+        // keeps its front doors, saying which went.
+        let reg = registry();
+        let tiny = ModelProfile {
+            // Room for the builtins and a little else, but not the whole harness.
+            tool_budget_tokens: builtin_cost(&reg) + 30,
+            ..ModelProfile::small()
+        };
+        let set = exposure(&reg, &tiny, Some("io.localspace.whiteboard"), &[], &[]).active_set();
+
+        assert!(
+            set.token_estimate <= tiny.tool_budget_tokens,
+            "still over budget at {} of {}",
+            set.token_estimate,
+            tiny.tool_budget_tokens
+        );
+        assert!(!set.dropped.is_empty(), "the trace must say what went");
+
+        let names: Vec<&str> = set.tools.iter().map(|t| t.name.as_str()).collect();
+        assert!(
+            names.contains(&"find_capability"),
+            "a Core builtin is never dropped: {names:?}"
+        );
+        // Front doors are what the harness most wants reachable, so a non-front-door
+        // tool goes before one of them.
+        assert!(
+            set.dropped.iter().any(|d| d == "canvas.move" || d == "canvas.delete"),
+            "dropped {:?}",
+            set.dropped
+        );
     }
 
     #[test]

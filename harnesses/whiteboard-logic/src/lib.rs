@@ -68,6 +68,76 @@ fn shape_index(doc: &Value, id: &str) -> Option<usize> {
         .position(|s| s["id"].as_str() == Some(id))
 }
 
+/// The `ids` array these tools take.
+///
+/// Only `ids`, never a bare `id`: the declared schema marks it required, so Core
+/// rejects a call without it before this code runs and the grammar built from
+/// that schema will not let a model emit one. An alias here would be unreachable.
+fn ids_of(params: &Value) -> Vec<String> {
+    params
+        .get("ids")
+        .and_then(|v| v.as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The next free stacking index. Shapes are drawn in `z` order.
+fn next_z(doc: &Value) -> i64 {
+    doc["shapes"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| s["z"].as_i64())
+                .max()
+                .unwrap_or(0)
+                + 1
+        })
+        .unwrap_or(1)
+}
+
+/// Bounding box of a shape, or `None` for a connector, which has no box of its own.
+fn bounds(sh: &Value) -> Option<(f64, f64, f64, f64)> {
+    if sh["kind"].as_str() == Some("arrow") {
+        return None;
+    }
+    Some((
+        sh["x"].as_f64().unwrap_or(0.0),
+        sh["y"].as_f64().unwrap_or(0.0),
+        sh["w"].as_f64().unwrap_or(0.0),
+        sh["h"].as_f64().unwrap_or(0.0),
+    ))
+}
+
+fn locked(sh: &Value) -> bool {
+    sh["locked"].as_bool().unwrap_or(false)
+}
+
+/// Apply `edit` to every named, unlocked shape. Returns how many changed and
+/// the first id that was refused because it is locked.
+fn edit_each(
+    doc: &mut Value,
+    ids: &[String],
+    mut edit: impl FnMut(&mut Value),
+) -> Result<usize, String> {
+    let mut changed = 0;
+    for id in ids {
+        let Some(i) = shape_index(doc, id) else {
+            return Err(format!("no shape `{id}`"));
+        };
+        let list = doc["shapes"].as_array_mut().unwrap();
+        if locked(&list[i]) {
+            return Err(format!("`{id}` is locked; unlock it first"));
+        }
+        edit(&mut list[i]);
+        changed += 1;
+    }
+    Ok(changed)
+}
+
 fn f(params: &Value, key: &str, default: f64) -> f64 {
     params.get(key).and_then(|v| v.as_f64()).unwrap_or(default)
 }
@@ -146,6 +216,8 @@ impl Guest for Whiteboard {
                     "fill": s(&params, "fill", if kind == "sticky" { "yellow" } else { "grey" }),
                     "text": s(&params, "text", ""),
                     "frame": params.get("frame").cloned().unwrap_or(Value::Null),
+                    "z": next_z(&doc),
+                    "locked": false,
                 });
                 doc["shapes"].as_array_mut().unwrap().push(shape);
                 if let Err(e) = save(&doc) {
@@ -159,6 +231,9 @@ impl Guest for Whiteboard {
                 let Some(i) = shape_index(&doc, id) else {
                     return fail(format!("no shape `{id}`"));
                 };
+                if locked(&doc["shapes"].as_array().unwrap()[i]) {
+                    return fail(format!("`{id}` is locked; unlock it first"));
+                }
                 let shapes = doc["shapes"].as_array_mut().unwrap();
                 shapes[i]["x"] = json!(f(&params, "x", shapes[i]["x"].as_f64().unwrap_or(0.0)));
                 shapes[i]["y"] = json!(f(&params, "y", shapes[i]["y"].as_f64().unwrap_or(0.0)));
@@ -173,6 +248,9 @@ impl Guest for Whiteboard {
                 let Some(i) = shape_index(&doc, id) else {
                     return fail(format!("no shape `{id}`"));
                 };
+                if locked(&doc["shapes"].as_array().unwrap()[i]) {
+                    return fail(format!("`{id}` is locked; unlock it first"));
+                }
                 let shapes = doc["shapes"].as_array_mut().unwrap();
                 shapes[i]["w"] = json!(f(&params, "w", 160.0).max(8.0));
                 shapes[i]["h"] = json!(f(&params, "h", 90.0).max(8.0));
@@ -216,6 +294,9 @@ impl Guest for Whiteboard {
                 let Some(i) = shape_index(&doc, id) else {
                     return fail(format!("no shape `{id}`"));
                 };
+                if locked(&doc["shapes"].as_array().unwrap()[i]) {
+                    return fail(format!("`{id}` is locked; unlock it first"));
+                }
                 doc["shapes"].as_array_mut().unwrap().remove(i);
                 if let Err(e) = save(&doc) {
                     return fail(e);
@@ -238,6 +319,8 @@ impl Guest for Whiteboard {
                     "text": s(&params, "label", ""), "fill": "grey",
                     "x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0,
                     "frame": Value::Null,
+                    "z": next_z(&doc),
+                    "locked": false,
                 });
                 doc["shapes"].as_array_mut().unwrap().push(arrow);
                 if let Err(e) = save(&doc) {
@@ -312,6 +395,228 @@ impl Guest for Whiteboard {
                 ok(
                     json!({"shapes": shapes}),
                     &format!("{n} shape(s) in full detail"),
+                )
+            }
+
+            "canvas.add_text" => {
+                let text = s(&params, "text", "").to_string();
+                if text.trim().is_empty() {
+                    return fail("a text label needs some text");
+                }
+                let id = next_id(&doc, "t");
+                let size = f(&params, "size", 16.0).clamp(8.0, 96.0);
+                let label = json!({
+                    "id": id,
+                    "kind": "text",
+                    "x": f(&params, "x", 40.0),
+                    "y": f(&params, "y", 40.0),
+                    "w": (text.chars().count() as f64 * size * 0.55).max(60.0),
+                    "h": size * 1.6,
+                    "size": size,
+                    "fill": "none",
+                    "text": text,
+                    "frame": Value::Null,
+                    "z": next_z(&doc),
+                    "locked": false,
+                });
+                doc["shapes"].as_array_mut().unwrap().push(label);
+                if let Err(e) = save(&doc) {
+                    return fail(e);
+                }
+                ok(json!({"id": id}), "added 1 text label")
+            }
+
+            "canvas.duplicate" => {
+                let ids = ids_of(&params);
+                if ids.is_empty() {
+                    return fail("nothing to duplicate");
+                }
+                let mut made = Vec::new();
+                for id in &ids {
+                    let Some(i) = shape_index(&doc, id) else {
+                        return fail(format!("no shape `{id}`"));
+                    };
+                    let mut copy = doc["shapes"].as_array().unwrap()[i].clone();
+                    // A connector's endpoints would still point at the originals,
+                    // so copying one would draw a second line over the first.
+                    if copy["kind"].as_str() == Some("arrow") {
+                        continue;
+                    }
+                    let new_id = format!("{}_{}", id, made.len() + 1);
+                    copy["id"] = json!(new_id);
+                    copy["x"] = json!(copy["x"].as_f64().unwrap_or(0.0) + 24.0);
+                    copy["y"] = json!(copy["y"].as_f64().unwrap_or(0.0) + 24.0);
+                    copy["z"] = json!(next_z(&doc) + made.len() as i64);
+                    copy["locked"] = json!(false);
+                    made.push(new_id);
+                    doc["shapes"].as_array_mut().unwrap().push(copy);
+                }
+                if made.is_empty() {
+                    return fail("nothing was duplicated (connectors cannot be copied on their own)");
+                }
+                if let Err(e) = save(&doc) {
+                    return fail(e);
+                }
+                let n = made.len();
+                doc["selection"] = json!(made.clone());
+                let _ = save(&doc);
+                ok(json!({"ids": made}), &format!("duplicated {n} shape(s)"))
+            }
+
+            "canvas.order" => {
+                let ids = ids_of(&params);
+                let to = s(&params, "to", "front").to_string();
+                if ids.is_empty() {
+                    return fail("nothing to reorder");
+                }
+                let top = next_z(&doc);
+                let bottom = doc["shapes"]
+                    .as_array()
+                    .and_then(|a| a.iter().filter_map(|s| s["z"].as_i64()).min())
+                    .unwrap_or(0);
+                let result = edit_each(&mut doc, &ids, |sh| {
+                    let z = sh["z"].as_i64().unwrap_or(0);
+                    sh["z"] = json!(match to.as_str() {
+                        "front" => top,
+                        "back" => bottom - 1,
+                        "forward" => z + 1,
+                        _ => z - 1,
+                    });
+                });
+                match result {
+                    Ok(n) => {
+                        if let Err(e) = save(&doc) {
+                            return fail(e);
+                        }
+                        ok(json!({"ids": ids}), &format!("moved {n} shape(s) {to}"))
+                    }
+                    Err(e) => fail(e),
+                }
+            }
+
+            "canvas.lock" => {
+                let ids = ids_of(&params);
+                let want = params
+                    .get("locked")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                if ids.is_empty() {
+                    return fail("nothing to lock");
+                }
+                // Locking is the one edit a locked shape still accepts, or it
+                // could never be unlocked.
+                for id in &ids {
+                    let Some(i) = shape_index(&doc, id) else {
+                        return fail(format!("no shape `{id}`"));
+                    };
+                    doc["shapes"].as_array_mut().unwrap()[i]["locked"] = json!(want);
+                }
+                if let Err(e) = save(&doc) {
+                    return fail(e);
+                }
+                ok(
+                    json!({"ids": ids}),
+                    &format!(
+                        "{} {} shape(s)",
+                        if want { "locked" } else { "unlocked" },
+                        ids.len()
+                    ),
+                )
+            }
+
+            "canvas.align" => {
+                let ids = ids_of(&params);
+                let edge = s(&params, "edge", "left").to_string();
+                if ids.len() < 2 {
+                    return fail("aligning needs at least two shapes");
+                }
+                let boxes: Vec<(f64, f64, f64, f64)> = ids
+                    .iter()
+                    .filter_map(|id| shape_index(&doc, id))
+                    .filter_map(|i| bounds(&doc["shapes"].as_array().unwrap()[i]))
+                    .collect();
+                if boxes.len() < 2 {
+                    return fail("aligning needs at least two shapes that have a box");
+                }
+                let left = boxes.iter().map(|b| b.0).fold(f64::MAX, f64::min);
+                let right = boxes.iter().map(|b| b.0 + b.2).fold(f64::MIN, f64::max);
+                let top = boxes.iter().map(|b| b.1).fold(f64::MAX, f64::min);
+                let bottom = boxes.iter().map(|b| b.1 + b.3).fold(f64::MIN, f64::max);
+
+                let result = edit_each(&mut doc, &ids, |sh| {
+                    let Some((x, y, w, h)) = bounds(sh) else { return };
+                    match edge.as_str() {
+                        "left" => sh["x"] = json!(left),
+                        "right" => sh["x"] = json!(right - w),
+                        "top" => sh["y"] = json!(top),
+                        "bottom" => sh["y"] = json!(bottom - h),
+                        "centre_x" => sh["x"] = json!((left + right) / 2.0 - w / 2.0),
+                        "centre_y" => sh["y"] = json!((top + bottom) / 2.0 - h / 2.0),
+                        _ => {
+                            let _ = (x, y);
+                        }
+                    }
+                });
+                match result {
+                    Ok(n) => {
+                        if let Err(e) = save(&doc) {
+                            return fail(e);
+                        }
+                        ok(json!({"ids": ids}), &format!("aligned {n} shape(s) {edge}"))
+                    }
+                    Err(e) => fail(e),
+                }
+            }
+
+            "canvas.distribute" => {
+                let ids = ids_of(&params);
+                let axis = s(&params, "axis", "x").to_string();
+                if ids.len() < 3 {
+                    return fail("distributing needs at least three shapes");
+                }
+                // Sort by current position, then space the gaps evenly between the
+                // two outermost, which stay where they are.
+                let mut placed: Vec<(String, f64, f64)> = Vec::new();
+                for id in &ids {
+                    let Some(i) = shape_index(&doc, id) else {
+                        return fail(format!("no shape `{id}`"));
+                    };
+                    let sh = &doc["shapes"].as_array().unwrap()[i];
+                    let Some((x, y, w, h)) = bounds(sh) else { continue };
+                    if axis == "x" {
+                        placed.push((id.clone(), x, w));
+                    } else {
+                        placed.push((id.clone(), y, h));
+                    }
+                }
+                if placed.len() < 3 {
+                    return fail("distributing needs at least three shapes that have a box");
+                }
+                placed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                let first = placed.first().unwrap().clone();
+                let last = placed.last().unwrap().clone();
+                let span = (last.1 + last.2) - first.1;
+                let total: f64 = placed.iter().map(|p| p.2).sum();
+                let gap = (span - total) / (placed.len() - 1) as f64;
+
+                let mut cursor = first.1;
+                let mut moved = 0;
+                for (id, _, size) in &placed {
+                    let Some(i) = shape_index(&doc, id) else { continue };
+                    let list = doc["shapes"].as_array_mut().unwrap();
+                    if !locked(&list[i]) {
+                        list[i][if axis == "x" { "x" } else { "y" }] = json!(cursor.round());
+                        moved += 1;
+                    }
+                    cursor += size + gap;
+                }
+                if let Err(e) = save(&doc) {
+                    return fail(e);
+                }
+                ok(
+                    json!({"ids": ids}),
+                    &format!("spaced {moved} shape(s) evenly along {axis}"),
                 )
             }
 

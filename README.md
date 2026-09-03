@@ -105,7 +105,7 @@ are exposed to the agent under a per-turn budget, its surface runs sandboxed in 
 Client, its context provider is called with a real token budget, every write lands
 as a commit, and undo, redo and whole-run rejection all work. A Marketplace lists an
 offline bundle and installs from it, holding any capability widening at an explicit
-approval. 156 tests pass, including an end-to-end suite that drives both real
+approval. 164 tests pass, including an end-to-end suite that drives both real
 reference harnesses through Core.
 
 Not built: the browser Client bundle, OIDC/SAML/SCIM, the inference workers

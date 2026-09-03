@@ -159,3 +159,29 @@ Tier B speaks MCP-shaped JSON-RPC over stdio. An existing MCP server answers
 `tools/list` and `tools/call`, ignores the three `harness/*` extensions, and Core
 describes it generically. Add `harness/context` when you want it to carry state into
 the model's turn properly.
+
+---
+
+## What the reference whiteboard's surface does, and why
+
+It is worth reading `harnesses/whiteboard-surface` before writing your own, because
+two of its choices are not obvious and both matter:
+
+**One gesture, one commit.** A drag mutates `state.doc` every frame so the preview
+is live, but only sets `state.doc_dirty` when the gesture *ends*. Setting it every
+frame would put sixty commits in the history for one drag, and undo would become
+useless. Anything continuous — dragging, resizing, drawing ink — should follow this
+shape.
+
+**The schema is the only contract.** The board's array-taking tools accept `ids`,
+never a bare `id`, because `required: ["ids"]` means Core refuses the other form
+before the harness runs and the grammar built from that schema will not let a model
+emit it. A harness being quietly lenient about something the schema forbids is
+unreachable code that misleads whoever reads it next.
+
+The editing it implements — tool palette, marquee and shift multi-select, dragging a
+whole selection, eight resize handles, snapping with alignment guides, stacking
+order, locking, duplicate, clipboard, freehand ink, text labels, and keyboard
+shortcuts — is all document mutation. There is no second model to keep in step, and
+every one of those edits is undoable and mergeable because Core reconciles the JSON
+into the CRDT field by field.

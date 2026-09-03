@@ -128,8 +128,8 @@ and Tier B together — but it depends on items 5 and 2.
 - There is no `localspace.toml`; the server is configured entirely on the command
   line, which will not survive a real deployment.
 - Default sticky placement can land a card on top of a frame's title.
-- The whiteboard canvas is a thin editor: no multi-select, resize handles, snapping,
-  z-order, images or freehand. The CRDT underneath supports all of it; the surface
-  does not draw it yet.
+- The whiteboard still has no grouping, rotation, connector rerouting, images,
+  comments, presence cursors or templates. Multi-select, resize, snapping,
+  z-order, locking, ink and the clipboard are in; the rest is not.
 - The Marketplace lists a directory. It does not yet verify a signature, so in an
   organisation it should point only at a bundle the security team assembled.
