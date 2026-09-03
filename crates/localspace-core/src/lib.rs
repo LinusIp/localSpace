@@ -7,6 +7,7 @@
 pub mod acl;
 pub mod agent;
 pub mod audit;
+pub mod catalog;
 pub mod context;
 pub mod dag;
 pub mod docs;
@@ -54,6 +55,9 @@ pub struct Config {
     pub user: String,
     pub data_dir: Option<PathBuf>,
     pub harness_dir: Option<PathBuf>,
+    /// Directories the marketplace lists: a synced registry, or an offline bundle.
+    /// The installed set is scanned too, so the catalog can mark what is already here.
+    pub catalog_dirs: Vec<PathBuf>,
     pub topology: proto::Topology,
     pub policy: Policy,
     pub gateway: GatewayConfig,
@@ -69,6 +73,7 @@ impl Config {
             user: user.to_string(),
             data_dir: None,
             harness_dir: None,
+            catalog_dirs: Vec::new(),
             topology: proto::Topology::Personal,
             policy: Policy::default(),
             gateway: GatewayConfig::default(),
@@ -120,6 +125,8 @@ pub struct Core {
     touched: Vec<String>,
     transcript: Vec<proto::ChatMessage>,
     pending: HashMap<String, Pending>,
+    /// Installs held at a capability-diff prompt, keyed by the token shown.
+    pending_installs: HashMap<String, PathBuf>,
     proposals: Vec<Proposal>,
     run: Option<String>,
     workspace: String,
@@ -167,6 +174,7 @@ impl Core {
             touched: Vec::new(),
             transcript: Vec::new(),
             pending: HashMap::new(),
+            pending_installs: HashMap::new(),
             proposals: Vec::new(),
             run: None,
             workspace,
@@ -308,23 +316,36 @@ impl Core {
     }
 
     pub fn install(&mut self, dir: &std::path::Path) -> Result<proto::Response> {
+        self.install_inner(dir, false)
+    }
+
+    fn install_inner(
+        &mut self,
+        dir: &std::path::Path,
+        capabilities_approved: bool,
+    ) -> Result<proto::Response> {
         let policy = self.cfg.policy.clone();
         let mut staged = Registry::stage(dir, &policy)?;
 
-        // An update that widens capabilities does not auto-install.
-        if let Some(existing) = self.registry.get(staged.id()) {
-            let diff = staged
-                .manifest
-                .capabilities
-                .widening_over(&existing.manifest.capabilities);
-            if !diff.is_empty() {
-                let token = format!("t{}", dag::now_ms());
-                return Ok(proto::Response::InstallPrompt {
-                    harness: staged.manifest.harness.id.clone(),
-                    token,
-                    diff,
-                    native_reason: staged.manifest.harness.native_reason.clone(),
-                });
+        // An update that widens capabilities does not auto-install: it re-prompts
+        // with a diff, and only proceeds once the user has answered.
+        if !capabilities_approved {
+            if let Some(existing) = self.registry.get(staged.id()) {
+                let diff = staged
+                    .manifest
+                    .capabilities
+                    .widening_over(&existing.manifest.capabilities);
+                if !diff.is_empty() {
+                    let token = format!("t{}", dag::now_ms());
+                    self.pending_installs
+                        .insert(token.clone(), dir.to_path_buf());
+                    return Ok(proto::Response::InstallPrompt {
+                        harness: staged.manifest.harness.id.clone(),
+                        token,
+                        diff,
+                        native_reason: staged.manifest.harness.native_reason.clone(),
+                    });
+                }
             }
         }
         // A Tier B package must show its reason before anything runs.
@@ -868,12 +889,28 @@ impl Core {
                 },
             },
 
-            R::ApproveInstall { harness, .. } => {
-                self.notice(
-                    proto::NoticeLevel::Info,
-                    format!("capability change for `{harness}` approved"),
+            R::ApproveInstall { harness, token } => {
+                let Some(dir) = self.pending_installs.remove(&token) else {
+                    return proto::Response::Error {
+                        message: format!("no install of `{harness}` is waiting on approval"),
+                    };
+                };
+                let _ = self.audit.append(
+                    self.actor(),
+                    self.scope(""),
+                    "harness.capabilities_approved",
+                    serde_json::json!({"harness": harness}),
+                    "ok",
                 );
-                proto::Response::Ok
+                match self.install_inner(&dir, true) {
+                    Ok(r) => {
+                        self.broadcast_environment();
+                        r
+                    }
+                    Err(e) => proto::Response::Error {
+                        message: format!("{e:#}"),
+                    },
+                }
             }
 
             R::UninstallHarness { harness } => {
@@ -1178,6 +1215,20 @@ impl Core {
                     message: format!("{e:#}"),
                 },
             },
+
+            R::ListCatalog => {
+                // The installed directory is scanned too, so a package already
+                // here is marked rather than offered again.
+                let mut dirs = self.cfg.catalog_dirs.clone();
+                if let Some(installed) = &self.cfg.harness_dir {
+                    if !dirs.contains(installed) {
+                        dirs.push(installed.clone());
+                    }
+                }
+                proto::Response::Catalog {
+                    entries: catalog::scan(&dirs, &self.registry, &self.cfg.policy),
+                }
+            }
 
             R::ListModels => {
                 let models = self

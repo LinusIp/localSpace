@@ -43,6 +43,7 @@ pub enum RailTab {
     Data,
     History,
     Library,
+    Marketplace,
     Settings,
     Help,
 }
@@ -64,6 +65,7 @@ pub struct App {
     approvals: Vec<(String, proto::ApprovalKind, String)>,
     history: Vec<proto::Commit>,
     active: Option<proto::ActiveSet>,
+    catalog: Vec<proto::CatalogEntry>,
     widget_views: HashMap<(String, String), proto::Widget>,
     surfaces: HashMap<(String, String), OpenSurface>,
     docs: HashMap<String, String>,
@@ -95,6 +97,7 @@ impl App {
             approvals: Vec::new(),
             history: Vec::new(),
             active: None,
+            catalog: Vec::new(),
             widget_views: HashMap::new(),
             surfaces: HashMap::new(),
             docs: HashMap::new(),
@@ -114,6 +117,7 @@ impl App {
         app.backend.request(proto::Request::GetEnvironment);
         app.backend.request(proto::Request::GetActiveSet);
         app.backend.request(proto::Request::GetHistory { limit: 50 });
+        app.backend.request(proto::Request::ListCatalog);
         app
     }
 
@@ -187,6 +191,7 @@ impl App {
                 self.busy = false;
             }
             R::History { commits } => self.history = commits,
+            R::Catalog { entries } => self.catalog = entries,
             R::Active(set) => self.active = Some(set),
             R::WidgetView { root } => {
                 // The Client asked for exactly one view at a time.
@@ -253,10 +258,29 @@ impl App {
                     ),
                 ));
             }
-            R::InstallPrompt { harness, diff, .. } => {
-                self.notices.push((
-                    proto::NoticeLevel::Warn,
-                    format!("`{harness}` wants more access: {}", diff.join("; ")),
+            R::InstallPrompt {
+                harness,
+                token,
+                diff,
+                native_reason,
+            } => {
+                // Widening capabilities does not auto-install: it asks, showing
+                // exactly what would be granted, and any native reason verbatim.
+                let mut prompt = format!(
+                    "Installing `{harness}` would grant it:
+  {}",
+                    diff.join("
+  ")
+                );
+                if let Some(reason) = native_reason {
+                    prompt.push_str(&format!("
+
+It runs as a native process. Its stated reason: {reason}"));
+                }
+                self.approvals.push((
+                    format!("install:{harness}:{token}"),
+                    proto::ApprovalKind::Capability,
+                    prompt,
                 ));
             }
             _ => {}
@@ -368,7 +392,8 @@ impl eframe::App for App {
         self.details(ui);
         self.central(ui);
 
-        // Floating, so an approval is never hidden behind a panel.
+        // Floating, so neither is ever hidden behind a panel.
+        self.notices_strip(&ctx);
         self.approvals_window(&ctx);
     }
 }

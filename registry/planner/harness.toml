@@ -1,0 +1,28 @@
+[harness]
+id = "io.localspace.planner"
+version = "1.0.0"
+api = "^1.0"
+title = "Planning board"
+publisher = "localSpace"
+description = "Columns of cards with WIP limits and assignees. The agent can read the board's shape, add and move cards, and tell you which column is over its limit."
+tier = "wasm"
+
+[capabilities]
+fs = "none"
+net = "none"
+gpu = false
+docs = "none"
+model = []
+
+[contributes]
+views = [
+  { id = "board", kind = "widgets", placement = "main", title = "Board" },
+]
+tools = "tools.json"
+context_provider = true
+doc = "crdt"
+file_types = [".lsplan"]
+logic = "logic.wasm"
+
+[model_hints]
+prefers = ["tool-use"]

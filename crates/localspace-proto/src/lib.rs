@@ -592,6 +592,10 @@ pub enum Request {
         run: String,
     },
 
+    /// Everything the catalog offers: the org's approved set connected, or the
+    /// contents of an offline bundle. Air-gapped import is a first-class path.
+    ListCatalog,
+
     // --- models ---
     ListModels,
     SelectModel {
@@ -656,6 +660,9 @@ pub enum Response {
     Capabilities {
         hits: Vec<CapabilityHit>,
     },
+    Catalog {
+        entries: Vec<CatalogEntry>,
+    },
     Evals(EvalReport),
     InstallPrompt {
         harness: HarnessId,
@@ -666,6 +673,37 @@ pub enum Response {
     Error {
         message: String,
     },
+}
+
+/// One package on the store page.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CatalogEntry {
+    pub id: HarnessId,
+    pub title: String,
+    pub version: String,
+    pub publisher: String,
+    pub description: String,
+    pub tier: Tier,
+    /// Shown verbatim, as the spec requires, whenever `tier = native`.
+    pub native_reason: Option<String>,
+    pub tool_count: usize,
+    pub front_door: Vec<String>,
+    pub capabilities: CapabilitySummary,
+    /// Capabilities in plain language, for a reader who is not an engineer.
+    pub capability_lines: Vec<String>,
+    pub doc_kind: DocKind,
+    pub has_context_provider: bool,
+    pub eval_cases: usize,
+    /// Where this package came from: a bundle directory, or a registry.
+    pub source: String,
+    pub path: String,
+    pub installed: bool,
+    pub installed_version: Option<String>,
+    /// Non-empty when installing this would widen what the harness may do.
+    /// An update that widens capabilities does not auto-install.
+    pub widens: Vec<String>,
+    /// Set when the package cannot be installed here, and why.
+    pub blocked: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

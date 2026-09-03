@@ -9,3 +9,5 @@
 harnesses/*/logic.wasm
 harnesses/*/ui/*.wasm
 harnesses/*/target/
+registry/*/logic.wasm
+registry/*/ui/*.wasm

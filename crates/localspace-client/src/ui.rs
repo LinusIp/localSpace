@@ -14,7 +14,7 @@ use crate::{App, OpenSurface, RailTab};
 use egui::{Color32, CornerRadius, Margin, Stroke, Vec2};
 use localspace_proto as proto;
 
-const RAIL: [(RailTab, Icon, &str); 7] = [
+const RAIL: [(RailTab, Icon, &str); 8] = [
     (RailTab::Canvas, Icon::Canvas, "Canvas"),
     (RailTab::Agent, Icon::Agent, "Agent"),
     (RailTab::Tools, Icon::Tool, "Tools"),
@@ -22,6 +22,7 @@ const RAIL: [(RailTab, Icon, &str); 7] = [
     (RailTab::Data, Icon::Data, "Data"),
     (RailTab::History, Icon::History, "History"),
     (RailTab::Library, Icon::Library, "Library"),
+    (RailTab::Marketplace, Icon::Store, "Market"),
 ];
 
 impl App {
@@ -273,6 +274,9 @@ impl App {
             }
             if tab == RailTab::Tools {
                 self.send(proto::Request::GetActiveSet);
+            }
+            if tab == RailTab::Marketplace {
+                self.send(proto::Request::ListCatalog);
             }
         }
         ui.add_space(2.0);
@@ -623,6 +627,7 @@ impl App {
                     RailTab::Data => self.data_page(ui),
                     RailTab::History => self.history_page(ui),
                     RailTab::Library => self.library_page(ui),
+                    RailTab::Marketplace => self.marketplace_page(ui),
                     RailTab::Settings => self.settings_page(ui),
                     RailTab::Help => self.help_page(ui),
                 }
@@ -692,6 +697,7 @@ impl App {
             RailTab::Data => "Documents".into(),
             RailTab::History => "History".into(),
             RailTab::Library => "Library".into(),
+            RailTab::Marketplace => "Marketplace".into(),
             RailTab::Settings => "Settings".into(),
             RailTab::Help => "Help".into(),
         }
@@ -903,15 +909,6 @@ impl App {
             }
             for m in app.transcript.clone() {
                 app.transcript_entry(ui, &m);
-            }
-            for (level, text) in app.notices.clone().iter().rev().take(6) {
-                let tone = match level {
-                    proto::NoticeLevel::Info => Tone::Info,
-                    proto::NoticeLevel::Warn => Tone::Warn,
-                    proto::NoticeLevel::Error => Tone::Bad,
-                };
-                ui.add_space(4.0);
-                theme::pill(ui, text, tone, false);
             }
         });
     }
@@ -1215,6 +1212,199 @@ impl App {
         });
     }
 
+    /// The store page.
+    ///
+    /// Everything a reader needs to decide *before* the code runs: what it does,
+    /// who published it, what it would be allowed to do in plain language, whether
+    /// it runs outside the sandbox and why, and how many eval cases it ships.
+    fn marketplace_page(&mut self, ui: &mut egui::Ui) {
+        self.page(ui, |app, ui| {
+            if app.catalog.is_empty() {
+                ui.add_space(30.0);
+                ui.vertical_centered(|ui| {
+                    ui.label(theme::muted("No catalog is configured."));
+                    ui.label(theme::tiny(
+                        "Point localspace at a bundle with --registry <dir>. An offline bundle is \
+                         a directory of packages, and is the only path an air-gapped site needs.",
+                    ));
+                });
+                return;
+            }
+
+            let installed = app.catalog.iter().filter(|e| e.installed).count();
+            ui.label(theme::muted(format!(
+                "{} package(s) in the catalog, {installed} already installed. Nothing is \
+                 downloaded: these are read from a local bundle.",
+                app.catalog.len()
+            )));
+
+            let mut install: Option<String> = None;
+            let mut uninstall: Option<String> = None;
+            let mut run_evals: Option<String> = None;
+
+            for entry in &app.catalog {
+                let (fg, bg) = match entry.tier {
+                    proto::Tier::Wasm => (P.purple, P.purple_soft),
+                    proto::Tier::Native => (P.amber, P.amber_soft),
+                };
+                ui.add_space(10.0);
+                theme::card(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        theme::icon_chip(ui, Icon::Store, fg, bg, 34.0);
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(match entry.tier {
+                                        proto::Tier::Wasm => "TIER A · WASM",
+                                        proto::Tier::Native => "TIER B · NATIVE",
+                                    })
+                                    .size(9.5)
+                                    .color(fg),
+                                );
+                                if entry.installed {
+                                    theme::pill(ui, "installed", Tone::Good, true);
+                                }
+                                if !entry.widens.is_empty() {
+                                    theme::pill(ui, "wants more access", Tone::Warn, false);
+                                }
+                                if entry.blocked.is_some() {
+                                    theme::pill(ui, "not installable here", Tone::Bad, false);
+                                }
+                            });
+                            ui.label(theme::title(entry.title.clone()));
+                            ui.label(theme::muted(format!(
+                                "{} · {} · from {}",
+                                entry.publisher, entry.version, entry.source
+                            )));
+                        });
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if let Some(why) = &entry.blocked {
+                                ui.label(theme::muted("unavailable")).on_hover_text(why);
+                            } else if entry.installed {
+                                if theme::ghost_button(ui, "Remove", true).clicked() {
+                                    uninstall = Some(entry.id.clone());
+                                }
+                                if entry.eval_cases > 0
+                                    && theme::ghost_button(ui, "Score", true).clicked()
+                                {
+                                    run_evals = Some(entry.id.clone());
+                                }
+                            } else if theme::primary_button(ui, "Install", true).clicked() {
+                                install = Some(entry.path.clone());
+                            }
+                        });
+                    });
+
+                    ui.add_space(6.0);
+                    ui.label(theme::body(entry.description.clone()));
+
+                    if let Some(reason) = &entry.native_reason {
+                        ui.add_space(6.0);
+                        theme::tinted_card(ui, P.amber_soft, P.amber, |ui| {
+                            ui.label(
+                                egui::RichText::new("RUNS OUTSIDE THE SANDBOX")
+                                    .size(9.5)
+                                    .color(P.amber),
+                            );
+                            // Shown verbatim, as the spec requires.
+                            ui.label(theme::body(reason.clone()));
+                        });
+                    }
+
+                    theme::section(ui, "What it may do");
+                    for line in &entry.capability_lines {
+                        ui.horizontal_top(|ui| {
+                            ui.label(theme::muted("·"));
+                            ui.label(theme::body(line.clone()));
+                        });
+                    }
+
+                    if !entry.widens.is_empty() {
+                        theme::section(ui, "New since the installed version");
+                        for line in &entry.widens {
+                            ui.label(
+                                egui::RichText::new(format!("· {line}"))
+                                    .size(12.0)
+                                    .color(P.amber),
+                            );
+                        }
+                    }
+
+                    theme::section(ui, "Fit for an agent");
+                    ui.horizontal_wrapped(|ui| {
+                        theme::pill(
+                            ui,
+                            &format!("{} tools", entry.tool_count),
+                            Tone::Neutral,
+                            false,
+                        );
+                        theme::pill(
+                            ui,
+                            &format!("{} front door", entry.front_door.len()),
+                            Tone::Neutral,
+                            false,
+                        );
+                        theme::pill(
+                            ui,
+                            if entry.has_context_provider {
+                                "context provider"
+                            } else {
+                                "no context provider"
+                            },
+                            if entry.has_context_provider {
+                                Tone::Good
+                            } else {
+                                Tone::Bad
+                            },
+                            false,
+                        );
+                        theme::pill(
+                            ui,
+                            match entry.doc_kind {
+                                proto::DocKind::Crdt => "crdt document",
+                                proto::DocKind::Blob => "blob document",
+                            },
+                            Tone::Neutral,
+                            false,
+                        );
+                        theme::pill(
+                            ui,
+                            &if entry.eval_cases == 0 {
+                                "no eval suite".to_string()
+                            } else {
+                                format!("{} eval cases", entry.eval_cases)
+                            },
+                            if entry.eval_cases == 0 {
+                                Tone::Bad
+                            } else {
+                                Tone::Info
+                            },
+                            false,
+                        );
+                    });
+                    ui.add_space(2.0);
+                    ui.label(theme::tiny(
+                        "A pass rate needs a loaded model and this package installed — install it, \
+                         then press Score.",
+                    ));
+                });
+            }
+
+            if let Some(path) = install {
+                app.send(proto::Request::InstallHarness { path });
+                app.send(proto::Request::ListCatalog);
+            }
+            if let Some(harness) = uninstall {
+                app.send(proto::Request::UninstallHarness { harness });
+                app.send(proto::Request::ListCatalog);
+            }
+            if let Some(harness) = run_evals {
+                app.send(proto::Request::RunEvals { harness });
+            }
+        });
+    }
+
     fn settings_page(&mut self, ui: &mut egui::Ui) {
         self.page(ui, |app, ui| {
             let Some(env) = app.env.clone() else { return };
@@ -1299,6 +1489,73 @@ impl App {
     // Approvals
     // -----------------------------------------------------------------------
 
+    /// Notices float above the status bar on every page.
+    ///
+    /// They used to render only in the conversation, which meant an install
+    /// failure on the Marketplace was silent — the worst kind of error.
+    pub(crate) fn notices_strip(&mut self, ctx: &egui::Context) {
+        if self.notices.is_empty() {
+            return;
+        }
+        let screen = ctx.viewport_rect();
+        let width = 420.0_f32.min(screen.width() - theme::RAIL_WIDTH - 40.0);
+        let mut dismissed: Option<usize> = None;
+
+        egui::Area::new(egui::Id::new("notices"))
+            .fixed_pos(egui::pos2(
+                screen.right() - width - 20.0,
+                screen.bottom() - theme::STATUS_BAR_HEIGHT - 20.0 - 56.0,
+            ))
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                ui.set_width(width);
+                for (i, (level, text)) in self.notices.iter().enumerate().rev().take(3) {
+                    let (fill, border, colour, label) = match level {
+                        proto::NoticeLevel::Info => (P.surface, P.border, P.muted, "note"),
+                        proto::NoticeLevel::Warn => (P.amber_soft, P.amber, P.amber, "warning"),
+                        proto::NoticeLevel::Error => (P.danger_soft, P.danger, P.danger, "failed"),
+                    };
+                    egui::Frame::new()
+                        .fill(fill)
+                        .stroke(Stroke::new(1.0, border))
+                        .corner_radius(CornerRadius::same(8))
+                        .inner_margin(Margin::symmetric(12, 9))
+                        .shadow(egui::epaint::Shadow {
+                            offset: [0, 4],
+                            blur: 14,
+                            spread: 0,
+                            color: Color32::from_black_alpha(14),
+                        })
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(label).size(9.5).color(colour));
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui
+                                            .add(
+                                                egui::Button::new(theme::muted("×"))
+                                                    .fill(Color32::TRANSPARENT)
+                                                    .stroke(Stroke::NONE),
+                                            )
+                                            .clicked()
+                                        {
+                                            dismissed = Some(i);
+                                        }
+                                    },
+                                );
+                            });
+                            ui.label(theme::body(text.clone()));
+                        });
+                    ui.add_space(6.0);
+                }
+            });
+
+        if let Some(i) = dismissed {
+            self.notices.remove(i);
+        }
+    }
+
     pub(crate) fn approvals_window(&mut self, ctx: &egui::Context) {
         if self.approvals.is_empty() {
             return;
@@ -1348,7 +1605,19 @@ impl App {
             });
         if let Some((id, granted)) = answered {
             self.approvals.retain(|(a, _, _)| *a != id);
-            self.send(proto::Request::Approve { id, granted });
+            // A capability-diff approval resumes an install; everything else is a
+            // tool or egress gate held in Core's pending map.
+            match id.strip_prefix("install:") {
+                Some(rest) if granted => {
+                    let (harness, token) = rest.split_once(':').unwrap_or((rest, ""));
+                    self.send(proto::Request::ApproveInstall {
+                        harness: harness.to_string(),
+                        token: token.to_string(),
+                    });
+                }
+                Some(_) => {}
+                None => self.send(proto::Request::Approve { id, granted }),
+            }
         }
     }
 

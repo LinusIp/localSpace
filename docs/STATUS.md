@@ -34,7 +34,7 @@ Legend: **built** · **partial** (works, with a stated limit) · **not built**.
 | H§10 | State, mutation, DAG | **built** | Every write is a commit with parent, tool, params, doc hash and diff summary. Undo, redo, and whole-run drop. `crdt` documents are Automerge with field-level reconciliation; `blob` documents are content-addressed. |
 | H§11.1 | Placement planner | **built** | Real arithmetic over a tensor map and a machine: GPU-resident core, hot-expert cache, RAM experts, NVMe streaming, KV precision, verdict, roofline tok/s. Reference maps for a 100B+ MoE at Q4 and a 70B dense at FP8. **The estimate is a roofline model, not a measurement**, and no backend consumes the plan yet. |
 | H§11.2 | Inference for harnesses | **built** | `model.complete` / `model.structured` / `model.embed` are host imports, capability-checked, routed to the utility worker at background priority. |
-| H§12 | Packaging and marketplace | **partial** | `evals.json` and the eval runner are built and reported per model. **No `.hpack`, no signing, no registry, no offline bundle.** |
+| H§12 | Packaging and marketplace | **partial** | A Marketplace lists an offline bundle: description, publisher, tier and `native_reason` verbatim, capabilities in plain language, a capability diff against the installed version, and the agent-fit facts (tools, front doors, context provider, document kind, eval-case count). Install, remove and score all work from it, and a widened update waits for an explicit approval. `evals.json` and the eval runner report a pass rate per model. **No `.hpack`, no signing, no HTTP registry index, no org review queue.** |
 | H§13 | Tech stack | **built** | As specified, except the inference backends (see H§11) and the browser target. |
 | H§16.1 | Stable prompt prefix | **built** | Fixed layout, tool descriptions emitted in canonical order by harness id (never recency), provider output cached by document hash, working set bounded by profile. |
 | H§16.1 | Utility model routing | **built** | Request classes and a router; harness calls and background work go to the utility worker. The split is counted. |
@@ -93,7 +93,7 @@ Legend: **built** · **partial** (works, with a stated limit) · **not built**.
 ## How the claims above were checked
 
 ```bash
-cargo test --workspace          # 140 tests
+cargo test --workspace          # 156 tests
 cargo test -p localspace-core --test whiteboard      # end-to-end, real harness
 cargo test -p localspace-client --test surface       # surface ABI conformance
 ./target/release/localspace doctor

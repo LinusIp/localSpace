@@ -89,13 +89,14 @@ security actually breaks.
 
 ## 6. Packaging
 
-`.hpack`, publisher signing, an index, and an offline bundle. Air-gapped import is a
-first-class path, not an afterthought — banks and medical centres will use it as the
-only path. The install flow, capability diff and policy checks already exist; this is
-distribution around them.
+The Marketplace already reads an offline bundle, shows what a package would be
+allowed to do, and holds a widened install at an approval. What is missing is the
+distribution around it: `.hpack` archives, publisher signing verified before
+`Registry::stage` returns, an HTTP index for connected installs, and the org review
+queue with pinned versions and rollout groups.
 
-**Seam:** `registry::Registry::stage` (add signature verification before it),
-`Core::install`.
+**Seam:** `catalog::scan` (an index file alongside the directory scan),
+`registry::Registry::stage` (signature verification before anything is parsed).
 
 ## 7. Efficiency items with a measurable payoff
 
@@ -110,12 +111,12 @@ In rough order of value per hour:
   The working set is already bounded; today the fold is a marker rather than a
   summary. (`prompt::render_conversation`.)
 
-## 8. Second reference harness
+## 8. A third reference harness
 
-A planning board is the cheap one and would immediately exercise `find_capability`
-and the pinned-harness budget path with a realistic tool count. A physics sim is the
-one that proves `blob` documents, `stream` surfaces and Tier B — but it depends on
-items 5 and 2.
+The planning board (`registry/planner`) already exercises `find_capability` across
+two harnesses, the pinned-harness budget path, and the `widgets` surface end to end.
+The one still missing is a physics sim: it proves `blob` documents, `stream` surfaces
+and Tier B together — but it depends on items 5 and 2.
 
 ---
 
@@ -127,3 +128,8 @@ items 5 and 2.
 - There is no `localspace.toml`; the server is configured entirely on the command
   line, which will not survive a real deployment.
 - Default sticky placement can land a card on top of a frame's title.
+- The whiteboard canvas is a thin editor: no multi-select, resize handles, snapping,
+  z-order, images or freehand. The CRDT underneath supports all of it; the surface
+  does not draw it yet.
+- The Marketplace lists a directory. It does not yet verify a signature, so in an
+  organisation it should point only at a bundle the security team assembled.

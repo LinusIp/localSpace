@@ -33,6 +33,7 @@ struct ServerConfig {
     bind: String,
     harnesses: Option<PathBuf>,
     data: Option<PathBuf>,
+    registry: Vec<PathBuf>,
     web_root: Option<PathBuf>,
     allow_below_floor: bool,
 }
@@ -48,6 +49,7 @@ impl Server {
         }
         let mut cfg = Config::organisation(key);
         cfg.harness_dir = self.cfg.harnesses.clone();
+        cfg.catalog_dirs = self.cfg.registry.clone();
         cfg.data_dir = self
             .cfg
             .data
@@ -139,6 +141,7 @@ fn parse_args() -> ServerConfig {
         bind: "127.0.0.1:8443".into(),
         harnesses: None,
         data: None,
+        registry: Vec::new(),
         web_root: Some(PathBuf::from("dist")),
         allow_below_floor: false,
     };
@@ -148,6 +151,7 @@ fn parse_args() -> ServerConfig {
             "--bind" => cfg.bind = it.next().unwrap_or(cfg.bind),
             "--harnesses" => cfg.harnesses = it.next().map(PathBuf::from),
             "--data" => cfg.data = it.next().map(PathBuf::from),
+            "--registry" => cfg.registry.extend(it.next().map(PathBuf::from)),
             "--web" => cfg.web_root = it.next().map(PathBuf::from),
             "--allow-below-floor" => cfg.allow_below_floor = true,
             other => eprintln!("ignoring unknown argument `{other}`"),

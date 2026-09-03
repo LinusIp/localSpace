@@ -34,11 +34,12 @@ and reports what the reference models would actually do here — before you down
 60 GB to find out.
 
 ```bash
-./target/release/localspace --harnesses harnesses --data ~/.localspace
+./target/release/localspace --harnesses harnesses --registry registry --data ~/.localspace
 ```
 
-That opens the desktop Client with the reference whiteboard installed and its
-history persisted under `--data`. Without `--data` everything is in memory.
+That opens the desktop Client with the whiteboard installed, the planning board
+offered in the Marketplace, and history persisted under `--data`. Without `--data`
+everything is in memory.
 
 To give the agent a model, open **Models** in the rail and point it at any
 OpenAI-compatible endpoint — llama.cpp's server, LM Studio, mistral.rs, vLLM,
@@ -58,6 +59,7 @@ localspace                              # open the desktop Client
 localspace doctor                       # hardware profile, and what will run on it
 localspace bench                        # the efficiency budgets for this machine
 localspace evals io.localspace.whiteboard   # a harness's agent-compatibility score
+localspace call board.add_card '{"text":"write the migration plan"}'
 localspace call canvas.add_sticky '{"text":"Supply chain","fill":"red"}'
 localspace-serve --bind 0.0.0.0:8443 --harnesses harnesses --data /var/lib/localspace
 ```
@@ -66,7 +68,8 @@ localspace-serve --bind 0.0.0.0:8443 --harnesses harnesses --data /var/lib/local
 validation, confirmation gate, DAG commit — so a script and an agent cannot
 diverge.
 
-Options: `--harnesses <dir>`, `--data <dir>`, `--user <name>`, `--organisation`,
+Options: `--harnesses <dir>` (installed at start), `--registry <dir>` (a catalog the
+Marketplace lists), `--data <dir>`, `--user <name>`, `--organisation`,
 `--allow-below-floor`.
 
 ---
@@ -83,7 +86,9 @@ crates/
   localspace-surface-sdk  what an `egui` surface compiles against
   localspace-harness-sdk  what harness logic compiles against
 wit/harness.wit           the Tier A contract
-harnesses/whiteboard      reference harness #1 (13 tools, 2 front door)
+harnesses/whiteboard      reference harness #1: whiteboard, `egui` surface, 13 tools
+registry/planner          reference harness #2: planning board, `widgets` surface, 9 tools
+                          — an offline bundle the Marketplace installs from
 docs/                     STATUS, BUILD, HARNESS-AUTHORING, NEXT
 ```
 
@@ -98,8 +103,10 @@ rather than flattering.
 Short version: the plugin core runs end to end. A wasm harness installs, its tools
 are exposed to the agent under a per-turn budget, its surface runs sandboxed in the
 Client, its context provider is called with a real token budget, every write lands
-as a commit, and undo, redo and whole-run rejection all work. 140 tests pass,
-including an end-to-end suite that drives the real reference harness through Core.
+as a commit, and undo, redo and whole-run rejection all work. A Marketplace lists an
+offline bundle and installs from it, holding any capability widening at an explicit
+approval. 156 tests pass, including an end-to-end suite that drives both real
+reference harnesses through Core.
 
 Not built: the browser Client bundle, OIDC/SAML/SCIM, the inference workers
 themselves (Core routes to an external endpoint rather than loading weights), the

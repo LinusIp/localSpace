@@ -1,0 +1,39 @@
+{
+  "cases": [
+    {
+      "name": "add a card to the default column",
+      "prompt": "Add a card that says \"write the migration plan\".",
+      "assertions": [
+        { "path": "cards", "min_len": 1 },
+        { "path": "cards.0.text", "contains": "migration plan" }
+      ]
+    },
+    {
+      "name": "add a card to a named column",
+      "prompt": "Put \"review the contract\" in the In progress column.",
+      "assertions": [
+        { "path": "cards.0.column", "equals": "In progress" }
+      ]
+    },
+    {
+      "name": "assign work to someone",
+      "prompt": "Add a card \"ship the beta\" assigned to Anna.",
+      "assertions": [
+        { "path": "cards.0.assignee", "contains": "Anna" }
+      ]
+    },
+    {
+      "name": "a new column with a limit",
+      "prompt": "Add a Review column with a WIP limit of two.",
+      "assertions": [
+        { "path": "columns.3.name", "contains": "Review" },
+        { "path": "columns.3.wip", "equals": 2 }
+      ]
+    },
+    {
+      "name": "read the board before changing it",
+      "prompt": "Which columns are over their WIP limit?",
+      "assertions": [{ "path": "cards", "max_len": 0 }]
+    }
+  ]
+}

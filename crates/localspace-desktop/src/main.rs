@@ -37,6 +37,7 @@ struct Args {
     command: Command,
     harnesses: Option<PathBuf>,
     data: Option<PathBuf>,
+    registry: Vec<PathBuf>,
     user: String,
     organisation: bool,
     allow_below_floor: bool,
@@ -57,6 +58,7 @@ fn parse_args() -> Args {
         command: Command::Run,
         harnesses: None,
         data: None,
+        registry: Vec::new(),
         user: whoami(),
         organisation: false,
         allow_below_floor: false,
@@ -75,6 +77,7 @@ fn parse_args() -> Args {
             "-h" | "--help" | "help" => args.command = Command::Help,
             "--harnesses" => args.harnesses = it.next().map(PathBuf::from),
             "--data" => args.data = it.next().map(PathBuf::from),
+            "--registry" => args.registry.extend(it.next().map(PathBuf::from)),
             "--user" => args.user = it.next().unwrap_or_else(whoami),
             "--organisation" | "--organization" => args.organisation = true,
             "--allow-below-floor" => args.allow_below_floor = true,
@@ -101,6 +104,12 @@ fn config(args: &Args) -> Config {
         .clone()
         .or_else(|| default_harness_dir().filter(|p| p.exists()));
     cfg.data_dir = args.data.clone();
+    cfg.catalog_dirs = if args.registry.is_empty() {
+        // An offline bundle sitting next to the installed set is the common case.
+        vec![PathBuf::from("registry")].into_iter().filter(|p| p.exists()).collect()
+    } else {
+        args.registry.clone()
+    };
     cfg
 }
 
@@ -182,6 +191,7 @@ USAGE:
 OPTIONS:
     --harnesses <dir>     directory of harness packages to install at start
     --data <dir>          persist the DAG, blobs and audit log here (default: memory only)
+    --registry <dir>      a catalog the Marketplace lists: a registry, or an offline bundle
     --user <name>         the environment's user
     --organisation        apply organisation policy (Tier B off by default)
     --allow-below-floor   proceed on hardware under the supported floor

@@ -29,7 +29,9 @@ cp target/wasm32-wasip2/release/whiteboard_logic.wasm ../whiteboard/logic.wasm
 ```
 
 **Surface** — a plain wasm *module*, because a browser cannot run a component
-without a transpile step and a surface needs no IO at all:
+without a transpile step and a surface needs no IO at all. A harness with a
+`widgets` surface (like `registry/planner`) has no second artefact at all — the
+Client renders the tree:
 
 ```bash
 cd harnesses/whiteboard-surface
@@ -61,6 +63,28 @@ localspace-serve --bind 127.0.0.1:8443 --harnesses harnesses --data ./data
 It refuses to start below the supported hardware floor unless you pass
 `--allow-below-floor`, which is logged. Without a built web bundle it serves a page
 explaining how to get one; the API at `/ws` works either way.
+
+
+### The second reference harness
+
+The planning board is `widgets`-only, so it is one artefact:
+
+```bash
+cd harnesses/planner-logic
+cargo build --release --target wasm32-wasip2
+cp target/wasm32-wasip2/release/planner_logic.wasm ../../registry/planner/logic.wasm
+```
+
+It lives under `registry/` rather than `harnesses/` so it is *offered* by the
+Marketplace rather than installed at startup. That is the whole difference between
+the two directories:
+
+```bash
+localspace --harnesses harnesses --registry registry
+```
+
+`--harnesses` is the environment's installed set; `--registry` is a catalog to
+install from. An offline bundle is just a `--registry` directory copied across.
 
 ## Notes for this machine
 

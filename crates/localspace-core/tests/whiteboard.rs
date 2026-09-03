@@ -304,6 +304,343 @@ fn find_capability_reaches_the_whiteboard_when_it_is_not_focused() {
 }
 
 // ---------------------------------------------------------------------------
+// The catalog behind the marketplace
+// ---------------------------------------------------------------------------
+
+fn registry_dir() -> Option<PathBuf> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()?
+        .parent()?
+        .join("registry");
+    if dir.join("planner").join("logic.wasm").exists() {
+        Some(dir)
+    } else {
+        eprintln!("skipping: {} has not been built", dir.display());
+        None
+    }
+}
+
+fn core_with_catalog() -> Option<Core> {
+    let harnesses = harness_dir()?;
+    let registry = registry_dir()?;
+    let mut cfg = Config::personal("tester");
+    cfg.harness_dir = Some(harnesses);
+    cfg.catalog_dirs = vec![registry];
+    Some(Core::new(cfg).expect("creating Core"))
+}
+
+fn catalog(core: &mut Core) -> Vec<proto::CatalogEntry> {
+    match core.handle(proto::Request::ListCatalog) {
+        proto::Response::Catalog { entries } => entries,
+        other => panic!("ListCatalog failed: {other:?}"),
+    }
+}
+
+#[test]
+fn the_catalog_lists_the_bundle_and_marks_what_is_installed() {
+    let Some(mut core) = core_with_catalog() else {
+        return;
+    };
+    let entries = catalog(&mut core);
+
+    let board = entries
+        .iter()
+        .find(|e| e.id == WHITEBOARD)
+        .expect("the installed whiteboard is missing from the catalog");
+    assert!(board.installed, "it is installed, so it must say so");
+    assert_eq!(board.installed_version.as_deref(), Some("1.0.0"));
+
+    let planner = entries
+        .iter()
+        .find(|e| e.id == "io.localspace.planner")
+        .expect("the planner is missing from the catalog");
+    assert!(!planner.installed, "it is only in the bundle, not installed");
+    assert!(planner.blocked.is_none());
+    assert_eq!(planner.tier, proto::Tier::Wasm);
+    assert!(planner.tool_count >= 8);
+    assert_eq!(planner.front_door.len(), 2);
+    assert!(planner.has_context_provider);
+    assert!(planner.eval_cases >= 4, "a store entry needs an eval suite");
+    assert!(
+        planner.description.to_lowercase().contains("wip")
+            || planner.description.to_lowercase().contains("column"),
+        "{}",
+        planner.description
+    );
+}
+
+#[test]
+fn capabilities_are_shown_in_words_a_non_engineer_can_read() {
+    let Some(mut core) = core_with_catalog() else {
+        return;
+    };
+    let entries = catalog(&mut core);
+    for entry in &entries {
+        assert!(
+            !entry.capability_lines.is_empty(),
+            "{} showed an empty list, which a reader has to interpret",
+            entry.id
+        );
+    }
+
+    // The whiteboard declares clipboard = "on-user-action" and nothing else, so
+    // that is the one line — no jargon, and no mention of what it did not ask for.
+    let board = entries.iter().find(|e| e.id == WHITEBOARD).unwrap();
+    assert_eq!(
+        board.capability_lines,
+        vec!["Reads the clipboard when you paste".to_string()]
+    );
+
+    // The planner declares nothing at all, and the catalog says so outright
+    // rather than leaving a blank the reader has to trust.
+    let planner = entries
+        .iter()
+        .find(|e| e.id == "io.localspace.planner")
+        .unwrap();
+    assert_eq!(planner.capability_lines.len(), 1);
+    assert!(
+        planner.capability_lines[0].contains("Nothing outside its own document"),
+        "{:?}",
+        planner.capability_lines
+    );
+}
+
+#[test]
+fn installing_from_the_catalog_makes_the_harness_usable() {
+    let Some(mut core) = core_with_catalog() else {
+        return;
+    };
+    let path = catalog(&mut core)
+        .into_iter()
+        .find(|e| e.id == "io.localspace.planner")
+        .expect("planner missing")
+        .path;
+
+    // Before: its tools do not exist at all.
+    match core.call_tool("board.add_card", &json!({"text": "x"}), proto::Author::User) {
+        proto::ToolOutcome::Error { message } => assert!(message.contains("no tool named")),
+        other => panic!("expected the tool to be unknown, got {other:?}"),
+    }
+
+    assert!(matches!(
+        core.handle(proto::Request::InstallHarness { path }),
+        proto::Response::Ok
+    ));
+
+    // After: it installs, exposes its tools, and writes to its own document.
+    let env = core.environment();
+    assert!(env.harnesses.iter().any(|h| h.id == "io.localspace.planner"));
+
+    let outcome = core.call_tool(
+        "board.add_card",
+        &json!({"text": "write the migration plan", "column": "In progress"}),
+        proto::Author::User,
+    );
+    match outcome {
+        proto::ToolOutcome::Ok {
+            diff_summary,
+            commit,
+            ..
+        } => {
+            assert!(diff_summary.contains("In progress"), "{diff_summary}");
+            assert!(commit.is_some());
+        }
+        other => panic!("add_card failed: {other:?}"),
+    }
+
+    // And the catalog now reports it as installed.
+    let entries = catalog(&mut core);
+    assert!(
+        entries
+            .iter()
+            .find(|e| e.id == "io.localspace.planner")
+            .unwrap()
+            .installed
+    );
+
+    // Installing a package is an audited event, not a silent one.
+    let records = core.audit_log().records();
+    assert!(
+        records
+            .iter()
+            .any(|r| r.event == "harness.install"
+                && r.detail["harness"] == "io.localspace.planner"),
+        "install was not audited: {:?}",
+        records.iter().map(|r| &r.event).collect::<Vec<_>>()
+    );
+    assert!(core.audit_log().verify().is_ok());
+}
+
+#[test]
+fn an_update_that_widens_capabilities_waits_for_the_user() {
+    let Some(mut core) = core_with_catalog() else {
+        return;
+    };
+    let source = catalog(&mut core)
+        .into_iter()
+        .find(|e| e.id == "io.localspace.planner")
+        .unwrap()
+        .path;
+    core.handle(proto::Request::InstallHarness {
+        path: source.clone(),
+    });
+
+    // Same package, one version later, now asking for the clipboard and the model.
+    let dir = tempfile::tempdir().unwrap();
+    let staged = dir.path().join("planner");
+    std::fs::create_dir_all(&staged).unwrap();
+    for name in ["tools.json", "evals.json", "logic.wasm"] {
+        std::fs::copy(PathBuf::from(&source).join(name), staged.join(name)).unwrap();
+    }
+    let manifest = std::fs::read_to_string(PathBuf::from(&source).join("harness.toml"))
+        .unwrap()
+        .replace("version = \"1.0.0\"", "version = \"1.1.0\"")
+        .replace("model = []", "model = [\"complete\"]")
+        .replace("docs = \"none\"", "docs = \"acl\"");
+    std::fs::write(staged.join("harness.toml"), manifest).unwrap();
+
+    let token = match core.handle(proto::Request::InstallHarness {
+        path: staged.display().to_string(),
+    }) {
+        proto::Response::InstallPrompt { diff, token, .. } => {
+            assert!(diff.iter().any(|l| l.contains("model.complete")), "{diff:?}");
+            assert!(diff.iter().any(|l| l.contains("documents")), "{diff:?}");
+            token
+        }
+        other => panic!("a widened install must prompt, got {other:?}"),
+    };
+
+    // Nothing changed until the user answered.
+    let installed_version = |core: &Core| {
+        core.environment()
+            .harnesses
+            .iter()
+            .find(|h| h.id == "io.localspace.planner")
+            .map(|h| h.version.clone())
+    };
+    assert_eq!(installed_version(&core).as_deref(), Some("1.0.0"));
+
+    // An answer with the wrong token is refused rather than assumed.
+    assert!(matches!(
+        core.handle(proto::Request::ApproveInstall {
+            harness: "io.localspace.planner".into(),
+            token: "not-the-token".into(),
+        }),
+        proto::Response::Error { .. }
+    ));
+    assert_eq!(installed_version(&core).as_deref(), Some("1.0.0"));
+
+    core.handle(proto::Request::ApproveInstall {
+        harness: "io.localspace.planner".into(),
+        token,
+    });
+    assert_eq!(installed_version(&core).as_deref(), Some("1.1.0"));
+
+    let records = core.audit_log().records();
+    assert!(records
+        .iter()
+        .any(|r| r.event == "harness.capabilities_approved"));
+}
+
+#[test]
+fn the_planner_provider_reports_what_is_over_its_wip_limit() {
+    let Some(mut core) = core_with_catalog() else {
+        return;
+    };
+    let path = catalog(&mut core)
+        .into_iter()
+        .find(|e| e.id == "io.localspace.planner")
+        .unwrap()
+        .path;
+    core.handle(proto::Request::InstallHarness { path });
+    core.handle(proto::Request::SetFocus {
+        harness: Some("io.localspace.planner".into()),
+    });
+
+    // The default "In progress" column has a WIP limit of 3.
+    for i in 0..4 {
+        core.call_tool(
+            "board.add_card",
+            &json!({"text": format!("task {i}"), "column": "In progress"}),
+            proto::Author::User,
+        );
+    }
+
+    match core.handle(proto::Request::PreviewContext { budget: 600 }) {
+        proto::Response::Context { blocks, .. } => {
+            let block = blocks
+                .iter()
+                .find(|b| b.harness == "io.localspace.planner")
+                .expect("no block from the planner");
+            assert!(
+                block.text.contains("over WIP limit"),
+                "the one thing a planning board exists to say: {}",
+                block.text
+            );
+            assert!(block.text.contains("In progress 4/3"), "{}", block.text);
+        }
+        other => panic!("PreviewContext failed: {other:?}"),
+    }
+}
+
+#[test]
+fn two_installed_harnesses_share_the_tool_budget_by_rank() {
+    let Some(mut core) = core_with_catalog() else {
+        return;
+    };
+    let path = catalog(&mut core)
+        .into_iter()
+        .find(|e| e.id == "io.localspace.planner")
+        .unwrap()
+        .path;
+    core.handle(proto::Request::InstallHarness { path });
+
+    // Focus the whiteboard, pin the planner: all of one, front doors of the other.
+    core.handle(proto::Request::SetFocus {
+        harness: Some(WHITEBOARD.into()),
+    });
+    core.handle(proto::Request::SetPinned {
+        harness: "io.localspace.planner".into(),
+        pinned: true,
+    });
+
+    let set = core.active_set();
+    let names: Vec<&str> = set.tools.iter().map(|t| t.name.as_str()).collect();
+    assert!(names.contains(&"canvas.move"), "focused harness in full");
+    assert!(names.contains(&"board.columns"), "pinned front door");
+    assert!(
+        !names.contains(&"board.move_card"),
+        "a pinned harness contributes front doors only: {names:?}"
+    );
+}
+
+#[test]
+fn find_capability_picks_the_right_harness_out_of_two() {
+    let Some(mut core) = core_with_catalog() else {
+        return;
+    };
+    let path = catalog(&mut core)
+        .into_iter()
+        .find(|e| e.id == "io.localspace.planner")
+        .unwrap()
+        .path;
+    core.handle(proto::Request::InstallHarness { path });
+    core.handle(proto::Request::SetFocus { harness: None });
+
+    for (need, expected) in [
+        ("move a card to another column on the board", "io.localspace.planner"),
+        ("draw a red sticky note on a canvas", WHITEBOARD),
+    ] {
+        match core.handle(proto::Request::FindCapability { need: need.into() }) {
+            proto::Response::Capabilities { hits } => {
+                assert_eq!(hits[0].harness, expected, "`{need}` -> {hits:#?}");
+            }
+            other => panic!("FindCapability failed: {other:?}"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The agent loop, driven by a scripted worker
 // ---------------------------------------------------------------------------
 

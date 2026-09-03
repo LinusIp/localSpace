@@ -1,0 +1,135 @@
+[
+  {
+    "name": "board.columns",
+    "summary": "List the columns with their card counts and WIP limits.",
+    "params": { "type": "object", "properties": {} },
+    "kind": "read",
+    "front_door": true,
+    "undoable": false,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "board.add_card",
+    "summary": "Add a card to a column, optionally assigned to someone.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "column": { "type": "string" },
+        "assignee": { "type": "string" }
+      },
+      "required": ["text"]
+    },
+    "kind": "write",
+    "front_door": true,
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "board.move_card",
+    "summary": "Move a card to another column.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "column": { "type": "string" }
+      },
+      "required": ["id", "column"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "board.assign",
+    "summary": "Set or clear a card's assignee.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "assignee": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "board.set_text",
+    "summary": "Rewrite a card's text.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" }
+      },
+      "required": ["id", "text"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "board.add_column",
+    "summary": "Add a column, optionally with a work-in-progress limit.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "wip": { "type": "integer" }
+      },
+      "required": ["name"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "board.set_wip",
+    "summary": "Set a column's work-in-progress limit. Zero means no limit.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "column": { "type": "string" },
+        "wip": { "type": "integer" }
+      },
+      "required": ["column", "wip"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "board.delete_card",
+    "summary": "Delete a card from the board.",
+    "params": {
+      "type": "object",
+      "properties": { "id": { "type": "string" } },
+      "required": ["id"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "destructive",
+    "cost_hint": "instant"
+  },
+  {
+    "name": "board.zoom",
+    "summary": "Full detail for one column, including every card and assignee.",
+    "params": {
+      "type": "object",
+      "properties": { "column": { "type": "string" } }
+    },
+    "kind": "read",
+    "undoable": false,
+    "confirm": "never",
+    "cost_hint": "instant"
+  }
+]

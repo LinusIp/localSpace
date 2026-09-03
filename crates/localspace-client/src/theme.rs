@@ -346,6 +346,7 @@ pub enum Icon {
     Data,
     History,
     Library,
+    Store,
     Settings,
     Help,
     Memory,
@@ -438,6 +439,43 @@ pub fn draw_icon(painter: &egui::Painter, rect: egui::Rect, icon: Icon, colour: 
                     egui::StrokeKind::Inside,
                 );
             }
+        }
+        Icon::Store => {
+            // An awning over a shopfront.
+            let body = egui::Rect::from_center_size(
+                c + Vec2::new(0.0, r * 0.35),
+                Vec2::new(r * 1.7, r * 1.1),
+            );
+            painter.rect_stroke(
+                body,
+                CornerRadius::same(2),
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(c.x - r * 1.0, c.y - r * 0.35),
+                    egui::pos2(c.x + r * 1.0, c.y - r * 0.35),
+                ],
+                stroke,
+            );
+            for i in -1..=1 {
+                let x = c.x + i as f32 * r * 0.66;
+                painter.line_segment(
+                    [
+                        egui::pos2(x, c.y - r * 0.35),
+                        egui::pos2(x, c.y - r * 0.95),
+                    ],
+                    stroke,
+                );
+            }
+            painter.line_segment(
+                [
+                    egui::pos2(c.x - r * 1.0, c.y - r * 0.95),
+                    egui::pos2(c.x + r * 1.0, c.y - r * 0.95),
+                ],
+                stroke,
+            );
         }
         Icon::Settings => {
             painter.circle_stroke(c, r * 0.5, stroke);

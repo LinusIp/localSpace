@@ -26,6 +26,10 @@ pub struct HarnessMeta {
     pub api: String,
     pub title: String,
     pub publisher: String,
+    /// One or two sentences for the store page. Optional; the catalog falls back
+    /// to the front-door tool summaries, which say what the harness is for anyway.
+    #[serde(default)]
+    pub description: Option<String>,
     #[serde(default = "default_tier")]
     pub tier: Tier,
     /// Required when `tier = "native"`; shown verbatim in the install dialog.
