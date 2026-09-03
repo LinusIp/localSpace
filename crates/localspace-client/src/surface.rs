@@ -205,6 +205,9 @@ pub struct SurfaceRunner {
     /// How often the guest actually ran, and how often it was skipped.
     pub guest_frames: u64,
     pub skipped_frames: u64,
+    /// False until Core has handed over a real document. Until then the guest
+    /// is looking at a placeholder, and nothing it writes may reach the store.
+    received_doc: bool,
 }
 
 impl SurfaceRunner {
@@ -223,6 +226,7 @@ impl SurfaceRunner {
             cached_cursor: sdk::CursorIcon::Default,
             guest_frames: 0,
             skipped_frames: 0,
+            received_doc: false,
         })
     }
 
@@ -234,6 +238,7 @@ impl SurfaceRunner {
     /// hold is pushed — including the round trip after the guest's own edit,
     /// which comes back from Core as the same JSON the guest sent.
     pub fn set_doc(&mut self, doc: String) {
+        self.received_doc = true;
         if self.last_doc.as_deref() != Some(doc.as_str()) {
             self.last_doc = Some(doc.clone());
             self.pending_doc = Some(doc);
@@ -275,7 +280,16 @@ impl SurfaceRunner {
         );
         let hovered = response.hovered() || response.dragged();
 
-        let raw_input = self.raw_input(&ctx, rect, hovered);
+        // Keyboard reaches the surface only once it has been clicked. A hover,
+        // a focus change, or a window being maximised is not a reason to let a
+        // Delete through to the board — a stray event during exactly that was
+        // enough to wipe every shape once.
+        if response.clicked() || response.drag_started() {
+            response.request_focus();
+        }
+        let focused = response.has_focus();
+
+        let raw_input = self.raw_input(&ctx, rect, hovered, focused);
         let has_input = !raw_input.events.is_empty();
 
         // Pay per change, not per frame (§16.3). The guest runs only when input
@@ -319,6 +333,13 @@ impl SurfaceRunner {
         let mut out: sdk::FrameOutput = postcard::from_bytes(&out_bytes)?;
         self.dirty = false;
 
+        // Until Core has handed over the real document, the guest is drawing a
+        // placeholder. A write from that state would replace a loaded board
+        // with an empty one, so it is dropped here rather than trusted.
+        if !self.received_doc {
+            out.doc = None;
+        }
+
         self.apply_textures(&ctx, &mut out.textures_delta);
         self.rebuild_cache(offset, &out.primitives);
         self.paint_cached(ui, rect, offset);
@@ -359,35 +380,52 @@ impl SurfaceRunner {
     }
 
     /// Translate the host's input into the surface's own coordinate space.
-    fn raw_input(&self, ctx: &egui::Context, rect: Rect, hovered: bool) -> egui::RawInput {
+    fn raw_input(
+        &self,
+        ctx: &egui::Context,
+        rect: Rect,
+        hovered: bool,
+        focused: bool,
+    ) -> egui::RawInput {
         let offset = rect.min.to_vec2();
-        let (events, time) = ctx.input(|i| {
-            (
-                i.events.clone(),
-
-                i.time,
-            )
-        });
-
-        let events = if hovered {
-            events
-                .into_iter()
-                .filter_map(|e| translate_event(e, offset, rect))
-                .collect()
-        } else {
-            // Not hovered: forward nothing but keep the surface's clock running.
-            Vec::new()
-        };
+        let (events, time) = ctx.input(|i| (i.events.clone(), i.time));
 
         egui::RawInput {
             screen_rect: Some(Rect::from_min_size(egui::pos2(0.0, 0.0), rect.size())),
             time: Some(time),
-
-            events,
-            focused: hovered,
+            events: filter_events(events, offset, rect, hovered, focused),
+            focused,
             ..Default::default()
         }
     }
+}
+
+/// Decide which host events the surface may see.
+///
+/// Pointer events go through while the pointer is over the panel. Keyboard and
+/// text go through only while the panel holds keyboard focus — which it gets by
+/// being clicked, never by being hovered or by the window changing state.
+pub fn filter_events(
+    events: Vec<egui::Event>,
+    offset: Vec2,
+    rect: Rect,
+    hovered: bool,
+    focused: bool,
+) -> Vec<egui::Event> {
+    use egui::Event;
+    events
+        .into_iter()
+        .filter(|e| match e {
+            Event::Key { .. } | Event::Text(_) | Event::Paste(_) | Event::Copy | Event::Cut => {
+                focused
+            }
+            _ => hovered,
+        })
+        .filter_map(|e| translate_event(e, offset, rect))
+        .collect()
+}
+
+impl SurfaceRunner {
 
     /// Upload the surface's textures under host-owned ids.
     fn apply_textures(
@@ -508,4 +546,53 @@ fn map_cursor(c: sdk::CursorIcon) -> Option<egui::CursorIcon> {
         sdk::CursorIcon::ResizeVertical => egui::CursorIcon::ResizeVertical,
         sdk::CursorIcon::Crosshair => egui::CursorIcon::Crosshair,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(k: egui::Key) -> egui::Event {
+        egui::Event::Key {
+            key: k,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        }
+    }
+
+    fn pointer_at(x: f32, y: f32) -> egui::Event {
+        egui::Event::PointerMoved(egui::pos2(x, y))
+    }
+
+    fn rect() -> Rect {
+        Rect::from_min_size(egui::pos2(100.0, 100.0), egui::vec2(400.0, 300.0))
+    }
+
+    #[test]
+    fn keyboard_needs_focus_not_hover() {
+        // The bug this guards: a window being focused or maximised must not be
+        // able to deliver a Delete to the board. Hover is not consent.
+        let events = vec![key(egui::Key::Delete), key(egui::Key::A), egui::Event::Text("x".into())];
+        let hovered_only = filter_events(events.clone(), Vec2::ZERO, rect(), true, false);
+        assert!(hovered_only.is_empty(), "keyboard leaked on hover: {hovered_only:?}");
+
+        let focused = filter_events(events, Vec2::ZERO, rect(), true, true);
+        assert_eq!(focused.len(), 3, "keyboard must flow once the panel is focused");
+    }
+
+    #[test]
+    fn pointer_needs_hover_and_is_translated_into_the_panel() {
+        let offset = rect().min.to_vec2();
+        let inside = filter_events(vec![pointer_at(150.0, 150.0)], offset, rect(), true, false);
+        match inside.as_slice() {
+            [egui::Event::PointerMoved(p)] => assert_eq!(*p, egui::pos2(50.0, 50.0)),
+            other => panic!("expected one translated move, got {other:?}"),
+        }
+
+        // Outside the panel, or not hovered at all: nothing reaches the guest.
+        assert!(filter_events(vec![pointer_at(10.0, 10.0)], offset, rect(), true, false).is_empty());
+        assert!(filter_events(vec![pointer_at(150.0, 150.0)], offset, rect(), false, false).is_empty());
+    }
 }
