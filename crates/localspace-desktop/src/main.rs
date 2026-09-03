@@ -18,6 +18,11 @@ impl localspace_client::Backend for Adapter {
         self.0.request(req)
     }
 
+    fn set_wake(&self, wake: localspace_client::Wake) {
+        use localspace_core::transport::Backend as _;
+        self.0.set_wake(wake)
+    }
+
     fn poll(&self) -> Vec<localspace_client::Incoming> {
         use localspace_core::transport::Backend as _;
         self.0

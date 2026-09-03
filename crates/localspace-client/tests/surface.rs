@@ -103,6 +103,72 @@ fn the_reference_surface_paints_a_frame_through_the_runner() {
     );
 }
 
+/// Run one host frame with no input and no messages; return whether the runner
+/// produced output without error.
+fn quiet_frame(runner: &mut SurfaceRunner, ctx: &egui::Context, rect: egui::Rect, time: f64) {
+    let mut error = None;
+    let mut out = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(rect),
+            time: Some(time),
+            ..Default::default()
+        },
+        |ui| {
+            if let Err(e) = runner.show(ui, rect, Vec::new()) {
+                error = Some(format!("{e:#}"));
+            }
+        },
+    );
+    out.textures_delta.clear();
+    if let Some(e) = error {
+        panic!("the surface failed to run: {e}");
+    }
+}
+
+#[test]
+fn a_frame_in_which_nothing_changed_does_not_run_the_guest() {
+    // §16.3: pay per change, not per frame. A repaint the host does for its own
+    // reasons — the mouse crossed the rail, a notice appeared — must not enter
+    // the guest, and the same document coming back from Core after the guest's
+    // own edit must not be pushed at it again.
+    let Some(bytes) = board_wasm() else { return };
+    let mut runner = SurfaceRunner::load("test/board", &bytes).expect("load");
+    runner.set_doc(DOC.to_string());
+
+    let ctx = egui::Context::default();
+    let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
+
+    quiet_frame(&mut runner, &ctx, rect, 0.0);
+    assert_eq!(runner.guest_frames, 1, "the first frame carries the document");
+
+    // Settle: a fresh egui context may ask for a repaint or two while it lays
+    // out fonts. Those requests are honoured, and then it goes quiet.
+    for i in 1..=5 {
+        quiet_frame(&mut runner, &ctx, rect, i as f64 * 0.1);
+    }
+    let after_settling = runner.guest_frames;
+
+    for i in 6..=25 {
+        quiet_frame(&mut runner, &ctx, rect, i as f64 * 0.1);
+    }
+    assert_eq!(
+        runner.guest_frames, after_settling,
+        "twenty quiet host frames ran the guest {} more time(s)",
+        runner.guest_frames - after_settling
+    );
+    assert!(runner.skipped_frames >= 20, "skips were not counted");
+
+    // The same document again is not a change.
+    runner.set_doc(DOC.to_string());
+    quiet_frame(&mut runner, &ctx, rect, 3.0);
+    assert_eq!(runner.guest_frames, after_settling, "an identical document re-ran the guest");
+
+    // A different document is.
+    runner.set_doc(DOC.replacen('{', "{\"changed\":true,", 1));
+    quiet_frame(&mut runner, &ctx, rect, 3.1);
+    assert_eq!(runner.guest_frames, after_settling + 1, "a changed document did not reach the guest");
+}
+
 #[test]
 fn a_module_that_is_not_a_surface_is_refused_with_a_useful_message() {
     // A valid wasm module that exports none of the three ABI functions.

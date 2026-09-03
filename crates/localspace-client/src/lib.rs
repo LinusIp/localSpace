@@ -18,9 +18,16 @@ pub use localspace_proto::Request;
 
 /// What the Client needs from a transport. Mirrors `localspace_core::transport`,
 /// restated here so the Client crate does not depend on Core.
+/// Called from the transport whenever a response or event is waiting.
+pub type Wake = Box<dyn Fn() + Send + Sync>;
+
 pub trait Backend: Send + Sync {
     fn request(&self, req: proto::Request) -> u64;
     fn poll(&self) -> Vec<Incoming>;
+    /// Install a callback fired when something arrives, so an idle Client can
+    /// sleep until there is something to draw. Transports that cannot wake
+    /// anyone keep the default, and the Client polls instead.
+    fn set_wake(&self, _wake: Wake) {}
     fn connected(&self) -> bool {
         true
     }
@@ -88,6 +95,11 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, backend: Arc<dyn Backend>) -> App {
         theme::apply(&cc.egui_ctx);
+
+        // Idle means idle. The Client repaints when the user does something or
+        // when Core has something to say — never on a timer, never in a loop.
+        let ctx = cc.egui_ctx.clone();
+        backend.set_wake(Box::new(move || ctx.request_repaint()));
         let app = App {
             backend,
             env: None,

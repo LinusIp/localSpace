@@ -102,8 +102,10 @@ queue with pinned versions and rollout groups.
 
 In rough order of value per hour:
 
-- **AOT-compile wasm components at install**, cached by module hash. A tool call
-  should be microseconds, not a JIT. (`registry::instantiate`.)
+- **AOT-compile wasm components at install**, cached by module hash. Today every
+  process start JIT-compiles both whiteboard modules — the largest share of the
+  desktop app's startup CPU, and glacial in a debug build where Cranelift itself
+  is unoptimised. (`registry::instantiate`, `surface::Runner::load`.)
 - **Cache compiled grammars on disk** by active-set hash — the in-memory cache
   already exists and is keyed correctly.
 - **zstd above 4 KB** on the WebSocket. One place, both directions.

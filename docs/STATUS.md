@@ -40,7 +40,7 @@ Legend: **built** · **partial** (works, with a stated limit) · **not built**.
 | H§16.1 | Utility model routing | **built** | Request classes and a router; harness calls and background work go to the utility worker. The split is counted. |
 | H§16.1 | Short returns | **built** | Tool results carry `diff_summary`; provider blocks carry summaries plus a zoom tool. |
 | H§16.2 | GPU/memory layout | **not built** | The planner describes the layout; nothing executes it. |
-| H§16.3 | Client and transport | **partial** | egui repaints on demand and an unchanged surface is not re-run. **No zstd on the wire, no brotli bundle, no hardware video encode** (there is no `stream` surface yet). |
+| H§16.3 | Client and transport | **partial** | The Client repaints only on input or when Core wakes it through the transport — never on a timer. An `egui` surface runs `hs_frame` only when input arrived, a document or message is waiting, or it asked for a repaint; a quiet host frame repaints last frame's cached meshes without entering the guest, and a document the guest already holds is not pushed at it again (both covered by `tests/surface.rs`). **No zstd on the wire, no brotli bundle, no hardware video encode** (there is no `stream` surface yet). |
 | H§16.4 | Core hot path | **partial** | Tool routing, permission checks and DAG commits are synchronous in-memory operations on one thread per environment. **Wasm components are not AOT-cached at install**, and blobs are not memory-mapped. |
 | H§16.5 | Budgets in CI | **partial** | `localspace bench` reports the budgets that do not need a loaded model. The model-dependent ones are stated as needing `serve`'s `/metrics`. **Not wired into CI.** |
 

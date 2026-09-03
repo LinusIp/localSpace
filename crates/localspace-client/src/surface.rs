@@ -190,8 +190,21 @@ pub struct SurfaceRunner {
     name: String,
     pub stats: SurfaceStats,
     initialised: bool,
+    /// Something the guest has not seen yet: a document, a message, a command.
     dirty: bool,
+    /// The document the guest currently holds — whichever side wrote it last.
     last_doc: Option<String>,
+    /// A document to hand over on the next frame the guest runs.
+    pending_doc: Option<String>,
+    /// Last frame's meshes, already translated for `cached_offset` and remapped
+    /// to host texture ids. A frame in which nothing changed paints these and
+    /// never enters the guest (§16.3: pay per change, not per frame).
+    cached: Vec<(Rect, std::sync::Arc<epaint::Mesh>)>,
+    cached_offset: Vec2,
+    cached_cursor: sdk::CursorIcon,
+    /// How often the guest actually ran, and how often it was skipped.
+    pub guest_frames: u64,
+    pub skipped_frames: u64,
 }
 
 impl SurfaceRunner {
@@ -204,6 +217,12 @@ impl SurfaceRunner {
             initialised: false,
             dirty: true,
             last_doc: None,
+            pending_doc: None,
+            cached: Vec::new(),
+            cached_offset: Vec2::ZERO,
+            cached_cursor: sdk::CursorIcon::Default,
+            guest_frames: 0,
+            skipped_frames: 0,
         })
     }
 
@@ -211,10 +230,13 @@ impl SurfaceRunner {
         self.dirty = true;
     }
 
-    /// Hand the surface a new document. Only pushed when it actually changed.
+    /// Hand the surface a document. Only a document the guest does not already
+    /// hold is pushed — including the round trip after the guest's own edit,
+    /// which comes back from Core as the same JSON the guest sent.
     pub fn set_doc(&mut self, doc: String) {
         if self.last_doc.as_deref() != Some(doc.as_str()) {
-            self.last_doc = Some(doc);
+            self.last_doc = Some(doc.clone());
+            self.pending_doc = Some(doc);
             self.dirty = true;
         }
     }
@@ -256,20 +278,35 @@ impl SurfaceRunner {
         let raw_input = self.raw_input(&ctx, rect, hovered);
         let has_input = !raw_input.events.is_empty();
 
-        // Pay per change, not per frame: run only when something actually moved.
-        if !self.dirty && !has_input && !self.stats.throttled {
-            // Repaint from the cached primitives instead of re-running the guest.
+        // Pay per change, not per frame (§16.3). The guest runs only when input
+        // arrived, a document or message is waiting, it asked for a repaint, or
+        // it is being throttled. Otherwise last frame's meshes are painted again
+        // and the guest is never entered.
+        if !self.dirty && !has_input && messages.is_empty() && !self.stats.throttled {
+            self.skipped_frames += 1;
+            self.paint_cached(ui, rect, offset);
+            if let Some(cursor) = map_cursor(self.cached_cursor) {
+                ctx.set_cursor_icon(cursor);
+            }
+            return Ok(FramePaint {
+                primitives: Vec::new(),
+                repaint_after_ms: u64::MAX,
+                doc: None,
+                messages: Vec::new(),
+                cursor: self.cached_cursor,
+            });
         }
 
         let input = sdk::FrameInput {
             raw_input,
-            doc: self.last_doc.take(),
+            doc: self.pending_doc.take(),
             messages,
         };
 
         let started = std::time::Instant::now();
         let out_bytes = self.inner.frame(&postcard::to_allocvec(&input)?)?;
         let elapsed = started.elapsed().as_secs_f32() * 1000.0;
+        self.guest_frames += 1;
 
         self.stats.last_ms = elapsed;
         if elapsed > FRAME_BUDGET_MS {
@@ -283,13 +320,33 @@ impl SurfaceRunner {
         self.dirty = false;
 
         self.apply_textures(&ctx, &mut out.textures_delta);
-        self.paint(ui, rect, offset, &out.primitives);
+        self.rebuild_cache(offset, &out.primitives);
+        self.paint_cached(ui, rect, offset);
+        self.cached_cursor = out.cursor;
+
+        // If the guest wrote the document, it now holds that version, and the
+        // same JSON coming back from Core must not be pushed at it again.
+        if let Some(doc) = &out.doc {
+            self.last_doc = Some(doc.clone());
+        }
 
         if let Some(cursor) = map_cursor(out.cursor) {
             ctx.set_cursor_icon(cursor);
         }
-        if out.repaint_after_ms > 0 {
-            ctx.request_repaint_after(std::time::Duration::from_millis(out.repaint_after_ms));
+
+        // egui's own convention: zero means "again, now"; `Duration::MAX` means
+        // "nothing pending". A requested repaint is one of the three reasons the
+        // guest runs, so it marks the runner dirty for that frame.
+        match out.repaint_after_ms {
+            0 => {
+                ctx.request_repaint();
+                self.dirty = true;
+            }
+            ms if ms < 60_000 => {
+                ctx.request_repaint_after(std::time::Duration::from_millis(ms));
+                self.dirty = true;
+            }
+            _ => {}
         }
 
         Ok(FramePaint {
@@ -358,8 +415,11 @@ impl SurfaceRunner {
         delta.clear();
     }
 
-    fn paint(&self, ui: &mut egui::Ui, rect: Rect, offset: Vec2, prims: &[sdk::WirePrimitive]) {
-        let painter = ui.painter();
+    /// Translate the guest's meshes into the panel and remap their texture ids,
+    /// once per guest frame rather than once per host frame.
+    fn rebuild_cache(&mut self, offset: Vec2, prims: &[sdk::WirePrimitive]) {
+        self.cached.clear();
+        self.cached_offset = offset;
         for prim in prims {
             let Some(host_id) = self.textures.get(&prim.mesh.texture_id).map(|h| h.id()) else {
                 continue;
@@ -367,15 +427,34 @@ impl SurfaceRunner {
             let mut mesh = prim.mesh.clone();
             mesh.texture_id = host_id;
             mesh.translate(offset);
+            self.cached
+                .push((prim.clip.translate(offset), std::sync::Arc::new(mesh)));
+        }
+    }
 
-            let clip = prim.clip.translate(offset).intersect(rect);
+    /// Paint the cached meshes. If the panel moved since they were built — a
+    /// resize, a dock change — they are shifted once and cached again.
+    fn paint_cached(&mut self, ui: &mut egui::Ui, rect: Rect, offset: Vec2) {
+        if offset != self.cached_offset {
+            let shift = offset - self.cached_offset;
+            for (clip, mesh) in &mut self.cached {
+                *clip = clip.translate(shift);
+                let mut moved = (**mesh).clone();
+                moved.translate(shift);
+                *mesh = std::sync::Arc::new(moved);
+            }
+            self.cached_offset = offset;
+        }
+        let painter = ui.painter();
+        for (clip, mesh) in &self.cached {
+            let clip = clip.intersect(rect);
             if !clip.is_positive() {
                 continue;
             }
             painter
                 .clone()
                 .with_clip_rect(clip)
-                .add(egui::Shape::mesh(mesh));
+                .add(egui::Shape::Mesh(mesh.clone()));
         }
     }
 }
