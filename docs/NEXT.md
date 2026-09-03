@@ -133,3 +133,9 @@ and Tier B together — but it depends on items 5 and 2.
   z-order, locking, ink and the clipboard are in; the rest is not.
 - The Marketplace lists a directory. It does not yet verify a signature, so in an
   organisation it should point only at a bundle the security team assembled.
+- Seen once, not reproduced: on the first review launch, an empty sticky appeared
+  with its text editor open, with no click sent — the post-condition of a Sticky-tool
+  click. It followed `ShowWindow(SW_MAXIMIZE)` + `SwitchToThisWindow` from a script.
+  A plain launch, and the same maximise-and-focus on a clean instance, were both
+  clean. If it recurs, the surface's `create()` is the only path that opens the
+  editor with an empty buffer; look at what the host fed `hs_frame` on that frame.
