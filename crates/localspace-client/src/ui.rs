@@ -1337,6 +1337,9 @@ impl App {
                                     .size(9.5)
                                     .color(fg),
                                 );
+                                if entry.kind != "harness" {
+                                    theme::pill(ui, &entry.kind, Tone::Neutral, false);
+                                }
                                 if entry.installed {
                                     theme::pill(ui, "installed", Tone::Good, true);
                                 }

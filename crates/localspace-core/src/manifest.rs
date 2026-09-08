@@ -11,12 +11,120 @@ use std::path::Path;
 pub struct Manifest {
     pub harness: HarnessMeta,
     #[serde(default)]
+    pub package: Package,
+    #[serde(default)]
     pub capabilities: Capabilities,
     #[serde(default)]
     pub resources: Resources,
+    #[serde(default)]
     pub contributes: Contributes,
     #[serde(default)]
+    pub dependencies: std::collections::BTreeMap<String, DepSpec>,
+    #[serde(default)]
+    pub provides: Provides,
+    #[serde(default)]
     pub model_hints: ModelHints,
+}
+
+// ---------------------------------------------------------------------------
+// Package management (spec §17)
+// ---------------------------------------------------------------------------
+
+/// `[package] kind = "harness"` — what this package is. Only a harness has a
+/// surface and tools; a library or types package is linked, not run.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Package {
+    #[serde(default)]
+    pub kind: PackageKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PackageKind {
+    #[default]
+    Harness,
+    Library,
+    Types,
+    Template,
+    ModelPack,
+    Skill,
+    Theme,
+}
+
+impl PackageKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            PackageKind::Harness => "harness",
+            PackageKind::Library => "library",
+            PackageKind::Types => "types",
+            PackageKind::Template => "template",
+            PackageKind::ModelPack => "model-pack",
+            PackageKind::Skill => "skill",
+            PackageKind::Theme => "theme",
+        }
+    }
+
+    pub fn is_harness(self) -> bool {
+        self == PackageKind::Harness
+    }
+}
+
+/// One `[dependencies]` entry:
+/// `"io.localspace.types.geometry" = "^1.2"`, or
+/// `"io.localspace.mesh-viewer" = { version = "^2", optional = true }`, or
+/// `"localspace.geometry.v1" = { interface = true }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DepSpec {
+    Version(String),
+    Detailed {
+        #[serde(default)]
+        version: Option<String>,
+        #[serde(default)]
+        optional: bool,
+        #[serde(default)]
+        interface: bool,
+    },
+}
+
+impl DepSpec {
+    pub fn version(&self) -> Option<&str> {
+        match self {
+            DepSpec::Version(v) => Some(v.as_str()),
+            DepSpec::Detailed { version, .. } => version.as_deref(),
+        }
+    }
+
+    pub fn optional(&self) -> bool {
+        matches!(self, DepSpec::Detailed { optional: true, .. })
+    }
+
+    /// An interface dependency names a WIT interface, not a vendor: any
+    /// installed package whose `[provides]` lists it satisfies it.
+    pub fn is_interface(&self) -> bool {
+        matches!(self, DepSpec::Detailed { interface: true, .. })
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Provides {
+    #[serde(default)]
+    pub interfaces: Vec<String>,
+}
+
+impl Manifest {
+    /// Dependencies in the resolver's shape.
+    pub fn dependencies(&self) -> Vec<crate::deps::Dependency> {
+        self.dependencies
+            .iter()
+            .map(|(id, spec)| crate::deps::Dependency {
+                id: id.clone(),
+                req: spec.version().map(|s| s.to_string()),
+                optional: spec.optional(),
+                interface: spec.is_interface(),
+            })
+            .collect()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -490,6 +598,21 @@ fn default_doc() -> DocKind {
     DocKind::Crdt
 }
 
+impl Default for Contributes {
+    fn default() -> Self {
+        Contributes {
+            views: Vec::new(),
+            tools: None,
+            context_provider: false,
+            doc: default_doc(),
+            file_types: Vec::new(),
+            logic: None,
+            accepts: Vec::new(),
+            produces: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DocKind {
@@ -641,6 +764,37 @@ impl Manifest {
                 bail!(
                     "`{kind}` is not an interchange type; expected the form `name.vN`, e.g. outline.v1"
                 );
+            }
+        }
+        // Package kinds (spec §17.1): only a harness runs and has tools; a
+        // library or types package is linked into others and must not pretend.
+        if !self.package.kind.is_harness() {
+            if !self.contributes.views.is_empty() || self.contributes.tools.is_some() {
+                bail!(
+                    "a `{}` package may not declare views or tools",
+                    self.package.kind.label()
+                );
+            }
+        } else if self.contributes.tools.is_none() {
+            bail!("a harness needs `[contributes] tools`; without tools it is not agent-usable");
+        }
+        for (id, spec) in &self.dependencies {
+            if spec.is_interface() {
+                if !id.contains('.') {
+                    bail!("interface dependency `{id}` should be a dotted interface name");
+                }
+            } else {
+                if !id.contains('.') && !id.contains('/') {
+                    bail!(
+                        "dependency `{id}` is not a package id (reverse-DNS, or <org-domain>/name)"
+                    );
+                }
+                let Some(req) = spec.version() else {
+                    bail!("dependency `{id}` needs a version requirement, e.g. \"^1.2\"");
+                };
+                if !crate::deps::valid_requirement(req) {
+                    bail!("dependency `{id}` has an unreadable version requirement `{req}`");
+                }
             }
         }
         if let NetCap::Allowlist { allowlist, reason } = &self.capabilities.net {

@@ -115,6 +115,17 @@ fn describe(
         widens,
         blocked,
         resources: manifest.resources.summary(),
+        kind: manifest.package.kind.label().to_string(),
+        dependencies: manifest
+            .dependencies
+            .iter()
+            .map(|(id, spec)| match spec.version() {
+                Some(v) if spec.is_interface() => format!("{id} (interface) {v}"),
+                Some(v) => format!("{id} {v}"),
+                None if spec.is_interface() => format!("{id} (interface)"),
+                None => id.clone(),
+            })
+            .collect(),
     })
 }
 
@@ -144,6 +155,55 @@ fn blocked_reason(manifest: &Manifest, policy: &Policy) -> Option<String> {
         ));
     }
     None
+}
+
+/// Everything the resolver may pick from: installed packages first, then every
+/// package the catalog offers. Installed ones are marked so the resolver
+/// prefers them and never reinstalls what already satisfies a requirement.
+pub fn candidates(dirs: &[PathBuf], installed: &Registry) -> Vec<crate::deps::Candidate> {
+    let mut out: Vec<crate::deps::Candidate> = installed
+        .iter()
+        .map(|h| crate::deps::Candidate {
+            id: h.manifest.harness.id.clone(),
+            version: h.manifest.harness.version.clone(),
+            kind: h.manifest.package.kind,
+            provides: h.manifest.provides.interfaces.clone(),
+            deps: h.manifest.dependencies(),
+            path: h.dir.clone(),
+            installed: true,
+        })
+        .collect();
+
+    for dir in dirs {
+        let Ok(read) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for item in read.flatten() {
+            let path = item.path();
+            if !path.join("harness.toml").exists() {
+                continue;
+            }
+            let Ok(manifest) = Manifest::load(&path) else {
+                continue;
+            };
+            let already = out.iter().any(|c| {
+                c.id == manifest.harness.id && c.version == manifest.harness.version
+            });
+            if already {
+                continue;
+            }
+            out.push(crate::deps::Candidate {
+                id: manifest.harness.id.clone(),
+                version: manifest.harness.version.clone(),
+                kind: manifest.package.kind,
+                provides: manifest.provides.interfaces.clone(),
+                deps: manifest.dependencies(),
+                path,
+                installed: false,
+            });
+        }
+    }
+    out
 }
 
 /// Capabilities as a reader who is not an engineer would want them.

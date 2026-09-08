@@ -72,6 +72,7 @@ impl Installed {
             loaded: self.runtime.is_some(),
             accepts: self.manifest.contributes.accepts.clone(),
             produces: self.manifest.contributes.produces.clone(),
+            kind: self.manifest.package.kind.label().to_string(),
         }
     }
 
@@ -203,25 +204,32 @@ impl Registry {
             );
         }
 
-        let tools_path = manifest
-            .contributes
-            .tools
-            .clone()
-            .unwrap_or_else(|| "tools.json".into());
-        let tools_text = std::fs::read_to_string(dir.join(&tools_path))
-            .with_context(|| format!("reading {}", dir.join(&tools_path).display()))?;
-        let tools = ToolSet::parse(&tools_text)?;
+        // A library or types package (spec §17.1) has no surface and no tools;
+        // it is linked into harnesses that depend on it, not run.
+        let tools = if manifest.package.kind.is_harness() {
+            let tools_path = manifest
+                .contributes
+                .tools
+                .clone()
+                .unwrap_or_else(|| "tools.json".into());
+            let tools_text = std::fs::read_to_string(dir.join(&tools_path))
+                .with_context(|| format!("reading {}", dir.join(&tools_path).display()))?;
+            let tools = ToolSet::parse(&tools_text)?;
 
-        // Every tool name must be namespaced by the harness, so two packages
-        // cannot collide in the model's tool list.
-        for t in &tools.tools {
-            if !t.name.contains('.') {
-                bail!(
-                    "tool `{}` is not namespaced (expected e.g. `canvas.add_shape`)",
-                    t.name
-                );
+            // Every tool name must be namespaced by the harness, so two packages
+            // cannot collide in the model's tool list.
+            for t in &tools.tools {
+                if !t.name.contains('.') {
+                    bail!(
+                        "tool `{}` is not namespaced (expected e.g. `canvas.add_shape`)",
+                        t.name
+                    );
+                }
             }
-        }
+            tools
+        } else {
+            ToolSet::default()
+        };
 
         let (effective, degraded) = policy.apply(&manifest.capabilities);
         let mut manifest = manifest;
@@ -247,6 +255,14 @@ impl Registry {
         installed: &mut Installed,
         services: std::sync::Arc<dyn crate::runtime::CoreServices>,
     ) -> Result<()> {
+        // Only a harness has logic to run. A library is linked at install time
+        // into the harnesses that depend on it — composition is not built yet,
+        // see docs/STATUS.md — so for now it is present, resolved and locked,
+        // and costs nothing at runtime.
+        if !installed.manifest.package.kind.is_harness() {
+            installed.last_used = std::time::Instant::now();
+            return Ok(());
+        }
         let cfg = RuntimeConfig {
             harness_id: installed.manifest.harness.id.clone(),
             capabilities: installed.manifest.capabilities.clone(),

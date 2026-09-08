@@ -179,6 +179,8 @@ pub struct HarnessSummary {
     pub accepts: Vec<String>,
     /// Interchange types this harness can export.
     pub produces: Vec<String>,
+    /// `harness`, `library`, `types`, … (spec §17.1). Only a harness has tools.
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -680,6 +682,9 @@ pub enum Request {
     GetActiveSet,
     /// The current agent run's ledger: goal, plan, artifacts, notes.
     GetTask,
+    /// `environment.lock` (spec §17.2): every installed package, exact version,
+    /// content hash, source and interface bindings. A document in the DAG.
+    GetLock,
     FindCapability {
         need: String,
     },
@@ -732,6 +737,10 @@ pub enum Response {
     },
     Active(ActiveSet),
     Task(Task),
+    /// `environment.lock` as JSON: `{"packages": [{id, version, kind, hash, source, interfaces}]}`.
+    Lock {
+        json: Json,
+    },
     Capabilities {
         hits: Vec<CapabilityHit>,
     },
@@ -780,6 +789,10 @@ pub struct CatalogEntry {
     /// Set when the package cannot be installed here, and why.
     pub blocked: Option<String>,
     pub resources: ResourceSummary,
+    /// `harness`, `library`, `types`, `template`, `model-pack`, `skill`, `theme`.
+    pub kind: String,
+    /// Dependencies as declared, e.g. `io.localspace.types.geometry ^1.2`.
+    pub dependencies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

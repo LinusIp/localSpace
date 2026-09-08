@@ -10,12 +10,14 @@ pub mod audit;
 pub mod catalog;
 pub mod context;
 pub mod dag;
+pub mod deps;
 pub mod docs;
 pub mod evals;
 pub mod exposure;
 pub mod footprint;
 pub mod gateway;
 pub mod grammar;
+pub mod lock;
 pub mod manifest;
 pub mod model;
 pub mod planner;
@@ -288,8 +290,13 @@ impl Core {
             self.restore_from_dag(&doc_id);
         }
         if self.focus.is_none() {
-            self.focus = self.registry.iter().next().map(|h| h.id().to_string());
+            self.focus = self
+                .registry
+                .iter()
+                .find(|h| h.manifest.package.kind.is_harness())
+                .map(|h| h.id().to_string());
         }
+        self.write_lock();
     }
 
     /// Bring a document back to the state its DAG head records.
@@ -331,6 +338,49 @@ impl Core {
     ) -> Result<proto::Response> {
         let policy = self.cfg.policy.clone();
         let mut staged = Registry::stage(dir, &policy)?;
+
+        // Dependencies (spec §17.2) are resolved against what is installed and
+        // what the catalog offers: one version per package per environment, and
+        // interface dependencies bound to any provider. What is missing is
+        // installed first, in dependency order; a conflict names both dependents.
+        if !staged.manifest.dependencies.is_empty() {
+            let mut candidates = catalog::candidates(&self.catalog_dirs_all(), &self.registry);
+            if !candidates.iter().any(|c| c.id == staged.manifest.harness.id) {
+                candidates.push(deps::Candidate {
+                    id: staged.manifest.harness.id.clone(),
+                    version: staged.manifest.harness.version.clone(),
+                    kind: staged.manifest.package.kind,
+                    provides: staged.manifest.provides.interfaces.clone(),
+                    deps: staged.manifest.dependencies(),
+                    path: dir.to_path_buf(),
+                    installed: false,
+                });
+            }
+            let resolution = deps::resolve(&staged.manifest.harness.id, &candidates)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            for (id, version) in &resolution.install {
+                if *id == staged.manifest.harness.id {
+                    continue;
+                }
+                let Some(dep) = candidates.iter().find(|c| c.id == *id && c.version == *version)
+                else {
+                    continue;
+                };
+                let path = dep.path.clone();
+                self.trace(format!("installing dependency `{id}` {version} first"));
+                match self.install_inner(&path, false)? {
+                    proto::Response::Ok => {}
+                    proto::Response::InstallPrompt { harness, .. } => anyhow::bail!(
+                        "dependency `{harness}` widens capabilities; approve it before installing `{}`",
+                        staged.manifest.harness.id
+                    ),
+                    other => anyhow::bail!("installing dependency `{id}` failed: {other:?}"),
+                }
+            }
+            for (interface, provider) in &resolution.bindings {
+                self.trace(format!("`{interface}` is provided by `{provider}`"));
+            }
+        }
 
         // An update that widens capabilities does not auto-install: it re-prompts
         // with a diff, and only proceeds once the user has answered.
@@ -376,6 +426,7 @@ impl Core {
         let kind = staged.doc_kind();
         let title = staged.manifest.harness.title.clone();
         let id = staged.id().to_string();
+        let staged_is_harness = staged.manifest.package.kind.is_harness();
 
         self.docs.ensure(&doc_id, kind);
         let ws = self.workspace.clone();
@@ -389,9 +440,10 @@ impl Core {
             serde_json::json!({"harness": id}),
             "ok",
         );
-        if self.focus.is_none() {
+        if self.focus.is_none() && staged_is_harness {
             self.focus = Some(id);
         }
+        self.write_lock();
         Ok(proto::Response::Ok)
     }
 
@@ -940,6 +992,50 @@ impl Core {
         &self.proposals
     }
 
+    // -- package management (spec §17) ---------------------------------------
+
+    /// Every directory the resolver and the marketplace may draw from: the
+    /// catalog dirs, plus the installed set's own directory.
+    fn catalog_dirs_all(&self) -> Vec<PathBuf> {
+        let mut dirs = self.cfg.catalog_dirs.clone();
+        if let Some(installed) = &self.cfg.harness_dir {
+            if !dirs.contains(installed) {
+                dirs.push(installed.clone());
+            }
+        }
+        dirs
+    }
+
+    /// Rewrite `environment.lock` from the installed set. It is a document in
+    /// the DAG, so every change to the environment is a commit with a diff.
+    fn write_lock(&mut self) {
+        let lock = lock::compute(&self.registry);
+        self.docs.ensure(lock::LOCK_DOC, proto::DocKind::Crdt);
+        match self.docs.apply_json(lock::LOCK_DOC, &lock) {
+            Ok(changes) if !changes.is_empty() => {
+                let snapshot = self.docs.snapshot(lock::LOCK_DOC).unwrap_or_default();
+                let summary = format!(
+                    "environment.lock: {} package(s)",
+                    lock["packages"].as_array().map(|a| a.len()).unwrap_or(0)
+                );
+                if let Err(e) = self.dag.commit(
+                    lock::LOCK_DOC,
+                    "core",
+                    "environment.lock",
+                    Json(J::Null),
+                    &snapshot,
+                    &summary,
+                    proto::Author::User,
+                    None,
+                ) {
+                    self.trace(format!("environment.lock could not be committed: {e:#}"));
+                }
+            }
+            Ok(_) => {}
+            Err(e) => self.trace(format!("environment.lock could not be written: {e:#}")),
+        }
+    }
+
     // -- the task ledger (spec §18) ------------------------------------------
 
     pub(crate) fn emit_task(&self) {
@@ -1231,6 +1327,7 @@ impl Core {
                     self.focus = None;
                 }
                 self.pinned.retain(|p| *p != harness);
+                self.write_lock();
                 self.broadcast_environment();
                 proto::Response::Ok
             }
@@ -1607,6 +1704,10 @@ impl Core {
             R::GetActiveSet => proto::Response::Active(self.active_set()),
 
             R::GetTask => proto::Response::Task(self.task.clone()),
+
+            R::GetLock => proto::Response::Lock {
+                json: Json(self.docs.json(lock::LOCK_DOC).unwrap_or(J::Null)),
+            },
 
             R::FindCapability { need } => proto::Response::Capabilities {
                 hits: exposure::rank_capabilities(&self.registry, &need),

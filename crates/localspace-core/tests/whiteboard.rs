@@ -115,6 +115,12 @@ fn a_tool_call_mutates_the_document_and_lands_a_commit() {
     // The commit carries the tool call that caused it.
     match core.handle(proto::Request::GetHistory { limit: 10 }) {
         proto::Response::History { commits } => {
+            // The environment lock is a document in the DAG too (spec §17.2), so
+            // history carries its commit beside the harness's.
+            let commits: Vec<_> = commits
+                .into_iter()
+                .filter(|c| c.doc != localspace_core::lock::LOCK_DOC)
+                .collect();
             assert_eq!(commits.len(), 1);
             assert_eq!(commits[0].tool, "canvas.add_sticky");
             assert_eq!(commits[0].harness, WHITEBOARD);
@@ -606,6 +612,177 @@ fn an_artifact_of_an_undeclared_kind_is_not_registered() {
     // empty after using it — the declaration, not the code, is the gate.
     call(&mut core, "board.add_card", json!({"text": "x"}));
     assert!(task_of(&mut core).artifacts.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Package management (spec §17): dependencies, one version per package, the lock
+// ---------------------------------------------------------------------------
+
+/// Copy the whiteboard package into `bundle/<name>` under a new id, with extra
+/// manifest lines. The logic and surface are the real ones; only the manifest
+/// differs, which is all a dependency test needs.
+fn package_in(bundle: &std::path::Path, name: &str, id: &str, extra: &str) -> Option<()> {
+    let src = harness_dir()?.join("whiteboard");
+    let dst = bundle.join(name);
+    std::fs::create_dir_all(dst.join("ui")).unwrap();
+    for f in ["tools.json", "evals.json", "logic.wasm"] {
+        std::fs::copy(src.join(f), dst.join(f)).unwrap();
+    }
+    std::fs::copy(src.join("ui/board.wasm"), dst.join("ui/board.wasm")).unwrap();
+    let manifest = std::fs::read_to_string(src.join("harness.toml"))
+        .unwrap()
+        .replace("id = \"io.localspace.whiteboard\"", &format!("id = \"{id}\""));
+    std::fs::write(dst.join("harness.toml"), format!("{manifest}\n{extra}\n")).unwrap();
+    Some(())
+}
+
+fn library_in(bundle: &std::path::Path, name: &str, id: &str, version: &str, interface: &str) {
+    let dst = bundle.join(name);
+    std::fs::create_dir_all(&dst).unwrap();
+    std::fs::write(
+        dst.join("harness.toml"),
+        format!(
+            "[harness]\nid = \"{id}\"\nversion = \"{version}\"\napi = \"^1.0\"\ntitle = \"Geometry types\"\npublisher = \"localSpace\"\n\n[package]\nkind = \"library\"\n\n[provides]\ninterfaces = [\"{interface}\"]\n"
+        ),
+    )
+    .unwrap();
+}
+
+fn lock_of(core: &mut Core) -> Value {
+    match core.handle(proto::Request::GetLock) {
+        proto::Response::Lock { json } => json.0,
+        other => panic!("GetLock failed: {other:?}"),
+    }
+}
+
+#[test]
+fn installing_a_harness_pulls_its_library_first_and_locks_both() {
+    let bundle = tempfile::tempdir().unwrap();
+    library_in(bundle.path(), "geo", "io.test.geo", "1.4.0", "test.geometry.v1");
+    if package_in(
+        bundle.path(),
+        "app",
+        "io.test.app",
+        "[dependencies]\n\"io.test.geo\" = \"^1.2\"\n\"test.geometry.v1\" = { interface = true }",
+    )
+    .is_none()
+    {
+        return;
+    }
+
+    let mut cfg = Config::personal("tester");
+    cfg.catalog_dirs = vec![bundle.path().to_path_buf()];
+    let mut core = Core::new(cfg).unwrap();
+    assert!(core.environment().harnesses.is_empty(), "nothing installed yet");
+
+    let res = core.handle(proto::Request::InstallHarness {
+        path: bundle.path().join("app").display().to_string(),
+    });
+    assert!(matches!(res, proto::Response::Ok), "{res:?}");
+
+    let env = core.environment();
+    let ids: Vec<&str> = env.harnesses.iter().map(|h| h.id.as_str()).collect();
+    assert!(ids.contains(&"io.test.geo"), "the library came in first: {ids:?}");
+    assert!(ids.contains(&"io.test.app"));
+
+    let geo = env.harnesses.iter().find(|h| h.id == "io.test.geo").unwrap();
+    assert_eq!(geo.kind, "library");
+    assert_eq!(geo.tool_count, 0, "a library has no tools");
+    assert!(!geo.loaded, "a library has nothing to run");
+    assert_eq!(env.focus.as_deref(), Some("io.test.app"), "focus goes to a harness, never a library");
+
+    // The lock: both packages, exact versions, real content hashes.
+    let lock = lock_of(&mut core);
+    let packages = lock["packages"].as_array().unwrap();
+    assert_eq!(packages.len(), 2, "{lock}");
+    let locked_geo = packages.iter().find(|p| p["id"] == "io.test.geo").unwrap();
+    assert_eq!(locked_geo["version"], "1.4.0");
+    assert_eq!(locked_geo["kind"], "library");
+    assert_eq!(locked_geo["hash"].as_str().unwrap().len(), 64, "a blake3 hex digest");
+    assert_eq!(locked_geo["interfaces"][0], "test.geometry.v1");
+
+    // And it is a document in the DAG: the change to the environment is a commit.
+    match core.handle(proto::Request::GetHistory { limit: 20 }) {
+        proto::Response::History { commits } => {
+            assert!(commits.iter().any(|c| c.tool == "environment.lock"), "{commits:?}");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn incompatible_requirements_are_refused_naming_both_dependents() {
+    let bundle = tempfile::tempdir().unwrap();
+    library_in(bundle.path(), "geo1", "io.test.geo", "1.4.0", "test.geometry.v1");
+    library_in(bundle.path(), "geo2", "io.test.geo", "2.0.0", "test.geometry.v1");
+    if package_in(bundle.path(), "a", "io.test.a", "[dependencies]\n\"io.test.geo\" = \"^1.2\"").is_none() {
+        return;
+    }
+    package_in(bundle.path(), "b", "io.test.b", "[dependencies]\n\"io.test.geo\" = \"^2.0\"").unwrap();
+
+    let mut cfg = Config::personal("tester");
+    cfg.catalog_dirs = vec![bundle.path().to_path_buf()];
+    let mut core = Core::new(cfg).unwrap();
+
+    assert!(matches!(
+        core.handle(proto::Request::InstallHarness {
+            path: bundle.path().join("a").display().to_string(),
+        }),
+        proto::Response::Ok
+    ));
+    // 1.4.0 is now installed. `b` wants ^2.0: one version per package per
+    // environment, so this is refused — and the refusal says why and for whom.
+    match core.handle(proto::Request::InstallHarness {
+        path: bundle.path().join("b").display().to_string(),
+    }) {
+        proto::Response::Error { message } => {
+            assert!(message.contains("io.test.geo"), "{message}");
+            assert!(message.contains("io.test.b"), "{message}");
+            assert!(message.contains("one version per package"), "{message}");
+        }
+        other => panic!("expected a conflict, got {other:?}"),
+    }
+    assert_eq!(lock_of(&mut core)["packages"].as_array().unwrap().len(), 2, "a and geo 1.4.0 only");
+}
+
+#[test]
+fn a_missing_provider_for_an_interface_is_a_clear_refusal() {
+    let bundle = tempfile::tempdir().unwrap();
+    if package_in(
+        bundle.path(),
+        "cfd",
+        "io.test.cfd",
+        "[dependencies]\n\"test.solver.v1\" = { interface = true }",
+    )
+    .is_none()
+    {
+        return;
+    }
+    let mut cfg = Config::personal("tester");
+    cfg.catalog_dirs = vec![bundle.path().to_path_buf()];
+    let mut core = Core::new(cfg).unwrap();
+    match core.handle(proto::Request::InstallHarness {
+        path: bundle.path().join("cfd").display().to_string(),
+    }) {
+        proto::Response::Error { message } => {
+            assert!(message.contains("test.solver.v1"), "{message}");
+            assert!(message.contains("provider"), "{message}");
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn uninstalling_rewrites_the_lock() {
+    let Some(mut core) = core_with_both() else { return };
+    assert_eq!(lock_of(&mut core)["packages"].as_array().unwrap().len(), 2);
+    core.handle(proto::Request::UninstallHarness {
+        harness: "io.localspace.planner".into(),
+    });
+    let lock = lock_of(&mut core);
+    let packages = lock["packages"].as_array().unwrap();
+    assert_eq!(packages.len(), 1);
+    assert_eq!(packages[0]["id"], WHITEBOARD);
 }
 
 // ---------------------------------------------------------------------------
@@ -1295,8 +1472,11 @@ fn an_agent_turn_puts_three_red_stickies_on_the_board() {
     assert!(shapes.iter().any(|s| s["text"] == "FX exposure"));
 
     // Every write in the turn belongs to one run, so rejecting it is one action.
-    let commits = match core.handle(proto::Request::GetHistory { limit: 10 }) {
-        proto::Response::History { commits } => commits,
+    let commits: Vec<proto::Commit> = match core.handle(proto::Request::GetHistory { limit: 10 }) {
+        proto::Response::History { commits } => commits
+            .into_iter()
+            .filter(|c| c.doc != localspace_core::lock::LOCK_DOC)
+            .collect(),
         other => panic!("history failed: {other:?}"),
     };
     assert_eq!(commits.len(), 3);
