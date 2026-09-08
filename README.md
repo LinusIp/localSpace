@@ -99,6 +99,7 @@ docs/                     STATUS, BUILD, HARNESS-AUTHORING, NEXT
 `docs/STATUS.md` maps every section of both specs to what exists, what is partial,
 and what is not built. Read it before planning work — it is written to be honest
 rather than flattering.
+`docs/PERFORMANCE.md` is how "it feels slow" becomes a number that names its cause.
 
 Short version: the plugin core runs end to end. A wasm harness installs, its tools
 are exposed to the agent under a per-turn budget, its surface runs sandboxed in the

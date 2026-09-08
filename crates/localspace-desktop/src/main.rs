@@ -365,13 +365,28 @@ fn run_gui(args: Args) -> Result<()> {
     let backend: Arc<dyn localspace_client::Backend> =
         Arc::new(Adapter(transport::InProcess::spawn(core)));
 
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([1440.0, 900.0])
             .with_min_inner_size([900.0, 600.0])
             .with_title("localSpace"),
         ..Default::default()
     };
+    // Diagnostics for a slow screen: `LOCALSPACE_PRESENT=immediate|mailbox|fifo|novsync|vsync`
+    // picks the swapchain present mode, `LOCALSPACE_FRAME_LATENCY=1|2` the queue depth.
+    if let Ok(mode) = std::env::var("LOCALSPACE_PRESENT") {
+        options.wgpu_options.surface.present_mode = match mode.as_str() {
+            "immediate" => eframe::wgpu::PresentMode::Immediate,
+            "mailbox" => eframe::wgpu::PresentMode::Mailbox,
+            "fifo" => eframe::wgpu::PresentMode::Fifo,
+            "novsync" => eframe::wgpu::PresentMode::AutoNoVsync,
+            _ => eframe::wgpu::PresentMode::AutoVsync,
+        };
+        tracing::info!("present mode: {mode}");
+    }
+    if let Some(n) = std::env::var("LOCALSPACE_FRAME_LATENCY").ok().and_then(|s| s.parse::<u32>().ok()) {
+        options.wgpu_options.surface.desired_maximum_frame_latency = Some(n);
+    }
 
     eframe::run_native(
         "localSpace",

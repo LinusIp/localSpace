@@ -512,6 +512,23 @@ impl eframe::App for App {
             // that led to this frame, so an idle loop names its own author.
             self.perf
                 .note_causes(ctx.repaint_causes().iter().map(|c| c.to_string()));
+            // Which GPU is presenting. On a laptop with two, the wrong one —
+            // or one whose driver is broken — caps the frame rate regardless
+            // of what a frame costs.
+            if !self.perf.gpu_reported {
+                self.perf.gpu_reported = true;
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(rs) = frame.wgpu_render_state() {
+                    let info = rs.adapter.get_info();
+                    perf::log(format!(
+                        "gpu: {} · {:?} · {:?} · driver {} {}",
+                        info.name, info.device_type, info.backend, info.driver, info.driver_info
+                    ));
+                }
+            }
+            if perf::spin() {
+                ctx.request_repaint();
+            }
         }
 
         self.drain(&ctx);

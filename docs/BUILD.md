@@ -86,6 +86,12 @@ localspace --harnesses harnesses --registry registry
 `--harnesses` is the environment's installed set; `--registry` is a catalog to
 install from. An offline bundle is just a `--registry` directory copied across.
 
+## When it feels slow
+
+See [PERFORMANCE.md](PERFORMANCE.md): `LOCALSPACE_PERF=1` prints per-second frame
+costs and gaps, `LOCALSPACE_PERF_SPIN=1` measures the ceiling of the display path,
+and the `gpu:` line names the adapter in use.
+
 ## Notes for this machine
 
 - On Windows with Smart App Control enforcing, a freshly linked `.exe` is sometimes
