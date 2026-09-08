@@ -45,6 +45,39 @@ pub struct HostState {
     logs: Vec<String>,
     wasi: WasiCtx,
     table: ResourceTable,
+    /// `[resources] memory_mb.logic`, in bytes.
+    memory_budget: usize,
+    /// Set the moment the guest asks for more than its budget. The grow is
+    /// refused; the guest usually traps on the failed allocation; Core reads
+    /// this to say why, then kills and restarts the instance.
+    over_budget: Option<usize>,
+}
+
+/// The enforcement point for `[resources] memory_mb.logic` (spec §1.2).
+impl wasmtime::ResourceLimiter for HostState {
+    fn memory_growing(
+        &mut self,
+        _current: usize,
+        desired: usize,
+        _maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        if desired > self.memory_budget {
+            self.over_budget = Some(desired);
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    fn table_growing(
+        &mut self,
+        _current: usize,
+        desired: usize,
+        _maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        // Tables hold function references; a million is far past any real
+        // harness and small enough that it cannot be a memory attack.
+        Ok(desired <= 1_000_000)
+    }
 }
 
 impl WasiView for HostState {
@@ -159,6 +192,16 @@ impl WasmHarness {
         config.wasm_component_model(true);
         // Fuel bounds a runaway harness rather than hanging the Client.
         config.consume_fuel(true);
+        // Compiled code is cached on disk by module hash, in wasmtime's own cache
+        // under the user's cache directory. A harness is compiled once per
+        // machine, not on every launch — §16.4's install-time AOT, without a
+        // separate build step.
+        match wasmtime::Cache::from_file(None) {
+            Ok(cache) => {
+                config.cache(Some(cache));
+            }
+            Err(e) => tracing::warn!("wasm compile cache unavailable, compiling every launch: {e}"),
+        }
         let engine = Engine::new(&config).wt("creating the wasm engine")?;
 
         let component = Component::from_binary(&engine, bytes)
@@ -177,10 +220,15 @@ impl WasmHarness {
             logs: Vec::new(),
             wasi,
             table: ResourceTable::new(),
+            memory_budget: cfg.logic_memory_mb as usize * 1024 * 1024,
+            over_budget: None,
         };
 
         let mut store = Store::new(&engine, state);
         store.set_fuel(FUEL_PER_CALL).wt("setting fuel")?;
+        // Every memory.grow — including the initial allocation at instantiation —
+        // is checked against the declared budget.
+        store.limiter(|s| s);
 
         let mut linker: Linker<HostState> = Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker).wt("linking WASI p2")?;
@@ -190,10 +238,38 @@ impl WasmHarness {
         )
         .wt("linking the localspace host interface")?;
 
-        let bindings = Harness::instantiate(&mut store, &component, &linker)
-            .wt("instantiating the harness component")?;
+        let bindings = match Harness::instantiate(&mut store, &component, &linker) {
+            Ok(b) => b,
+            Err(e) => {
+                if let Some(asked) = store.data().over_budget {
+                    anyhow::bail!(
+                        "{} needs {} MB of memory just to start, over its declared \
+                         [resources] memory_mb.logic = {} MB",
+                        store.data().harness_id,
+                        asked.div_ceil(1024 * 1024),
+                        store.data().memory_budget / (1024 * 1024)
+                    );
+                }
+                return Err(anyhow::anyhow!("{e}")).context("instantiating the harness component");
+            }
+        };
 
         Ok(WasmHarness { store, bindings })
+    }
+
+    /// Turn a trap that followed a refused memory grow into a message that
+    /// names the budget, so the user learns why rather than "unreachable".
+    fn budgeted(&self, e: anyhow::Error) -> anyhow::Error {
+        match self.store.data().over_budget {
+            Some(asked) => anyhow::anyhow!(
+                "{} exceeded its declared [resources] memory_mb.logic = {} MB (asked for {} MB) \
+                 and was stopped",
+                self.store.data().harness_id,
+                self.store.data().memory_budget / (1024 * 1024),
+                asked.div_ceil(1024 * 1024)
+            ),
+            None => e,
+        }
     }
 
     /// Refill fuel and install the call-scoped document.
@@ -217,6 +293,10 @@ impl WasmHarness {
 const FUEL_PER_CALL: u64 = 2_000_000_000;
 
 impl HarnessRuntime for WasmHarness {
+    fn over_budget(&self) -> Option<u64> {
+        self.store.data().over_budget.map(|b| b as u64)
+    }
+
     fn tools_json(&mut self) -> Result<String> {
         self.store.set_fuel(FUEL_PER_CALL).wt("setting fuel")?;
         self.bindings
@@ -229,7 +309,8 @@ impl HarnessRuntime for WasmHarness {
         let raw = self
             .bindings
             .call_call(&mut self.store, name, &params.to_string())
-            .wt(&format!("harness `call` export trapped on `{name}`"))?;
+            .wt(&format!("harness `call` export trapped on `{name}`"))
+            .map_err(|e| self.budgeted(e))?;
         let (doc_out, logs) = self.finish();
 
         let parsed: J = serde_json::from_str(&raw)
@@ -245,7 +326,8 @@ impl HarnessRuntime for WasmHarness {
         let raw = self
             .bindings
             .call_context(&mut self.store, budget as u32, focused)
-            .wt("harness `context` export trapped")?;
+            .wt("harness `context` export trapped")
+            .map_err(|e| self.budgeted(e))?;
         let parsed: J = serde_json::from_str(&raw).unwrap_or(J::Null);
         let text = parsed
             .get("text")
@@ -273,7 +355,8 @@ impl HarnessRuntime for WasmHarness {
         let reply = self
             .bindings
             .call_event(&mut self.store, view_id, payload)
-            .wt("harness `event` export trapped")?;
+            .wt("harness `event` export trapped")
+            .map_err(|e| self.budgeted(e))?;
         let (doc_out, _) = self.finish();
         Ok((reply, doc_out))
     }

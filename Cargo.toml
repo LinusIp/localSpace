@@ -59,3 +59,10 @@ tower-http = { version = "0.6", features = ["fs", "cors"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 time = { version = "0.3", features = ["formatting", "parsing", "serde", "macros"] }
 ureq = { version = "3", features = ["json"] }
+
+# Debug builds keep the workspace crates unoptimised for debugging, but the
+# dependencies — Cranelift, wgpu, egui — are built optimised. Without this a
+# `cargo run` JIT-compiles wasm with an unoptimised compiler, which is the
+# difference between a two-second and a twenty-second startup.
+[profile.dev.package."*"]
+opt-level = 3

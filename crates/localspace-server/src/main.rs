@@ -181,7 +181,9 @@ async fn metrics(State(server): State<Arc<Server>>) -> impl IntoResponse {
     let sessions = server.sessions.lock().unwrap().len();
     let connections = *server.connections.lock().unwrap();
     let uptime = server.started.elapsed().as_secs();
-    format!(
+    let footprint = localspace_core::footprint::Footprint::measure();
+    let private_bytes = footprint.private_bytes.unwrap_or(0);
+    let mut body = format!(
         "# HELP localspace_uptime_seconds Seconds since this process started.\n\
          # TYPE localspace_uptime_seconds counter\n\
          localspace_uptime_seconds {uptime}\n\
@@ -191,7 +193,19 @@ async fn metrics(State(server): State<Arc<Server>>) -> impl IntoResponse {
          # HELP localspace_ws_connections WebSocket connections accepted.\n\
          # TYPE localspace_ws_connections counter\n\
          localspace_ws_connections {connections}\n"
-    )
+    );
+    // §1.2 / §16.5: the app's own footprint against its 50 MB budget, so the
+    // alert rule is a comparison of two exported numbers.
+    body.push_str(&format!(
+        "# HELP localspace_process_private_bytes Private resident memory of this process.\n\
+         # TYPE localspace_process_private_bytes gauge\n\
+         localspace_process_private_bytes {private_bytes}\n\
+         # HELP localspace_app_budget_bytes The spec's idle budget for the app itself.\n\
+         # TYPE localspace_app_budget_bytes gauge\n\
+         localspace_app_budget_bytes {}\n",
+        localspace_core::footprint::APP_BUDGET_BYTES
+    ));
+    body
 }
 
 async fn openapi() -> impl IntoResponse {

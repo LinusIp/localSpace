@@ -12,9 +12,101 @@ pub struct Manifest {
     pub harness: HarnessMeta,
     #[serde(default)]
     pub capabilities: Capabilities,
+    #[serde(default)]
+    pub resources: Resources,
     pub contributes: Contributes,
     #[serde(default)]
     pub model_hints: ModelHints,
+}
+
+// ---------------------------------------------------------------------------
+// Resources (spec §1.2): what a harness may cost, enforced by the runtime
+// ---------------------------------------------------------------------------
+
+/// `[resources] memory_mb = { logic = 32, surface = 16 }`, `idle_unload = "5m"`.
+///
+/// The logic limit is a wasm linear-memory ceiling; the surface limit is the
+/// surface module's heap ceiling in the Client. A harness over its declaration
+/// is killed, restarted, and reported — never silently allowed to grow.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Resources {
+    #[serde(default)]
+    pub memory_mb: MemoryBudget,
+    /// The logic instance is dropped after this long without a call. Its
+    /// document stays in the store; the next call re-instantiates it.
+    #[serde(default = "default_idle_unload")]
+    pub idle_unload: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryBudget {
+    #[serde(default = "default_logic_mb")]
+    pub logic: u32,
+    #[serde(default = "default_surface_mb")]
+    pub surface: u32,
+}
+
+fn default_logic_mb() -> u32 {
+    32
+}
+
+fn default_surface_mb() -> u32 {
+    16
+}
+
+fn default_idle_unload() -> String {
+    "5m".into()
+}
+
+impl Default for MemoryBudget {
+    fn default() -> Self {
+        MemoryBudget {
+            logic: default_logic_mb(),
+            surface: default_surface_mb(),
+        }
+    }
+}
+
+impl Default for Resources {
+    fn default() -> Self {
+        Resources {
+            memory_mb: MemoryBudget::default(),
+            idle_unload: default_idle_unload(),
+        }
+    }
+}
+
+impl Resources {
+    pub fn idle_unload_duration(&self) -> std::time::Duration {
+        parse_duration(&self.idle_unload).unwrap_or(std::time::Duration::from_secs(300))
+    }
+
+    pub fn summary(&self) -> proto::ResourceSummary {
+        proto::ResourceSummary {
+            logic_mb: self.memory_mb.logic,
+            surface_mb: self.memory_mb.surface,
+            idle_unload_secs: self.idle_unload_duration().as_secs(),
+        }
+    }
+}
+
+/// `30s`, `5m`, `2h`, or a bare number of seconds.
+pub fn parse_duration(s: &str) -> Result<std::time::Duration> {
+    let s = s.trim();
+    let (num, unit) = match s.char_indices().find(|(_, c)| !c.is_ascii_digit()) {
+        Some((i, _)) => (&s[..i], &s[i..]),
+        None => (s, "s"),
+    };
+    let n: u64 = num
+        .parse()
+        .with_context(|| format!("`{s}` is not a duration like 30s, 5m or 2h"))?;
+    let secs = match unit.trim() {
+        "s" | "sec" | "secs" => n,
+        "m" | "min" | "mins" => n * 60,
+        "h" | "hr" | "hrs" => n * 3600,
+        other => bail!("`{other}` is not a duration unit (use s, m or h)"),
+    };
+    Ok(std::time::Duration::from_secs(secs))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -507,6 +599,16 @@ impl Manifest {
                 );
             }
         }
+        if self.resources.memory_mb.logic == 0 || self.resources.memory_mb.surface == 0 {
+            bail!("[resources] memory_mb must be positive for both logic and surface");
+        }
+        if self.resources.memory_mb.logic > 4096 {
+            bail!(
+                "[resources] memory_mb.logic = {} exceeds the 4 GB a wasm32 component can address",
+                self.resources.memory_mb.logic
+            );
+        }
+        parse_duration(&self.resources.idle_unload).context("[resources] idle_unload")?;
         if let NetCap::Allowlist { allowlist, reason } = &self.capabilities.net {
             if allowlist.is_empty() {
                 bail!("net allowlist is empty; use net = \"none\"");
@@ -694,6 +796,52 @@ tools = "tools.json"
         let m = Manifest::parse(text).unwrap();
         assert_eq!(m.capabilities.net.hosts(), &["tiles.example.com".to_string()]);
         assert_eq!(m.capabilities.net.reason(), Some("map tiles for the site plan"));
+    }
+
+    #[test]
+    fn resources_default_to_the_spec_s_numbers() {
+        let m = Manifest::parse(WHITEBOARD).unwrap();
+        assert_eq!(m.resources.memory_mb.logic, 32);
+        assert_eq!(m.resources.memory_mb.surface, 16);
+        assert_eq!(m.resources.idle_unload_duration().as_secs(), 300);
+    }
+
+    #[test]
+    fn resources_parse_and_are_bounded() {
+        let text = r#"
+[harness]
+id = "io.localspace.big"
+version = "0.1.0"
+api = "^1.0"
+title = "Big"
+publisher = "x"
+
+[resources]
+memory_mb = { logic = 64, surface = 24 }
+idle_unload = "90s"
+
+[contributes]
+tools = "tools.json"
+"#;
+        let m = Manifest::parse(text).unwrap();
+        assert_eq!(m.resources.memory_mb.logic, 64);
+        assert_eq!(m.resources.memory_mb.surface, 24);
+        assert_eq!(m.resources.idle_unload_duration().as_secs(), 90);
+
+        let zero = text.replace("logic = 64", "logic = 0");
+        assert!(Manifest::parse(&zero).unwrap_err().to_string().contains("positive"));
+
+        let bad = text.replace("\"90s\"", "\"soon\"");
+        assert!(Manifest::parse(&bad).unwrap_err().to_string().contains("idle_unload"));
+    }
+
+    #[test]
+    fn durations_read_the_way_people_write_them() {
+        assert_eq!(parse_duration("30s").unwrap().as_secs(), 30);
+        assert_eq!(parse_duration("5m").unwrap().as_secs(), 300);
+        assert_eq!(parse_duration("2h").unwrap().as_secs(), 7200);
+        assert_eq!(parse_duration("45").unwrap().as_secs(), 45);
+        assert!(parse_duration("5 fortnights").is_err());
     }
 
     #[test]

@@ -114,6 +114,7 @@ fn describe(
         installed_version,
         widens,
         blocked,
+        resources: manifest.resources.summary(),
     })
 }
 

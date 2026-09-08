@@ -273,6 +273,7 @@ fn the_egui_surface_module_is_shipped_and_matches_the_shape_schema() {
         proto::Response::SurfaceModule {
             bytes,
             shape_schema,
+            ..
         } => {
             assert_eq!(shape_schema, proto::SHAPE_SCHEMA);
             assert!(bytes.len() > 1024, "surface module looks empty");
@@ -301,6 +302,95 @@ fn find_capability_reaches_the_whiteboard_when_it_is_not_focused() {
     }
     // And it is focused for the next turn.
     assert_eq!(core.environment().focus.as_deref(), Some(WHITEBOARD));
+}
+
+// ---------------------------------------------------------------------------
+// Resources (spec §1.2): declared budgets are enforced, idle logic is dropped
+// ---------------------------------------------------------------------------
+
+/// A private copy of the whiteboard package with extra manifest lines, so a
+/// test can change `[resources]` without touching the real package.
+fn whiteboard_with(extra_manifest: &str) -> Option<tempfile::TempDir> {
+    let src = harness_dir()?.join("whiteboard");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let dst = dir.path().join("whiteboard");
+    std::fs::create_dir_all(dst.join("ui")).unwrap();
+    for name in ["tools.json", "evals.json", "logic.wasm"] {
+        std::fs::copy(src.join(name), dst.join(name)).unwrap();
+    }
+    std::fs::copy(src.join("ui/board.wasm"), dst.join("ui/board.wasm")).unwrap();
+    let manifest = std::fs::read_to_string(src.join("harness.toml")).unwrap();
+    std::fs::write(
+        dst.join("harness.toml"),
+        format!("{manifest}\n{extra_manifest}\n"),
+    )
+    .unwrap();
+    Some(dir)
+}
+
+#[test]
+fn a_harness_over_its_declared_memory_budget_is_refused_by_name() {
+    use localspace_core::registry::{Policy, Registry};
+    use localspace_core::runtime::NoServices;
+
+    let Some(dir) = whiteboard_with("[resources]\nmemory_mb = { logic = 1, surface = 16 }") else {
+        return;
+    };
+    let mut staged = Registry::stage(&dir.path().join("whiteboard"), &Policy::default())
+        .expect("the manifest is valid; the budget is just too small");
+    let err = Registry::instantiate(&mut staged, Arc::new(NoServices))
+        .expect_err("a 1 MB budget cannot hold the whiteboard's logic")
+        .to_string();
+    assert!(
+        err.contains("memory_mb.logic = 1 MB"),
+        "the refusal must name the budget, got: {err}"
+    );
+    assert!(staged.runtime.is_none(), "nothing may be left running");
+}
+
+#[test]
+fn idle_logic_is_unloaded_and_comes_back_with_its_document_intact() {
+    let Some(dir) = whiteboard_with("[resources]\nidle_unload = \"1s\"") else {
+        return;
+    };
+    let mut cfg = Config::personal("tester");
+    cfg.harness_dir = Some(dir.path().to_path_buf());
+    let mut core = Core::new(cfg).expect("creating Core");
+
+    let loaded = |core: &Core| -> bool {
+        core.environment()
+            .harnesses
+            .iter()
+            .find(|h| h.id == WHITEBOARD)
+            .map(|h| h.loaded)
+            .unwrap_or(false)
+    };
+
+    assert!(matches!(
+        call(&mut core, "canvas.add_sticky", json!({"text": "survives"})),
+        proto::ToolOutcome::Ok { .. }
+    ));
+    assert!(loaded(&core), "just used, so resident");
+
+    std::thread::sleep(std::time::Duration::from_millis(1300));
+    core.tick();
+    assert!(!loaded(&core), "idle past idle_unload, so dropped");
+
+    // The next call brings it back, and the document was never touched.
+    let listed = board(&mut core);
+    assert_eq!(listed["shapes"].as_array().unwrap().len(), 1);
+    assert_eq!(listed["shapes"][0]["text"], "survives");
+    assert!(loaded(&core), "re-instantiated on first call");
+}
+
+#[test]
+fn the_default_budgets_are_the_spec_s_and_are_reported() {
+    let Some(core) = core() else { return };
+    let env = core.environment();
+    let h = env.harnesses.iter().find(|h| h.id == WHITEBOARD).unwrap();
+    assert_eq!(h.resources.logic_mb, 32);
+    assert_eq!(h.resources.surface_mb, 16);
+    assert_eq!(h.resources.idle_unload_secs, 300);
 }
 
 // ---------------------------------------------------------------------------

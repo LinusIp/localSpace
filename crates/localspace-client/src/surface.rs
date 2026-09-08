@@ -44,8 +44,40 @@ mod imp {
     use anyhow::{Context, Result};
     use wasmtime::{Engine, Memory, Module, Store, TypedFunc};
 
+    /// Store data for a surface: its `[resources] memory_mb.surface` budget and
+    /// whether it ever asked for more. The enforcement point for the surface
+    /// half of spec §1.2.
+    pub struct Limits {
+        budget: usize,
+        pub over_budget: Option<usize>,
+    }
+
+    impl wasmtime::ResourceLimiter for Limits {
+        fn memory_growing(
+            &mut self,
+            _current: usize,
+            desired: usize,
+            _maximum: Option<usize>,
+        ) -> wasmtime::Result<bool> {
+            if desired > self.budget {
+                self.over_budget = Some(desired);
+                return Ok(false);
+            }
+            Ok(true)
+        }
+
+        fn table_growing(
+            &mut self,
+            _current: usize,
+            desired: usize,
+            _maximum: Option<usize>,
+        ) -> wasmtime::Result<bool> {
+            Ok(desired <= 1_000_000)
+        }
+    }
+
     pub struct Runner {
-        store: Store<()>,
+        store: Store<Limits>,
         memory: Memory,
         alloc: TypedFunc<i32, i32>,
         init: TypedFunc<(i32, i32), ()>,
@@ -53,12 +85,28 @@ mod imp {
     }
 
     impl Runner {
-        pub fn load(bytes: &[u8]) -> Result<Runner> {
-            let engine = Engine::default();
+        pub fn load(bytes: &[u8], memory_mb: u32) -> Result<Runner> {
+            // Same on-disk compile cache as Core's harness engine: a surface is
+            // compiled once per machine, and the UI thread is not held for a
+            // JIT on every launch.
+            let mut config = wasmtime::Config::new();
+            if let Ok(cache) = wasmtime::Cache::from_file(None) {
+                config.cache(Some(cache));
+            }
+            let engine = Engine::new(&config).map_err(|e| anyhow::anyhow!("{e}"))?;
             let module = Module::from_binary(&engine, bytes)
                 .map_err(|e| anyhow::anyhow!("{e}"))
                 .context("loading the surface module")?;
-            let mut store = Store::new(&engine, ());
+            let mut store = Store::new(
+                &engine,
+                Limits {
+                    budget: memory_mb as usize * 1024 * 1024,
+                    over_budget: None,
+                },
+            );
+            // Every memory.grow, the initial allocation included, is checked
+            // against the declared surface budget.
+            store.limiter(|l| l);
 
             // A surface reaches nothing: no filesystem, no network, no model.
             //
@@ -68,7 +116,7 @@ mod imp {
             // stubbed with traps: a surface that really tries to call into the
             // browser fails loudly instead of quietly getting JS access. Any
             // other import is refused outright.
-            let mut linker: wasmtime::Linker<()> = wasmtime::Linker::new(&engine);
+            let mut linker: wasmtime::Linker<Limits> = wasmtime::Linker::new(&engine);
             for import in module.imports() {
                 if !import.module().starts_with("__wbindgen") {
                     anyhow::bail!(
@@ -94,10 +142,19 @@ mod imp {
                     .map_err(|e| anyhow::anyhow!("{e}"))?;
             }
 
-            let instance = linker
-                .instantiate(&mut store, &module)
-                .map_err(|e| anyhow::anyhow!("{e}"))
-                .context("instantiating the surface")?;
+            let instance = match linker.instantiate(&mut store, &module) {
+                Ok(i) => i,
+                Err(e) => {
+                    if let Some(asked) = store.data().over_budget {
+                        anyhow::bail!(
+                            "this surface needs {} MB just to start, over its declared \
+                             [resources] memory_mb.surface = {memory_mb} MB",
+                            asked.div_ceil(1024 * 1024)
+                        );
+                    }
+                    return Err(anyhow::anyhow!("{e}")).context("instantiating the surface");
+                }
+            };
 
 
             let memory = instance
@@ -123,6 +180,11 @@ mod imp {
                 init,
                 frame,
             })
+        }
+
+        /// Bytes the surface asked for beyond its budget, if it ever did.
+        pub fn over_budget(&self) -> Option<usize> {
+            self.store.data().over_budget
         }
 
         fn write(&mut self, bytes: &[u8]) -> Result<(i32, i32)> {
@@ -170,7 +232,10 @@ mod imp {
     pub struct Runner;
 
     impl Runner {
-        pub fn load(_bytes: &[u8]) -> Result<Runner> {
+        pub fn over_budget(&self) -> Option<usize> {
+            None
+        }
+        pub fn load(_bytes: &[u8], _memory_mb: u32) -> Result<Runner> {
             bail!("the browser SurfaceRunner is not built in this configuration")
         }
         pub fn init(&mut self, _bytes: &[u8]) -> Result<()> {
@@ -188,6 +253,8 @@ pub struct SurfaceRunner {
     /// a surface's font atlas cannot collide with the host's.
     textures: HashMap<epaint::TextureId, egui::TextureHandle>,
     name: String,
+    /// `[resources] memory_mb.surface`, for the message when it is exceeded.
+    memory_mb: u32,
     pub stats: SurfaceStats,
     initialised: bool,
     /// Something the guest has not seen yet: a document, a message, a command.
@@ -211,11 +278,12 @@ pub struct SurfaceRunner {
 }
 
 impl SurfaceRunner {
-    pub fn load(name: &str, bytes: &[u8]) -> anyhow::Result<SurfaceRunner> {
+    pub fn load(name: &str, bytes: &[u8], memory_mb: u32) -> anyhow::Result<SurfaceRunner> {
         Ok(SurfaceRunner {
-            inner: imp::Runner::load(bytes)?,
+            inner: imp::Runner::load(bytes, memory_mb)?,
             textures: HashMap::new(),
             name: name.to_string(),
+            memory_mb,
             stats: SurfaceStats::default(),
             initialised: false,
             dirty: true,
@@ -228,6 +296,12 @@ impl SurfaceRunner {
             skipped_frames: 0,
             received_doc: false,
         })
+    }
+
+    /// Set once the surface has asked for more than its budget. The Client
+    /// drops and reloads a runner that reports this, and says so.
+    pub fn over_budget(&self) -> Option<usize> {
+        self.inner.over_budget()
     }
 
     pub fn mark_dirty(&mut self) {
@@ -318,7 +392,22 @@ impl SurfaceRunner {
         };
 
         let started = std::time::Instant::now();
-        let out_bytes = self.inner.frame(&postcard::to_allocvec(&input)?)?;
+        let out_bytes = match self.inner.frame(&postcard::to_allocvec(&input)?) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                // A trap after a refused grow means the budget, not a bug in
+                // the frame. Name it, so the Client can restart and explain.
+                if let Some(asked) = self.inner.over_budget() {
+                    anyhow::bail!(
+                        "surface exceeded its declared [resources] memory_mb.surface = {} MB \
+                         (asked for {} MB)",
+                        self.memory_mb,
+                        asked.div_ceil(1024 * 1024)
+                    );
+                }
+                return Err(e);
+            }
+        };
         let elapsed = started.elapsed().as_secs_f32() * 1000.0;
         self.guest_frames += 1;
 

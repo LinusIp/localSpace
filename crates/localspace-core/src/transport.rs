@@ -76,12 +76,22 @@ impl InProcess {
         std::thread::Builder::new()
             .name("localspace-core".into())
             .spawn(move || {
-                while let Ok((id, req)) = core_rx.recv() {
-                    let response = core.handle(req);
-                    if core_tx.send(Incoming::Response { id, response }).is_err() {
-                        break;
+                // Idle housekeeping runs on this thread too: with nothing to
+                // do for a while, Core drops logic instances past their
+                // `idle_unload`. Nothing is resident that is not in use.
+                let housekeeping = std::time::Duration::from_secs(15);
+                loop {
+                    match core_rx.recv_timeout(housekeeping) {
+                        Ok((id, req)) => {
+                            let response = core.handle(req);
+                            if core_tx.send(Incoming::Response { id, response }).is_err() {
+                                break;
+                            }
+                            notify(&thread_wake);
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => core.tick(),
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     }
-                    notify(&thread_wake);
                 }
             })
             .expect("spawning the Core thread");

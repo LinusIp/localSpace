@@ -171,6 +171,10 @@ pub struct HarnessSummary {
     pub enabled: bool,
     /// Set when the harness declared a capability that org policy refused.
     pub degraded: Option<String>,
+    pub resources: ResourceSummary,
+    /// True while the logic instance is resident. It is instantiated on first
+    /// call and dropped after `idle_unload`; the document stays either way.
+    pub loaded: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,6 +213,18 @@ pub struct ViewDesc {
     pub kind: SurfaceKind,
     pub placement: Placement,
     pub title: String,
+}
+
+/// What a harness declared it may cost (spec §1.2). Enforced by the runtime,
+/// shown in the store and the details panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceSummary {
+    /// Linear-memory limit for the logic component.
+    pub logic_mb: u32,
+    /// Heap limit for the surface module.
+    pub surface_mb: u32,
+    /// The logic instance is dropped after this long without a call.
+    pub idle_unload_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -632,6 +648,8 @@ pub enum Response {
     SurfaceModule {
         bytes: Vec<u8>,
         shape_schema: u32,
+        /// The heap limit the Client must enforce on this surface.
+        memory_mb: u32,
     },
     WidgetView {
         root: Widget,
@@ -704,6 +722,7 @@ pub struct CatalogEntry {
     pub widens: Vec<String>,
     /// Set when the package cannot be installed here, and why.
     pub blocked: Option<String>,
+    pub resources: ResourceSummary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

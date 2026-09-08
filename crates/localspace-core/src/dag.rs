@@ -276,11 +276,14 @@ impl Dag {
 
         let mut reverts = Vec::new();
         for doc in docs {
-            // Oldest commit of this run within this document.
+            // Oldest commit of this run within this document — by position in
+            // the append order, never by timestamp: a fast machine lands many
+            // commits inside one millisecond, and the wrong "first" restores the
+            // wrong parent. `in_run` is newest-first, so the oldest is at the end.
             let first = in_run
                 .iter()
-                .filter(|c| c.doc == doc)
-                .min_by_key(|c| c.at_ms)
+                .rev()
+                .find(|c| c.doc == doc)
                 .expect("doc came from in_run");
             let bytes = match &first.parent {
                 Some(p) => match self.get_commit(p)? {

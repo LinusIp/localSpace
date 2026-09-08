@@ -112,6 +112,12 @@ pub trait HarnessRuntime: Send {
 
     /// Opaque surface command.
     fn event(&mut self, view_id: &str, payload: &[u8], doc: &J) -> Result<(Vec<u8>, Option<J>)>;
+
+    /// Bytes the harness asked for beyond its declared budget, if it ever did.
+    /// Core kills and restarts an instance that reports this, and tells the user.
+    fn over_budget(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// Everything a runtime needs to enforce the package's declared authority.
@@ -119,4 +125,6 @@ pub struct RuntimeConfig {
     pub harness_id: String,
     pub capabilities: Capabilities,
     pub services: Arc<dyn CoreServices>,
+    /// `[resources] memory_mb.logic`: the linear-memory ceiling, enforced.
+    pub logic_memory_mb: u32,
 }

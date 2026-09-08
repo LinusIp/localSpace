@@ -126,6 +126,7 @@ fn default_harness_dir() -> Option<PathBuf> {
 }
 
 fn main() -> Result<()> {
+    localspace_client::perf::mark_start();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -289,6 +290,22 @@ fn bench(args: &Args) -> Result<()> {
         core.provider_cache_hit_rate() * 100.0
     );
     println!("turn assembly                 {:.2} ms", elapsed.as_secs_f32() * 1000.0);
+
+    // §1.2: the app itself is budgeted at 50 MB private RSS, Client and Core
+    // each. This process is both, with the harnesses instantiated, so it is the
+    // honest upper bound — and it is printed whether or not it fits.
+    let footprint = localspace_core::footprint::Footprint::measure();
+    println!("app footprint (this process)  {}", footprint.describe());
+    let resident = core
+        .environment()
+        .harnesses
+        .iter()
+        .filter(|h| h.loaded)
+        .count();
+    println!(
+        "harness logic resident        {resident} of {} (idle instances unload after their declared idle_unload)",
+        core.environment().harnesses.len()
+    );
 
     // Run it again: everything below should now be served from cache.
     let started = std::time::Instant::now();

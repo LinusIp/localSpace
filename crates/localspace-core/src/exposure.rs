@@ -343,6 +343,8 @@ context_provider = true
             degraded: None,
             runtime: None,
             doc_id: id.replace('.', "_"),
+            last_used: std::time::Instant::now(),
+            idle_unload: std::time::Duration::from_secs(300),
         }
     }
 

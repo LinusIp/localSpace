@@ -13,6 +13,7 @@ pub mod dag;
 pub mod docs;
 pub mod evals;
 pub mod exposure;
+pub mod footprint;
 pub mod gateway;
 pub mod grammar;
 pub mod manifest;
@@ -453,6 +454,22 @@ impl Core {
             }
         }
         let focus = self.focus.clone();
+
+        // Providers run inside the logic instance, so the harnesses about to be
+        // asked are brought online first (they may have been idle-unloaded).
+        let services = self.services();
+        let mut wanted: Vec<String> = focus.iter().cloned().collect();
+        wanted.extend(also.iter().cloned());
+        for id in wanted {
+            if let Some(h) = self.registry.get_mut(&id) {
+                if h.enabled && h.manifest.contributes.context_provider {
+                    if let Err(e) = Registry::ensure_runtime(h, services.clone()) {
+                        self.trace(format!("`{id}` could not start for its context provider: {e:#}"));
+                    }
+                }
+            }
+        }
+
         context::assemble(
             &mut self.registry,
             &mut self.docs,
@@ -579,21 +596,27 @@ impl Core {
     ) -> proto::ToolOutcome {
         let doc = self.docs.json(doc_id).unwrap_or(J::Null);
 
-        let out = {
+        // Instances are made on first call and dropped when idle (§1.2), so
+        // every call path brings the logic online itself.
+        let services = self.services();
+        let (out, over_budget) = {
             let Some(h) = self.registry.get_mut(owner) else {
                 return proto::ToolOutcome::Error {
-                    message: format!("`{owner}` is not loaded"),
+                    message: format!("`{owner}` is not installed"),
                 };
             };
-            match h.runtime.as_mut() {
-                Some(rt) => rt.call(tool, params, &doc),
-                None => {
-                    return proto::ToolOutcome::Error {
-                        message: format!("`{owner}` has no running logic"),
-                    }
-                }
+            if let Err(e) = Registry::ensure_runtime(h, services) {
+                return proto::ToolOutcome::Error {
+                    message: format!("`{owner}` could not start: {e:#}"),
+                };
             }
+            let rt = h.runtime.as_mut().expect("ensured above");
+            let out = rt.call(tool, params, &doc);
+            (out, rt.over_budget())
         };
+        if let Some(asked) = over_budget {
+            self.kill_over_budget(owner, asked);
+        }
 
         let out = match out {
             Ok(o) => o,
@@ -834,10 +857,61 @@ impl Core {
         &self.proposals
     }
 
+    // -- residency (spec §1.2) ----------------------------------------------
+
+    /// Housekeeping: drop logic instances idle past their declared
+    /// `idle_unload`. Called before every request and on the transport's idle
+    /// timer, so an environment with thirty harnesses installed and one in use
+    /// costs one harness of memory.
+    pub fn tick(&mut self) {
+        let dropped = self.registry.unload_idle(std::time::Instant::now());
+        if dropped.is_empty() {
+            return;
+        }
+        for id in &dropped {
+            self.trace(format!("unloaded `{id}` after idle_unload; its document stays"));
+        }
+        // The Library shows which harnesses are resident; tell it.
+        self.broadcast_environment();
+    }
+
+    /// A harness asked for more memory than it declared. Its instance is
+    /// dropped now — the next call re-instantiates it fresh — and the user is
+    /// told, because a silent restart hides a real defect in the harness.
+    fn kill_over_budget(&mut self, harness: &str, asked_bytes: u64) {
+        let budget_mb = self
+            .registry
+            .get(harness)
+            .map(|h| h.manifest.resources.memory_mb.logic)
+            .unwrap_or(0);
+        if let Some(h) = self.registry.get_mut(harness) {
+            h.runtime = None;
+        }
+        let text = format!(
+            "`{harness}` exceeded its declared memory budget of {budget_mb} MB (asked for {} MB). \
+             It was stopped and will restart on its next call.",
+            asked_bytes.div_ceil(1024 * 1024)
+        );
+        self.notice(proto::NoticeLevel::Warn, text);
+        let _ = self.audit.append(
+            self.actor(),
+            self.scope(""),
+            "harness.over_budget",
+            serde_json::json!({
+                "harness": harness,
+                "budget_mb": budget_mb,
+                "asked_mb": asked_bytes.div_ceil(1024 * 1024),
+            }),
+            "killed",
+        );
+        self.broadcast_environment();
+    }
+
     // -- request dispatch ---------------------------------------------------
 
     pub fn handle(&mut self, req: proto::Request) -> proto::Response {
         use proto::Request as R;
+        self.tick();
         match req {
             R::GetEnvironment => proto::Response::Environment(self.environment()),
 
@@ -979,6 +1053,7 @@ impl Core {
                     Ok(bytes) => proto::Response::SurfaceModule {
                         bytes,
                         shape_schema: proto::SHAPE_SCHEMA,
+                        memory_mb: h.manifest.resources.memory_mb.surface,
                     },
                     Err(e) => proto::Response::Error {
                         message: format!("{e:#}"),
@@ -996,11 +1071,17 @@ impl Core {
                     .map(|h| h.doc_id.clone())
                     .and_then(|d| self.docs.json(&d).ok())
                     .unwrap_or(J::Null);
+                let services = self.services();
                 let Some(h) = self.registry.get_mut(&harness) else {
                     return proto::Response::Error {
                         message: format!("no harness `{harness}`"),
                     };
                 };
+                if let Err(e) = Registry::ensure_runtime(h, services) {
+                    return proto::Response::Error {
+                        message: format!("`{harness}` could not start: {e:#}"),
+                    };
+                }
                 match h.runtime.as_mut().map(|rt| rt.view(&view, &doc)) {
                     Some(Ok(tree)) => match widgets::parse(&tree) {
                         Ok(root) => proto::Response::WidgetView { root },
@@ -1049,17 +1130,25 @@ impl Core {
                     }
                 };
                 let doc = self.docs.json(&doc_id).unwrap_or(J::Null);
-                let result = {
+                let services = self.services();
+                let (result, over_budget) = {
                     let Some(h) = self.registry.get_mut(&harness) else {
                         return proto::Response::Error {
                             message: format!("no harness `{harness}`"),
                         };
                     };
-                    match h.runtime.as_mut() {
-                        Some(rt) => rt.event(&view, &payload, &doc),
-                        None => Ok((Vec::new(), None)),
+                    if let Err(e) = Registry::ensure_runtime(h, services) {
+                        return proto::Response::Error {
+                            message: format!("`{harness}` could not start: {e:#}"),
+                        };
                     }
+                    let rt = h.runtime.as_mut().expect("ensured above");
+                    let result = rt.event(&view, &payload, &doc);
+                    (result, rt.over_budget())
                 };
+                if let Some(asked) = over_budget {
+                    self.kill_over_budget(&harness, asked);
+                }
                 match result {
                     Ok((reply, doc_out)) => {
                         if let Some(next) = doc_out {

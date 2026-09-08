@@ -24,6 +24,10 @@ pub struct Installed {
     pub runtime: Option<Box<dyn HarnessRuntime>>,
     /// One document per harness, named after it.
     pub doc_id: String,
+    /// When the logic instance last did anything. Idle past `idle_unload`, it
+    /// is dropped; the document stays; the next call re-instantiates it.
+    pub last_used: std::time::Instant,
+    pub idle_unload: std::time::Duration,
 }
 
 impl Installed {
@@ -64,6 +68,8 @@ impl Installed {
             capabilities: self.manifest.capabilities.summary(),
             enabled: self.enabled,
             degraded: self.degraded.clone(),
+            resources: self.manifest.resources.summary(),
+            loaded: self.runtime.is_some(),
         }
     }
 
@@ -220,6 +226,7 @@ impl Registry {
         manifest.capabilities = effective;
 
         let doc_id = manifest.harness.id.replace('.', "_");
+        let idle_unload = manifest.resources.idle_unload_duration();
         Ok(Installed {
             manifest,
             tools,
@@ -228,6 +235,8 @@ impl Registry {
             degraded,
             runtime: None,
             doc_id,
+            last_used: std::time::Instant::now(),
+            idle_unload,
         })
     }
 
@@ -240,6 +249,7 @@ impl Registry {
             harness_id: installed.manifest.harness.id.clone(),
             capabilities: installed.manifest.capabilities.clone(),
             services,
+            logic_memory_mb: installed.manifest.resources.memory_mb.logic,
         };
 
         let logic = installed
@@ -262,6 +272,7 @@ impl Registry {
             Tier::Native => Box::new(NativeHarness::spawn(&path, &[], cfg)?),
         };
         installed.runtime = Some(runtime);
+        installed.last_used = std::time::Instant::now();
 
         // The module's own tool list must match the package's, or the manifest is lying.
         if let Some(rt) = installed.runtime.as_mut() {
@@ -285,6 +296,34 @@ impl Registry {
             }
         }
         Ok(())
+    }
+
+    /// Bring a harness's logic online if it is not, and note the use.
+    ///
+    /// Nothing is resident that is not in use (spec §1.2): instances are made on
+    /// first call and dropped by `unload_idle`, so this runs on every call path.
+    pub fn ensure_runtime(
+        installed: &mut Installed,
+        services: std::sync::Arc<dyn crate::runtime::CoreServices>,
+    ) -> Result<()> {
+        if installed.runtime.is_none() {
+            Registry::instantiate(installed, services)?;
+        }
+        installed.last_used = std::time::Instant::now();
+        Ok(())
+    }
+
+    /// Drop logic instances idle past their declared `idle_unload`.
+    /// Returns the ids that were unloaded, for the trace.
+    pub fn unload_idle(&mut self, now: std::time::Instant) -> Vec<String> {
+        let mut dropped = Vec::new();
+        for h in self.harnesses.values_mut() {
+            if h.runtime.is_some() && now.duration_since(h.last_used) >= h.idle_unload {
+                h.runtime = None;
+                dropped.push(h.manifest.harness.id.clone());
+            }
+        }
+        dropped
     }
 
     pub fn insert(&mut self, installed: Installed) {
@@ -402,6 +441,8 @@ tools = "tools.json"
             degraded: None,
             runtime: None,
             doc_id: id.replace('.', "_"),
+            last_used: std::time::Instant::now(),
+            idle_unload: std::time::Duration::from_secs(300),
         }
     }
 }

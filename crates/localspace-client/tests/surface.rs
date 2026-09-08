@@ -61,7 +61,7 @@ fn a_surface_imports_only_the_wasm_bindgen_placeholders() {
 #[test]
 fn the_reference_surface_paints_a_frame_through_the_runner() {
     let Some(bytes) = board_wasm() else { return };
-    let mut runner = SurfaceRunner::load("test/board", &bytes).expect("the runner refused the surface");
+    let mut runner = SurfaceRunner::load("test/board", &bytes, 16).expect("the runner refused the surface");
     runner.set_doc(DOC.to_string());
 
     let ctx = egui::Context::default();
@@ -132,7 +132,7 @@ fn a_frame_in_which_nothing_changed_does_not_run_the_guest() {
     // the guest, and the same document coming back from Core after the guest's
     // own edit must not be pushed at it again.
     let Some(bytes) = board_wasm() else { return };
-    let mut runner = SurfaceRunner::load("test/board", &bytes).expect("load");
+    let mut runner = SurfaceRunner::load("test/board", &bytes, 16).expect("load");
     runner.set_doc(DOC.to_string());
 
     let ctx = egui::Context::default();
@@ -173,7 +173,7 @@ fn a_frame_in_which_nothing_changed_does_not_run_the_guest() {
 fn a_module_that_is_not_a_surface_is_refused_with_a_useful_message() {
     // A valid wasm module that exports none of the three ABI functions.
     let wat = b"\0asm\x01\0\0\0";
-    let err = match SurfaceRunner::load("test/empty", wat) {
+    let err = match SurfaceRunner::load("test/empty", wat, 16) {
         Ok(_) => panic!("an empty module was accepted as a surface"),
         Err(e) => format!("{e:#}"),
     };

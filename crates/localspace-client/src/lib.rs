@@ -5,6 +5,7 @@
 //! Documents, history, conversation and environment all live in Core, so signing
 //! in from a different browser shows the same environment.
 
+pub mod perf;
 pub mod surface;
 pub mod theme;
 pub mod ui;
@@ -73,6 +74,7 @@ pub struct App {
     history: Vec<proto::Commit>,
     active: Option<proto::ActiveSet>,
     catalog: Vec<proto::CatalogEntry>,
+    perf: perf::Meter,
     widget_views: HashMap<(String, String), proto::Widget>,
     surfaces: HashMap<(String, String), OpenSurface>,
     docs: HashMap<String, String>,
@@ -100,6 +102,7 @@ impl App {
         // when Core has something to say — never on a timer, never in a loop.
         let ctx = cc.egui_ctx.clone();
         backend.set_wake(Box::new(move || ctx.request_repaint()));
+        perf::log("Core ready, window created, App constructed");
         let app = App {
             backend,
             env: None,
@@ -110,6 +113,7 @@ impl App {
             history: Vec::new(),
             active: None,
             catalog: Vec::new(),
+            perf: perf::Meter::new(),
             widget_views: HashMap::new(),
             surfaces: HashMap::new(),
             docs: HashMap::new(),
@@ -211,7 +215,11 @@ impl App {
                     self.widget_views.insert(key, root);
                 }
             }
-            R::SurfaceModule { bytes, shape_schema } => {
+            R::SurfaceModule {
+                bytes,
+                shape_schema,
+                memory_mb,
+            } => {
                 if let Some(key) = self.last_surface_request.clone() {
                     let entry = self.surfaces.entry(key.clone()).or_default();
                     if shape_schema != proto::SHAPE_SCHEMA {
@@ -220,8 +228,22 @@ impl App {
                             proto::SHAPE_SCHEMA
                         ));
                     } else {
-                        match surface::SurfaceRunner::load(&format!("{}/{}", key.0, key.1), &bytes) {
+                        // This compiles the surface on the UI thread: the one
+                        // place startup can visibly stall, hence the timing.
+                        let compile = std::time::Instant::now();
+                        match surface::SurfaceRunner::load(
+                            &format!("{}/{}", key.0, key.1),
+                            &bytes,
+                            memory_mb,
+                        ) {
                             Ok(r) => {
+                                perf::log(format!(
+                                    "surface {}/{} ready in {:.0} ms ({} KB of wasm)",
+                                    key.0,
+                                    key.1,
+                                    compile.elapsed().as_secs_f32() * 1000.0,
+                                    bytes.len() / 1024
+                                ));
                                 entry.runner = Some(r);
                                 entry.error = None;
                                 // A surface starts empty until Core hands it the
@@ -393,8 +415,24 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+
+        // What the previous frame cost, and whether any surface ran its guest.
+        let (guest_total, guest_last) = self
+            .surfaces
+            .values()
+            .filter_map(|s| s.runner.as_ref())
+            .fold((0u64, 0f32), |(t, l), r| (t + r.guest_frames, l.max(r.stats.last_ms)));
+        self.perf
+            .frame(frame.info().cpu_usage, guest_total, guest_last);
+        if perf::enabled() {
+            // egui records the file and line of every request_repaint call
+            // that led to this frame, so an idle loop names its own author.
+            self.perf
+                .note_causes(ctx.repaint_causes().iter().map(|c| c.to_string()));
+        }
+
         self.drain(&ctx);
 
         // Chrome first, so the canvas gets whatever is left.
