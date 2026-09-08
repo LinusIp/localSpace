@@ -87,16 +87,45 @@ security actually breaks.
 
 **Seam:** `runtime/native.rs::NativeHarness::spawn`.
 
-## 6. Packaging
+## 6. Packaging and the registry protocol
 
-The Marketplace already reads an offline bundle, shows what a package would be
-allowed to do, and holds a widened install at an approval. What is missing is the
-distribution around it: `.hpack` archives, publisher signing verified before
-`Registry::stage` returns, an HTTP index for connected installs, and the org review
-queue with pinned versions and rollout groups.
+Kinds, dependencies, the resolver and `environment.lock` exist (spec §17.1–17.2).
+What is missing is the distribution around them: `.hpack` archives, signing with
+the localSpace release key verified before `Registry::stage` returns, the HTTP
+index (`/index`, `/packages/{id}/{version}`, `/search`, `/revocations`), delta
+updates, yank/deprecate/channels, and — the real engineering item — linking a
+`library` package into its dependents by Component Model composition. Today a
+library is resolved, installed and locked, and then does nothing.
 
-**Seam:** `catalog::scan` (an index file alongside the directory scan),
-`registry::Registry::stage` (signature verification before anything is parsed).
+**Seam:** `catalog::candidates` (an index file beside the directory scan),
+`registry::Registry::stage` (signature check first), `registry::instantiate`
+(composition before instantiation).
+
+## 6a. The rest of inter-harness communication
+
+The ledger, typed artifacts and the document-as-bus handoff are built and tested.
+Still to do from spec §18.2–18.4: **interface calls** (`harness:call` by interface,
+routed by Core to any provider — the WIT import and the capability), **events**
+(`harness:subscribe` to `doc.changed(type)` or a topic), **specialist sub-agents**
+(a per-harness skill run in its own context, returning artifacts and a summary),
+**converter harnesses** when types do not match, and the three-harness release
+bench (sketch → simulate → board) — which needs a third harness.
+
+**Seam:** `wit/harness.wit` (`host` interface), `Core::resolve_handoff`,
+`agent::run_loop`.
+
+## 6b. Meeting the 50 MB budget
+
+Spec §1.2 caps the Client and Core at 50 MB private RSS each; `bench` prints the
+number and it is roughly 300 MB for the desktop process. The path the spec itself
+lays out: make chat, settings, the store and the admin console harnesses on the
+same contract so Core holds only the proto server, the DAG, the document store,
+the permission checker, the scheduler, the planner and the runtime; memory-map
+blobs and documents instead of holding them in the heap; and measure what wgpu and
+the two wasmtime engines cost at idle before deciding what to do about them.
+Budgets and unloading are in place; the shell is what is heavy.
+
+**Seam:** `footprint::Footprint` (the measurement), `Registry::unload_idle`.
 
 ## 7. Efficiency items with a measurable payoff
 

@@ -151,6 +151,71 @@ loaded and reports a pass rate. Each case starts from a clean document, so cases
 cannot depend on order. This is the real quality signal: a plugin a human can use
 but a model cannot drive is a broken plugin here, and nothing else surfaces that.
 
+## 6. `[resources]` — what you may cost
+
+```toml
+[resources]
+memory_mb = { logic = 32, surface = 16 }   # enforced; shown in the store
+idle_unload = "5m"                          # logic dropped after this idle time
+```
+
+Both limits are real. The logic budget is a wasmtime memory limiter on your
+component; the surface budget is the same limiter on your surface module in the
+Client. Grow past it and you are stopped, the user is told which budget you broke
+and by how much, the event is audited, and your next call starts a fresh instance.
+Declare what you need, and no more: the store shows these numbers.
+
+Your logic instance is dropped after `idle_unload` without a call. Nothing you kept
+in guest memory survives that — your document does. Keep state in the document.
+
+## 7. Artifacts and handoff — talking to other harnesses
+
+Context lives in Core, never inside a harness. Harnesses hand each other data by
+reference, through Core, and the agent carries one ledger across all of them.
+
+```toml
+[contributes]
+produces = ["outline.v1"]     # kinds your tools may register
+accepts  = ["outline.v1"]     # kinds your tools may import
+```
+
+**To produce:** write the data into your own document, then return
+`"artifact": {"kind": "outline.v1", "summary": "3 items from board Risks"}` in a
+tool result. Core pins it to the commit that call made and puts it in the ledger as
+`art_N`. Only kinds in `produces` are accepted; anything else is refused in the
+trace. The whiteboard's `canvas.export_outline` is the worked example.
+
+**To accept:** take an `artifact` parameter. Before your tool runs, Core resolves
+it, checks the kind is in your `accepts` (a wrong target is refused naming a right
+one), and reads the producer's document at the pinned version. Inside the call,
+`artifact-get(id)` returns `{id, kind, summary, produced-by, commit, content}`.
+You never see what the producer's document became afterwards. The planning board's
+`board.import_outline` is the worked example.
+
+Interchange types are `name.vN`, owned by localSpace, and strict: never invent a
+private format for data another harness could plausibly consume.
+
+## 8. `[package]`, `[dependencies]`, `[provides]`
+
+```toml
+[package]
+kind = "harness"               # harness | library | types | template | model-pack | skill | theme
+
+[dependencies]
+"io.localspace.types.geometry" = "^1.2"                       # a library package
+"io.localspace.mesh-viewer"    = { version = "^2", optional = true }
+"localspace.geometry.v1"       = { interface = true }         # any provider
+
+[provides]
+interfaces = ["localspace.simulation.v1"]
+```
+
+One version per package per environment. Installing you installs what you depend
+on first, from the catalog, in order; an installed version that satisfies your
+requirement is reused. A conflict is refused naming both dependents. Everything
+ends up in `environment.lock`, a document in the DAG, with a content hash per
+package. Depend on interfaces, not vendors, wherever you can.
+
 ---
 
 ## An MCP server is already a harness

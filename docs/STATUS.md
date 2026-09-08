@@ -16,6 +16,7 @@ Legend: **built** · **partial** (works, with a stated limit) · **not built**.
 | § | Subject | State | Notes |
 |---|---|---|---|
 | H§1.1 | Hardware profiles W32 / W96 / S | **built** | `profile.rs`. `localspace doctor` classifies this machine and refuses `serve` below the floor without `--allow-below-floor`. Every budget comes from a `ModelProfile`, never a constant. |
+| H§1.2 | Footprint — the app is 50 MB | **partial** | `[resources] memory_mb = { logic, surface }` and `idle_unload` are declared, defaulted, validated and **enforced**: a wasmtime ResourceLimiter on the logic component and on the surface module. Over budget means stopped, reported, audited, and re-instantiated on the next call. Idle logic is unloaded after `idle_unload` and comes back with its document intact; every call path brings it online itself. The process weighs itself (`footprint`) and `bench` and `/metrics` print private RSS beside the 50 MB budget. **The budget is not met**: the desktop process sits near 300 MB, most of it wgpu and the two wasm engines; chat, settings and the store are not yet harnesses. |
 | H§2 | Two topologies, one binary | **partial** | `localspace` and `localspace-serve` share Core and the whole protocol. The server serves the API; the **browser Client bundle is not built** (see NEXT). |
 | H§3 | Core / Client / two transports | **built** | `localspace-proto` is the only contract. `InProcess` moves typed values over channels; the server encodes the same types with postcard over a binary WebSocket. |
 | H§4.1 | Surfaces | **built** | `widgets` and `egui` kinds both render. `stream` is declared and refused with a clear message. The reference `egui` surface carries real direct manipulation: tool palette, marquee and shift multi-select, dragging a selection, eight resize handles, snapping with alignment guides, stacking order, locking, duplicate, clipboard, freehand ink, text labels and keyboard shortcuts — with one commit per gesture rather than one per frame. |
@@ -42,7 +43,9 @@ Legend: **built** · **partial** (works, with a stated limit) · **not built**.
 | H§16.2 | GPU/memory layout | **not built** | The planner describes the layout; nothing executes it. |
 | H§16.3 | Client and transport | **partial** | The Client repaints only on input or when Core wakes it through the transport — never on a timer. An `egui` surface runs `hs_frame` only when input arrived, a document or message is waiting, or it asked for a repaint; a quiet host frame repaints last frame's cached meshes without entering the guest, and a document the guest already holds is not pushed at it again (both covered by `tests/surface.rs`). **No zstd on the wire, no brotli bundle, no hardware video encode** (there is no `stream` surface yet). |
 | H§16.4 | Core hot path | **partial** | Tool routing, permission checks and DAG commits are synchronous in-memory operations on one thread per environment. **Wasm components are not AOT-cached at install**, and blobs are not memory-mapped. |
-| H§16.5 | Budgets in CI | **partial** | `localspace bench` reports the budgets that do not need a loaded model. The model-dependent ones are stated as needing `serve`'s `/metrics`. **Not wired into CI.** |
+| H§16.5 | Budgets in CI | **partial** | `localspace bench` reports the budgets that do not need a loaded model, now including the app's private RSS against 50 MB and how many logic instances are resident. The model-dependent ones are stated as needing `serve`'s `/metrics`. **Not wired into CI.** |
+| H§17 | Package management | **partial** | `[package] kind`, `[dependencies]` (version, optional, interface) and `[provides]` parse and validate. A resolver picks one version per package per environment, reuses an installed version that satisfies, binds interface dependencies to any provider, and names both dependents on a conflict. Install resolves first and pulls missing dependencies from the catalog in order. `environment.lock` — exact versions, blake3 content hashes, sources, interfaces — is a document in the DAG. **Not built:** component composition of libraries into dependents, the HTTP registry protocol, delta updates, yank/deprecate/channels, `.hpack`, signing. |
+| H§18 | Inter-harness communication | **partial** | The task ledger lives in Core and is rendered into every prompt after the stable prefix, budgeted per profile; `task.plan` and `task.note` write it. Typed artifacts are DAG references pinned to a commit, registered only for declared `produces` kinds. A handoff names an `artifact`; Core checks `accepts` (a refusal names who does accept), reads the pinned version, and hands it over through `artifact-get`; both legs audited. Reference handoff whiteboard → `outline.v1` → planning board, tested end to end. **Not built:** interface calls, events/subscriptions, specialist sub-agents, converter harnesses, the three-harness bench. |
 
 ---
 
@@ -93,7 +96,7 @@ Legend: **built** · **partial** (works, with a stated limit) · **not built**.
 ## How the claims above were checked
 
 ```bash
-cargo test --workspace          # 164 tests
+cargo test --workspace          # 201 tests
 cargo test -p localspace-core --test whiteboard      # end-to-end, real harness
 cargo test -p localspace-client --test surface       # surface ABI conformance
 ./target/release/localspace doctor
