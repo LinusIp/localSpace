@@ -32,11 +32,15 @@ pub struct Prompt {
     pub profile: String,
     pub tools: String,
     pub context: String,
+    /// The task ledger (spec §18.1). Present in every turn whatever is focused;
+    /// it changes per step, so it sits after the stable prefix.
+    pub ledger: String,
     pub conversation: String,
 }
 
 impl Prompt {
-    /// Everything before the conversation: the part that should hit the KV cache.
+    /// Everything before the ledger and the conversation: the part that should
+    /// hit the KV cache.
     pub fn prefix(&self) -> String {
         format!(
             "{}\n\n{}\n\n{}\n\n{}",
@@ -45,7 +49,11 @@ impl Prompt {
     }
 
     pub fn render(&self) -> String {
-        format!("{}\n\n{}", self.prefix(), self.conversation)
+        if self.ledger.is_empty() {
+            format!("{}\n\n{}", self.prefix(), self.conversation)
+        } else {
+            format!("{}\n\n{}\n\n{}", self.prefix(), self.ledger, self.conversation)
+        }
     }
 
     pub fn prefix_tokens(&self) -> usize {
@@ -61,8 +69,12 @@ pub fn build(
     profile: &ModelProfile,
     active: &proto::ActiveSet,
     blocks: &[proto::ContextBlock],
+    task: Option<&proto::Task>,
     messages: &[proto::ChatMessage],
 ) -> Prompt {
+    let ledger = task
+        .map(|t| crate::task::render(t, profile.ledger_tokens))
+        .unwrap_or_default();
     let profile_text = format!(
         "[environment]\nmodel profile: {}\ntool budget: {} tokens\nworking set: {} tokens",
         profile.name, profile.tool_budget_tokens, profile.working_set_tokens
@@ -95,6 +107,7 @@ pub fn build(
         profile: profile_text,
         tools,
         context,
+        ledger,
         conversation: render_conversation(messages, profile.working_set_tokens),
     }
 }
@@ -214,11 +227,12 @@ mod tests {
             expandable: false,
         }];
 
-        let turn1 = build(&p, &a, &blocks, &[msg(Role::User, "hello")]);
+        let turn1 = build(&p, &a, &blocks, None, &[msg(Role::User, "hello")]);
         let turn2 = build(
             &p,
             &a,
             &blocks,
+            None,
             &[
                 msg(Role::User, "hello"),
                 msg(Role::Assistant, "hi"),
@@ -232,7 +246,7 @@ mod tests {
     #[test]
     fn the_segments_appear_in_the_specified_order() {
         let p = ModelProfile::server();
-        let rendered = build(&p, &active(&["canvas.list"]), &[], &[msg(Role::User, "x")]).render();
+        let rendered = build(&p, &active(&["canvas.list"]), &[], None, &[msg(Role::User, "x")]).render();
         let sys = rendered.find("You are the agent").unwrap();
         let prof = rendered.find("[environment]").unwrap();
         let tools = rendered.find("[tools]").unwrap();

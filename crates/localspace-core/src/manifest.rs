@@ -462,6 +462,28 @@ pub struct Contributes {
     /// Path to the logic module (wasm component) or native binary.
     #[serde(default)]
     pub logic: Option<String>,
+    /// Interchange types this harness can import (spec §18.3), e.g. `outline.v1`.
+    /// Core validates every handoff against this before the harness sees it.
+    #[serde(default)]
+    pub accepts: Vec<String>,
+    /// Interchange types this harness can export. A tool result may register
+    /// an artifact only of a kind listed here.
+    #[serde(default)]
+    pub produces: Vec<String>,
+}
+
+/// `name.vN` — lower-case name, a version suffix. The strict form is what lets
+/// Core match a producer to a consumer without guessing.
+pub fn valid_interchange_kind(kind: &str) -> bool {
+    let Some((name, version)) = kind.rsplit_once(".v") else {
+        return false;
+    };
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
+        && !version.is_empty()
+        && version.chars().all(|c| c.is_ascii_digit())
 }
 
 fn default_doc() -> DocKind {
@@ -609,6 +631,18 @@ impl Manifest {
             );
         }
         parse_duration(&self.resources.idle_unload).context("[resources] idle_unload")?;
+        for kind in self
+            .contributes
+            .accepts
+            .iter()
+            .chain(self.contributes.produces.iter())
+        {
+            if !valid_interchange_kind(kind) {
+                bail!(
+                    "`{kind}` is not an interchange type; expected the form `name.vN`, e.g. outline.v1"
+                );
+            }
+        }
         if let NetCap::Allowlist { allowlist, reason } = &self.capabilities.net {
             if allowlist.is_empty() {
                 bail!("net allowlist is empty; use net = \"none\"");

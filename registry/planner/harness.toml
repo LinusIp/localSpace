@@ -20,6 +20,7 @@ views = [
 ]
 tools = "tools.json"
 context_provider = true
+accepts = ["outline.v1"]
 doc = "crdt"
 file_types = [".lsplan"]
 logic = "logic.wasm"

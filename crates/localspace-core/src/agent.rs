@@ -19,7 +19,21 @@ pub fn turn(core: &mut Core, text: &str) {
         content: text.to_string(),
         tool_calls: Vec::new(),
     });
-    core.run = Some(format!("run_{}", crate::dag::now_ms()));
+    let run = format!("run_{}", crate::dag::now_ms());
+    core.run = Some(run.clone());
+
+    // A fresh ledger for this run. Artifacts carry over: what an earlier turn
+    // produced is still addressable, which is what makes "now put those on the
+    // board" work across turns.
+    let carried = std::mem::take(&mut core.task.artifacts);
+    core.task = proto::Task {
+        id: run,
+        goal: text.to_string(),
+        artifacts: carried,
+        ..Default::default()
+    };
+    core.emit_task();
+
     run_loop(core, 0);
 }
 
@@ -49,7 +63,13 @@ fn run_loop(core: &mut Core, mut steps: usize) {
             ));
         }
         let blocks = core.context_blocks();
-        let p = prompt::build(&core.cfg.profile, &active, &blocks, &core.transcript);
+        let p = prompt::build(
+            &core.cfg.profile,
+            &active,
+            &blocks,
+            Some(&core.task),
+            &core.transcript,
+        );
 
         if p.total_tokens() > core.cfg.profile.prompt_tokens_per_step {
             core.trace(format!(
@@ -124,6 +144,7 @@ fn run_loop(core: &mut Core, mut steps: usize) {
             }
 
             let outcome = core.call_tool(&call.tool, &call.params, proto::Author::Agent);
+            core.task_progress(&call.tool, &outcome);
 
             if let proto::ToolOutcome::Error { message } = &outcome {
                 // A call Core could not even attempt is a malformed call, and
@@ -182,6 +203,18 @@ fn record_call(core: &mut Core, tool: &str, params: &J, outcome: proto::ToolOutc
 /// rather than landing on the head.
 fn finish_run(core: &mut Core) {
     let Some(run) = core.run.take() else { return };
+
+    // Steps the agent was working in are done when the turn ends.
+    let mut settled = false;
+    for step in core.task.plan.iter_mut() {
+        if step.status == proto::StepStatus::Active {
+            step.status = proto::StepStatus::Done;
+            settled = true;
+        }
+    }
+    if settled {
+        core.emit_task();
+    }
 
     let commits = core.dag.history(256).unwrap_or_default();
     let mine: Vec<&proto::Commit> = commits

@@ -620,6 +620,55 @@ impl Guest for Whiteboard {
                 )
             }
 
+            "canvas.export_outline" => {
+                // outline.v1: `{title, items: [{id, text, kind, fill, frame}]}`.
+                // Written into the document so the artifact Core registers is a
+                // DAG reference to a version that contains it — not a copy.
+                let frame = params.get("frame").and_then(|f| f.as_str()).map(|s| s.to_string());
+                let items: Vec<Value> = doc["shapes"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|sh| sh["kind"].as_str() != Some("arrow") && sh["kind"].as_str() != Some("ink"))
+                    .filter(|sh| !sh["text"].as_str().unwrap_or("").trim().is_empty())
+                    .filter(|sh| match &frame {
+                        Some(f) => sh["frame"].as_str() == Some(f),
+                        None => true,
+                    })
+                    .map(|sh| {
+                        json!({
+                            "id": sh["id"],
+                            "text": sh["text"],
+                            "kind": sh["kind"],
+                            "fill": sh["fill"],
+                            "frame": sh["frame"],
+                        })
+                    })
+                    .collect();
+                if items.is_empty() {
+                    return fail("nothing on the board has text to export");
+                }
+                let n = items.len();
+                let title = doc["title"].as_str().unwrap_or("Board").to_string();
+                doc["outline"] = json!({
+                    "kind": "outline.v1",
+                    "title": title,
+                    "items": items,
+                });
+                if let Err(e) = save(&doc) {
+                    return fail(e);
+                }
+                let summary = format!("{n} item(s) from board \"{title}\"");
+                ok(
+                    json!({
+                        "items": n,
+                        "artifact": {"kind": "outline.v1", "summary": summary},
+                    }),
+                    &format!("exported {n} item(s) as an outline"),
+                )
+            }
+
             other => fail(format!("`{other}` is not a whiteboard tool")),
         }
     }

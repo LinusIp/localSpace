@@ -153,6 +153,41 @@ impl Exposure<'_> {
             proto::ToolKind::Read,
         )];
 
+        // The ledger's two writes (spec §18.4): a plan across harnesses, and a
+        // note for later. Cheap enough to be present on every turn.
+        out.push(builtin(
+            "task.plan",
+            "Write the plan: one step per harness, in order, with the intent of each.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "harness": {"type": "string"},
+                                "intent": {"type": "string"}
+                            },
+                            "required": ["harness", "intent"]
+                        }
+                    }
+                },
+                "required": ["steps"]
+            }),
+            proto::ToolKind::Write,
+        ));
+        out.push(builtin(
+            "task.note",
+            "Keep a short note in the task ledger: a decision, or an open question.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"]
+            }),
+            proto::ToolKind::Write,
+        ));
+
         if self.network != proto::NetworkMode::Airgapped {
             out.push(builtin(
                 "web.search",

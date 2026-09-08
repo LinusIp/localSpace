@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>localSpace — a self-hosted AI workstation, built in Rust</title>
+<meta name="description" content="A local-first AI workstation where every capability is a sandboxed harness: its own UI, typed tools the agent can call, and a context provider. Every agent action is permission-checked and lands as an undoable commit. One Rust binary, desktop or server. No telemetry.">
+<link rel="canonical" href="https://localspace.dev/">
+
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://localspace.dev/">
+<meta property="og:site_name" content="localSpace">
+<meta property="og:title" content="localSpace — a self-hosted AI workstation, built in Rust">
+<meta property="og:description" content="Every capability is a sandboxed harness. Every agent action is permission-checked and lands as an undoable commit. Your hardware, your weights, no telemetry.">
+<meta property="og:image" content="https://localspace.dev/assets/canvas.png">
+<meta property="og:image:alt" content="The localSpace desktop client: a whiteboard canvas with sticky notes, an agent dock, and a harness details panel showing capability toggles.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="localSpace — a self-hosted AI workstation, built in Rust">
+<meta name="twitter:description" content="Every capability is a sandboxed harness. Every agent action is permission-checked and lands as an undoable commit.">
+<meta name="twitter:image" content="https://localspace.dev/assets/canvas.png">
+
+<meta name="theme-color" content="#F4ECD8">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='%23FBF5E9' stroke='%232C1810' stroke-width='2.5'/><circle cx='16' cy='16' r='5.5' fill='%23A04030'/></svg>">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  color-scheme: light;
+  --paper:#F4ECD8; --panel:#FBF5E9; --raised:#EADCC8; --ink-deep:#241309;
+  --ink:#2C1810; --ink-2:#5D4037; --ink-3:#8D6E63; --ink-4:#B3A196;
+  --rule:rgba(44,24,16,.22); --rule-2:rgba(44,24,16,.42);
+  --sanguine:#9E3B2C; --sanguine-2:#BF4A36; --ochre:#A87908; --olive:#4F6327;
+  --shadow:4px 4px 0 rgba(44,24,16,.13);
+  --shadow-lg:9px 9px 0 rgba(44,24,16,.13);
+  --wrap:1180px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.55; -webkit-font-smoothing:antialiased; overflow-x:hidden;
+  background-image:radial-gradient(rgba(44,24,16,.028) 1px,transparent 1px);
+  background-size:22px 22px;
+}
+img{max-width:100%;display:block}
+a{color:inherit}
+:focus-visible{outline:2.5px solid var(--sanguine);outline-offset:3px;border-radius:3px}
+
+.wrap{max-width:var(--wrap);margin:0 auto;padding:0 28px;position:relative;z-index:1}
+.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+code{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
+
+/* Entrance settles from a *visible* resting state — never parked at opacity:0.
+   The first painted frame is what a share preview and a skimming reader get,
+   and it has to be readable with or without the observer ever firing. */
+.reveal{opacity:1}
+.js .reveal{transform:translateY(14px);transition:transform .6s cubic-bezier(.16,1,.3,1)}
+.js .reveal.in{transform:none}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .js .reveal{opacity:1;transform:none;transition:none}
+  *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+}
+
+/* ---------- nav ---------- */
+nav{position:sticky;top:0;z-index:100;height:62px;border-bottom:1.5px solid var(--rule);
+  background:rgba(244,236,216,.88);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.nav-in{display:flex;align-items:center;justify-content:space-between;height:100%}
+.logo{display:flex;align-items:center;gap:10px;font-family:Fraunces,Georgia,serif;font-weight:600;
+  font-size:20px;letter-spacing:-.02em;text-decoration:none;color:var(--ink)}
+.mark{width:25px;height:25px;border-radius:50%;border:2px solid var(--ink);background:var(--panel);
+  display:grid;place-items:center;flex:0 0 auto}
+.mark::after{content:"";width:9px;height:9px;border-radius:50%;background:var(--sanguine)}
+.nav-links{display:flex;align-items:center;gap:26px}
+.nav-links a{font-size:13.5px;font-weight:500;color:var(--ink-2);text-decoration:none}
+.nav-links a:hover{color:var(--ink)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:13.5px;font-weight:600;
+  padding:10px 17px;border:2px solid var(--ink);border-radius:7px;background:var(--panel);color:var(--ink);
+  text-decoration:none;cursor:pointer;box-shadow:var(--shadow);transition:transform .14s,box-shadow .14s;
+  font-family:inherit;white-space:nowrap}
+.btn:hover{transform:translate(-1.5px,-1.5px);box-shadow:6px 6px 0 rgba(44,24,16,.18)}
+.btn:active{transform:translate(1px,1px);box-shadow:2px 2px 0 rgba(44,24,16,.18)}
+.btn:disabled{opacity:.6;cursor:default;transform:none}
+.btn-primary{background:var(--sanguine);border-color:var(--ink);color:#FBF5E9;box-shadow:4px 4px 0 var(--ink)}
+.btn-primary:hover{background:var(--sanguine-2);box-shadow:6px 6px 0 var(--ink)}
+.btn-primary:active{box-shadow:2px 2px 0 var(--ink)}
+
+/* ---------- hero ---------- */
+.hero{padding:74px 0 84px;border-bottom:1.5px solid var(--rule)}
+.hero-grid{display:grid;grid-template-columns:1.02fr 1fr;gap:60px;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:9px;padding:5px 13px 5px 7px;border-radius:100px;
+  background:var(--panel);border:1.5px solid var(--rule-2);font-size:11.5px;color:var(--ink-2);
+  margin-bottom:26px;box-shadow:2px 2px 0 rgba(44,24,16,.08)}
+.pill .tag{padding:2px 7px;border-radius:100px;background:var(--ink);color:var(--paper);font-weight:500;font-size:10.5px}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:var(--olive)}
+h1{font-family:Fraunces,Georgia,serif;font-weight:500;font-size:clamp(43px,5.6vw,70px);
+  line-height:1.03;letter-spacing:-.035em;margin-bottom:22px}
+h1 em{font-style:italic;font-weight:400;color:var(--sanguine)}
+.lede{font-size:17.5px;line-height:1.6;color:var(--ink-2);max-width:560px;margin-bottom:16px}
+.lede strong{color:var(--ink);font-weight:600}
+.lede-2{font-size:15px;line-height:1.6;color:var(--ink-3);max-width:560px;margin-bottom:30px}
+.lede-2 strong{color:var(--ink-2);font-weight:600}
+
+/* ---------- form ---------- */
+.wl{max-width:520px}
+.wl-row{display:flex;gap:10px;margin-bottom:10px}
+.field{flex:1;min-width:0}
+.vh{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.inp,.sel{width:100%;background:var(--panel);border:2px solid var(--ink);color:var(--ink);
+  padding:12px 14px;border-radius:7px;font-family:"JetBrains Mono",monospace;font-size:13px;
+  outline:none;box-shadow:3px 3px 0 rgba(44,24,16,.1);transition:box-shadow .15s,transform .15s,border-color .15s}
+.inp::placeholder{color:var(--ink-4)}
+.inp:focus,.sel:focus{border-color:var(--sanguine);box-shadow:4px 4px 0 var(--sanguine);transform:translate(-1px,-1px);outline:none}
+.sel{cursor:pointer;color:var(--ink-2);appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7' viewBox='0 0 11 7'%3E%3Cpath d='M1 1l4.5 4.5L10 1' stroke='%235D4037' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 13px center;padding-right:34px}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+.wl-note{font-size:11.5px;color:var(--ink-3);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.wl-note .ok{color:var(--olive);font-weight:500}
+.wl-status{font-size:13px;padding:12px 14px;border-radius:7px;border:2px dashed var(--rule-2);
+  background:var(--panel);margin-bottom:10px;line-height:1.5;color:var(--ink-2)}
+.wl-status[data-tone="err"]{border-color:var(--sanguine);color:var(--sanguine)}
+.wl-status[data-tone="ok"]{border-style:solid;border-color:var(--olive);color:var(--ink)}
+.wl-status[hidden]{display:none}
+
+/* ---------- app frame ---------- */
+.frame{border:2px solid var(--ink);border-radius:10px;background:var(--panel);overflow:hidden;
+  box-shadow:var(--shadow-lg)}
+.frame-bar{display:flex;align-items:center;gap:9px;padding:9px 13px;border-bottom:1.5px solid var(--rule);
+  background:var(--raised)}
+.lights{display:flex;gap:5px;flex:0 0 auto}
+.lights i{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--ink);display:block}
+.lights i:nth-child(1){background:var(--sanguine)}
+.lights i:nth-child(2){background:var(--ochre)}
+.lights i:nth-child(3){background:var(--olive)}
+.frame-title{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--ink-3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0}
+.frame-shot{background:#fff}
+.frame-shot img{width:100%;height:auto}
+figcaption{font-size:12.5px;color:var(--ink-3);margin-top:12px;line-height:1.55}
+figcaption b{color:var(--ink-2);font-weight:600}
+
+/* ---------- strip ---------- */
+.strip{border-bottom:1.5px solid var(--rule);background:var(--raised)}
+.strip-in{display:flex;flex-wrap:wrap;gap:10px 34px;padding:17px 0;font-size:12px;color:var(--ink-2);
+  align-items:center;justify-content:space-between}
+.strip-in span{display:inline-flex;align-items:center;gap:8px}
+.strip-in b{width:6px;height:6px;border-radius:50%;background:var(--sanguine);flex:0 0 auto}
+
+/* ---------- sections ---------- */
+section{padding:96px 0;border-bottom:1.5px solid var(--rule);position:relative}
+.eyebrow{display:inline-flex;align-items:center;gap:9px;font-family:"JetBrains Mono",monospace;
+  font-size:11.5px;color:var(--sanguine);letter-spacing:.06em;margin-bottom:16px}
+.eyebrow i{color:var(--ink-4);font-style:normal}
+h2{font-family:Fraunces,Georgia,serif;font-weight:500;font-size:clamp(30px,3.6vw,41px);
+  line-height:1.12;letter-spacing:-.03em;margin-bottom:15px}
+h2 em{font-style:italic;color:var(--sanguine)}
+.sub{font-size:16px;line-height:1.65;color:var(--ink-2);max-width:640px}
+.sub strong{color:var(--ink);font-weight:600}
+.head{max-width:700px;margin-bottom:44px}
+
+.two{display:grid;grid-template-columns:1fr 1.12fr;gap:56px;align-items:center}
+.two.flip{grid-template-columns:1.12fr 1fr}
+/* grid items default to min-width:auto, so any nowrap descendant can widen the
+   whole track and push the page into horizontal scroll. Opt out explicitly. */
+.hero-grid>*,.two>*,.cards>*{min-width:0}
+
+.steps{display:flex;flex-direction:column;gap:16px;margin-top:28px}
+.step{display:flex;gap:14px;align-items:flex-start}
+.step .n{flex:0 0 auto;font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:500;
+  color:var(--sanguine);padding:3px 9px;border-radius:5px;background:rgba(158,59,44,.09);
+  border:1.5px solid rgba(158,59,44,.5)}
+.step .t{font-size:14.5px;line-height:1.55;color:var(--ink-2)}
+.step .t strong{color:var(--ink);font-weight:600}
+
+/* pipeline */
+.pipe{display:flex;flex-direction:column;margin-top:8px}
+.pipe-item{display:flex;gap:14px;align-items:flex-start;padding:13px 0}
+.pipe-item + .pipe-item{border-top:1px dashed var(--rule)}
+.pipe-item .k{flex:0 0 128px;font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--sanguine);padding-top:2px}
+.pipe-item .v{font-size:14px;color:var(--ink-2);line-height:1.55}
+.pipe-item .v b{color:var(--ink);font-weight:600}
+
+/* cards */
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.card{padding:24px;border:2px solid var(--ink);border-radius:10px;background:var(--panel);
+  box-shadow:var(--shadow);transition:transform .3s cubic-bezier(.16,1,.3,1),box-shadow .3s}
+.card:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 rgba(44,24,16,.16)}
+.card h3{font-family:Fraunces,Georgia,serif;font-weight:500;font-size:20px;letter-spacing:-.02em;
+  margin-bottom:9px;line-height:1.25}
+.card p{font-size:13.5px;line-height:1.6;color:var(--ink-2)}
+.card .kicker{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--ink-4);
+  letter-spacing:.07em;margin-bottom:12px}
+
+/* terminal */
+.term{background:var(--ink-deep);border:2px solid var(--ink);border-radius:9px;overflow:hidden;
+  box-shadow:var(--shadow-lg);font-family:"JetBrains Mono",monospace;font-size:12.5px;line-height:1.75}
+.term-bar{padding:9px 13px;border-bottom:1.5px solid rgba(244,236,216,.14);display:flex;align-items:center;gap:9px}
+.term-bar .lights i{border-color:rgba(244,236,216,.55)}
+.term-bar .t{font-size:10.5px;color:rgba(244,236,216,.42)}
+.term-body{padding:18px 20px;color:rgba(244,236,216,.8);overflow-x:auto}
+.term-body div{white-space:pre}
+.c-p{color:#C99A2E}
+.c-cmd{color:#F4ECD8}
+.c-dim{color:rgba(244,236,216,.46)}
+.c-ok{color:#9DBB63}
+.c-warn{color:#E0A94A}
+.c-red{color:#DD7A64}
+
+/* status table */
+.st-legend{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:22px;font-size:12.5px;color:var(--ink-2)}
+.st-legend span{display:inline-flex;align-items:center;gap:8px}
+.st-legend b{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+.b-built{background:var(--olive)} .b-part{background:var(--ochre)} .b-no{background:var(--ink-4)}
+.st{border:2px solid var(--ink);border-radius:10px;overflow:hidden;background:var(--panel);box-shadow:var(--shadow-lg)}
+.st-row{display:grid;grid-template-columns:112px 1fr;gap:18px;padding:15px 20px;align-items:start}
+.st-row + .st-row{border-top:1px solid var(--rule)}
+.st-row.hdr{background:var(--raised);font-family:"JetBrains Mono",monospace;font-size:10.5px;
+  color:var(--ink-3);letter-spacing:.07em;padding:11px 20px}
+.st-tag{font-family:"JetBrains Mono",monospace;font-size:10.5px;font-weight:500;padding:3px 9px;
+  border-radius:5px;display:inline-block;white-space:nowrap}
+.t-built{background:rgba(79,99,39,.13);color:var(--olive);border:1.5px solid rgba(79,99,39,.55)}
+.t-part{background:rgba(168,121,8,.13);color:#8A6406;border:1.5px solid rgba(168,121,8,.55)}
+.t-no{background:rgba(44,24,16,.06);color:var(--ink-3);border:1.5px solid var(--rule-2)}
+.st-txt{font-size:14px;line-height:1.55;color:var(--ink-2)}
+.st-txt b.h{color:var(--ink);font-weight:600;display:block;margin-bottom:3px;font-size:14.5px}
+.st-txt b{color:var(--ink);font-weight:600}
+.st-foot{padding:16px 20px;background:var(--raised);border-top:1.5px solid var(--rule);
+  font-size:13px;color:var(--ink-2);line-height:1.65}
+.st-foot code{background:var(--panel);padding:2px 6px;border-radius:4px;border:1px solid var(--rule)}
+
+/* quote */
+.quote{padding:104px 0}
+.quote p.q{font-family:Fraunces,Georgia,serif;font-style:italic;font-weight:400;
+  font-size:clamp(23px,3vw,35px);line-height:1.32;letter-spacing:-.02em;max-width:860px;margin:0 auto;text-align:center}
+.quote p.q em{font-style:italic;color:var(--sanguine)}
+.quote .by{margin:26px auto 0;max-width:660px;text-align:center;font-size:14.5px;
+  color:var(--ink-2);line-height:1.65}
+
+/* cta */
+.cta{border:2px solid var(--ink);border-radius:14px;padding:56px 40px;background:var(--panel);
+  box-shadow:var(--shadow-lg);position:relative;overflow:hidden;text-align:center}
+.cta::before{content:"";position:absolute;inset:0 0 auto 0;height:5px;background:var(--sanguine)}
+.cta .sub{margin:0 auto 30px}
+.cta .wl{margin:0 auto;text-align:left}
+.cta .wl-note{justify-content:center}
+
+/* footer */
+footer{padding:56px 0 30px}
+.f-grid{display:grid;grid-template-columns:2.1fr 1fr 1fr 1fr;gap:40px}
+.f-tag{font-size:13.5px;color:var(--ink-2);line-height:1.6;max-width:290px;margin-top:12px}
+.f-col h4{font-family:"JetBrains Mono",monospace;font-size:10.5px;color:var(--ink-4);
+  letter-spacing:.08em;margin-bottom:13px;font-weight:500}
+.f-col ul{list-style:none;display:flex;flex-direction:column;gap:9px}
+.f-col a{font-size:13.5px;color:var(--ink-2);text-decoration:none}
+.f-col a:hover{color:var(--sanguine)}
+.f-bot{margin-top:44px;padding-top:22px;border-top:1.5px solid var(--rule);display:flex;
+  justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;
+  font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--ink-3)}
+.f-bot .l{display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+
+::selection{background:var(--sanguine);color:var(--panel)}
+
+@media (max-width:960px){
+  .hero-grid,.two,.two.flip{grid-template-columns:1fr;gap:40px}
+  .two.flip .col-a{order:2}
+  .cards{grid-template-columns:1fr}
+  .f-grid{grid-template-columns:1fr 1fr;gap:32px}
+  section{padding:70px 0}
+  .hero{padding:52px 0 60px}
+}
+@media (max-width:620px){
+  .wrap{padding:0 20px}
+  .nav-links a:not(.btn){display:none}
+  .wl-row{flex-direction:column}
+  .pipe-item{flex-direction:column;gap:5px}
+  .pipe-item .k{flex:none}
+  .st-row{grid-template-columns:1fr;gap:9px}
+  .st-row.hdr{display:none}
+  .cta{padding:38px 22px}
+  .f-grid{grid-template-columns:1fr}
+  .quote{padding:70px 0}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-in">
+    <a class="logo" href="#top"><span class="mark" aria-hidden="true"></span>localSpace</a>
+    <div class="nav-links">
+      <a href="#harness">Harnesses</a>
+      <a href="#commits">Commits</a>
+      <a href="#deploy">Deploy</a>
+      <a href="#status">What's built</a>
+      <a class="btn btn-primary" href="#waitlist">Join the waitlist</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="pill mono">
+        <span class="tag">v0.1</span>
+        <span>developer preview</span>
+        <span aria-hidden="true" style="color:var(--ink-4)">·</span>
+        <span class="dot" aria-hidden="true"></span>
+        <span>MIT or Apache-2.0</span>
+      </p>
+
+      <h1>Local AI that can<br><em>touch your work.</em></h1>
+
+      <p class="lede">
+        A chat-only assistant can describe your whiteboard. localSpace lets one
+        <strong>edit it</strong> — through typed tools, behind a permission check, with
+        every change recorded as a commit you can undo.
+      </p>
+      <p class="lede-2">
+        A self-hosted AI workstation built end to end in Rust. Everything you see is a
+        <strong>harness</strong>: a sandboxed UI, tools the agent can call, and a context
+        provider that tells the model what is actually on screen. Your hardware, your
+        weights, no telemetry.
+      </p>
+
+      <form class="wl" id="wl-hero" novalidate>
+        <div class="wl-status" role="status" aria-live="polite" hidden></div>
+        <div class="wl-row">
+          <div class="field">
+            <label class="vh" for="e1">Email address</label>
+            <input class="inp" id="e1" name="email" type="email" inputmode="email"
+                   autocomplete="email" placeholder="you@yourmachine.dev" required>
+          </div>
+          <button class="btn btn-primary" type="submit">Request access</button>
+        </div>
+        <div class="wl-row">
+          <div class="field">
+            <label class="vh" for="u1">How would you run it?</label>
+            <select class="sel" id="u1" name="use_case">
+              <option value="">How would you run it? (optional)</option>
+              <option>On my own workstation</option>
+              <option>A server for my team</option>
+              <option>Writing a harness of my own</option>
+              <option>Evaluating for a regulated or air-gapped environment</option>
+              <option>Just curious</option>
+            </select>
+          </div>
+        </div>
+        <input class="hp" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <p class="wl-note mono">
+          <span><span class="ok">&#10003;</span> no tracking pixels</span>
+          <span><span class="ok">&#10003;</span> one email, when the build lands</span>
+        </p>
+      </form>
+    </div>
+
+    <figure class="reveal">
+      <div class="frame">
+        <div class="frame-bar">
+          <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="frame-title">localSpace &mdash; whiteboard harness &middot; branch: main</span>
+        </div>
+        <div class="frame-shot">
+          <img src="assets/canvas.png" width="1460" height="920" decoding="async"
+               alt="The localSpace desktop client. A whiteboard canvas holds four cards; a rail on the left lists Canvas, Agent, Tools, Models, Data, History, Library and Market; a right-hand panel shows the Whiteboard harness with its capabilities — filesystem, network, GPU, documents, inference — all set to none; the status bar reads &quot;No telemetry&quot;.">
+        </div>
+      </div>
+      <figcaption>
+        The actual client, not a mockup. <b>Every capability in that right-hand panel is
+        off</b> — the whiteboard declared none, so it gets none.
+      </figcaption>
+    </figure>
+  </div>
+</header>
+
+<div class="strip">
+  <div class="wrap strip-in mono">
+    <span><b aria-hidden="true"></b>Rust, end to end</span>
+    <span><b aria-hidden="true"></b>wasmtime sandbox</span>
+    <span><b aria-hidden="true"></b>Automerge history</span>
+    <span><b aria-hidden="true"></b>50&nbsp;MB idle budget, measured</span>
+    <span><b aria-hidden="true"></b>Runs air-gapped</span>
+  </div>
+</div>
+
+<!-- ============ 01 · HARNESS ============ -->
+<section id="harness">
+  <div class="wrap">
+    <div class="head reveal">
+      <p class="eyebrow"><i>01</i> &middot; THE PRIMITIVE</p>
+      <h2>Not features. <em>Harnesses.</em></h2>
+      <p class="sub">
+        A whiteboard, a planning board, a physics sim, the settings screen, the marketplace
+        itself — each is an installed package, and each brings the same three things. A
+        package missing any of them is not agent-usable, and localSpace says so at install
+        rather than at the moment it fails.
+      </p>
+    </div>
+
+    <div class="two reveal">
+      <div class="col-a">
+        <div class="pipe">
+          <div class="pipe-item">
+            <span class="k">surface</span>
+            <span class="v">A UI for the human, compiled to WebAssembly and run with <b>no host imports</b>. It draws; it cannot reach your disk.</span>
+          </div>
+          <div class="pipe-item">
+            <span class="k">tools</span>
+            <span class="v">Typed actions the agent can call, with JSON Schema parameters. Linted at install: a word budget on every summary, <b>at most eight parameters</b>, no unconfirmed write that cannot be undone.</span>
+          </div>
+          <div class="pipe-item">
+            <span class="k">context</span>
+            <span class="v">A text serialization of what is on screen right now, rendered to <b>whatever token budget Core hands it</b> — so the model sees the board, not a scrollback.</span>
+          </div>
+        </div>
+
+        <div class="steps">
+          <div class="step">
+            <span class="n">deny</span>
+            <p class="t">Capabilities are <strong>default deny</strong>. A package that later wants the network re-prompts with a diff of exactly what changed.</p>
+          </div>
+          <div class="step">
+            <span class="n">local</span>
+            <p class="t">The marketplace reads from a <strong>local bundle</strong> — nothing is downloaded to browse it. Organisations curate their own catalog and publish internal tools under their own key.</p>
+          </div>
+        </div>
+      </div>
+
+      <figure>
+        <div class="frame">
+          <div class="frame-bar">
+            <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="frame-title">localSpace &mdash; marketplace</span>
+          </div>
+          <div class="frame-shot">
+            <img src="assets/marketplace.png" width="1460" height="920" loading="lazy" decoding="async"
+                 alt="The localSpace marketplace listing two packages, Planning board and Whiteboard. Each entry states what it may do in plain language and shows its fit for an agent: tool count, front-door tools, context provider, CRDT document and eval cases.">
+          </div>
+        </div>
+        <figcaption>
+          Every listing states <b>what it may do</b> in plain language, and its fit for an
+          agent — tools, front doors, context provider, eval cases — before you install it.
+        </figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 02 · COMMITS ============ -->
+<section id="commits">
+  <div class="wrap">
+    <div class="head reveal">
+      <p class="eyebrow"><i>02</i> &middot; THE GATE</p>
+      <h2>The agent never touches <em>anything directly.</em></h2>
+      <p class="sub">
+        Every call goes through Core. That is the entire safety story, and it is one code
+        path — the same one <code>localspace call</code> takes from a shell script, so an
+        automation and an agent <strong>cannot diverge</strong>.
+      </p>
+    </div>
+
+    <div class="two flip reveal">
+      <figure class="col-a">
+        <div class="frame">
+          <div class="frame-bar">
+            <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="frame-title">localSpace &mdash; direct manipulation, one commit per gesture</span>
+          </div>
+          <div class="frame-shot">
+            <img src="assets/editing.png" width="1460" height="920" loading="lazy" decoding="async"
+                 alt="The localSpace whiteboard with a shape selected, a colour palette and a tool palette open, and the status bar reading &quot;1 of 5 selected&quot;.">
+          </div>
+        </div>
+        <figcaption>
+          You edit with a real tool palette — marquee select, resize handles, snapping, ink.
+          <b>One commit per gesture</b>, not one per frame.
+        </figcaption>
+      </figure>
+
+      <div>
+        <div class="pipe">
+          <div class="pipe-item"><span class="k">1 &middot; permission</span><span class="v">Is this harness allowed to do this at all? Checked against its manifest and the org policy.</span></div>
+          <div class="pipe-item"><span class="k">2 &middot; schema</span><span class="v">Parameters validated against the declared JSON Schema before anything runs.</span></div>
+          <div class="pipe-item"><span class="k">3 &middot; confirm</span><span class="v">Destructive actions hold at a gate. <b>A harness cannot pre-approve its own confirmations.</b></span></div>
+          <div class="pipe-item"><span class="k">4 &middot; commit</span><span class="v">The mutation lands in a version DAG with its parent, tool, parameters, document hash and a diff summary.</span></div>
+          <div class="pipe-item"><span class="k">5 &middot; reply</span><span class="v">The model gets <b>one short line back</b> — never the whole document.</span></div>
+        </div>
+
+        <div class="steps">
+          <div class="step">
+            <span class="n">undo</span>
+            <p class="t">Undo, redo, and <strong>reject an entire agent run</strong> as a single action — every write it made, gone together.</p>
+          </div>
+          <div class="step">
+            <span class="n">audit</span>
+            <p class="t">The log is append-only and <strong>hash-chained</strong>, verifiable, and reopened across restarts.</p>
+          </div>
+          <div class="step">
+            <span class="n">untrusted</span>
+            <p class="t">Fetched and retrieved content is wrapped as untrusted, and the loop <strong>does not follow instructions inside it</strong>. A tool the model was never shown cannot be called.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 03 · DEPLOY ============ -->
+<section id="deploy">
+  <div class="wrap">
+    <div class="head reveal">
+      <p class="eyebrow"><i>03</i> &middot; TOPOLOGY</p>
+      <h2>One binary. <em>Two modes.</em></h2>
+      <p class="sub">
+        <code>localspace</code> runs Core and the client in a single process on your desk.
+        <code>localspace-serve</code> runs the same Core behind an HTTP and WebSocket API for
+        a team. They share the entire protocol, so the personal app and the company server
+        <strong>cannot drift apart</strong>.
+      </p>
+    </div>
+
+    <div class="cards reveal">
+      <div class="card">
+        <p class="kicker mono">// PERSONAL</p>
+        <h3>A desktop app that weighs nothing</h3>
+        <p>Core and the client each hold to a 50&nbsp;MB idle budget — the shell, not the
+        workload. It is measured at runtime and printed against the budget, so the number is
+        never aspirational. The client repaints on input, never on a timer.</p>
+      </div>
+      <div class="card">
+        <p class="kicker mono">// TEAM</p>
+        <h3>The same Core, behind a socket</h3>
+        <p>Per-document ACLs are enforced on every read, every tool call and every sync
+        message. Concurrent edits converge through Automerge. A view-only member's writes are
+        rejected server-side, not merely hidden in the UI.</p>
+      </div>
+      <div class="card">
+        <p class="kicker mono">// AIR-GAPPED</p>
+        <h3>Offline as a posture, not a promise</h3>
+        <p>Under air-gapped mode the web tools are not blocked at call time — they are
+        <em>absent from the model's tool set entirely</em>. It cannot ask for what it was
+        never shown.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 04 · PLANNER ============ -->
+<section id="planner">
+  <div class="wrap">
+    <div class="two">
+      <div class="reveal">
+        <p class="eyebrow"><i>04</i> &middot; PLACEMENT</p>
+        <h2>Know what your machine can run <em>before</em> you download 60 GB.</h2>
+        <p class="sub">
+          <code>doctor</code> profiles the machine in front of it, then does real arithmetic
+          over a model's tensor map: what stays GPU-resident, which experts get a hot cache,
+          what falls back to RAM, what streams from NVMe, and what that costs per token. The
+          target is a 100B-class MoE running usefully on a single 32&nbsp;GB card.
+        </p>
+        <div class="steps">
+          <div class="step">
+            <span class="n">honest</span>
+            <p class="t">The throughput figure is a <strong>roofline estimate, not a measurement</strong> — bytes that must move per token, over the bandwidth of the path they move over. It is deliberately conservative, and meant to be replaced by a real measurement at install.</p>
+          </div>
+          <div class="step">
+            <span class="n">bring</span>
+            <p class="t">No weights are bundled. Point localSpace at any OpenAI-compatible endpoint — <strong>llama.cpp, LM Studio, mistral.rs, vLLM, SGLang</strong> — and it speaks to all of them.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="term reveal">
+        <div class="term-bar">
+          <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="t">localspace doctor</span>
+        </div>
+        <div class="term-body mono">
+<div><span class="c-p">$</span> <span class="c-cmd">localspace doctor</span></div>
+<div> </div>
+<div><span class="c-warn">&#9656;</span> <span class="c-dim">machine</span></div>
+<div>  <span class="c-dim">gpu</span>     1 &times; 32 GB</div>
+<div>  <span class="c-dim">ram</span>     64 GB    <span class="c-dim">cores</span>  16</div>
+<div>  <span class="c-dim">tier</span>    <span class="c-ok">W32</span> <span class="c-dim">(single-GPU workstation)</span></div>
+<div> </div>
+<div><span class="c-warn">&#9656;</span> <span class="c-dim">profile</span> <span class="c-cmd">W32 &mdash; 100B+ MoE, hybrid</span></div>
+<div>  <span class="c-dim">every agent budget comes from this</span></div>
+<div>  <span class="c-dim">profile, never from a constant.</span></div>
+<div> </div>
+<div><span class="c-warn">&#9656;</span> <span class="c-dim">placement</span> <span class="c-dim">(roofline estimate)</span></div>
+<div>  <span class="c-ok">&#10003;</span> attention + router  <span class="c-dim">GPU-resident</span></div>
+<div>  <span class="c-ok">&#10003;</span> hot experts         <span class="c-dim">GPU cache</span></div>
+<div>  <span class="c-ok">&#10003;</span> cold experts        <span class="c-dim">RAM</span></div>
+<div>  <span class="c-warn">!</span> overflow            <span class="c-dim">NVMe stream</span></div>
+<div>  <span class="c-dim">kv cache</span>            <span class="c-dim">Q8</span></div>
+<div> </div>
+<div><span class="c-red">verdict</span> <span class="c-cmd">runs &mdash; interactive, not fast</span></div>
+<div><span class="c-dim">measure before you trust: </span><span class="c-cmd">localspace bench</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 05 · STATUS ============ -->
+<section id="status">
+  <div class="wrap">
+    <div class="head reveal">
+      <p class="eyebrow"><i>05</i> &middot; HONESTLY</p>
+      <h2>What is built, and what <em>is not.</em></h2>
+      <p class="sub">
+        This is a developer preview, and you are the sort of person who checks. So here is the
+        real state of it — the same table that ships in the repository, where it is
+        <strong>written to be checkable rather than flattering</strong>.
+      </p>
+    </div>
+
+    <div class="reveal">
+      <div class="st-legend mono">
+        <span><b class="b-built" aria-hidden="true"></b>built &mdash; backed by a named test</span>
+        <span><b class="b-part" aria-hidden="true"></b>partial &mdash; works, with a stated limit</span>
+        <span><b class="b-no" aria-hidden="true"></b>not built</span>
+      </div>
+
+      <div class="st">
+        <div class="st-row hdr"><span>STATE</span><span>SUBJECT</span></div>
+
+        <div class="st-row">
+          <span><span class="st-tag t-built">built</span></span>
+          <span class="st-txt"><b class="h">The plugin core, end to end</b>A wasm harness installs, its tools reach the agent under a per-turn budget, its surface runs sandboxed in the client, its context provider is called with a real token budget, every write lands as a commit, and undo, redo and whole-run rejection all work.</span>
+        </div>
+        <div class="st-row">
+          <span><span class="st-tag t-built">built</span></span>
+          <span class="st-txt"><b class="h">Permissions, version DAG, audit, ACLs</b>Default deny throughout, with capability diffs on any widening. Append-only hash-chained audit. Per-document ACLs enforced on read, tool call and sync message. Untrusted-content handling in the agent loop.</span>
+        </div>
+        <div class="st-row">
+          <span><span class="st-tag t-part">partial</span></span>
+          <span class="st-txt"><b class="h">Two topologies</b>Desktop and server share Core and the whole protocol. <b>The browser client bundle is not built yet</b> — the crate targets wasm32 and the browser surface runner returns an explicit error rather than silently doing nothing.</span>
+        </div>
+        <div class="st-row">
+          <span><span class="st-tag t-part">partial</span></span>
+          <span class="st-txt"><b class="h">Marketplace</b>Lists and installs from an offline bundle, holding any capability widening at an explicit approval, and scores a package against an eval suite. No signing, no HTTP registry index, no organisation review queue.</span>
+        </div>
+        <div class="st-row">
+          <span><span class="st-tag t-part">partial</span></span>
+          <span class="st-txt"><b class="h">Placement planner</b>Real arithmetic and a verdict, with reference maps for a 100B+ MoE at Q4 and a 70B dense at FP8. The throughput is a roofline estimate, and no backend consumes the plan yet.</span>
+        </div>
+        <div class="st-row">
+          <span><span class="st-tag t-no">not built</span></span>
+          <span class="st-txt"><b class="h">Identity, retrieval, model serving</b>No OIDC, SAML or SCIM — the single largest gap for a real deployment. No ACL-filtered retrieval yet: <code>docs.search</code> returns "not available in this build" rather than an empty result that would read as "nothing matched". Core routes to one external endpoint; there are no supervised inference workers.</span>
+        </div>
+        <div class="st-row">
+          <span><span class="st-tag t-no">not built</span></span>
+          <span class="st-txt"><b class="h">Entitlements and the admin console</b>Offline-verified seat licensing and the organisation admin console are designed, not written.</span>
+        </div>
+
+        <div class="st-foot">
+          Every "built" claim above is backed by code you can run and, in most cases, by a
+          named test. <code>cargo test --workspace</code> is the short version; the whiteboard
+          suite installs the real package — logic running as a wasm component under wasmtime —
+          and drives it through Core exactly as the agent does.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ QUOTE ============ -->
+<section class="quote">
+  <div class="wrap reveal">
+    <p class="q">We did not build a server we cannot see into.<br>
+    We built <em>one binary</em> that never needed one.</p>
+    <p class="by">
+      There is no telemetry to disable, because none was written. The status bar reads
+      <span class="mono" style="font-size:13px">No telemetry</span> as a fact about the binary,
+      not as a setting you have to find. The only network call localSpace makes is the one you
+      point it at.
+    </p>
+  </div>
+</section>
+
+<!-- ============ WAITLIST ============ -->
+<section id="waitlist" style="border-bottom:none">
+  <div class="wrap">
+    <div class="cta reveal">
+      <p class="eyebrow" style="justify-content:center"><i>06</i> &middot; DEVELOPER PREVIEW</p>
+      <h2>Run it on <em>your</em> machine.</h2>
+      <p class="sub" style="text-align:center">
+        We are opening the preview to a small group who will actually push on it — people
+        running their own weights, writing their own harnesses, or trying to get an agent past
+        a compliance review. Tell us which, and we will get to you in that order.
+      </p>
+
+      <form class="wl" id="wl-foot" novalidate>
+        <div class="wl-status" role="status" aria-live="polite" hidden></div>
+        <div class="wl-row">
+          <div class="field">
+            <label class="vh" for="e2">Email address</label>
+            <input class="inp" id="e2" name="email" type="email" inputmode="email"
+                   autocomplete="email" placeholder="you@yourmachine.dev" required>
+          </div>
+          <button class="btn btn-primary" type="submit">Request access</button>
+        </div>
+        <div class="wl-row">
+          <div class="field">
+            <label class="vh" for="u2">How would you run it?</label>
+            <select class="sel" id="u2" name="use_case">
+              <option value="">How would you run it? (optional)</option>
+              <option>On my own workstation</option>
+              <option>A server for my team</option>
+              <option>Writing a harness of my own</option>
+              <option>Evaluating for a regulated or air-gapped environment</option>
+              <option>Just curious</option>
+            </select>
+          </div>
+        </div>
+        <input class="hp" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <p class="wl-note mono">
+          <span><span class="ok">&#10003;</span> no spam</span>
+          <span><span class="ok">&#10003;</span> no tracking</span>
+          <span><span class="ok">&#10003;</span> unsubscribe in one click</span>
+        </p>
+      </form>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="f-grid">
+      <div>
+        <a class="logo" href="#top"><span class="mark" aria-hidden="true"></span>localSpace</a>
+        <p class="f-tag">A self-hosted AI workstation where every capability is a sandboxed
+        harness. Built in Rust. Runs on your hardware.</p>
+      </div>
+      <div class="f-col">
+        <h4>PRODUCT</h4>
+        <ul>
+          <li><a href="#harness">Harnesses</a></li>
+          <li><a href="#commits">The Core gate</a></li>
+          <li><a href="#deploy">Desktop &amp; server</a></li>
+          <li><a href="#planner">Placement planner</a></li>
+        </ul>
+      </div>
+      <div class="f-col">
+        <h4>PROJECT</h4>
+        <ul>
+          <li><a href="#status">What is built</a></li>
+          <li><a href="#waitlist">Developer preview</a></li>
+          <li><a href="#">Harness authoring</a></li>
+          <li><a href="#">Roadmap</a></li>
+        </ul>
+      </div>
+      <div class="f-col">
+        <h4>CONTACT</h4>
+        <ul>
+          <li><a href="mailto:hello@localspace.dev">hello@localspace.dev</a></li>
+          <li><a href="#">GitHub</a></li>
+          <li><a href="#">Privacy</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="f-bot">
+      <div class="l">
+        <span>&copy; <span id="yr">2026</span> localSpace</span>
+        <span aria-hidden="true">&middot;</span>
+        <span>MIT or Apache-2.0</span>
+        <span aria-hidden="true">&middot;</span>
+        <span>No telemetry, by construction</span>
+      </div>
+      <div>v0.1.0 &middot; developer preview</div>
+    </div>
+  </div>
+</footer>
+
+<script>
+document.documentElement.classList.add('js');
+document.getElementById('yr').textContent = new Date().getFullYear();
+
+/* reveal on scroll */
+(function () {
+  var els = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window)) {
+    Array.prototype.forEach.call(els, function (el) { el.classList.add('in'); });
+    return;
+  }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) {
+      if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); }
+    });
+  }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+  Array.prototype.forEach.call(els, function (el) { io.observe(el); });
+})();
+
+/* waitlist */
+var ENDPOINT = 'https://formspree.io/f/xgawaneg';
+
+function wire(formId) {
+  var form = document.getElementById(formId);
+  if (!form) return;
+
+  var status = form.querySelector('.wl-status');
+  var email  = form.querySelector('input[type=email]');
+  var pick   = form.querySelector('select');
+  var trap   = form.querySelector('input[name="_gotcha"]');
+  var submit = form.querySelector('button[type=submit]');
+
+  function say(msg, tone) {
+    status.textContent = msg;
+    status.setAttribute('data-tone', tone || '');
+    status.hidden = false;
+  }
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    if (trap.value) return; // bot
+
+    var value = email.value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)) {
+      say('That email address does not look right — mind checking it?', 'err');
+      email.focus();
+      return;
+    }
+
+    var label = submit.textContent;
+    submit.disabled = true;
+    submit.textContent = 'Sending…';
+    say('Sending…', '');
+
+    fetch(ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        email: value,
+        use_case: (pick && pick.value) ? pick.value : 'unspecified',
+        _subject: 'localSpace preview request: ' + value
+      })
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error('http ' + res.status);
+        Array.prototype.forEach.call(
+          form.querySelectorAll('.wl-row, .wl-note'),
+          function (n) { n.hidden = true; }
+        );
+        say('You are on the list. We will email you once — when there is a build worth your disk space.', 'ok');
+      })
+      .catch(function () {
+        submit.disabled = false;
+        submit.textContent = label;
+        say('That did not go through. Try again, or email hello@localspace.dev directly.', 'err');
+      });
+  });
+}
+
+wire('wl-hero');
+wire('wl-foot');
+</script>
+</body>
+</html>

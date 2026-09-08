@@ -51,6 +51,10 @@ pub struct HostState {
     /// refused; the guest usually traps on the failed allocation; Core reads
     /// this to say why, then kills and restarts the instance.
     over_budget: Option<usize>,
+    /// Artifacts handed to the current call, `(id, JSON payload)`. Installed
+    /// by Core per call, after the `accepts` check, so `artifact-get` never
+    /// re-enters Core.
+    artifacts: Vec<(String, String)>,
 }
 
 /// The enforcement point for `[resources] memory_mb.logic` (spec §1.2).
@@ -149,6 +153,20 @@ impl HarnessHost for HostState {
         self.services.docs_search(&query)
     }
 
+    fn artifact_get(&mut self, id: String) -> Result<String, String> {
+        // Only what Core installed for this call is reachable: the agent's
+        // handoff, already checked against this harness's `accepts`.
+        self.artifacts
+            .iter()
+            .find(|(aid, _)| *aid == id)
+            .map(|(_, payload)| payload.clone())
+            .ok_or_else(|| {
+                format!(
+                    "`{id}` was not handed to this call; pass it as the tool's `artifact` parameter"
+                )
+            })
+    }
+
     fn net_fetch(&mut self, url: String, mode: String) -> Result<String, String> {
         // Two gates: the package's own allowlist, then the environment's mode,
         // which the gateway applies on the other side of this call.
@@ -222,6 +240,7 @@ impl WasmHarness {
             table: ResourceTable::new(),
             memory_budget: cfg.logic_memory_mb as usize * 1024 * 1024,
             over_budget: None,
+            artifacts: Vec::new(),
         };
 
         let mut store = Store::new(&engine, state);
@@ -295,6 +314,10 @@ const FUEL_PER_CALL: u64 = 2_000_000_000;
 impl HarnessRuntime for WasmHarness {
     fn over_budget(&self) -> Option<u64> {
         self.store.data().over_budget.map(|b| b as u64)
+    }
+
+    fn set_artifacts(&mut self, artifacts: Vec<(String, String)>) {
+        self.store.data_mut().artifacts = artifacts;
     }
 
     fn tools_json(&mut self) -> Result<String> {

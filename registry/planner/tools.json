@@ -131,5 +131,21 @@
     "undoable": false,
     "confirm": "never",
     "cost_hint": "instant"
+  },
+  {
+    "name": "board.import_outline",
+    "summary": "Import an outline.v1 artifact: each item becomes a card in a column.",
+    "params": {
+      "type": "object",
+      "properties": {
+        "artifact": { "type": "string" },
+        "column": { "type": "string" }
+      },
+      "required": ["artifact"]
+    },
+    "kind": "write",
+    "undoable": true,
+    "confirm": "never",
+    "cost_hint": "instant"
   }
 ]

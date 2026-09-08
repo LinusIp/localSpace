@@ -118,6 +118,11 @@ pub trait HarnessRuntime: Send {
     fn over_budget(&self) -> Option<u64> {
         None
     }
+
+    /// Artifacts the agent handed to the next call, as `(id, JSON payload)`.
+    /// Core has already checked the harness `accepts` each one; the harness
+    /// reads them through the `artifact-get` host import.
+    fn set_artifacts(&mut self, _artifacts: Vec<(String, String)>) {}
 }
 
 /// Everything a runtime needs to enforce the package's declared authority.

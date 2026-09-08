@@ -21,6 +21,7 @@ views = [
 ]
 tools = "tools.json"
 context_provider = true
+produces = ["outline.v1"]
 doc = "crdt"
 file_types = [".lsboard"]
 logic = "logic.wasm"

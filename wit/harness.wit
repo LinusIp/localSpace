@@ -38,6 +38,12 @@ interface host {
     /// Requires a `net` allowlist covering the host, and an environment
     /// network mode that permits egress.
     net-fetch: func(url: string, mode: string) -> result<string, string>;
+
+    /// Resolve an artifact the agent handed this harness (spec §18.2).
+    /// Returns JSON `{id, kind, summary, produced-by, commit, content}` where
+    /// `content` is the producing document at the pinned commit. Core has
+    /// already checked that this harness `accepts` the artifact's kind.
+    artifact-get: func(id: string) -> result<string, string>;
 }
 
 world harness {

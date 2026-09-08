@@ -23,6 +23,7 @@ pub mod profile;
 pub mod prompt;
 pub mod registry;
 pub mod runtime;
+pub mod task;
 pub mod tools;
 pub mod transport;
 pub mod widgets;
@@ -46,7 +47,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
-pub const CORE_TOOLS: &[&str] = &["find_capability", "web.search", "web.fetch"];
+pub const CORE_TOOLS: &[&str] = &["find_capability", "web.search", "web.fetch", "task.plan", "task.note"];
 
 /// How many tool calls one agent turn may make before Core stops it.
 pub const MAX_AGENT_STEPS: usize = 24;
@@ -130,6 +131,8 @@ pub struct Core {
     pending_installs: HashMap<String, PathBuf>,
     proposals: Vec<Proposal>,
     run: Option<String>,
+    /// The current run's ledger (spec §18.1). Artifacts carry across runs.
+    task: proto::Task,
     workspace: String,
     sync_states: HashMap<String, automerge::sync::State>,
 
@@ -178,6 +181,7 @@ impl Core {
             pending_installs: HashMap::new(),
             proposals: Vec::new(),
             run: None,
+            task: proto::Task::default(),
             workspace,
             sync_states: HashMap::new(),
             events: None,
@@ -596,6 +600,14 @@ impl Core {
     ) -> proto::ToolOutcome {
         let doc = self.docs.json(doc_id).unwrap_or(J::Null);
 
+        // A handoff (spec §18.2): an `artifact` parameter names something in the
+        // ledger. Core resolves it, checks this harness accepts its kind, and
+        // hands the pinned content to the call — the harness never guesses.
+        let handoff = match self.resolve_handoff(owner, params) {
+            Ok(h) => h,
+            Err(reason) => return proto::ToolOutcome::Denied { reason },
+        };
+
         // Instances are made on first call and dropped when idle (§1.2), so
         // every call path brings the logic online itself.
         let services = self.services();
@@ -611,7 +623,9 @@ impl Core {
                 };
             }
             let rt = h.runtime.as_mut().expect("ensured above");
+            rt.set_artifacts(handoff);
             let out = rt.call(tool, params, &doc);
+            rt.set_artifacts(Vec::new());
             (out, rt.over_budget())
         };
         if let Some(asked) = over_budget {
@@ -709,6 +723,20 @@ impl Core {
             "ok",
         );
 
+        // A result may register an artifact (spec §18.3): a typed, pinned
+        // reference other harnesses can import. Only of a kind this harness
+        // declared it `produces`; otherwise it is refused, out loud.
+        let mut diff_summary = diff_summary;
+        if let Some(spec) = out.result.get("artifact").cloned() {
+            match self.register_artifact(owner, doc_id, commit_id.clone(), &spec, &diff_summary) {
+                Ok(id) => {
+                    let kind = spec.get("kind").and_then(|k| k.as_str()).unwrap_or("?");
+                    diff_summary = format!("{diff_summary} → {id} ({kind})");
+                }
+                Err(e) => self.trace(format!("[{owner}] artifact refused: {e}")),
+            }
+        }
+
         proto::ToolOutcome::Ok {
             diff_summary,
             result: Json(out.result),
@@ -755,6 +783,61 @@ impl Core {
                 proto::ToolOutcome::Ok {
                     diff_summary: summary,
                     result: Json(serde_json::to_value(&hits).unwrap_or(J::Null)),
+                    commit: None,
+                }
+            }
+            "task.plan" => {
+                // The agent writes its intended harness per step into the ledger
+                // (spec §18.4 step 1). Unknown harnesses are refused by name so
+                // a plan never points at something that is not installed.
+                let steps = params
+                    .get("steps")
+                    .and_then(|s| s.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let mut plan = Vec::new();
+                for s in &steps {
+                    let harness = s.get("harness").and_then(|h| h.as_str()).unwrap_or("");
+                    let intent = s.get("intent").and_then(|i| i.as_str()).unwrap_or("");
+                    if self.registry.get(harness).is_none() {
+                        return proto::ToolOutcome::Error {
+                            message: format!(
+                                "`{harness}` is not installed; find_capability lists what is"
+                            ),
+                        };
+                    }
+                    plan.push(proto::Step {
+                        harness: harness.to_string(),
+                        intent: intent.to_string(),
+                        status: proto::StepStatus::Pending,
+                    });
+                }
+                let n = plan.len();
+                self.task.plan = plan;
+                self.emit_task();
+                proto::ToolOutcome::Ok {
+                    diff_summary: format!("plan written: {n} step(s)"),
+                    result: Json(serde_json::json!({"steps": n})),
+                    commit: None,
+                }
+            }
+            "task.note" => {
+                let text = params
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if text.is_empty() {
+                    return proto::ToolOutcome::Error {
+                        message: "a note needs some text".into(),
+                    };
+                }
+                self.task.notes.push(text);
+                self.emit_task();
+                proto::ToolOutcome::Ok {
+                    diff_summary: "noted".into(),
+                    result: Json(serde_json::json!({"notes": self.task.notes.len()})),
                     commit: None,
                 }
             }
@@ -855,6 +938,161 @@ impl Core {
 
     pub fn proposals(&self) -> &[Proposal] {
         &self.proposals
+    }
+
+    // -- the task ledger (spec §18) ------------------------------------------
+
+    pub(crate) fn emit_task(&self) {
+        self.emit(proto::Event::TaskChanged(self.task.clone()));
+    }
+
+    /// Move the plan along as tools run: a call into a step's harness makes
+    /// that step active; a refusal or error fails it. Steps settle to done
+    /// when the turn ends.
+    pub(crate) fn task_progress(&mut self, tool: &str, outcome: &proto::ToolOutcome) {
+        let Some(owner) = self.registry.owner_of(tool).map(|h| h.id().to_string()) else {
+            return;
+        };
+        let Some(step) = self.task.plan.iter_mut().find(|s| {
+            s.harness == owner
+                && matches!(
+                    s.status,
+                    proto::StepStatus::Pending | proto::StepStatus::Active
+                )
+        }) else {
+            return;
+        };
+        let next = match outcome {
+            proto::ToolOutcome::Error { .. } | proto::ToolOutcome::Denied { .. } => {
+                proto::StepStatus::Failed
+            }
+            _ => proto::StepStatus::Active,
+        };
+        if step.status != next {
+            step.status = next;
+            self.emit_task();
+        }
+    }
+
+    /// If the call names an `artifact`, resolve it and check the handoff.
+    /// Returns what to hand the harness: `(id, JSON payload)` pairs.
+    fn resolve_handoff(&mut self, owner: &str, params: &J) -> std::result::Result<Vec<(String, String)>, String> {
+        let Some(id) = params.get("artifact").and_then(|a| a.as_str()) else {
+            return Ok(Vec::new());
+        };
+        let Some(art) = self.task.artifacts.iter().find(|a| a.id == id).cloned() else {
+            let known: Vec<&str> = self.task.artifacts.iter().map(|a| a.id.as_str()).collect();
+            return Err(if known.is_empty() {
+                format!("`{id}` is not an artifact in this task; nothing has been produced yet")
+            } else {
+                format!("`{id}` is not an artifact in this task; the ledger has {}", known.join(", "))
+            });
+        };
+
+        let accepts = self
+            .registry
+            .get(owner)
+            .map(|h| h.manifest.contributes.accepts.clone())
+            .unwrap_or_default();
+        if !accepts.iter().any(|k| *k == art.kind) {
+            let takers = task::who_accepts(&self.registry, &art.kind);
+            return Err(if takers.is_empty() {
+                format!("`{owner}` does not accept {}, and nothing installed does", art.kind)
+            } else {
+                format!(
+                    "`{owner}` does not accept {}; {} does",
+                    art.kind,
+                    takers.join(", ")
+                )
+            });
+        }
+
+        // The content at the pinned version, not whatever the producer's
+        // document has become since.
+        let kind = self.docs.kind(&art.doc).unwrap_or(proto::DocKind::Crdt);
+        let content = if art.commit.is_empty() {
+            self.docs.json(&art.doc).unwrap_or(J::Null)
+        } else {
+            match self.dag.get_commit(&art.commit) {
+                Ok(Some(c)) => match self.dag.get_blob(&c.doc_hash) {
+                    Ok(Some(bytes)) => DocStore::json_of_snapshot(kind, &bytes).unwrap_or(J::Null),
+                    _ => return Err(format!("the version {} is pinned to is missing from the DAG", art.id)),
+                },
+                _ => return Err(format!("commit {} is not in the DAG", art.commit)),
+            }
+        };
+
+        let payload = serde_json::json!({
+            "id": art.id,
+            "kind": art.kind,
+            "summary": art.summary,
+            "produced-by": art.produced_by,
+            "commit": art.commit,
+            "content": content,
+        });
+        let _ = self.audit.append(
+            self.actor(),
+            self.scope(&art.doc),
+            "artifact.handoff",
+            serde_json::json!({"artifact": art.id, "kind": art.kind, "to": owner}),
+            "ok",
+        );
+        Ok(vec![(art.id.clone(), payload.to_string())])
+    }
+
+    /// Pin a typed artifact to the document's current version and put it in
+    /// the ledger. Refused when the harness never declared it `produces` the kind.
+    fn register_artifact(
+        &mut self,
+        owner: &str,
+        doc_id: &str,
+        commit: Option<String>,
+        spec: &J,
+        fallback_summary: &str,
+    ) -> std::result::Result<String, String> {
+        let kind = spec
+            .get("kind")
+            .and_then(|k| k.as_str())
+            .ok_or("an artifact needs a `kind`")?
+            .to_string();
+        let produces = self
+            .registry
+            .get(owner)
+            .map(|h| h.manifest.contributes.produces.clone())
+            .unwrap_or_default();
+        if !produces.iter().any(|k| *k == kind) {
+            return Err(format!(
+                "`{owner}` does not declare that it produces {kind}; add it to [contributes] produces"
+            ));
+        }
+        let commit = match commit {
+            Some(c) => c,
+            None => self.dag.head(doc_id).ok().flatten().unwrap_or_default(),
+        };
+        let id = task::next_artifact_id(&self.task);
+        let summary = spec
+            .get("summary")
+            .and_then(|s| s.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(fallback_summary)
+            .to_string();
+        self.task.artifacts.push(proto::Artifact {
+            id: id.clone(),
+            kind: kind.clone(),
+            doc: doc_id.to_string(),
+            commit: commit.clone(),
+            summary,
+            produced_by: owner.to_string(),
+        });
+        let _ = self.audit.append(
+            self.actor(),
+            self.scope(doc_id),
+            "artifact.produced",
+            serde_json::json!({"artifact": id, "kind": kind, "commit": commit, "by": owner}),
+            "ok",
+        );
+        self.emit_task();
+        Ok(id)
     }
 
     // -- residency (spec §1.2) ----------------------------------------------
@@ -1353,7 +1591,13 @@ impl Core {
                 self.cfg.profile = saved;
 
                 let active = self.active_set();
-                let p = prompt::build(&self.cfg.profile, &active, &blocks, &self.transcript);
+                let p = prompt::build(
+                    &self.cfg.profile,
+                    &active,
+                    &blocks,
+                    Some(&self.task),
+                    &self.transcript,
+                );
                 proto::Response::Context {
                     blocks,
                     prompt_preview: p.render(),
@@ -1361,6 +1605,8 @@ impl Core {
             }
 
             R::GetActiveSet => proto::Response::Active(self.active_set()),
+
+            R::GetTask => proto::Response::Task(self.task.clone()),
 
             R::FindCapability { need } => proto::Response::Capabilities {
                 hits: exposure::rank_capabilities(&self.registry, &need),

@@ -278,6 +278,9 @@ impl App {
             if tab == RailTab::Marketplace {
                 self.send(proto::Request::ListCatalog);
             }
+            if tab == RailTab::Agent {
+                self.send(proto::Request::GetTask);
+            }
         }
         ui.add_space(2.0);
     }
@@ -896,8 +899,81 @@ impl App {
             });
     }
 
+    /// The task ledger (spec §18.1): what the agent is doing across harnesses,
+    /// shown exactly as the model sees it — goal, plan, artifacts, notes.
+    fn ledger_card(&mut self, ui: &mut egui::Ui) {
+        let Some(task) = self.task.clone() else { return };
+        if task.goal.is_empty() && task.plan.is_empty() && task.artifacts.is_empty() {
+            return;
+        }
+        theme::card(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("TASK LEDGER").size(9.5).color(P.muted));
+                ui.label(theme::tiny(task.id.clone()));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(theme::tiny(
+                        "in every prompt, whichever harness is focused",
+                    ));
+                });
+            });
+            if !task.goal.is_empty() {
+                ui.label(theme::body(task.goal.clone()));
+            }
+
+            if !task.plan.is_empty() {
+                theme::section(ui, "Plan");
+                for (i, step) in task.plan.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        let (label, tone) = match step.status {
+                            proto::StepStatus::Pending => ("pending", Tone::Neutral),
+                            proto::StepStatus::Active => ("active", Tone::Info),
+                            proto::StepStatus::Done => ("done", Tone::Good),
+                            proto::StepStatus::Failed => ("failed", Tone::Bad),
+                        };
+                        theme::pill(ui, label, tone, false);
+                        ui.label(theme::body(format!(
+                            "{}. {} — {}",
+                            i + 1,
+                            step.harness,
+                            step.intent
+                        )));
+                    });
+                }
+            }
+
+            if !task.artifacts.is_empty() {
+                theme::section(ui, "Artifacts");
+                for a in &task.artifacts {
+                    ui.horizontal(|ui| {
+                        theme::pill(ui, &a.id, Tone::Info, true);
+                        theme::pill(ui, &a.kind, Tone::Neutral, false);
+                        ui.label(theme::body(a.summary.clone()));
+                    });
+                    ui.label(theme::tiny(format!(
+                        "from {} · pinned to {}",
+                        a.produced_by,
+                        if a.commit.is_empty() {
+                            "the live document".to_string()
+                        } else {
+                            a.commit.chars().take(12).collect()
+                        }
+                    )));
+                }
+            }
+
+            if !task.notes.is_empty() {
+                theme::section(ui, "Notes");
+                for n in &task.notes {
+                    ui.label(theme::muted(format!("· {n}")));
+                }
+            }
+        });
+        ui.add_space(10.0);
+    }
+
     fn agent_page(&mut self, ui: &mut egui::Ui) {
         self.page(ui, |app, ui| {
+            app.ledger_card(ui);
             if app.transcript.is_empty() {
                 ui.add_space(40.0);
                 ui.vertical_centered(|ui| {

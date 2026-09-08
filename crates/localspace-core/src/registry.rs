@@ -70,6 +70,8 @@ impl Installed {
             degraded: self.degraded.clone(),
             resources: self.manifest.resources.summary(),
             loaded: self.runtime.is_some(),
+            accepts: self.manifest.contributes.accepts.clone(),
+            produces: self.manifest.contributes.produces.clone(),
         }
     }
 

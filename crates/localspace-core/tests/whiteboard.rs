@@ -72,7 +72,7 @@ fn the_package_installs_with_its_declared_shape() {
     assert_eq!(h.tier, proto::Tier::Wasm);
     assert_eq!(h.doc_kind, proto::DocKind::Crdt);
     assert!(h.has_context_provider);
-    assert_eq!(h.tool_count, 19, "the whiteboard ships an editing tool set");
+    assert_eq!(h.tool_count, 20, "editing tools plus the outline export");
     assert_eq!(h.front_door.len(), 2, "front doors: {:?}", h.front_door);
     assert!(h.front_door.contains(&"canvas.list".to_string()));
 
@@ -391,6 +391,221 @@ fn the_default_budgets_are_the_spec_s_and_are_reported() {
     assert_eq!(h.resources.logic_mb, 32);
     assert_eq!(h.resources.surface_mb, 16);
     assert_eq!(h.resources.idle_unload_secs, 300);
+}
+
+// ---------------------------------------------------------------------------
+// Inter-harness handoff (spec §18): whiteboard -> outline.v1 -> planning board
+// ---------------------------------------------------------------------------
+
+/// A Core with the whiteboard installed and the planner installed from the
+/// bundle, so a task can cross from one to the other.
+fn core_with_both() -> Option<Core> {
+    let mut core = core_with_catalog()?;
+    let path = catalog(&mut core)
+        .into_iter()
+        .find(|e| e.id == "io.localspace.planner")
+        .expect("planner missing from the catalog")
+        .path;
+    assert!(matches!(
+        core.handle(proto::Request::InstallHarness { path }),
+        proto::Response::Ok
+    ));
+    Some(core)
+}
+
+fn task_of(core: &mut Core) -> proto::Task {
+    match core.handle(proto::Request::GetTask) {
+        proto::Response::Task(t) => t,
+        other => panic!("GetTask failed: {other:?}"),
+    }
+}
+
+#[test]
+fn the_packages_declare_what_they_produce_and_accept() {
+    let Some(core) = core_with_both() else { return };
+    let env = core.environment();
+    let board = env.harnesses.iter().find(|h| h.id == WHITEBOARD).unwrap();
+    let planner = env.harnesses.iter().find(|h| h.id == "io.localspace.planner").unwrap();
+    assert_eq!(board.produces, vec!["outline.v1".to_string()]);
+    assert_eq!(planner.accepts, vec!["outline.v1".to_string()]);
+}
+
+#[test]
+fn exporting_registers_an_artifact_pinned_to_a_commit() {
+    let Some(mut core) = core_with_both() else { return };
+    stickies(&mut core, 3);
+
+    let outcome = call(&mut core, "canvas.export_outline", json!({}));
+    let (summary, commit) = match outcome {
+        proto::ToolOutcome::Ok {
+            diff_summary,
+            commit,
+            ..
+        } => (diff_summary, commit),
+        other => panic!("export failed: {other:?}"),
+    };
+    // The one line the model sees names the artifact and its type.
+    assert!(summary.contains("art_1 (outline.v1)"), "{summary}");
+
+    let task = task_of(&mut core);
+    assert_eq!(task.artifacts.len(), 1);
+    let art = &task.artifacts[0];
+    assert_eq!(art.id, "art_1");
+    assert_eq!(art.kind, "outline.v1");
+    assert_eq!(art.produced_by, WHITEBOARD);
+    assert_eq!(Some(art.commit.clone()), commit, "pinned to the commit the export made");
+    assert!(art.summary.contains("3 item(s)"), "{}", art.summary);
+
+    // The artifact is a reference into the DAG, not a copy: the pinned version
+    // contains the outline the export wrote.
+    match core.handle(proto::Request::GetHistory { limit: 5 }) {
+        proto::Response::History { commits } => {
+            assert_eq!(commits[0].id, art.commit);
+            assert_eq!(commits[0].tool, "canvas.export_outline");
+        }
+        other => panic!("history failed: {other:?}"),
+    }
+}
+
+#[test]
+fn a_handoff_lands_the_outline_as_cards_on_the_planning_board() {
+    let Some(mut core) = core_with_both() else { return };
+    call(&mut core, "canvas.add_sticky", json!({"text": "Supply chain", "fill": "red"}));
+    call(&mut core, "canvas.add_sticky", json!({"text": "Hiring", "fill": "red"}));
+    call(&mut core, "canvas.export_outline", json!({}));
+
+    // The board moves on after the export; the artifact must not.
+    call(&mut core, "canvas.add_sticky", json!({"text": "Added later", "fill": "grey"}));
+
+    let outcome = call(
+        &mut core,
+        "board.import_outline",
+        json!({"artifact": "art_1", "column": "In progress"}),
+    );
+    match outcome {
+        proto::ToolOutcome::Ok { diff_summary, .. } => {
+            assert!(diff_summary.contains("imported 2 card(s)"), "{diff_summary}");
+            assert!(diff_summary.contains("art_1"), "{diff_summary}");
+        }
+        other => panic!("import failed: {other:?}"),
+    }
+
+    // Two cards, from the pinned version — the later sticky is not among them.
+    let cards = match call(&mut core, "board.zoom", json!({})) {
+        proto::ToolOutcome::Ok { result, .. } => result.0["cards"].as_array().cloned().unwrap(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(cards.len(), 2, "{cards:?}");
+    let texts: Vec<&str> = cards.iter().map(|c| c["text"].as_str().unwrap()).collect();
+    assert!(texts.contains(&"Supply chain"));
+    assert!(texts.contains(&"Hiring"));
+    assert!(!texts.contains(&"Added later"), "the handoff must use the pinned version");
+    assert!(cards.iter().all(|c| c["column"] == "In progress"));
+    assert_eq!(cards[0]["source"]["artifact"], "art_1", "each card cites where it came from");
+
+    // Both legs are audited.
+    let events: Vec<String> = core.audit_log().records().iter().map(|r| r.event.clone()).collect();
+    assert!(events.contains(&"artifact.produced".to_string()), "{events:?}");
+    assert!(events.contains(&"artifact.handoff".to_string()), "{events:?}");
+}
+
+#[test]
+fn a_handoff_to_a_harness_that_does_not_accept_the_type_is_refused_with_a_suggestion() {
+    let Some(mut core) = core_with_both() else { return };
+    stickies(&mut core, 1);
+    call(&mut core, "canvas.export_outline", json!({}));
+
+    // The whiteboard produces outline.v1 but does not accept it. Handing the
+    // artifact to one of its own tools must be refused before the harness runs,
+    // and the refusal must say who would take it.
+    match call(&mut core, "canvas.set_title", json!({"title": "x", "artifact": "art_1"})) {
+        proto::ToolOutcome::Denied { reason } => {
+            assert!(reason.contains("does not accept outline.v1"), "{reason}");
+            assert!(reason.contains("io.localspace.planner"), "{reason}");
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+
+    // An artifact that does not exist is refused by name, listing what does.
+    match call(&mut core, "board.import_outline", json!({"artifact": "art_9"})) {
+        proto::ToolOutcome::Denied { reason } => {
+            assert!(reason.contains("art_9"), "{reason}");
+            assert!(reason.contains("art_1"), "{reason}");
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_ledger_is_in_the_prompt_whichever_harness_is_focused() {
+    let Some(mut core) = core_with_both() else { return };
+    stickies(&mut core, 1);
+    call(&mut core, "canvas.export_outline", json!({}));
+    call(
+        &mut core,
+        "task.plan",
+        json!({"steps": [
+            {"harness": WHITEBOARD, "intent": "export the risks"},
+            {"harness": "io.localspace.planner", "intent": "make them cards"}
+        ]}),
+    );
+
+    for focus in [WHITEBOARD, "io.localspace.planner"] {
+        core.handle(proto::Request::SetFocus {
+            harness: Some(focus.into()),
+        });
+        match core.handle(proto::Request::PreviewContext { budget: 600 }) {
+            proto::Response::Context { prompt_preview, .. } => {
+                assert!(prompt_preview.contains("[task "), "focused {focus}: no ledger");
+                assert!(prompt_preview.contains("art_1 outline.v1 from io.localspace.whiteboard"));
+                assert!(prompt_preview.contains("make them cards"));
+                // The ledger sits after the stable prefix, before the conversation.
+                let ledger_at = prompt_preview.find("[task ").unwrap();
+                let state_at = prompt_preview.find("[state]").unwrap();
+                let convo_at = prompt_preview.find("[conversation]").unwrap();
+                assert!(state_at < ledger_at && ledger_at < convo_at);
+            }
+            other => panic!("PreviewContext failed: {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_plan_may_only_name_installed_harnesses() {
+    let Some(mut core) = core_with_both() else { return };
+    match call(
+        &mut core,
+        "task.plan",
+        json!({"steps": [{"harness": "io.example.cad", "intent": "sketch"}]}),
+    ) {
+        proto::ToolOutcome::Error { message } => {
+            assert!(message.contains("io.example.cad"), "{message}");
+            assert!(message.contains("not installed"), "{message}");
+        }
+        other => panic!("expected an error, got {other:?}"),
+    }
+    assert!(task_of(&mut core).plan.is_empty(), "a refused plan writes nothing");
+}
+
+#[test]
+fn an_artifact_of_an_undeclared_kind_is_not_registered() {
+    // A harness may only register kinds it declares it produces. The planner
+    // declares none, so even a well-formed `artifact` in a result is refused —
+    // in the trace, not silently.
+    let Some(mut core) = core_with_both() else { return };
+    let planner_produces = core
+        .environment()
+        .harnesses
+        .iter()
+        .find(|h| h.id == "io.localspace.planner")
+        .unwrap()
+        .produces
+        .clone();
+    assert!(planner_produces.is_empty());
+    // Nothing the planner ships returns an artifact today, so the ledger stays
+    // empty after using it — the declaration, not the code, is the gate.
+    call(&mut core, "board.add_card", json!({"text": "x"}));
+    assert!(task_of(&mut core).artifacts.is_empty());
 }
 
 // ---------------------------------------------------------------------------

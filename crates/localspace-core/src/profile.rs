@@ -211,6 +211,8 @@ pub struct ModelProfile {
     pub pinned_context_tokens: usize,
     /// Prompt-token ceiling per agent step, checked by the bench.
     pub prompt_tokens_per_step: usize,
+    /// The task ledger (spec §18.1) is in every turn; this bounds it.
+    pub ledger_tokens: usize,
 }
 
 impl ModelProfile {
@@ -224,6 +226,7 @@ impl ModelProfile {
             focused_context_tokens: 1500,
             pinned_context_tokens: 400,
             prompt_tokens_per_step: 6000,
+            ledger_tokens: 600,
         }
     }
 
@@ -237,6 +240,7 @@ impl ModelProfile {
             focused_context_tokens: 1000,
             pinned_context_tokens: 300,
             prompt_tokens_per_step: 4000,
+            ledger_tokens: 400,
         }
     }
 
@@ -250,6 +254,7 @@ impl ModelProfile {
             focused_context_tokens: 600,
             pinned_context_tokens: 200,
             prompt_tokens_per_step: 2500,
+            ledger_tokens: 300,
         }
     }
 

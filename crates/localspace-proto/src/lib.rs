@@ -175,6 +175,10 @@ pub struct HarnessSummary {
     /// True while the logic instance is resident. It is instantiated on first
     /// call and dropped after `idle_unload`; the document stays either way.
     pub loaded: bool,
+    /// Interchange types this harness can import (spec §18.3), e.g. `outline.v1`.
+    pub accepts: Vec<String>,
+    /// Interchange types this harness can export.
+    pub produces: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -380,6 +384,56 @@ pub struct ContextBlock {
     pub tokens: usize,
     /// True when the provider elided detail and a `zoom` tool can expand it.
     pub expandable: bool,
+}
+
+// ---------------------------------------------------------------------------
+// The task ledger (spec §18.1) — shared context across harnesses
+// ---------------------------------------------------------------------------
+
+/// One agent run's ledger. Rendered into every prompt regardless of which
+/// harness is focused: the tools change with focus, the ledger does not.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Task {
+    pub id: String,
+    /// What the user asked.
+    pub goal: String,
+    pub plan: Vec<Step>,
+    /// Typed, versioned results. A DAG reference, not a copy.
+    pub artifacts: Vec<Artifact>,
+    /// Agent scratch: decisions, open questions.
+    pub notes: Vec<String>,
+    pub citations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Step {
+    pub harness: HarnessId,
+    pub intent: String,
+    pub status: StepStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepStatus {
+    Pending,
+    Active,
+    Done,
+    Failed,
+}
+
+/// A typed artifact pinned to an exact document version.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Artifact {
+    /// `art_1`, `art_2`, … — what the agent passes between tools.
+    pub id: String,
+    /// Interchange type, e.g. `outline.v1`.
+    pub kind: String,
+    pub doc: DocId,
+    /// The commit the artifact is pinned to; empty for a document with no commits.
+    pub commit: CommitId,
+    /// The producing harness's own words for it.
+    pub summary: String,
+    pub produced_by: HarnessId,
 }
 
 // ---------------------------------------------------------------------------
@@ -624,6 +678,8 @@ pub enum Request {
         budget: usize,
     },
     GetActiveSet,
+    /// The current agent run's ledger: goal, plan, artifacts, notes.
+    GetTask,
     FindCapability {
         need: String,
     },
@@ -675,6 +731,7 @@ pub enum Response {
         prompt_preview: String,
     },
     Active(ActiveSet),
+    Task(Task),
     Capabilities {
         hits: Vec<CapabilityHit>,
     },
@@ -808,6 +865,8 @@ pub enum Event {
     TraceLine {
         text: String,
     },
+    /// The ledger changed: a plan was written, an artifact produced, a note added.
+    TaskChanged(Task),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

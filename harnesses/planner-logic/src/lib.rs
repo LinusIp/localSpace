@@ -309,6 +309,68 @@ impl Guest for Planner {
                 ok(json!({"cards": cards}), &format!("{n} card(s) in full"))
             }
 
+            "board.import_outline" => {
+                // The handoff (spec §18.2): Core has resolved the artifact, checked
+                // this harness accepts outline.v1, and pinned the producer's
+                // document at the commit the artifact names. This reads that.
+                let id = s(&params, "artifact", "").to_string();
+                let raw = match localspace::harness::host::artifact_get(&id) {
+                    Ok(r) => r,
+                    Err(e) => return fail(e),
+                };
+                let art: Value = match serde_json::from_str(&raw) {
+                    Ok(v) => v,
+                    Err(e) => return fail(format!("artifact payload was not JSON: {e}")),
+                };
+                if art["kind"].as_str() != Some("outline.v1") {
+                    return fail(format!(
+                        "`{id}` is {}, not outline.v1",
+                        art["kind"].as_str().unwrap_or("untyped")
+                    ));
+                }
+                let content = &art["content"];
+                // The outline the producer wrote, or — for a producer that did not
+                // write one — anything with text, so a plain board still imports.
+                let items: Vec<Value> = content["outline"]["items"]
+                    .as_array()
+                    .cloned()
+                    .or_else(|| content["shapes"].as_array().cloned())
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|it| !it["text"].as_str().unwrap_or("").trim().is_empty())
+                    .collect();
+                if items.is_empty() {
+                    return fail(format!("`{id}` has no items with text to import"));
+                }
+
+                let all = columns(&doc);
+                let column = match params.get("column").and_then(|c| c.as_str()) {
+                    Some(c) if all.iter().any(|x| x == c) => c.to_string(),
+                    Some(c) => return fail(format!("no column `{c}`; this board has {}", all.join(", "))),
+                    None => all.first().cloned().unwrap_or_else(|| "Backlog".into()),
+                };
+
+                let mut made = 0usize;
+                for it in &items {
+                    let n = doc["cards"].as_array().map(|a| a.len()).unwrap_or(0) + 1;
+                    doc["cards"].as_array_mut().unwrap().push(json!({
+                        "id": format!("c{n}"),
+                        "text": it["text"],
+                        "column": column,
+                        "assignee": Value::Null,
+                        "source": {"artifact": id, "item": it["id"]},
+                    }));
+                    made += 1;
+                }
+                if let Err(e) = save(&doc) {
+                    return fail(e);
+                }
+                ok(
+                    json!({"cards": made, "column": column}),
+                    &format!("imported {made} card(s) from {id} into `{column}`"),
+                )
+            }
+
             other => fail(format!("`{other}` is not a planning-board tool")),
         }
     }

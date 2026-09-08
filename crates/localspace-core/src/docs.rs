@@ -151,6 +151,27 @@ impl DocStore {
         }
     }
 
+    /// The JSON projection of a saved snapshot, without touching the live
+    /// document. This is how an artifact pinned to a commit is read back: the
+    /// handoff pins an exact version, and the consumer sees that version even
+    /// if the producer's board has moved on since.
+    pub fn json_of_snapshot(kind: proto::DocKind, bytes: &[u8]) -> Result<J> {
+        match kind {
+            proto::DocKind::Crdt => {
+                if bytes.is_empty() {
+                    return Ok(J::Object(Default::default()));
+                }
+                let am = AutoCommit::load(bytes).context("loading a crdt snapshot")?;
+                Ok(serde_json::to_value(AutoSerde::from(&am)).unwrap_or(J::Null))
+            }
+            proto::DocKind::Blob => Ok(serde_json::json!({
+                "blob": true,
+                "bytes": bytes.len(),
+                "hash": blake3::hash(bytes).to_hex().to_string(),
+            })),
+        }
+    }
+
     /// Bytes for the DAG snapshot: the Automerge save form, or the blob itself.
     pub fn snapshot(&mut self, doc: &str) -> Result<Vec<u8>> {
         match self.docs.get_mut(doc) {

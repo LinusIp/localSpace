@@ -74,6 +74,8 @@ pub struct App {
     history: Vec<proto::Commit>,
     active: Option<proto::ActiveSet>,
     catalog: Vec<proto::CatalogEntry>,
+    /// The current run's ledger (spec §18.1), as Core last sent it.
+    task: Option<proto::Task>,
     perf: perf::Meter,
     widget_views: HashMap<(String, String), proto::Widget>,
     surfaces: HashMap<(String, String), OpenSurface>,
@@ -113,6 +115,7 @@ impl App {
             history: Vec::new(),
             active: None,
             catalog: Vec::new(),
+            task: None,
             perf: perf::Meter::new(),
             widget_views: HashMap::new(),
             surfaces: HashMap::new(),
@@ -208,6 +211,7 @@ impl App {
             }
             R::History { commits } => self.history = commits,
             R::Catalog { entries } => self.catalog = entries,
+            R::Task(task) => self.task = Some(task),
             R::Active(set) => self.active = Some(set),
             R::WidgetView { root } => {
                 // The Client asked for exactly one view at a time.
@@ -349,6 +353,7 @@ It runs as a native process. Its stated reason: {reason}"));
                 // A tool call moves focus, which changes the active set.
                 self.send(proto::Request::GetActiveSet);
             }
+            E::TaskChanged(task) => self.task = Some(task),
             E::DocPatch { doc, .. } => {
                 // Core is authoritative. Ask it for the projection every open
                 // surface reads, rather than trying to keep a second copy in step.
