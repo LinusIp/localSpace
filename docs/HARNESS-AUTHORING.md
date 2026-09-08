@@ -129,7 +129,16 @@ export_surface!(Board);
 
 A surface has no filesystem, no network and no model access. It gets the document
 and one opaque message channel, and that is all. Keep it under 8 ms a frame: three
-slow frames running earns a visible badge and a throttle.
+slow frames running earns a visible badge and a throttle — the Client then enters
+it no more than twenty times a second for repaints it asked for itself.
+
+Your egui's font atlas is capped at 1024 pixels a side, the smallest epaint
+accepts, so it costs 4 MB at most rather than 16. Every distinct text size
+rasterises a fresh set of glyphs into it, and each time it grows the surface
+briefly holds more than two copies — so quantise sizes you derive from a zoom
+(the whiteboard snaps to twelve sizes per doubling) instead of minting a new
+one every frame. Texture pixels never travel through the frame: the host reads
+them out of your memory and tells you when it has, through `hs_release`.
 
 ## 5. `evals.json`
 
@@ -155,7 +164,7 @@ but a model cannot drive is a broken plugin here, and nothing else surfaces that
 
 ```toml
 [resources]
-memory_mb = { logic = 32, surface = 16 }   # enforced; shown in the store
+memory_mb = { logic = 32, surface = 32 }   # enforced; shown in the store
 idle_unload = "5m"                          # logic dropped after this idle time
 ```
 
@@ -163,7 +172,14 @@ Both limits are real. The logic budget is a wasmtime memory limiter on your
 component; the surface budget is the same limiter on your surface module in the
 Client. Grow past it and you are stopped, the user is told which budget you broke
 and by how much, the event is audited, and your next call starts a fresh instance.
-Declare what you need, and no more: the store shows these numbers.
+A surface that breaks its budget is restarted once by itself — its state is in
+the document — and after that only when the user asks.
+
+Declare what you measure, and no more: the store shows these numbers. For an
+`egui` surface, measure while zooming text. The whiteboard sits at 5 MB with an
+ordinary board and peaks at 12 MB zooming it; a board with five large headings
+peaks at 21 MB. The default of 16 is for surfaces that draw little text. The
+test that produces those numbers is `crates/localspace-client/tests/surface.rs`.
 
 Your logic instance is dropped after `idle_unload` without a call. Nothing you kept
 in guest memory survives that — your document does. Keep state in the document.

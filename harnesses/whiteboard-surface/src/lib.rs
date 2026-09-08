@@ -330,6 +330,16 @@ impl Board {
     }
 }
 
+/// A text size under zoom, snapped to one of twelve sizes per doubling: a step
+/// of about six per cent, which the eye does not catch. Every distinct size is
+/// a fresh set of glyphs rasterised into the font atlas, and a smooth zoom
+/// would otherwise mint a new size every frame until the atlas — and the
+/// surface's memory with it — was rebuilt over and over.
+fn pt(size: f32) -> f32 {
+    let steps = (size.max(1.0).log2() * 12.0).round();
+    (steps / 12.0).exp2()
+}
+
 // ---------------------------------------------------------------------------
 // The canvas
 // ---------------------------------------------------------------------------
@@ -430,7 +440,7 @@ impl Board {
                 r.min + egui::vec2(10.0, -16.0),
                 egui::Align2::LEFT_TOP,
                 f["name"].as_str().unwrap_or("frame"),
-                egui::FontId::proportional(11.0 * self.zoom.clamp(0.7, 1.4)),
+                egui::FontId::proportional(pt(11.0 * self.zoom.clamp(0.7, 1.4))),
                 FAINT,
             );
         }
@@ -471,7 +481,7 @@ impl Board {
                 let mid = start + (end - start) * 0.5;
                 let galley = painter.layout_no_wrap(
                     label.to_string(),
-                    egui::FontId::proportional(10.5 * z.clamp(0.7, 1.3)),
+                    egui::FontId::proportional(pt(10.5 * z.clamp(0.7, 1.3))),
                     MUTED,
                 );
                 let bg = Rect::from_center_size(mid, galley.size() + egui::vec2(10.0, 5.0));
@@ -545,7 +555,7 @@ impl Board {
                     r.left_top(),
                     egui::Align2::LEFT_TOP,
                     text,
-                    egui::FontId::proportional(size * z.clamp(0.4, 2.0)),
+                    egui::FontId::proportional(pt(size * z.clamp(0.4, 2.0))),
                     TEXT,
                 );
             } else if kind == "ellipse" {
@@ -581,13 +591,13 @@ impl Board {
                     egui::pos2(chip.right() + 6.0 * z.clamp(0.6, 1.4), chip.center().y),
                     egui::Align2::LEFT_CENTER,
                     kind.to_uppercase(),
-                    egui::FontId::proportional(8.5 * z.clamp(0.7, 1.4)),
+                    egui::FontId::proportional(pt(8.5 * z.clamp(0.7, 1.4))),
                     accent,
                 );
                 if !text.is_empty() {
                     let galley = painter.layout(
                         text.to_string(),
-                        egui::FontId::proportional(12.5 * z.clamp(0.6, 1.5)),
+                        egui::FontId::proportional(pt(12.5 * z.clamp(0.6, 1.5))),
                         TEXT,
                         (r.width() - pad * 2.0).max(20.0),
                     );

@@ -326,9 +326,26 @@ fn whiteboard_with(extra_manifest: &str) -> Option<tempfile::TempDir> {
     }
     std::fs::copy(src.join("ui/board.wasm"), dst.join("ui/board.wasm")).unwrap();
     let manifest = std::fs::read_to_string(src.join("harness.toml")).unwrap();
+    // The real package declares `[resources]`; the test's own section replaces
+    // it rather than duplicating the table.
+    let mut kept = String::new();
+    let mut in_resources = false;
+    for line in manifest.lines() {
+        if line.trim() == "[resources]" {
+            in_resources = true;
+            continue;
+        }
+        if in_resources && line.trim_start().starts_with('[') {
+            in_resources = false;
+        }
+        if !in_resources {
+            kept.push_str(line);
+            kept.push('\n');
+        }
+    }
     std::fs::write(
         dst.join("harness.toml"),
-        format!("{manifest}\n{extra_manifest}\n"),
+        format!("{kept}\n{extra_manifest}\n"),
     )
     .unwrap();
     Some(dir)
@@ -390,12 +407,15 @@ fn idle_logic_is_unloaded_and_comes_back_with_its_document_intact() {
 }
 
 #[test]
-fn the_default_budgets_are_the_spec_s_and_are_reported() {
+fn the_whiteboard_declares_its_measured_budgets_and_they_are_reported() {
+    // 32 MB for the surface is what the Client's `tests/surface.rs` measures
+    // against: an ordinary board peaks near 12 MB while zooming, a text-heavy
+    // one near 21. The store shows these numbers, so they must be the manifest's.
     let Some(core) = core() else { return };
     let env = core.environment();
     let h = env.harnesses.iter().find(|h| h.id == WHITEBOARD).unwrap();
     assert_eq!(h.resources.logic_mb, 32);
-    assert_eq!(h.resources.surface_mb, 16);
+    assert_eq!(h.resources.surface_mb, 32);
     assert_eq!(h.resources.idle_unload_secs, 300);
 }
 

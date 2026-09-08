@@ -176,3 +176,12 @@ and Tier B together — but it depends on items 5 and 2.
   carry across turns, not across restarts; a `localspace call` from the CLI is one
   process, so an artifact it registers is gone by the next call. Persisting the
   ledger as a DAG document is the obvious next step.
+- A surface's memory ratchets by 4 MB each of the first few times its font
+  atlas is rebuilt, then settles (`tests/surface.rs` prints the curve). The
+  doubling chain of the atlas fragments dlmalloc's heap so the next 4 MB does
+  not fit the hole the last one left. A global allocator with size classes, or
+  an epaint that can start its atlas at full height, would take the whiteboard's
+  text-heavy peak from 21 MB to about 13. The base of 7 MB is mostly egui's
+  default fonts in the data segment; shipping one font would cut it by 1.5 MB.
+- The Library does not yet show a surface's live memory against its budget,
+  though the runner now measures it (`SurfaceRunner::memory_bytes`).

@@ -88,14 +88,8 @@ fn the_reference_surface_paints_a_frame_through_the_runner() {
         panic!("the surface failed to run: {e}");
     }
     let paint = painted.expect("the runner produced nothing");
-    assert!(
-        !paint.primitives.is_empty(),
-        "the surface drew nothing at all"
-    );
-    assert!(
-        paint.primitives.iter().any(|p| !p.mesh.vertices.is_empty()),
-        "every mesh was empty"
-    );
+    assert!(paint.meshes > 0, "the surface drew nothing at all");
+    assert!(paint.vertices > 0, "every mesh was empty");
     assert!(runner.stats.last_ms > 0.0, "no frame time was recorded");
     assert!(
         !runner.stats.throttled,
@@ -180,5 +174,260 @@ fn a_module_that_is_not_a_surface_is_refused_with_a_useful_message() {
     assert!(
         err.contains("memory") || err.contains("hs_"),
         "unhelpful error: {err}"
+    );
+}
+
+/// One host frame; the surface's error, if it produced one, instead of a panic.
+fn try_frame(
+    runner: &mut SurfaceRunner,
+    ctx: &egui::Context,
+    rect: egui::Rect,
+    time: f64,
+    events: Vec<egui::Event>,
+    messages: Vec<Vec<u8>>,
+) -> Result<(), String> {
+    let mut messages = Some(messages);
+    let mut error = None;
+    let mut out = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(rect),
+            time: Some(time),
+            events,
+            ..Default::default()
+        },
+        |ui| {
+            if let Err(e) = runner.show(ui, rect, messages.take().unwrap_or_default()) {
+                error = Some(format!("{e:#}"));
+            }
+        },
+    );
+    out.textures_delta.clear();
+    error.map_or(Ok(()), Err)
+}
+
+/// A board with enough text that every zoom level rasterises a good many glyphs.
+fn text_heavy_doc() -> String {
+    let mut shapes = Vec::new();
+    for i in 0..40 {
+        let (x, y) = ((i % 8) as f32 * 160.0, (i / 8) as f32 * 130.0);
+        shapes.push(format!(
+            r#"{{"id":"s{i}","kind":"sticky","x":{x},"y":{y},"w":130.0,"h":110.0,"fill":"yellow","text":"Risk {i}: supply chain lead times, hiring, FX exposure"}}"#
+        ));
+    }
+    for (i, size) in [12.0, 16.0, 20.0, 28.0, 40.0].iter().enumerate() {
+        shapes.push(format!(
+            r#"{{"id":"t{i}","kind":"text","x":{},"y":700.0,"w":300.0,"h":60.0,"size":{size},"text":"Heading {i} at {size} pt"}}"#,
+            i as f32 * 320.0
+        ));
+    }
+    format!(
+        r#"{{"title":"Stress","frames":[],"shapes":[{}],"selection":[]}}"#,
+        shapes.join(",")
+    )
+}
+
+/// What the whiteboard declares in `[resources] memory_mb.surface`.
+const SURFACE_BUDGET_MB: u32 = 32;
+
+/// A board a team would actually make: a frame of stickies and one label.
+fn ordinary_doc() -> String {
+    let mut shapes = Vec::new();
+    for i in 0..12 {
+        let (x, y) = (40.0 + (i % 4) as f32 * 160.0, 60.0 + (i / 4) as f32 * 130.0);
+        shapes.push(format!(
+            r#"{{"id":"s{i}","kind":"sticky","x":{x},"y":{y},"w":130.0,"h":110.0,"fill":"yellow","text":"Risk {i}: lead times","frame":"f1"}}"#
+        ));
+    }
+    shapes.push(
+        r#"{"id":"t0","kind":"text","x":40.0,"y":10.0,"w":300.0,"h":30.0,"size":18.0,"text":"Q4 risks"}"#
+            .to_string(),
+    );
+    format!(
+        r#"{{"title":"Q4","frames":[{{"id":"f1","name":"Risks","x":0.0,"y":0.0,"w":700.0,"h":460.0}}],"shapes":[{}],"selection":[]}}"#,
+        shapes.join(",")
+    )
+}
+
+/// Bytes at rest and at peak, guest frames, and the steps at which memory grew.
+struct Sweep {
+    at_rest: usize,
+    peak: usize,
+    frames: u64,
+    growth: Vec<String>,
+}
+
+#[test]
+fn zooming_an_ordinary_board_stays_far_inside_the_surface_budget() {
+    let Some(bytes) = board_wasm() else { return };
+    let s = zoom_sweep(&bytes, ordinary_doc());
+    eprintln!(
+        "ordinary board: {:.1} MB at rest, {:.1} MB peak over {} guest frames; grew at: {}",
+        s.at_rest as f64 / 1048576.0,
+        s.peak as f64 / 1048576.0,
+        s.frames,
+        s.growth.join("; ")
+    );
+    assert!(
+        s.peak <= 16 * 1024 * 1024,
+        "an ordinary board peaked at {:.1} MB while zooming",
+        s.peak as f64 / 1048576.0
+    );
+}
+
+#[test]
+fn zooming_through_every_level_stays_inside_the_surface_budget() {
+    // The failure this guards: each distinct text size rasterises new glyphs
+    // into the surface's font atlas, and every time that atlas grows the whole
+    // image travels through the surface's memory. A smooth zoom used to mint a
+    // new size per frame, and a board declared at 16 MB died at 17 MB in a
+    // user's hands.
+    let Some(bytes) = board_wasm() else { return };
+    let s = zoom_sweep(&bytes, text_heavy_doc());
+    eprintln!(
+        "text-heavy board: {:.1} MB at rest, {:.1} MB peak over {} guest frames; grew at: {}",
+        s.at_rest as f64 / 1048576.0,
+        s.peak as f64 / 1048576.0,
+        s.frames,
+        s.growth.join("; ")
+    );
+    let headroom = SURFACE_BUDGET_MB as usize * 1024 * 1024 * 3 / 4;
+    assert!(
+        s.peak <= headroom,
+        "peak {:.1} MB leaves too little headroom under {SURFACE_BUDGET_MB} MB",
+        s.peak as f64 / 1048576.0
+    );
+}
+
+/// Zoom a board through every level twice, with the buttons and with the wheel,
+/// under the whiteboard's declared budget. Panics if the surface fails.
+fn zoom_sweep(bytes: &[u8], doc: String) -> Sweep {
+    let budget_mb = SURFACE_BUDGET_MB;
+    let mut runner = SurfaceRunner::load("test/board", bytes, budget_mb).expect("load");
+    let at_load = runner.memory_bytes();
+    runner.set_doc(doc);
+
+    let ctx = egui::Context::default();
+    let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1400.0, 900.0));
+    let centre = egui::pos2(700.0, 450.0);
+    let mut time = 0.0;
+
+    quiet_frame(&mut runner, &ctx, rect, time);
+    let at_rest = runner.memory_bytes();
+    eprintln!(
+        "surface memory: {:.1} MB as instantiated (data and stack), {:.1} MB after the first frame",
+        at_load as f64 / 1048576.0,
+        at_rest as f64 / 1048576.0
+    );
+    let mut peak = at_rest;
+    // The memory after every step, so a failure says where it grew.
+    let mut curve: Vec<(String, usize)> = Vec::new();
+    let mut failure = None;
+
+    // The top bar's buttons: 25 % to 400 % in steps, back down, and again —
+    // the second pass is what shows whether the memory keeps ratcheting up
+    // with every rebuild of the atlas or has found its level.
+    let sweep: Vec<i32> = (25..=400)
+        .step_by(5)
+        .chain((25..=400).rev().step_by(5))
+        .collect();
+    let levels: Vec<i32> = sweep.iter().chain(sweep.iter()).copied().collect();
+    for percent in levels {
+        time += 0.016;
+        let cmd = serde_json::json!({"kind": "zoom", "value": percent as f32 / 100.0})
+            .to_string()
+            .into_bytes();
+        let result = try_frame(
+            &mut runner,
+            &ctx,
+            rect,
+            time,
+            vec![egui::Event::PointerMoved(centre)],
+            vec![cmd],
+        );
+        curve.push((format!("button {percent}%"), runner.memory_bytes()));
+        peak = peak.max(runner.memory_bytes());
+        if let Err(e) = result {
+            failure = Some(e);
+            break;
+        }
+    }
+
+    // The wheel: a smooth zoom in and back out, one notch per frame.
+    for i in 0..400 {
+        if failure.is_some() {
+            break;
+        }
+        time += 0.016;
+        let delta = if i < 200 { 6.0 } else { -6.0 };
+        let events = vec![
+            egui::Event::PointerMoved(centre),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, delta),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::default(),
+            },
+        ];
+        let result = try_frame(&mut runner, &ctx, rect, time, events, Vec::new());
+        curve.push((format!("wheel {i}"), runner.memory_bytes()));
+        peak = peak.max(runner.memory_bytes());
+        if let Err(e) = result {
+            failure = Some(e);
+            break;
+        }
+    }
+
+    // Every step at which the surface's memory grew.
+    let mut last = at_rest;
+    let mut growth = Vec::new();
+    for (step, bytes) in &curve {
+        if *bytes > last {
+            growth.push(format!("{step}: {:.1} MB", *bytes as f64 / 1048576.0));
+            last = *bytes;
+        }
+    }
+    if let Some(e) = failure {
+        panic!(
+            "the surface failed while zooming: {e}\n  grew at: {}",
+            growth.join("; ")
+        );
+    }
+    assert!(
+        runner.over_budget().is_none(),
+        "the surface broke its {budget_mb} MB budget while zooming"
+    );
+    Sweep {
+        at_rest,
+        peak,
+        frames: runner.guest_frames,
+        growth,
+    }
+}
+
+#[test]
+fn a_throttled_surface_is_entered_less_not_more() {
+    // Being slow is a reason to enter a surface less often. The bug this
+    // guards: the runner used to run a throttled guest on every host frame, so
+    // a slow surface was made slower by its own penalty.
+    let Some(bytes) = board_wasm() else { return };
+    let mut runner = SurfaceRunner::load("test/board", &bytes, 16).expect("load");
+    runner.set_doc(DOC.to_string());
+
+    let ctx = egui::Context::default();
+    let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
+    for i in 0..=5 {
+        quiet_frame(&mut runner, &ctx, rect, i as f64 * 0.1);
+    }
+    let settled = runner.guest_frames;
+
+    runner.stats.throttled = true;
+    for i in 6..=25 {
+        quiet_frame(&mut runner, &ctx, rect, i as f64 * 0.1);
+    }
+    assert_eq!(
+        runner.guest_frames,
+        settled,
+        "a throttled surface was entered on {} quiet host frames",
+        runner.guest_frames - settled
     );
 }

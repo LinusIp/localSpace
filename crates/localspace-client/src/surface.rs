@@ -14,6 +14,46 @@ use std::collections::HashMap;
 /// is throttled, so one bad plugin cannot stall the Client.
 pub const FRAME_BUDGET_MS: f32 = 8.0;
 
+/// The widest texture a surface's own egui may allocate, which bounds its font
+/// atlas at 4 MB of RGBA. egui's default of 2048 allows 16 MB — the whole of a
+/// small surface budget — and each doubling of that atlas costs more than
+/// twice its size inside the surface's memory for a moment: the image grows by
+/// reallocation, and epaint clones it for the delta. A memory that never
+/// shrinks keeps that moment for good. 1024 is the smallest atlas epaint
+/// accepts; a full one is rebuilt from the glyphs in use, so the cap costs an
+/// occasional re-upload rather than a lost surface.
+pub const MAX_TEXTURE_SIDE: usize = 1024;
+
+/// Restarts of a surface that broke its memory budget. The first is automatic:
+/// its state is in the document, so nothing but a viewport is lost. A second
+/// break within the cooldown stays down until the user asks, because a surface
+/// that cannot fit its budget will not fit it on the third try either.
+#[derive(Debug, Default)]
+pub struct Restarts {
+    pub count: u32,
+    last: Option<f64>,
+}
+
+impl Restarts {
+    pub const COOLDOWN_SECS: f64 = 60.0;
+
+    /// Whether to restart on the surface's own account, at host time `now`.
+    pub fn automatic(&mut self, now: f64) -> bool {
+        let allowed = self.last.is_none_or(|t| now - t >= Self::COOLDOWN_SECS);
+        if allowed {
+            self.count += 1;
+            self.last = Some(now);
+        }
+        allowed
+    }
+
+    /// The user asked. Always allowed; starts the cooldown afresh.
+    pub fn manual(&mut self, now: f64) {
+        self.count += 1;
+        self.last = Some(now);
+    }
+}
+
 pub struct SurfaceStats {
     pub last_ms: f32,
     pub slow_streak: u32,
@@ -30,9 +70,12 @@ impl Default for SurfaceStats {
     }
 }
 
-/// What a frame produced, after the host has taken ownership of the textures.
+/// What a frame produced, after the host has taken ownership of the meshes and
+/// textures. The meshes live in the runner's cache; a frame reports how much it
+/// drew.
 pub struct FramePaint {
-    pub primitives: Vec<sdk::WirePrimitive>,
+    pub meshes: usize,
+    pub vertices: usize,
     pub repaint_after_ms: u64,
     pub doc: Option<String>,
     pub messages: Vec<Vec<u8>>,
@@ -82,6 +125,9 @@ mod imp {
         alloc: TypedFunc<i32, i32>,
         init: TypedFunc<(i32, i32), ()>,
         frame: TypedFunc<(i32, i32), i64>,
+        /// Optional: a surface built against an SDK without it keeps its
+        /// textures until its next frame instead.
+        release: Option<TypedFunc<(), ()>>,
     }
 
     impl Runner {
@@ -172,6 +218,7 @@ mod imp {
                 .get_typed_func::<(i32, i32), i64>(&mut store, "hs_frame")
                 .map_err(|e| anyhow::anyhow!("{e}"))
                 .context("the surface exports no hs_frame")?;
+            let release = instance.get_typed_func::<(), ()>(&mut store, "hs_release").ok();
 
             Ok(Runner {
                 store,
@@ -179,12 +226,39 @@ mod imp {
                 alloc,
                 init,
                 frame,
+                release,
             })
+        }
+
+        /// Tell the surface its textures have been read, so it can drop them.
+        pub fn release(&mut self) -> Result<()> {
+            if let Some(release) = &self.release {
+                release
+                    .call(&mut self.store, ())
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+            }
+            Ok(())
         }
 
         /// Bytes the surface asked for beyond its budget, if it ever did.
         pub fn over_budget(&self) -> Option<usize> {
             self.store.data().over_budget
+        }
+
+        /// Bytes of linear memory the surface holds right now.
+        pub fn memory_bytes(&self) -> usize {
+            self.memory.data_size(&self.store)
+        }
+
+        /// Read `len` bytes at `ptr` in the surface's memory: where it leaves
+        /// the pixels of a texture it set this frame.
+        pub fn read(&self, ptr: u32, len: u32) -> Result<Vec<u8>> {
+            let mut out = vec![0u8; len as usize];
+            self.memory
+                .read(&self.store, ptr as usize, &mut out)
+                .map_err(|e| anyhow::anyhow!("{e}"))
+                .context("reading a texture out of the surface")?;
+            Ok(out)
         }
 
         fn write(&mut self, bytes: &[u8]) -> Result<(i32, i32)> {
@@ -235,6 +309,15 @@ mod imp {
         pub fn over_budget(&self) -> Option<usize> {
             None
         }
+        pub fn memory_bytes(&self) -> usize {
+            0
+        }
+        pub fn read(&self, _ptr: u32, _len: u32) -> Result<Vec<u8>> {
+            bail!("the browser SurfaceRunner is not built in this configuration")
+        }
+        pub fn release(&mut self) -> Result<()> {
+            Ok(())
+        }
         pub fn load(_bytes: &[u8], _memory_mb: u32) -> Result<Runner> {
             bail!("the browser SurfaceRunner is not built in this configuration")
         }
@@ -259,6 +342,9 @@ pub struct SurfaceRunner {
     initialised: bool,
     /// Something the guest has not seen yet: a document, a message, a command.
     dirty: bool,
+    /// Host time at which a repaint the guest asked for comes due. Until then
+    /// the guest is not entered, whatever else makes the host paint.
+    repaint_due: Option<f64>,
     /// The document the guest currently holds — whichever side wrote it last.
     last_doc: Option<String>,
     /// A document to hand over on the next frame the guest runs.
@@ -287,6 +373,7 @@ impl SurfaceRunner {
             stats: SurfaceStats::default(),
             initialised: false,
             dirty: true,
+            repaint_due: None,
             last_doc: None,
             pending_doc: None,
             cached: Vec::new(),
@@ -302,6 +389,11 @@ impl SurfaceRunner {
     /// drops and reloads a runner that reports this, and says so.
     pub fn over_budget(&self) -> Option<usize> {
         self.inner.over_budget()
+    }
+
+    /// Bytes of linear memory the surface holds right now, against its budget.
+    pub fn memory_bytes(&self) -> usize {
+        self.inner.memory_bytes()
     }
 
     pub fn mark_dirty(&mut self) {
@@ -367,23 +459,28 @@ impl SurfaceRunner {
         let has_input = !raw_input.events.is_empty();
 
         // Pay per change, not per frame (§16.3). The guest runs only when input
-        // arrived, a document or message is waiting, it asked for a repaint, or
-        // it is being throttled. Otherwise last frame's meshes are painted again
-        // and the guest is never entered.
-        if !self.dirty && !has_input && messages.is_empty() && !self.stats.throttled {
+        // arrived, a document or message is waiting, or a repaint it asked for
+        // has come due. Otherwise last frame's meshes are painted again and the
+        // guest is never entered. A throttled surface is no exception: being
+        // slow is a reason to enter it less often, never more.
+        let now = ctx.input(|i| i.time);
+        let repaint_due = self.repaint_due.is_some_and(|t| now >= t);
+        if !self.dirty && !has_input && messages.is_empty() && !repaint_due {
             self.skipped_frames += 1;
             self.paint_cached(ui, rect, offset);
             if let Some(cursor) = map_cursor(self.cached_cursor) {
                 ctx.set_cursor_icon(cursor);
             }
             return Ok(FramePaint {
-                primitives: Vec::new(),
+                meshes: 0,
+                vertices: 0,
                 repaint_after_ms: u64::MAX,
                 doc: None,
                 messages: Vec::new(),
                 cursor: self.cached_cursor,
             });
         }
+        self.repaint_due = None;
 
         let input = sdk::FrameInput {
             raw_input,
@@ -429,8 +526,13 @@ impl SurfaceRunner {
             out.doc = None;
         }
 
-        self.apply_textures(&ctx, &mut out.textures_delta);
-        self.rebuild_cache(offset, &out.primitives);
+        self.apply_textures(&ctx, &out.textures)?;
+        if !out.textures.set.is_empty() {
+            // Read; the surface may drop its copies now rather than next frame.
+            self.inner.release()?;
+        }
+        let (meshes, vertices) =
+            self.rebuild_cache(offset, std::mem::take(&mut out.primitives));
         self.paint_cached(ui, rect, offset);
         self.cached_cursor = out.cursor;
 
@@ -445,22 +547,27 @@ impl SurfaceRunner {
         }
 
         // egui's own convention: zero means "again, now"; `Duration::MAX` means
-        // "nothing pending". A requested repaint is one of the three reasons the
-        // guest runs, so it marks the runner dirty for that frame.
+        // "nothing pending". A throttled surface gets its repaints no faster
+        // than twenty a second, and a delayed one is not entered before it is
+        // due, whatever else makes the host paint in the meantime.
+        let floor = if self.stats.throttled { 50 } else { 0 };
         match out.repaint_after_ms {
-            0 => {
-                ctx.request_repaint();
-                self.dirty = true;
-            }
             ms if ms < 60_000 => {
-                ctx.request_repaint_after(std::time::Duration::from_millis(ms));
-                self.dirty = true;
+                let ms = ms.max(floor);
+                if ms == 0 {
+                    ctx.request_repaint();
+                    self.dirty = true;
+                } else {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(ms));
+                    self.repaint_due = Some(now + ms as f64 / 1000.0 - 0.001);
+                }
             }
             _ => {}
         }
 
         Ok(FramePaint {
-            primitives: out.primitives,
+            meshes,
+            vertices,
             repaint_after_ms: out.repaint_after_ms,
             doc: out.doc,
             messages: out.messages,
@@ -484,6 +591,7 @@ impl SurfaceRunner {
             time: Some(time),
             events: filter_events(events, offset, rect, hovered, focused),
             focused,
+            max_texture_side: Some(MAX_TEXTURE_SIDE),
             ..Default::default()
         }
     }
@@ -516,47 +624,59 @@ pub fn filter_events(
 
 impl SurfaceRunner {
 
-    /// Upload the surface's textures under host-owned ids.
+    /// Upload the surface's textures under host-owned ids. The pixels are read
+    /// straight out of the surface's memory, where it left them for this call.
     fn apply_textures(
         &mut self,
         ctx: &egui::Context,
-        delta: &mut epaint::textures::TexturesDelta,
-    ) {
-        for (guest_id, deltas) in delta.set.iter() {
-            for d in deltas.iter() {
-                let image = to_color_image(&d.image);
-                match (d.pos, self.textures.get_mut(guest_id)) {
-                    (Some(pos), Some(handle)) => handle.set_partial(pos, image, d.options),
-                    _ => {
-                        let name = format!("{}::{guest_id:?}", self.name);
-                        let handle = ctx.load_texture(name, image, d.options);
-                        self.textures.insert(*guest_id, handle);
-                    }
+        textures: &sdk::WireTextures,
+    ) -> anyhow::Result<()> {
+        for t in &textures.set {
+            let (ptr, len) = t.pixels;
+            if len as usize != t.size[0] * t.size[1] * 4 {
+                anyhow::bail!(
+                    "surface texture {:?} is {}x{} but points at {len} bytes",
+                    t.id,
+                    t.size[0],
+                    t.size[1]
+                );
+            }
+            let bytes = self.inner.read(ptr, len)?;
+            let image = epaint::ColorImage::from_rgba_premultiplied(t.size, &bytes);
+            match (t.pos, self.textures.get_mut(&t.id)) {
+                (Some(pos), Some(handle)) => handle.set_partial(pos, image, t.options),
+                _ => {
+                    let name = format!("{}::{:?}", self.name, t.id);
+                    let handle = ctx.load_texture(name, image, t.options);
+                    self.textures.insert(t.id, handle);
                 }
             }
         }
-        for id in &delta.free {
+        for id in &textures.free {
             self.textures.remove(id);
         }
-        // epaint panics on drop while deltas are unapplied. They are applied now.
-        delta.clear();
+        Ok(())
     }
 
     /// Translate the guest's meshes into the panel and remap their texture ids,
-    /// once per guest frame rather than once per host frame.
-    fn rebuild_cache(&mut self, offset: Vec2, prims: &[sdk::WirePrimitive]) {
+    /// once per guest frame rather than once per host frame. The meshes are
+    /// moved, not copied: on a board full of ink they are the frame's bulk.
+    /// Returns how many meshes and vertices were kept.
+    fn rebuild_cache(&mut self, offset: Vec2, prims: Vec<sdk::WirePrimitive>) -> (usize, usize) {
         self.cached.clear();
         self.cached_offset = offset;
-        for prim in prims {
-            let Some(host_id) = self.textures.get(&prim.mesh.texture_id).map(|h| h.id()) else {
+        let mut vertices = 0;
+        for sdk::WirePrimitive { clip, mut mesh } in prims {
+            let Some(host_id) = self.textures.get(&mesh.texture_id).map(|h| h.id()) else {
                 continue;
             };
-            let mut mesh = prim.mesh.clone();
             mesh.texture_id = host_id;
             mesh.translate(offset);
+            vertices += mesh.vertices.len();
             self.cached
-                .push((prim.clip.translate(offset), std::sync::Arc::new(mesh)));
+                .push((clip.translate(offset), std::sync::Arc::new(mesh)));
         }
+        (self.cached.len(), vertices)
     }
 
     /// Paint the cached meshes. If the panel moved since they were built — a
@@ -614,14 +734,6 @@ fn translate_event(e: egui::Event, offset: Vec2, rect: Rect) -> Option<egui::Eve
         Event::MouseMoved(d) => Event::MouseMoved(d),
         other => other,
     })
-}
-
-fn to_color_image(data: &epaint::ImageData) -> epaint::ColorImage {
-    match data {
-        // Including the surface's own font atlas: epaint hands it over already
-        // expanded to RGBA, so the host uploads it like any other texture.
-        epaint::ImageData::Color(image) => (**image).clone(),
-    }
 }
 
 fn map_cursor(c: sdk::CursorIcon) -> Option<egui::CursorIcon> {
@@ -683,5 +795,19 @@ mod tests {
         // Outside the panel, or not hovered at all: nothing reaches the guest.
         assert!(filter_events(vec![pointer_at(10.0, 10.0)], offset, rect(), true, false).is_empty());
         assert!(filter_events(vec![pointer_at(150.0, 150.0)], offset, rect(), false, false).is_empty());
+    }
+
+    #[test]
+    fn a_surface_is_restarted_once_by_itself_and_then_only_by_the_user() {
+        let mut r = Restarts::default();
+        assert!(r.automatic(10.0), "the first break restarts on its own");
+        assert!(
+            !r.automatic(20.0),
+            "a second break inside the cooldown must wait for the user"
+        );
+        r.manual(25.0);
+        assert!(!r.automatic(30.0), "the user's restart begins a fresh cooldown");
+        assert!(r.automatic(25.0 + Restarts::COOLDOWN_SECS));
+        assert_eq!(r.count, 3);
     }
 }

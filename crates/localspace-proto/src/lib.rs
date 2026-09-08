@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 pub const HARNESS_API: &str = "1.0.0";
 /// Bumped whenever the epaint shape schema crossing the surface ABI changes.
-pub const SHAPE_SCHEMA: u32 = 1;
+pub const SHAPE_SCHEMA: u32 = 2;
 
 /// A JSON value that can cross a non-self-describing wire.
 ///

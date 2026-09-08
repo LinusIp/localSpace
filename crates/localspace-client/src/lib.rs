@@ -62,6 +62,11 @@ struct OpenSurface {
     error: Option<String>,
     /// Messages waiting to be handed to the surface on its next frame.
     inbox: Vec<Vec<u8>>,
+    /// Whether it ever painted, so a death reads differently from a failure to
+    /// start.
+    ever_ran: bool,
+    /// Restarts after it broke its memory budget: the first is automatic.
+    restarts: surface::Restarts,
 }
 
 pub struct App {
@@ -79,6 +84,15 @@ pub struct App {
     perf: perf::Meter,
     widget_views: HashMap<(String, String), proto::Widget>,
     surfaces: HashMap<(String, String), OpenSurface>,
+    /// Surfaces compiling on their own thread: a cold JIT of a 4 MB module
+    /// takes seconds, and the window keeps drawing meanwhile.
+    #[cfg(not(target_arch = "wasm32"))]
+    surface_loads: Vec<(
+        (String, String),
+        std::sync::mpsc::Receiver<Result<surface::SurfaceRunner, String>>,
+    )>,
+    /// To ask for a repaint from a loader thread when its surface is ready.
+    ctx: egui::Context,
     docs: HashMap<String, String>,
 
     input: String,
@@ -119,6 +133,9 @@ impl App {
             perf: perf::Meter::new(),
             widget_views: HashMap::new(),
             surfaces: HashMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            surface_loads: Vec::new(),
+            ctx: cc.egui_ctx.clone(),
             docs: HashMap::new(),
             input: String::new(),
             rail: RailTab::Canvas,
@@ -225,39 +242,15 @@ impl App {
                 memory_mb,
             } => {
                 if let Some(key) = self.last_surface_request.clone() {
-                    let entry = self.surfaces.entry(key.clone()).or_default();
                     if shape_schema != proto::SHAPE_SCHEMA {
+                        let entry = self.surfaces.entry(key).or_default();
                         entry.error = Some(format!(
                             "surface was built against shape schema {shape_schema}; this Client speaks {}",
                             proto::SHAPE_SCHEMA
                         ));
                     } else {
-                        // This compiles the surface on the UI thread: the one
-                        // place startup can visibly stall, hence the timing.
-                        let compile = std::time::Instant::now();
-                        match surface::SurfaceRunner::load(
-                            &format!("{}/{}", key.0, key.1),
-                            &bytes,
-                            memory_mb,
-                        ) {
-                            Ok(r) => {
-                                perf::log(format!(
-                                    "surface {}/{} ready in {:.0} ms ({} KB of wasm)",
-                                    key.0,
-                                    key.1,
-                                    compile.elapsed().as_secs_f32() * 1000.0,
-                                    bytes.len() / 1024
-                                ));
-                                entry.runner = Some(r);
-                                entry.error = None;
-                                // A surface starts empty until Core hands it the
-                                // document it is meant to be showing.
-                                self.send(proto::Request::GetDocJson {
-                                    harness: key.0.clone(),
-                                });
-                            }
-                            Err(e) => entry.error = Some(format!("{e:#}")),
-                        }
+                        self.surfaces.entry(key.clone()).or_default();
+                        self.load_surface(key, bytes, memory_mb);
                     }
                 }
             }
@@ -419,9 +412,92 @@ impl App {
     }
 }
 
+// Surfaces are compiled off the UI thread. The panel says "Loading surface…"
+// until the runner arrives; the window never stops drawing for a JIT.
+impl App {
+    fn load_surface(&mut self, key: (String, String), bytes: Vec<u8>, memory_mb: u32) {
+        let name = format!("{}/{}", key.0, key.1);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let ctx = self.ctx.clone();
+            std::thread::spawn(move || {
+                let compile = std::time::Instant::now();
+                let result = surface::SurfaceRunner::load(&name, &bytes, memory_mb)
+                    .map_err(|e| format!("{e:#}"));
+                if result.is_ok() {
+                    perf::log(format!(
+                        "surface {name} ready in {:.0} ms ({} KB of wasm), off the UI thread",
+                        compile.elapsed().as_secs_f32() * 1000.0,
+                        bytes.len() / 1024
+                    ));
+                }
+                let _ = tx.send(result);
+                ctx.request_repaint();
+            });
+            self.surface_loads.push((key, rx));
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let result = surface::SurfaceRunner::load(&name, &bytes, memory_mb)
+                .map_err(|e| format!("{e:#}"));
+            self.finish_surface_load(key, result);
+        }
+    }
+
+    fn finish_surface_load(
+        &mut self,
+        key: (String, String),
+        result: Result<surface::SurfaceRunner, String>,
+    ) {
+        let harness = key.0.clone();
+        let loaded = {
+            let entry = self.surfaces.entry(key).or_default();
+            match result {
+                Ok(r) => {
+                    entry.runner = Some(r);
+                    entry.error = None;
+                    true
+                }
+                Err(e) => {
+                    entry.error = Some(e);
+                    false
+                }
+            }
+        };
+        // A surface starts empty until Core hands it the document it is meant
+        // to be showing.
+        if loaded {
+            self.send(proto::Request::GetDocJson { harness });
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn poll_surface_loads(&mut self) {
+        use std::sync::mpsc::TryRecvError;
+        let mut done = Vec::new();
+        self.surface_loads.retain_mut(|(key, rx)| match rx.try_recv() {
+            Ok(result) => {
+                done.push((key.clone(), result));
+                false
+            }
+            Err(TryRecvError::Empty) => true,
+            Err(TryRecvError::Disconnected) => {
+                done.push((key.clone(), Err("the surface loader thread died".into())));
+                false
+            }
+        });
+        for (key, result) in done {
+            self.finish_surface_load(key, result);
+        }
+    }
+}
+
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.poll_surface_loads();
 
         // What the previous frame cost, and whether any surface ran its guest.
         let (guest_total, guest_last) = self

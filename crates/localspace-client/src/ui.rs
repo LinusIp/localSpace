@@ -1741,13 +1741,39 @@ impl App {
             self.request_surface(harness, view);
         }
 
-        let (error, has_runner) = self
+        let (error, has_runner, ever_ran) = self
             .surfaces
             .get(&key)
-            .map(|s| (s.error.clone(), s.runner.is_some()))
-            .unwrap_or((None, false));
+            .map(|s| (s.error.clone(), s.runner.is_some(), s.ever_ran))
+            .unwrap_or((None, false, false));
         if let Some(err) = error {
-            self.empty_state(ui, rect, "This surface could not start", &err);
+            let title = if ever_ran {
+                "This surface stopped"
+            } else {
+                "This surface could not start"
+            };
+            self.empty_state(ui, rect, title, &err);
+            // Once the automatic restart is spent, the next one is the user's
+            // call. The document is in Core; only the viewport is lost.
+            let button = egui::Rect::from_center_size(
+                rect.center() + Vec2::new(0.0, 46.0),
+                Vec2::new(150.0, 26.0),
+            );
+            let clicked = ui
+                .scope_builder(egui::UiBuilder::new().max_rect(button), |ui| {
+                    theme::ghost_button(ui, "Restart surface", true).clicked()
+                })
+                .inner;
+            if clicked {
+                let now = ui.input(|i| i.time);
+                if let Some(entry) = self.surfaces.get_mut(&key) {
+                    entry.error = None;
+                    entry.runner = None;
+                    entry.restarts.manual(now);
+                }
+                self.request_surface(harness, view);
+                self.set_zoom(self.zoom);
+            }
             return;
         }
         if !has_runner {
@@ -1756,6 +1782,7 @@ impl App {
         }
 
         let entry = self.surfaces.get_mut(&key).expect("checked above");
+        entry.ever_ran = true;
         let inbox = std::mem::take(&mut entry.inbox);
         let runner = entry.runner.as_mut().expect("checked above");
         let (throttled, last_ms) = (runner.stats.throttled, runner.stats.last_ms);
@@ -1783,8 +1810,37 @@ impl App {
             }
             Err(e) => {
                 let msg = format!("{e:#}");
-                if let Some(entry) = self.surfaces.get_mut(&key) {
-                    entry.error = Some(msg);
+                let now = ui.input(|i| i.time);
+                // A surface that broke its memory budget is restarted once on
+                // its own account; its state is in the document. A second break
+                // within the cooldown stays down, reason on screen, until the
+                // user asks.
+                let restart = match self.surfaces.get_mut(&key) {
+                    Some(entry) => {
+                        let broke_budget = entry
+                            .runner
+                            .as_ref()
+                            .and_then(|r| r.over_budget())
+                            .is_some();
+                        entry.runner = None;
+                        if broke_budget && entry.restarts.automatic(now) {
+                            entry.error = None;
+                            true
+                        } else {
+                            entry.error = Some(msg.clone());
+                            false
+                        }
+                    }
+                    None => false,
+                };
+                if restart {
+                    self.notices.push((
+                        proto::NoticeLevel::Warn,
+                        format!("{harness}/{view}: {msg}. Restarted with a fresh instance."),
+                    ));
+                    crate::perf::log(format!("surface {harness}/{view} restarted: {msg}"));
+                    self.request_surface(harness, view);
+                    self.set_zoom(self.zoom);
                 }
             }
         }
