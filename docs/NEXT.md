@@ -171,3 +171,7 @@ and Tier B together — but it depends on items 5 and 2.
   It now forwards keyboard only while the canvas holds keyboard focus, which it
   gets by being clicked, and drops any document write until Core has handed over
   the real document. An untouched launch never lost anything, before or after.
+- The task ledger lives in Core's memory for the life of the process. Artifacts
+  carry across turns, not across restarts; a `localspace call` from the CLI is one
+  process, so an artifact it registers is gone by the next call. Persisting the
+  ledger as a DAG document is the obvious next step.
