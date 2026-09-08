@@ -116,8 +116,9 @@ bench (sketch → simulate → board) — which needs a third harness.
 
 ## 6b. Meeting the 50 MB budget
 
-Spec §1.2 caps the Client and Core at 50 MB private RSS each; `bench` prints the
-number and it is roughly 300 MB for the desktop process. The path the spec itself
+Spec §1.2 caps the Client and Core at 50 MB private RSS each. `bench` prints the
+number: headless Core is 5 MB private with a harness instantiated, inside budget;
+the desktop process is roughly 300 MB, so the Client half is what is over. The path the spec itself
 lays out: make chat, settings, the store and the admin console harnesses on the
 same contract so Core holds only the proto server, the DAG, the document store,
 the permission checker, the scheduler, the planner and the runtime; memory-map
