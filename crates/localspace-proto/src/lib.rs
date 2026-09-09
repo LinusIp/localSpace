@@ -17,7 +17,7 @@ pub const SHAPE_SCHEMA: u32 = 2;
 /// `postcard` cannot deserialize `serde_json::Value` (it has no `deserialize_any`),
 /// so every JSON payload in `proto` travels as its compact string form and is
 /// re-parsed on arrival. Same type on both transports; no desktop-only shortcut.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, schemars::JsonSchema, ts_rs::TS)]
 pub struct Json(pub serde_json::Value);
 
 impl Json {
@@ -65,16 +65,26 @@ impl std::fmt::Display for Json {
 
 impl Serialize for Json {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&self.0.to_string())
+        // A JSON wire carries the value itself. A binary wire such as postcard,
+        // which cannot describe a JSON value, carries its text and re-parses it.
+        if s.is_human_readable() {
+            self.0.serialize(s)
+        } else {
+            s.serialize_str(&self.0.to_string())
+        }
     }
 }
 
 impl<'de> Deserialize<'de> for Json {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let raw = String::deserialize(d)?;
-        serde_json::from_str(&raw)
-            .map(Json)
-            .map_err(serde::de::Error::custom)
+        if d.is_human_readable() {
+            serde_json::Value::deserialize(d).map(Json)
+        } else {
+            let raw = String::deserialize(d)?;
+            serde_json::from_str(&raw)
+                .map(Json)
+                .map_err(serde::de::Error::custom)
+        }
     }
 }
 
@@ -88,7 +98,7 @@ pub type JobId = String;
 // Environment
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum NetworkMode {
     /// No egress at all. `web.*` tools are absent from the agent's tool set.
@@ -118,7 +128,7 @@ impl NetworkMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct EnvironmentState {
     pub user: String,
     pub network: NetworkMode,
@@ -142,20 +152,20 @@ pub struct EnvironmentState {
     pub engine: EngineState,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct EngineState {
     pub running: bool,
     pub detail: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum Topology {
     Personal,
     Organisation,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct HarnessSummary {
     pub id: HarnessId,
     pub title: String,
@@ -183,21 +193,21 @@ pub struct HarnessSummary {
     pub kind: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum Tier {
     Wasm,
     Native,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum DocKind {
     Crdt,
     Blob,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum SurfaceKind {
     Widgets,
@@ -205,7 +215,7 @@ pub enum SurfaceKind {
     Stream,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum Placement {
     Main,
@@ -213,7 +223,7 @@ pub enum Placement {
     Bottom,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct ViewDesc {
     pub id: ViewId,
     pub kind: SurfaceKind,
@@ -223,7 +233,7 @@ pub struct ViewDesc {
 
 /// What a harness declared it may cost (spec §1.2). Enforced by the runtime,
 /// shown in the store and the details panel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct ResourceSummary {
     /// Linear-memory limit for the logic component.
     pub logic_mb: u32,
@@ -233,7 +243,7 @@ pub struct ResourceSummary {
     pub idle_unload_secs: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct CapabilitySummary {
     pub fs: String,
     pub net: String,
@@ -248,7 +258,7 @@ pub struct CapabilitySummary {
 // Models
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct ModelInfo {
     pub id: String,
     pub backend: String,
@@ -262,7 +272,7 @@ pub struct ModelInfo {
 // Tools
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum ToolKind {
     Read,
@@ -270,7 +280,7 @@ pub enum ToolKind {
     Compute,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum Confirm {
     Never,
@@ -278,7 +288,7 @@ pub enum Confirm {
     Always,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum CostHint {
     Instant,
@@ -287,7 +297,7 @@ pub enum CostHint {
 }
 
 /// A tool as the model sees it, after Core has namespaced it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct ExposedTool {
     pub harness: HarnessId,
     /// Fully qualified, e.g. `canvas.add_shape`.
@@ -302,7 +312,7 @@ pub struct ExposedTool {
     pub reason: ExposureReason,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ExposureReason {
     Focused,
@@ -312,7 +322,7 @@ pub enum ExposureReason {
 }
 
 /// What Core computed for this turn — surfaced in the trace so tool exposure is auditable.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct ActiveSet {
     pub tools: Vec<ExposedTool>,
     pub token_estimate: usize,
@@ -325,7 +335,7 @@ pub struct ActiveSet {
 // Conversation / agent loop
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct ChatMessage {
     pub role: Role,
     pub content: String,
@@ -334,7 +344,7 @@ pub struct ChatMessage {
     pub tool_calls: Vec<ToolCallRecord>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     System,
@@ -343,7 +353,7 @@ pub enum Role {
     Tool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct ToolCallRecord {
     pub id: String,
     pub tool: String,
@@ -351,7 +361,7 @@ pub struct ToolCallRecord {
     pub outcome: ToolOutcome,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolOutcome {
     Ok {
@@ -378,7 +388,7 @@ pub enum ToolOutcome {
 // Context providers
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct ContextBlock {
     pub harness: HarnessId,
     /// Text serialization of harness state, sized to the budget.
@@ -394,7 +404,7 @@ pub struct ContextBlock {
 
 /// One agent run's ledger. Rendered into every prompt regardless of which
 /// harness is focused: the tools change with focus, the ledger does not.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct Task {
     pub id: String,
     /// What the user asked.
@@ -407,14 +417,14 @@ pub struct Task {
     pub citations: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct Step {
     pub harness: HarnessId,
     pub intent: String,
     pub status: StepStatus,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum StepStatus {
     Pending,
@@ -424,7 +434,7 @@ pub enum StepStatus {
 }
 
 /// A typed artifact pinned to an exact document version.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct Artifact {
     /// `art_1`, `art_2`, … — what the agent passes between tools.
     pub id: String,
@@ -442,7 +452,7 @@ pub struct Artifact {
 // Version DAG
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct Commit {
     pub id: CommitId,
     pub parent: Option<CommitId>,
@@ -458,7 +468,7 @@ pub struct Commit {
     pub run: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum Author {
     User,
@@ -470,7 +480,7 @@ pub enum Author {
 // Widgets surfaces (declarative tree rendered by the Client in host theme)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Widget {
     Column {
@@ -537,7 +547,7 @@ pub enum Widget {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum Tone {
     Neutral,
@@ -546,13 +556,13 @@ pub enum Tone {
     Bad,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct WidgetEvent {
     pub id: String,
     pub value: WidgetValue,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum WidgetValue {
     Clicked,
@@ -565,7 +575,7 @@ pub enum WidgetValue {
 // Requests
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Request {
     // --- environment ---
@@ -697,7 +707,7 @@ pub enum Request {
 // Responses
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Response {
     Ok,
@@ -760,7 +770,7 @@ pub enum Response {
 }
 
 /// One package on the store page.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct CatalogEntry {
     pub id: HarnessId,
     pub title: String,
@@ -795,7 +805,7 @@ pub struct CatalogEntry {
     pub dependencies: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct CapabilityHit {
     pub harness: HarnessId,
     pub tool: String,
@@ -803,7 +813,7 @@ pub struct CapabilityHit {
     pub score: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct EvalReport {
     pub harness: HarnessId,
     pub model: String,
@@ -812,7 +822,7 @@ pub struct EvalReport {
     pub cases: Vec<EvalCase>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct EvalCase {
     pub name: String,
     pub prompt: String,
@@ -824,7 +834,7 @@ pub struct EvalCase {
 // Events (Core -> Client)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Event {
     EnvironmentChanged(EnvironmentState),
@@ -882,7 +892,7 @@ pub enum Event {
     TaskChanged(Task),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalKind {
     ToolConfirm,
@@ -891,7 +901,7 @@ pub enum ApprovalKind {
     NativeTier,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum NoticeLevel {
     Info,
@@ -903,13 +913,13 @@ pub enum NoticeLevel {
 // Wire helpers
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct Envelope {
     pub id: u64,
     pub body: Body,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub enum Body {
     Request(Request),
     Response(Response),

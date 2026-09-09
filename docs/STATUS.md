@@ -108,3 +108,27 @@ component under wasmtime — and drives it through Core exactly as the agent doe
 manifest, tool lint, Tier A runtime, JSON-into-CRDT reconciliation, commits, undo,
 the confirmation gate, the context provider at three budgets, and a full agent turn
 whose run is then dropped in one action.
+
+---
+
+## Architecture v2 (2026-09-09)
+
+`localspace-architecture-v2.md` replaces the client, the surface ABI, the
+inference backend and the build order. `docs/V2-PLAN.md` maps it onto the code.
+Its build order, against the tree:
+
+| Step | State | What exists |
+|---|---|---|
+| 1 proto + Core + axum + generated TypeScript; Tauri and `serve` boot to a login and an empty shell | **done** | `JsonSchema` and `TS` on every proto type; `cargo test -p localspace-proto` writes `web/src/api/generated/`; `/api/v1` with a token login, a session cookie or bearer, `POST /api/v1/request` for any request and `GET` routes for the common reads; `/ws/json` streaming events and answering requests under their id; `/api/v1/openapi.json` generated from the schemas; a React shell that signs in and shows the environment; `localspace-app` (Tauri 2) with Core and the server in-process on loopback, 47 MB private for that process |
+| 2 llama.cpp sidecar, planner, model catalog | not started | the planner and the OpenAI-compatible worker with a `grammar` field exist |
+| 3 chat harness | not started | the agent loop, ledger and grammar exist in Core |
+| 4 harness runtime with iframe surfaces and the bridge SDK | not started | manifest, logic components, install and uninstall exist; the `widgets` kind stays |
+| 5 whiteboard as the first package, on tldraw | not started | logic, 20 tools, context provider, evals and the Automerge document exist |
+| 6 retrieval, upload, gateway | partial | gateway modes and `web.*` tools exist |
+| 7 multi-user `serve`, OIDC | partial | ACL, workspaces, proposals, audit exist; identity does not |
+| 8–11 | not started | |
+
+Measured on the reference laptop: the shell's host process 47 MB private; the
+WebView2 processes 364 MB private together across 18 processes, above the
+150–300 MB v2 §6.6 expects, to be watched as panels arrive. The base bundle is
+70 KB gzipped against a 2 MB budget.

@@ -11,3 +11,9 @@ harnesses/*/ui/*.wasm
 harnesses/*/target/
 registry/*/logic.wasm
 registry/*/ui/*.wasm
+
+# web client
+web/node_modules/
+web/dist/
+# tauri build output
+crates/localspace-shell/gen/

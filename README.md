@@ -103,6 +103,10 @@ rather than flattering.
 `docs/V2-PLAN.md` maps the v2 architecture (TypeScript client, Tauri, iframe surfaces,
 llama.cpp) onto what exists, what it retires, and what must be decided first.
 
+Architecture v2 is under way: the TypeScript client in `web/`, the Tauri shell in
+`crates/localspace-shell`, and the JSON API in `localspace-server` are step 1 of its
+build order, done; the egui client stays until the web client reaches parity.
+
 Short version: the plugin core runs end to end. A wasm harness installs, its tools
 are exposed to the agent under a per-turn budget, its surface runs sandboxed in the
 Client, its context provider is called with a real token budget, every write lands

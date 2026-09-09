@@ -1,0 +1,22 @@
+[package]
+name = "localspace-shell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The localSpace desktop app: Core and the API in this process, the web client in the system webview (Tauri 2)."
+
+[[bin]]
+name = "localspace-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+localspace-core = { path = "../localspace-core" }
+localspace-server = { path = "../localspace-server" }
+tauri = { version = "2", features = [] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

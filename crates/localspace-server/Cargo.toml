@@ -3,11 +3,7 @@ name = "localspace-server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "localspace serve: Core + HTTP/WS API + wasm Client bundle."
-
-[[bin]]
-name = "localspace-serve"
-path = "src/main.rs"
+description = "localspace serve: Core, the HTTP and WebSocket API, and the web client bundle. Also the library the desktop shell embeds."
 
 [dependencies]
 localspace-proto = { path = "../localspace-proto" }
@@ -22,3 +18,12 @@ futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
+thiserror.workspace = true
+blake3.workspace = true
+schemars.workspace = true
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tokio-tungstenite = "0.28"
+tempfile = "3"

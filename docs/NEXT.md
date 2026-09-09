@@ -1,7 +1,12 @@
 # What to do next
 
-Ordered by what unblocks the most, not by what is easiest. Each item says where the
-seam already is, so none of these is a rewrite.
+Architecture v2 (2026-09-09) sets the order now: its build order is in
+`docs/V2-PLAN.md` §5, step 1 is done, and step 2 — the `llama-server` sidecar,
+the placement plan turned into its flags, and the model catalog with download —
+is next, with the 15 tok/s gate on a W32 machine behind it. Steps 3 to 5, the
+chat harness, iframe surfaces with the bridge SDK, and the whiteboard on tldraw,
+complete the MVP. The items below are the seams inside Core that those steps
+land on; they still hold, and their numbering is the older one.
 
 ---
 

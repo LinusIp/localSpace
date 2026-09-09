@@ -98,3 +98,51 @@ and the `gpu:` line names the adapter in use.
   refused with "permission denied" on first run. Copying the binary to a new name,
   or a clean rebuild, clears it.
 - Keep `CARGO_TARGET_DIR` short (e.g. `C:/lst`). Long paths bite the wasm builds.
+
+## The web client and the desktop shell (architecture v2)
+
+The client is TypeScript in `web/`, built with Vite; its API types are generated
+from `localspace-proto`, never written by hand. The desktop app is Tauri 2 in
+`crates/localspace-shell`: Core and the API server in one process on a loopback
+port, the same web bundle in the system webview.
+
+```bash
+cargo test -p localspace-proto      # regenerates web/src/api/generated/ from proto
+```
+
+```bash
+cd web && npm install && npm run build   # -> web/dist, about 70 KB gzipped
+```
+
+Serve it, personal mode, from the repository root:
+
+```bash
+cargo run --release -p localspace-server --bin localspace-serve -- --personal --harnesses harnesses --registry registry --data ~/.localspace --web web/dist
+```
+
+The server prints its token at start and writes it to `<data>/token`; the
+browser asks for it once and keeps a session cookie. `--token` fixes it,
+`--user` names the personal user, and without `--personal` the server runs in
+organisation mode, where the one token stands for the operator until OIDC
+(build order step 7).
+
+The desktop shell needs `web/dist` to exist when it is built:
+
+```bash
+cargo build --release -p localspace-shell
+```
+
+Then `localspace-app --harnesses harnesses --registry registry --data ~/.localspace`
+opens a window already signed in. `--web <dir>` points it at another bundle; an
+installed app looks for `web/` beside its executable.
+
+For a client development loop, `npm run dev` in `web/` serves the source with
+hot reload and proxies `/api` and `/ws` to a server on port 8443.
+
+The egui client (`localspace`) and its surface SDK stay in the tree until the
+web client reaches parity, and the server still answers their postcard socket
+at `/ws`.
+
+On this machine Smart App Control has refused some freshly built debug
+binaries and accepted release builds; if a new executable "cannot be run due
+to an Application Control policy", build it in release.
