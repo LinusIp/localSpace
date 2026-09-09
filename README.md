@@ -100,6 +100,8 @@ docs/                     STATUS, BUILD, HARNESS-AUTHORING, NEXT
 and what is not built. Read it before planning work — it is written to be honest
 rather than flattering.
 `docs/PERFORMANCE.md` is how "it feels slow" becomes a number that names its cause.
+`docs/V2-PLAN.md` maps the v2 architecture (TypeScript client, Tauri, iframe surfaces,
+llama.cpp) onto what exists, what it retires, and what must be decided first.
 
 Short version: the plugin core runs end to end. A wasm harness installs, its tools
 are exposed to the agent under a per-turn budget, its surface runs sandboxed in the
