@@ -528,6 +528,15 @@ impl eframe::App for App {
             }
             if perf::spin() {
                 ctx.request_repaint();
+                // A visible counter, so a screen capture can count the frames
+                // that actually reached the screen, not just the ones drawn.
+                ctx.debug_painter().text(
+                    egui::pos2(24.0, 60.0),
+                    egui::Align2::LEFT_TOP,
+                    format!("frame {}", self.perf.total_frames),
+                    egui::FontId::monospace(30.0),
+                    egui::Color32::RED,
+                );
             }
         }
 

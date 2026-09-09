@@ -384,6 +384,23 @@ fn run_gui(args: Args) -> Result<()> {
         };
         tracing::info!("present mode: {mode}");
     }
+    // `LOCALSPACE_GPU=<substring of an adapter name>` renders on that adapter — for
+    // example `basic` for the CPU rasterizer — instead of the most powerful one.
+    if let Ok(want) = std::env::var("LOCALSPACE_GPU") {
+        let needle = want.to_lowercase();
+        if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
+            setup.native_adapter_selector = Some(std::sync::Arc::new(
+                move |adapters: &[eframe::wgpu::Adapter], _surface: Option<&eframe::wgpu::Surface<'_>>| {
+                    adapters
+                        .iter()
+                        .find(|a| a.get_info().name.to_lowercase().contains(&needle))
+                        .cloned()
+                        .ok_or_else(|| format!("no GPU adapter matches {needle}"))
+                },
+            ));
+        }
+        tracing::info!("gpu selector: {want}");
+    }
     if let Some(n) = std::env::var("LOCALSPACE_FRAME_LATENCY").ok().and_then(|s| s.parse::<u32>().ok()) {
         options.wgpu_options.surface.desired_maximum_frame_latency = Some(n);
     }

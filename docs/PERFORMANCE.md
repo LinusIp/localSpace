@@ -38,7 +38,9 @@ repaints only for input, for Core, or for a surface's own request.
 app is producing frames faster than the screen accepts them. Confirm with
 `LOCALSPACE_PERF_SPIN=1`, which asks for a repaint every frame with no input
 at all; the frame rate it reaches is the ceiling of the display path, and
-nothing in the app moves that ceiling.
+nothing in the app moves that ceiling. Spin mode also draws a red frame
+counter at the top left, so a screen capture can count the frames that
+actually reached the screen rather than the ones the app drew.
 
 The variables below change how frames are presented, for ruling things out:
 
@@ -47,6 +49,7 @@ WGPU_BACKEND=dx12|vulkan            which GPU API
 WGPU_POWER_PREF=low|high            integrated or discrete GPU
 LOCALSPACE_PRESENT=vsync|novsync|immediate|mailbox|fifo
 LOCALSPACE_FRAME_LATENCY=1|2        swapchain queue depth
+LOCALSPACE_GPU=<name substring>     render on that adapter, e.g. `basic` for the CPU rasterizer
 ```
 
 The `gpu:` line in the log says which adapter, backend and driver were used.

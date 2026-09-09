@@ -53,6 +53,8 @@ pub struct Meter {
     seen_guest_frames: u64,
     first_reported: bool,
     pub gpu_reported: bool,
+    /// Frames since start, for the on-screen counter in spin mode.
+    pub total_frames: u64,
     /// Wall-clock gaps between consecutive frames this second: what the user
     /// feels, as opposed to what a frame costs. A cheap frame every 150 ms is
     /// a throttle somewhere between the app and the screen.
@@ -84,6 +86,7 @@ impl Meter {
             seen_guest_frames: 0,
             first_reported: false,
             gpu_reported: false,
+            total_frames: 0,
             last_frame: None,
             gap_ms_sum: 0.0,
             gap_ms_max: 0.0,
@@ -114,6 +117,7 @@ impl Meter {
             log("first frame drawn");
         }
         self.frames += 1;
+        self.total_frames += 1;
         let now = Instant::now();
         if let Some(last) = self.last_frame {
             let gap = (now - last).as_secs_f32() * 1000.0;
