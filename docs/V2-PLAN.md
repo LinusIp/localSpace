@@ -145,4 +145,18 @@ schemas, and the web bundle served at `/`; a React shell in `web/` that signs
 in and shows the environment; `localspace-app` in `crates/localspace-shell`,
 Tauri 2, with Core and the server in one process on a loopback port and the
 window signed in through the token it generated. Both boot to a login and an
-empty shell. Next is step 2, the llama.cpp sidecar.
+empty shell.
+
+## 9. The main GUI, the same day
+
+The shell is the chat-centred layout of the design handed over on 2026-09-09:
+a rail with Chat, Agents, Tools, Models, Data, History and Library, Settings
+and Help below; a top bar with the workspace, the model, canvas zoom
+(disabled until a canvas panel exists), readiness, settings and the user; the
+chat with the agent's tool calls inline, approval cards and a composer with
+stop; a right column with the active model, tools as switches, the context
+and recent changes. Every page shows Core's own state through the JSON API
+and every control is one request; nothing on screen is decoration. The
+readiness pill says "No model" until one is connected in Models, because
+that is the truth of a fresh install. Next is step 2, the llama.cpp sidecar,
+which is what turns that pill green without a hand-connected endpoint.

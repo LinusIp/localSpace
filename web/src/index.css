@@ -1,19 +1,21 @@
 @import "tailwindcss";
 
-/* The token file harnesses inherit (v2 §6.1): colours, type, density. The
-   values are the egui shell's, so the two clients look the same while both
-   exist. Harness iframes receive these through the bridge as `h.theme`. */
+/* The token file harnesses inherit (v2 §6.1): colours, type, density. Harness
+   iframes receive these through the bridge as `h.theme`. */
 @theme {
-  --color-page: #f6f7f5;
+  --color-page: #f5f7f6;
   --color-ink: #1c1f1d;
   --color-muted: #5f6763;
   --color-faint: #9aa39e;
-  --color-line: #e2e6e3;
-  --color-accent: #22a05a;
-  --color-accent-soft: #e6f5ec;
+  --color-line: #e3e7e4;
+  --color-accent: #1f9d5b;
+  --color-accent-strong: #178a4e;
+  --color-accent-soft: #e8f6ee;
+  --color-warn: #b7791f;
+  --color-warn-soft: #fbf3e4;
   --color-danger: #c73e3e;
   --color-danger-soft: #fbe9e9;
-  --font-sans: system-ui, "Segoe UI", sans-serif;
+  --font-sans: "Inter", system-ui, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, Consolas, monospace;
 }
 
@@ -29,4 +31,57 @@ body {
   font-size: 14px;
   color: var(--color-ink);
   background: var(--color-page);
+}
+
+/* Assistant markdown: enough structure to read, nothing that fights the shell. */
+.prose-chat {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.prose-chat p {
+  margin: 0 0 0.75em;
+}
+.prose-chat p:last-child {
+  margin-bottom: 0;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3 {
+  margin: 1em 0 0.4em;
+  font-weight: 600;
+  font-size: 1em;
+}
+.prose-chat ul,
+.prose-chat ol {
+  margin: 0 0 0.75em;
+  padding-left: 1.4em;
+}
+.prose-chat li {
+  margin: 0.2em 0;
+}
+.prose-chat code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--color-page);
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+.prose-chat pre code {
+  background: none;
+  padding: 0;
+}
+.prose-chat table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+}
+.prose-chat th,
+.prose-chat td {
+  border: 1px solid var(--color-line);
+  padding: 0.25em 0.6em;
+}
+.prose-chat blockquote {
+  margin: 0.5em 0;
+  padding-left: 0.8em;
+  border-left: 3px solid var(--color-line);
+  color: var(--color-muted);
 }

@@ -49,9 +49,30 @@ export const logout = () =>
 
 export const me = () => fetch("/api/v1/me", { credentials: "same-origin" }).then((r) => parse<Me>(r));
 
-/** Any request, its response. Core checks every one; the client is never trusted. */
-export const call = (request: Request) =>
-  fetch("/api/v1/request", json(request)).then((r) => parse<Response>(r));
+/**
+ * Any request, its response. Core checks every one; the client is never
+ * trusted. A response of `{ error }` is raised as an `ApiError`, so callers
+ * see one kind of failure.
+ */
+export async function call(request: Request): Promise<Response> {
+  const response = await fetch("/api/v1/request", json(request)).then((r) => parse<Response>(r));
+  if (typeof response !== "string" && "error" in response) {
+    throw new ApiError(400, response.error.message);
+  }
+  return response;
+}
+
+type Variant = Exclude<Response, string>;
+type VariantKey = Variant extends infer V ? (V extends object ? keyof V : never) : never;
+
+/** The one variant a caller wanted, or null when Core answered otherwise. */
+export function pick<K extends VariantKey>(
+  response: Response,
+  key: K,
+): Extract<Variant, Record<K, unknown>>[K] | null {
+  if (typeof response === "string" || !(key in response)) return null;
+  return (response as Extract<Variant, Record<K, unknown>>)[key];
+}
 
 /**
  * The event stream. Reconnects with backoff until `stop` is called; `onLive`
