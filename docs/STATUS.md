@@ -121,7 +121,7 @@ Its build order, against the tree:
 |---|---|---|
 | 1 proto + Core + axum + generated TypeScript; Tauri and `serve` boot to a login and an empty shell | **done** | `JsonSchema` and `TS` on every proto type; `cargo test -p localspace-proto` writes `web/src/api/generated/`; `/api/v1` with a token login, a session cookie or bearer, `POST /api/v1/request` for any request and `GET` routes for the common reads; `/ws/json` streaming events and answering requests under their id; `/api/v1/openapi.json` generated from the schemas; a React shell that signs in and shows the environment; `localspace-app` (Tauri 2) with Core and the server in-process on loopback, 47 MB private for that process |
 | 2 llama.cpp sidecar, planner, model catalog | not started | the planner and the OpenAI-compatible worker with a `grammar` field exist |
-| 3 chat harness | **shell done**, needs a model to exercise | the main GUI in `web/`: chat with streaming deltas, tool calls inline as they happen, approval cards, the composer with stop; the right column with the active model, tools with switches, the context and recent changes; the Agents page with the task ledger, approvals, trace and the exact prompt the model will see; Tools with the active set, capability search and running a tool by hand; Models with an endpoint to connect; Data with the documents and the lock; History with undo, redo and drop-run; Library with install and uninstall; Settings; Help. Verified through the API: a hand-run `canvas.add_sticky` lands as a commit and in the document, and a chat message without a model gets the honest reply |
+| 3 chat harness | **done** except citations (step 6): the GUI, token streaming, persisted conversations | the main GUI in `web/`: chat with streaming deltas, tool calls inline as they happen, approval cards, the composer with stop; the right column with the active model, tools with switches, the context and recent changes; the Agents page with the task ledger, approvals, trace and the exact prompt the model will see; Tools with the active set, capability search and running a tool by hand; Models with an endpoint to connect; Data with the documents and the lock; History with undo, redo and drop-run; Library with install and uninstall; Settings; Help. Verified through the API: a hand-run `canvas.add_sticky` lands as a commit and in the document, and a chat message without a model gets the honest reply |
 | 4 harness runtime with iframe surfaces and the bridge SDK | not started | manifest, logic components, install and uninstall exist; the `widgets` kind stays |
 | 5 whiteboard as the first package, on tldraw | not started | logic, 20 tools, context provider, evals and the Automerge document exist |
 | 6 retrieval, upload, gateway | partial | gateway modes and `web.*` tools exist |
@@ -164,3 +164,18 @@ machine and the 120B model; the utility model and speculative decoding of
 §4.3. The sidecar tests in `tests/engine.rs`, against a fake engine, could
 not be run here because Application Control refused their executable; they
 are written to run wherever a new unsigned executable may execute.
+
+### v2 step 3, the chat harness (2026-09-09)
+
+Done: the shell of the chat harness in the web client (the main GUI: the
+conversation, tool calls inline, approvals, the composer with stop, the
+ledger view on the Agents page); **token streaming**: the worker reads the
+model's server-sent events and the agent forwards each piece as an
+`assistant_delta`, held back only while the model is producing a tool call in
+the grammar's shape (measured over the JSON socket: 27 deltas for a
+128-character answer, the first 3.6 s in, which is the 3,700-token prompt
+being processed); **conversations**: several, switchable, deletable,
+renamable, persisted as `conversations.json` under the data directory, the
+transcript always the current one, evals kept out of them, a conversation
+list beside the chat. Not yet: citations, which arrive with retrieval in
+step 6; the tool loop and the GBNF grammar were already there.

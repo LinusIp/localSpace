@@ -13,6 +13,7 @@ import type {
   ChatMessage,
   Commit,
   ContextBlock,
+  ConversationSummary,
   EnvironmentState,
   Event,
   Json,
@@ -66,6 +67,8 @@ export type Session = {
   catalogModels: ModelCatalogEntry[];
   engineLog: string[];
   context: { blocks: ContextBlock[]; prompt: string } | null;
+  conversations: ConversationSummary[];
+  currentConversation: string;
 
   signIn: (me: Me) => void;
   signOut: () => void;
@@ -85,6 +88,10 @@ export type Session = {
   refreshCatalog: () => Promise<void>;
   refreshModels: () => Promise<void>;
   refreshModelCatalog: () => Promise<void>;
+  refreshConversations: () => Promise<void>;
+  newConversation: () => Promise<void>;
+  selectConversation: (id: string) => Promise<void>;
+  deleteConversation: (id: string) => Promise<void>;
   refreshEngineLog: () => Promise<void>;
   downloadModel: (id: string) => Promise<void>;
   loadModel: (id: string) => Promise<void>;
@@ -152,6 +159,8 @@ export const useSession = create<Session>((set, get) => {
     catalogModels: [],
     engineLog: [],
     context: null,
+    conversations: [],
+    currentConversation: "",
 
     signIn: (me) => set({ me }),
     signOut: () =>
@@ -173,6 +182,8 @@ export const useSession = create<Session>((set, get) => {
         catalogModels: [],
         engineLog: [],
         context: null,
+        conversations: [],
+        currentConversation: "",
         live: false,
       }),
     go: (page) => set({ page }),
@@ -218,6 +229,11 @@ export const useSession = create<Session>((set, get) => {
           ),
         }));
         if (stage === "done" || stage.startsWith("failed")) void get().refreshModelCatalog();
+      } else if ("conversation_changed" in event) {
+        // This or another client switched, created or deleted one.
+        set({ currentConversation: event.conversation_changed.current, streaming: "", liveCalls: [] });
+        void get().refreshConversations();
+        void get().refreshTranscript();
       } else if ("engine_changed" in event) {
         // The sidecar moved: loading, ready, crashed. The model behind
         // `environment.model` follows, so the environment is refreshed too.
@@ -289,6 +305,32 @@ export const useSession = create<Session>((set, get) => {
         const models = pick(await call("list_models"), "models");
         if (models) set({ models: models.models });
       });
+    },
+    refreshConversations: async () => {
+      await attempt(async () => {
+        const c = pick(await call("list_conversations"), "conversations");
+        if (c) set({ conversations: c.list, currentConversation: c.current });
+      });
+    },
+    newConversation: async () => {
+      await attempt(async () => {
+        const c = pick(await call("new_conversation"), "conversations");
+        if (c) set({ conversations: c.list, currentConversation: c.current, transcript: [], streaming: "", liveCalls: [], task: null });
+      });
+    },
+    selectConversation: async (id) => {
+      await attempt(async () => {
+        const c = pick(await call({ select_conversation: { id } }), "conversations");
+        if (c) set({ conversations: c.list, currentConversation: c.current, streaming: "", liveCalls: [] });
+      });
+      await get().refreshTranscript();
+    },
+    deleteConversation: async (id) => {
+      await attempt(async () => {
+        const c = pick(await call({ delete_conversation: { id } }), "conversations");
+        if (c) set({ conversations: c.list, currentConversation: c.current, streaming: "", liveCalls: [] });
+      });
+      await get().refreshTranscript();
     },
     refreshModelCatalog: async () => {
       await attempt(async () => takeModelCatalog(await call("list_model_catalog")));

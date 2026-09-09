@@ -9,6 +9,7 @@ import type { LiveToolCall } from "../store";
 import { Markdown } from "../components/Markdown";
 import { Mark } from "../components/Mark";
 import { RightPanel } from "../components/RightPanel";
+import { Conversations } from "../components/Conversations";
 import { Button, Card } from "../components/ui";
 
 export function ChatPage() {
@@ -23,7 +24,9 @@ export function ChatPage() {
 
   return (
     <div className="flex min-h-0 flex-1 gap-4 px-6 pb-6">
-      <Card className="flex min-w-0 flex-1 flex-col">
+      <Card className="flex min-w-0 flex-1 flex-row">
+        <Conversations />
+        <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-3 border-b border-line px-6 py-4">
           <span className="text-muted">
             <MessageSquare size={18} />
@@ -74,6 +77,7 @@ export function ChatPage() {
         </div>
 
         <Composer />
+        </div>
       </Card>
       <RightPanel />
     </div>

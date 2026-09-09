@@ -92,6 +92,15 @@ pub struct ProposedCall {
 pub trait ModelWorker: Send + Sync {
     fn info(&self) -> proto::ModelInfo;
     fn chat(&self, req: &ChatRequest) -> Result<ChatReply>;
+    /// Like `chat`, but each piece of text reaches `on_delta` as the model
+    /// produces it (v2 step 3). A backend that cannot stream answers whole.
+    fn chat_streaming(&self, req: &ChatRequest, on_delta: &mut dyn FnMut(&str)) -> Result<ChatReply> {
+        let reply = self.chat(req)?;
+        if !reply.text.is_empty() {
+            on_delta(&reply.text);
+        }
+        Ok(reply)
+    }
     fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
 }
 
@@ -200,6 +209,32 @@ impl ModelWorker for OpenAiWorker {
         parse_openai_reply(&res)
     }
 
+    fn chat_streaming(&self, req: &ChatRequest, on_delta: &mut dyn FnMut(&str)) -> Result<ChatReply> {
+        let mut body = json!({
+            "model": self.model,
+            "messages": [{"role": "user", "content": req.prompt}],
+            "max_tokens": req.max_tokens,
+            "temperature": req.temperature,
+            "stream": true,
+            "stream_options": {"include_usage": true},
+        });
+        if !req.tools.is_empty() {
+            body["tools"] = J::Array(req.tools.iter().map(tool_schema).collect());
+            body["tool_choice"] = json!("auto");
+        }
+        let url = format!("{}/chat/completions", self.base_url);
+        let mut request = ureq::post(&url).config().timeout_global(Some(self.timeout)).build();
+        if let Some(k) = &self.api_key {
+            request = request.header("Authorization", &format!("Bearer {k}"));
+        }
+        let mut res = request
+            .send_json(&body)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .with_context(|| format!("POST {url}"))?;
+        let reader = std::io::BufReader::new(res.body_mut().as_reader());
+        read_sse(reader, on_delta)
+    }
+
     fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         let res = self.post(
             "/embeddings",
@@ -274,6 +309,85 @@ pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {
         calls,
         prompt_tokens: res["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as u32,
         completion_tokens: res["usage"]["completion_tokens"].as_u64().unwrap_or(0) as u32,
+    })
+}
+
+/// An OpenAI-style server-sent event stream, read to the end: text deltas go
+/// to `on_delta` as they arrive, tool-call deltas are assembled by index, and
+/// the last event's usage is kept.
+pub fn read_sse<R: std::io::BufRead>(reader: R, on_delta: &mut dyn FnMut(&str)) -> Result<ChatReply> {
+    let mut text = String::new();
+    // (id, name, arguments) per tool-call index; arguments arrive in pieces.
+    let mut calls: Vec<(String, String, String)> = Vec::new();
+    let mut prompt_tokens = 0u32;
+    let mut completion_tokens = 0u32;
+    for line in reader.lines() {
+        let line = line.map_err(|e| anyhow::anyhow!("{e}")).context("reading the model's stream")?;
+        let Some(data) = line.strip_prefix("data:") else { continue };
+        let data = data.trim();
+        if data == "[DONE]" {
+            break;
+        }
+        let Ok(event) = serde_json::from_str::<J>(data) else { continue };
+        if let Some(err) = event.get("error") {
+            bail!(
+                "model returned an error: {}",
+                err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown")
+            );
+        }
+        if let Some(usage) = event.get("usage").filter(|u| !u.is_null()) {
+            prompt_tokens = usage["prompt_tokens"].as_u64().unwrap_or(0) as u32;
+            completion_tokens = usage["completion_tokens"].as_u64().unwrap_or(0) as u32;
+        }
+        let Some(choice) = event["choices"].get(0) else { continue };
+        let delta = &choice["delta"];
+        if let Some(piece) = delta["content"].as_str() {
+            if !piece.is_empty() {
+                text.push_str(piece);
+                on_delta(piece);
+            }
+        }
+        if let Some(pieces) = delta["tool_calls"].as_array() {
+            for tc in pieces {
+                let index = tc["index"].as_u64().unwrap_or(0) as usize;
+                while calls.len() <= index {
+                    calls.push((String::new(), String::new(), String::new()));
+                }
+                if let Some(id) = tc["id"].as_str() {
+                    calls[index].0 = id.to_string();
+                }
+                if let Some(name) = tc["function"]["name"].as_str() {
+                    calls[index].1.push_str(name);
+                }
+                if let Some(args) = tc["function"]["arguments"].as_str() {
+                    calls[index].2.push_str(args);
+                }
+            }
+        }
+    }
+
+    let mut proposed = Vec::new();
+    for (i, (id, name, args)) in calls.into_iter().enumerate() {
+        if name.is_empty() {
+            continue;
+        }
+        let params: J = serde_json::from_str(&args).unwrap_or(json!({}));
+        proposed.push(ProposedCall {
+            id: if id.is_empty() { format!("call_{i}") } else { id },
+            tool: name.replace("__", "."),
+            params,
+        });
+    }
+    if proposed.is_empty() {
+        if let Some(c) = parse_grammar_call(&text) {
+            proposed.push(c);
+        }
+    }
+    Ok(ChatReply {
+        text,
+        calls: proposed,
+        prompt_tokens,
+        completion_tokens,
     })
 }
 
@@ -375,6 +489,29 @@ impl Router {
             self.metrics.chat_calls.fetch_add(1, Ordering::Relaxed);
         }
         let reply = worker.chat(req)?;
+        self.metrics
+            .prompt_tokens
+            .fetch_add(reply.prompt_tokens as u64, Ordering::Relaxed);
+        Ok(reply)
+    }
+
+    /// `chat`, with the text streamed to `on_delta` as it is produced.
+    pub fn chat_streaming(
+        &self,
+        role: WorkerRole,
+        req: &ChatRequest,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<ChatReply> {
+        let worker = self
+            .worker(role)
+            .context("no model is loaded in this environment")?;
+        let served_by_utility = role == WorkerRole::Utility && self.utility.is_some();
+        if served_by_utility {
+            self.metrics.utility_calls.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.metrics.chat_calls.fetch_add(1, Ordering::Relaxed);
+        }
+        let reply = worker.chat_streaming(req, on_delta)?;
         self.metrics
             .prompt_tokens
             .fetch_add(reply.prompt_tokens as u64, Ordering::Relaxed);

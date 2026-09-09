@@ -95,9 +95,28 @@ fn run_loop(core: &mut Core, mut steps: usize) {
             class: model::RequestClass::Interactive,
         };
 
+        // Tokens reach the shell as they arrive (v2 step 3) — unless the model
+        // is producing a tool call in the grammar's shape, which is not for
+        // reading and is handled whole below.
+        let mut streamed = 0usize;
+        let mut seen = String::new();
+        let mut calling: Option<bool> = None;
         let reply = {
             let router = core.router.read().unwrap();
-            router.chat(model::WorkerRole::Chat, &request)
+            router.chat_streaming(model::WorkerRole::Chat, &request, &mut |delta: &str| {
+                seen.push_str(delta);
+                if calling.is_none() {
+                    if let Some(first) = seen.trim_start().chars().next() {
+                        calling = Some(first == '{');
+                    }
+                }
+                if calling == Some(false) {
+                    streamed += delta.len();
+                    core.emit(proto::Event::AssistantDelta {
+                        text: delta.to_string(),
+                    });
+                }
+            })
         };
 
         let reply = match reply {
@@ -116,7 +135,8 @@ fn run_loop(core: &mut Core, mut steps: usize) {
         };
 
         if reply.calls.is_empty() {
-            if !reply.text.is_empty() {
+            // Streamed already, unless it was held back as a possible tool call.
+            if !reply.text.is_empty() && streamed == 0 {
                 core.emit(proto::Event::AssistantDelta {
                     text: reply.text.clone(),
                 });
@@ -177,12 +197,14 @@ fn run_loop(core: &mut Core, mut steps: usize) {
             }
         }
         if paused {
+            core.record_conversation();
             return;
         }
         steps += 1;
     }
 
     finish_run(core);
+    core.record_conversation();
 }
 
 fn record_call(core: &mut Core, tool: &str, params: &J, outcome: proto::ToolOutcome) {

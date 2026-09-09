@@ -5,6 +5,7 @@ import type { CatalogEntry } from "./CatalogEntry";
 import type { ChatMessage } from "./ChatMessage";
 import type { Commit } from "./Commit";
 import type { ContextBlock } from "./ContextBlock";
+import type { ConversationSummary } from "./ConversationSummary";
 import type { DocKind } from "./DocKind";
 import type { EnvironmentState } from "./EnvironmentState";
 import type { EvalReport } from "./EvalReport";
@@ -19,4 +20,4 @@ export type Response = "ok" | { "environment": EnvironmentState } | { "transcrip
 /**
  * The heap limit the Client must enforce on this surface.
  */
-memory_mb: number, } } | { "widget_view": { root: Widget, } } | { "doc_opened": { doc: string, snapshot: Array<number>, kind: DocKind, } } | { "doc_json": { harness: string, doc: string, json: Json, } } | { "history": { commits: Array<Commit>, } } | { "models": { models: Array<ModelInfo>, } } | { "context": { blocks: Array<ContextBlock>, prompt_preview: string, } } | { "active": ActiveSet } | { "task": Task } | { "lock": { json: Json, } } | { "capabilities": { hits: Array<CapabilityHit>, } } | { "catalog": { entries: Array<CatalogEntry>, } } | { "evals": EvalReport } | { "install_prompt": { harness: string, token: string, diff: Array<string>, native_reason: string | null, } } | { "model_catalog": { entries: Array<ModelCatalogEntry>, } } | { "engine_log": { lines: Array<string>, } } | { "error": { message: string, } };
+memory_mb: number, } } | { "widget_view": { root: Widget, } } | { "doc_opened": { doc: string, snapshot: Array<number>, kind: DocKind, } } | { "doc_json": { harness: string, doc: string, json: Json, } } | { "history": { commits: Array<Commit>, } } | { "models": { models: Array<ModelInfo>, } } | { "context": { blocks: Array<ContextBlock>, prompt_preview: string, } } | { "active": ActiveSet } | { "task": Task } | { "lock": { json: Json, } } | { "capabilities": { hits: Array<CapabilityHit>, } } | { "catalog": { entries: Array<CatalogEntry>, } } | { "evals": EvalReport } | { "install_prompt": { harness: string, token: string, diff: Array<string>, native_reason: string | null, } } | { "model_catalog": { entries: Array<ModelCatalogEntry>, } } | { "engine_log": { lines: Array<string>, } } | { "conversations": { list: Array<ConversationSummary>, current: string, } } | { "error": { message: string, } };

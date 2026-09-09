@@ -9,6 +9,7 @@ pub mod agent;
 pub mod audit;
 pub mod catalog;
 pub mod context;
+pub mod conversations;
 pub mod dag;
 pub mod deps;
 pub mod docs;
@@ -148,6 +149,10 @@ pub struct Core {
     sync_states: HashMap<String, automerge::sync::State>,
 
     events: Option<engine::EventSink>,
+    /// Every conversation; `transcript` is the current one's messages.
+    conversations: conversations::Store,
+    /// While evals run, their turns are not recorded as the user's.
+    evals_running: bool,
     /// The model catalog, downloads in flight, and the sidecar, if any.
     models: models::Catalog,
     downloads: Arc<Mutex<HashMap<String, proto::DownloadState>>>,
@@ -185,7 +190,12 @@ impl Core {
             .unwrap_or_else(|| std::env::temp_dir().join("localspace").join("models"));
         let models = models::Catalog::load(cfg.models_dir.as_deref(), &models_store);
 
+        let conversations = conversations::Store::load(cfg.data_dir.as_deref(), dag::now_ms());
+        let transcript = conversations.current().map(|c| c.messages.clone()).unwrap_or_default();
+
         let mut core = Core {
+            conversations,
+            evals_running: false,
             models,
             downloads: Arc::new(Mutex::new(HashMap::new())),
             engine: None,
@@ -201,7 +211,7 @@ impl Core {
             focus: None,
             pinned: Vec::new(),
             touched: Vec::new(),
-            transcript: Vec::new(),
+            transcript,
             pending: HashMap::new(),
             pending_installs: HashMap::new(),
             proposals: Vec::new(),
@@ -474,6 +484,30 @@ impl Core {
         }
         self.write_lock();
         Ok(proto::Response::Ok)
+    }
+
+    // -- conversations (v2 §8) ------------------------------------------------
+
+    /// Write the transcript into the current conversation and save.
+    pub(crate) fn record_conversation(&mut self) {
+        if self.evals_running {
+            return;
+        }
+        self.conversations.record(&self.transcript, dag::now_ms());
+        self.save_conversations();
+    }
+
+    fn save_conversations(&self) {
+        if let Err(e) = self.conversations.save() {
+            self.trace(format!("conversations: not saved: {e:#}"));
+        }
+    }
+
+    fn conversations_response(&self) -> proto::Response {
+        proto::Response::Conversations {
+            list: self.conversations.summaries(),
+            current: self.conversations.current.clone(),
+        }
     }
 
     // -- models: the catalog, downloads, the sidecar (v2 §4) -----------------
@@ -1480,6 +1514,63 @@ impl Core {
                 messages: self.transcript.clone(),
             },
 
+            R::ListConversations => self.conversations_response(),
+
+            R::NewConversation => {
+                self.record_conversation();
+                self.conversations.start(dag::now_ms());
+                self.transcript.clear();
+                self.save_conversations();
+                self.emit(proto::Event::ConversationChanged {
+                    current: self.conversations.current.clone(),
+                });
+                self.conversations_response()
+            }
+
+            R::SelectConversation { id } => {
+                self.record_conversation();
+                match self.conversations.select(&id) {
+                    Some(c) => {
+                        self.transcript = c.messages.clone();
+                        self.save_conversations();
+                        self.emit(proto::Event::ConversationChanged { current: id });
+                        self.conversations_response()
+                    }
+                    None => proto::Response::Error {
+                        message: format!("no conversation `{id}`"),
+                    },
+                }
+            }
+
+            R::DeleteConversation { id } => {
+                self.record_conversation();
+                if !self.conversations.delete(&id, dag::now_ms()) {
+                    return proto::Response::Error {
+                        message: format!("no conversation `{id}`"),
+                    };
+                }
+                self.transcript = self
+                    .conversations
+                    .current()
+                    .map(|c| c.messages.clone())
+                    .unwrap_or_default();
+                self.save_conversations();
+                self.emit(proto::Event::ConversationChanged {
+                    current: self.conversations.current.clone(),
+                });
+                self.conversations_response()
+            }
+
+            R::RenameConversation { id, title } => {
+                if !self.conversations.rename(&id, &title) {
+                    return proto::Response::Error {
+                        message: format!("no conversation `{id}`"),
+                    };
+                }
+                self.save_conversations();
+                self.conversations_response()
+            }
+
             R::Approve { id, granted } => {
                 let Some(p) = self.pending.remove(&id) else {
                     return proto::Response::Error {
@@ -1895,12 +1986,21 @@ impl Core {
                 hits: exposure::rank_capabilities(&self.registry, &need),
             },
 
-            R::RunEvals { harness } => match evals::run(self, &harness) {
-                Ok(report) => proto::Response::Evals(report),
-                Err(e) => proto::Response::Error {
-                    message: format!("{e:#}"),
-                },
-            },
+            R::RunEvals { harness } => {
+                // Evals run in a transcript of their own; the user's conversation
+                // is neither shown them nor overwritten by them.
+                let saved = std::mem::take(&mut self.transcript);
+                self.evals_running = true;
+                let result = evals::run(self, &harness);
+                self.evals_running = false;
+                self.transcript = saved;
+                match result {
+                    Ok(report) => proto::Response::Evals(report),
+                    Err(e) => proto::Response::Error {
+                        message: format!("{e:#}"),
+                    },
+                }
+            }
         }
     }
 }

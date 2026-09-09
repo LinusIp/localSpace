@@ -302,6 +302,16 @@ pub struct DownloadState {
     pub stage: String,
 }
 
+/// One conversation in the list (v2 §8).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct ConversationSummary {
+    pub id: String,
+    pub title: String,
+    pub created_ms: u64,
+    pub updated_ms: u64,
+    pub messages: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct ModelInfo {
     pub id: String,
@@ -764,6 +774,19 @@ pub enum Request {
     EngineLog {
         lines: usize,
     },
+    /// The chat harness keeps several conversations (v2 §8); the transcript is the current one.
+    ListConversations,
+    NewConversation,
+    SelectConversation {
+        id: String,
+    },
+    DeleteConversation {
+        id: String,
+    },
+    RenameConversation {
+        id: String,
+        title: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -832,6 +855,10 @@ pub enum Response {
     },
     EngineLog {
         lines: Vec<String>,
+    },
+    Conversations {
+        list: Vec<ConversationSummary>,
+        current: String,
     },
     Error {
         message: String,
@@ -968,6 +995,10 @@ pub enum Event {
     },
     /// The inference sidecar changed state: loading, ready, crashed, stopped.
     EngineChanged(EngineState),
+    /// Another client, or this one, switched, created or deleted a conversation.
+    ConversationChanged {
+        current: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]

@@ -11,6 +11,7 @@ export type { ChatMessage } from "./ChatMessage";
 export type { Commit } from "./Commit";
 export type { Confirm } from "./Confirm";
 export type { ContextBlock } from "./ContextBlock";
+export type { ConversationSummary } from "./ConversationSummary";
 export type { CostHint } from "./CostHint";
 export type { DocKind } from "./DocKind";
 export type { DownloadState } from "./DownloadState";
