@@ -71,6 +71,8 @@ fn config() -> ServerConfig {
             "--harnesses" => cfg.harnesses = it.next().map(PathBuf::from),
             "--data" => cfg.data = it.next().map(PathBuf::from),
             "--registry" => cfg.registry.extend(it.next().map(PathBuf::from)),
+            "--models" => cfg.models = it.next().map(PathBuf::from),
+            "--llama-server" => cfg.llama_server = it.next().map(PathBuf::from),
             "--web" => cfg.web_root = it.next().map(PathBuf::from),
             "--user" => cfg.user = it.next().unwrap_or(cfg.user),
             other => eprintln!("ignoring unknown argument `{other}`"),

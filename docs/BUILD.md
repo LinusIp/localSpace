@@ -146,3 +146,18 @@ at `/ws`.
 On this machine Smart App Control has refused some freshly built debug
 binaries and accepted release builds; if a new executable "cannot be run due
 to an Application Control policy", build it in release.
+
+## Models and the inference sidecar (architecture v2 §4)
+
+Core starts `llama-server` itself, per model, on a loopback port, and turns the
+placement planner's plan into its flags. It looks for the binary as
+`--llama-server <path>`, then `LOCALSPACE_LLAMA_SERVER`, then
+`<data>/engines/llama-server(.exe)`, then PATH. It never downloads an
+executable: put a llama.cpp release build there yourself.
+
+The catalog is `models/catalog.json`, compiled into Core; an organisation adds
+or overrides entries with a `catalog.json` in the directory given by
+`--models <dir>`. Downloads go to `<data>/models/` and are refused in an
+air-gapped environment, where a file is imported in place from the Models
+page instead. `cargo test -p localspace-core --test engine` exercises the whole
+path against `fake_llama_server`, a test double this crate builds.

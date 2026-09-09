@@ -91,7 +91,7 @@ something changed; only what is on screen is drawn.
 | Step | Exists | Partial | New | Rough size |
 |---|---|---|---|---|
 | 1 proto + Core + axum + generated TS; Tauri and `serve` boot to a login | proto, Core, axum skeleton | OpenAPI stub, no REST | TS generation, REST, JSON WS, Vite shell, Tauri crate, local-token login | 1–2 weeks |
-| 2 llama.cpp sidecar + planner + catalog download | planner, worker protocol | plan is not executed | supervision, flags, catalog, download, the 15 tok/s gate | 1 week, then the gate |
+| 2 llama.cpp sidecar + planner + catalog download | planner, worker protocol, and now: the supervisor, the plan as flags, the catalog with verdicts, download and import, the Models page | the 15 tok/s gate needs a W32 machine and a real `llama-server` | the utility model and speculative decoding of §4.3 | the gate |
 | 3 chat harness | agent loop, ledger, grammar, streaming in Core | | the React UI | 1 week |
 | 4 harness runtime with iframe surfaces | manifest, logic components, install and uninstall, local registry | `widgets` kind stays | `web` kind, bridge SDK, iframe host, CSP | 1–2 weeks |
 | 5 whiteboard as the first package | logic, tools, context provider, evals, Automerge document | | the surface bundle; the tldraw decision | 1–2 weeks |

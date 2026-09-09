@@ -132,3 +132,23 @@ Measured on the reference laptop: the shell's host process 47 MB private; the
 WebView2 processes 364 MB private together across 18 processes, above the
 150–300 MB v2 §6.6 expects, to be watched as panels arrive. The base bundle is
 70 KB gzipped against a 2 MB budget.
+
+### v2 step 2, in progress (2026-09-10)
+
+Built: the model catalog (`models/catalog.json`, five entries from a 0.5B
+smoke-test model to the 120B mixture of experts the W32 profile is planned
+around) with the placement planner's verdict and estimate per entry for this
+machine; downloads from Hugging Face on a Core thread with progress events,
+refused when air-gapped; import of a file in place; the `llama-server`
+sidecar supervisor (`core::engine`): a free loopback port, the plan as flags
+(`-ngl`, `--n-cpu-moe`, KV precision, context), health polling until ready,
+the worker installed in the router, restart on crash up to three times in
+ten minutes, stop on request, a log tail; six new requests and two new
+events; the Models page showing all of it. Not yet done: the 15 tok/s gate,
+which needs a W32 machine and a real `llama-server`; the utility model and
+speculative decoding of §4.3.
+
+Verification on this laptop is limited: Smart App Control refuses freshly
+built test executables, so the sidecar tests (`tests/engine.rs`, against a
+fake engine) could not be run here; they are written to run wherever a new
+unsigned executable may execute.

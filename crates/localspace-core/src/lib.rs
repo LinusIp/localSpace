@@ -12,6 +12,7 @@ pub mod context;
 pub mod dag;
 pub mod deps;
 pub mod docs;
+pub mod engine;
 pub mod evals;
 pub mod exposure;
 pub mod footprint;
@@ -20,6 +21,7 @@ pub mod grammar;
 pub mod lock;
 pub mod manifest;
 pub mod model;
+pub mod models;
 pub mod planner;
 pub mod profile;
 pub mod prompt;
@@ -67,6 +69,11 @@ pub struct Config {
     pub gateway: GatewayConfig,
     pub machine: Machine,
     pub profile: ModelProfile,
+    /// A directory with an organisation's own `catalog.json` of models, on top
+    /// of the built-in catalog. Downloaded files always go under the data dir.
+    pub models_dir: Option<PathBuf>,
+    /// `llama-server`, when it is not under `<data>/engines` or on PATH.
+    pub llama_server: Option<PathBuf>,
 }
 
 impl Config {
@@ -83,6 +90,8 @@ impl Config {
             gateway: GatewayConfig::default(),
             machine,
             profile,
+            models_dir: None,
+            llama_server: None,
         }
     }
 
@@ -138,7 +147,11 @@ pub struct Core {
     workspace: String,
     sync_states: HashMap<String, automerge::sync::State>,
 
-    events: Option<Box<dyn Fn(proto::Event) + Send>>,
+    events: Option<engine::EventSink>,
+    /// The model catalog, downloads in flight, and the sidecar, if any.
+    models: models::Catalog,
+    downloads: Arc<Mutex<HashMap<String, proto::DownloadState>>>,
+    engine: Option<engine::Engine>,
     next_approval: u64,
 }
 
@@ -165,7 +178,17 @@ impl Core {
         access.add_workspace(Workspace::personal(&cfg.user));
         let workspace = format!("ws_{}", cfg.user);
 
+        let models_store = cfg
+            .data_dir
+            .as_ref()
+            .map(|d| d.join("models"))
+            .unwrap_or_else(|| std::env::temp_dir().join("localspace").join("models"));
+        let models = models::Catalog::load(cfg.models_dir.as_deref(), &models_store);
+
         let mut core = Core {
+            models,
+            downloads: Arc::new(Mutex::new(HashMap::new())),
+            engine: None,
             registry: Registry::new(),
             docs: DocStore::new(),
             dag,
@@ -197,8 +220,14 @@ impl Core {
         Ok(core)
     }
 
-    pub fn set_event_sink(&mut self, sink: Box<dyn Fn(proto::Event) + Send>) {
-        self.events = Some(sink);
+    pub fn set_event_sink(&mut self, sink: Box<dyn Fn(proto::Event) + Send + Sync>) {
+        self.events = Some(Arc::from(sink));
+    }
+
+    /// The sink for Core's own threads — downloads, the engine supervisor —
+    /// which report the same way requests do.
+    fn sink(&self) -> engine::EventSink {
+        self.events.clone().unwrap_or_else(|| Arc::new(|_| {}))
     }
 
     fn emit(&self, ev: proto::Event) {
@@ -447,18 +476,121 @@ impl Core {
         Ok(proto::Response::Ok)
     }
 
+    // -- models: the catalog, downloads, the sidecar (v2 §4) -----------------
+
+    fn model_catalog(&self) -> proto::Response {
+        let downloads = self.downloads.lock().unwrap().clone();
+        proto::Response::ModelCatalog {
+            entries: self.models.entries(
+                &self.cfg.machine,
+                &downloads,
+                self.engine.as_ref().map(|e| e.model_id.as_str()),
+            ),
+        }
+    }
+
+    /// Provisioning egress (v2 §4.4): allowed unless the environment is
+    /// air-gapped, in which case the answer is an offline import.
+    fn download_model(&mut self, id: &str) -> Result<()> {
+        let mode = self.gateway.lock().unwrap().config.mode;
+        if mode == proto::NetworkMode::Airgapped {
+            anyhow::bail!(
+                "this environment is air-gapped: bring the file over and import it instead"
+            );
+        }
+        self.models.download(id, self.downloads.clone(), self.sink())?;
+        self.trace(format!("models: downloading `{id}`"));
+        let _ = self.audit.append(
+            self.actor(),
+            self.scope("models"),
+            "model.download",
+            serde_json::json!({"model": id}),
+            "started",
+        );
+        Ok(())
+    }
+
+    /// Start the sidecar on a model that is here, with the flags its
+    /// placement plan calls for.
+    fn load_model(&mut self, id: &str) -> Result<()> {
+        let binary = engine::find_binary(self.cfg.llama_server.as_deref(), self.cfg.data_dir.as_deref())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "llama-server is not installed: put {} under <data>/engines/, pass \
+                     --llama-server <path>, or set LOCALSPACE_LLAMA_SERVER",
+                    engine::binary_name()
+                )
+            })?;
+        let path = self
+            .models
+            .installed_path(id)
+            .ok_or_else(|| anyhow::anyhow!("`{id}` is not downloaded yet"))?;
+        let context_len = self
+            .models
+            .get(id)
+            .map(|m| m.context_len.min(16384))
+            .unwrap_or(8192);
+        let flags = match self.models.placement(id, &self.cfg.machine)? {
+            Some((map, plan)) => {
+                self.trace(format!("planner: {}", plan.summary()));
+                engine::flags(&plan, &map, context_len)
+            }
+            None => vec!["-c".into(), context_len.to_string(), "-ngl".into(), "999".into()],
+        };
+        if let Some(old) = self.engine.take() {
+            old.stop();
+        }
+        let log_dir = self
+            .cfg
+            .data_dir
+            .clone()
+            .unwrap_or_else(|| std::env::temp_dir().join("localspace"))
+            .join("engines");
+        let engine = engine::Engine::start(
+            &binary,
+            id,
+            &path,
+            &flags,
+            context_len,
+            &log_dir,
+            self.sink(),
+            self.router.clone(),
+        )?;
+        self.trace(format!(
+            "engine: started {} for {id} on 127.0.0.1:{} with {}",
+            binary.display(),
+            engine.port,
+            flags.join(" ")
+        ));
+        let _ = self.audit.append(
+            self.actor(),
+            self.scope("models"),
+            "model.load",
+            serde_json::json!({"model": id, "flags": flags}),
+            "started",
+        );
+        self.engine = Some(engine);
+        self.broadcast_environment();
+        Ok(())
+    }
+
     // -- environment --------------------------------------------------------
 
     pub fn environment(&self) -> proto::EnvironmentState {
         let gw = self.gateway.lock().unwrap();
         let model = self.router.read().unwrap().info();
-        let engine = match &model {
-            Some(m) => proto::EngineState {
+        let engine = match (&self.engine, &model) {
+            (Some(engine), _) => engine.state(),
+            (None, Some(m)) => proto::EngineState {
                 running: true,
-                detail: m.backend.clone(),
+                loading: false,
+                model: Some(m.id.clone()),
+                detail: format!("endpoint: {}", m.backend),
             },
-            None => proto::EngineState {
+            (None, None) => proto::EngineState {
                 running: false,
+                loading: false,
+                model: None,
                 detail: "no model selected".into(),
             },
         };
@@ -1676,6 +1808,56 @@ impl Core {
                 self.broadcast_environment();
                 proto::Response::Ok
             }
+
+            R::ListModelCatalog => self.model_catalog(),
+
+            R::DownloadModel { id } => match self.download_model(&id) {
+                Ok(()) => self.model_catalog(),
+                Err(e) => proto::Response::Error {
+                    message: format!("{e:#}"),
+                },
+            },
+
+            R::LoadModel { id } => match self.load_model(&id) {
+                Ok(()) => proto::Response::Ok,
+                Err(e) => proto::Response::Error {
+                    message: format!("{e:#}"),
+                },
+            },
+
+            R::UnloadModel => {
+                if let Some(engine) = self.engine.take() {
+                    engine.stop();
+                    self.trace(format!("engine: stopped llama-server for {}", engine.model_id));
+                    let _ = self.audit.append(
+                        self.actor(),
+                        self.scope("models"),
+                        "model.unload",
+                        serde_json::json!({"model": engine.model_id}),
+                        "ok",
+                    );
+                }
+                self.broadcast_environment();
+                proto::Response::Ok
+            }
+
+            R::ImportModel { path } => match self.models.import(std::path::Path::new(&path)) {
+                Ok(m) => {
+                    self.trace(format!("models: imported {} as `{}`", path, m.id));
+                    self.model_catalog()
+                }
+                Err(e) => proto::Response::Error {
+                    message: format!("{e:#}"),
+                },
+            },
+
+            R::EngineLog { lines } => proto::Response::EngineLog {
+                lines: self
+                    .engine
+                    .as_ref()
+                    .map(|e| e.log_tail(lines.clamp(1, 2000)))
+                    .unwrap_or_default(),
+            },
 
             R::PreviewContext { budget } => {
                 let mut profile = self.cfg.profile.clone();

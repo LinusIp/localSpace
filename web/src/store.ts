@@ -16,6 +16,7 @@ import type {
   EnvironmentState,
   Event,
   Json,
+  ModelCatalogEntry,
   ModelInfo,
   NetworkMode,
   NoticeLevel,
@@ -62,6 +63,8 @@ export type Session = {
   history: Commit[];
   catalog: CatalogEntry[];
   models: ModelInfo[];
+  catalogModels: ModelCatalogEntry[];
+  engineLog: string[];
   context: { blocks: ContextBlock[]; prompt: string } | null;
 
   signIn: (me: Me) => void;
@@ -81,6 +84,12 @@ export type Session = {
   refreshHistory: () => Promise<void>;
   refreshCatalog: () => Promise<void>;
   refreshModels: () => Promise<void>;
+  refreshModelCatalog: () => Promise<void>;
+  refreshEngineLog: () => Promise<void>;
+  downloadModel: (id: string) => Promise<void>;
+  loadModel: (id: string) => Promise<void>;
+  unloadModel: () => Promise<void>;
+  importModel: (path: string) => Promise<void>;
   previewContext: (budget: number) => Promise<void>;
   selectModel: (id: string) => Promise<void>;
   setNetwork: (mode: NetworkMode) => Promise<void>;
@@ -118,6 +127,11 @@ export const useSession = create<Session>((set, get) => {
     if (environment) set({ environment });
   };
 
+  const takeModelCatalog = (response: Awaited<ReturnType<typeof call>>) => {
+    const catalog = pick(response, "model_catalog");
+    if (catalog) set({ catalogModels: catalog.entries });
+  };
+
   return {
     me: null,
     page: "chat",
@@ -135,6 +149,8 @@ export const useSession = create<Session>((set, get) => {
     history: [],
     catalog: [],
     models: [],
+    catalogModels: [],
+    engineLog: [],
     context: null,
 
     signIn: (me) => set({ me }),
@@ -154,6 +170,8 @@ export const useSession = create<Session>((set, get) => {
         history: [],
         catalog: [],
         models: [],
+        catalogModels: [],
+        engineLog: [],
         context: null,
         live: false,
       }),
@@ -190,6 +208,25 @@ export const useSession = create<Session>((set, get) => {
       else if ("task_changed" in event) set({ task: event.task_changed });
       else if ("approval_request" in event)
         set((s) => ({ approvals: [...s.approvals, event.approval_request] }));
+      else if ("model_progress" in event) {
+        // A download moved: update the one entry, and refresh the catalog when
+        // it finished so "installed" comes from Core, not from arithmetic.
+        const { id, done_bytes, total_bytes, stage } = event.model_progress;
+        set((s) => ({
+          catalogModels: s.catalogModels.map((m) =>
+            m.id === id ? { ...m, download: { done_bytes, total_bytes, stage } } : m,
+          ),
+        }));
+        if (stage === "done" || stage.startsWith("failed")) void get().refreshModelCatalog();
+      } else if ("engine_changed" in event) {
+        // The sidecar moved: loading, ready, crashed. The model behind
+        // `environment.model` follows, so the environment is refreshed too.
+        const engine = event.engine_changed;
+        set((s) => (s.environment ? { environment: { ...s.environment, engine } } : {}));
+        void get().refreshEnvironment();
+        void get().refreshModelCatalog();
+        if (engine.running) void get().refreshModels();
+      }
     },
 
     refreshEnvironment: async () => {
@@ -252,6 +289,32 @@ export const useSession = create<Session>((set, get) => {
         const models = pick(await call("list_models"), "models");
         if (models) set({ models: models.models });
       });
+    },
+    refreshModelCatalog: async () => {
+      await attempt(async () => takeModelCatalog(await call("list_model_catalog")));
+    },
+    refreshEngineLog: async () => {
+      await attempt(async () => {
+        const log = pick(await call({ engine_log: { lines: 60 } }), "engine_log");
+        if (log) set({ engineLog: log.lines });
+      });
+    },
+    downloadModel: async (id) => {
+      await attempt(async () => takeModelCatalog(await call({ download_model: { id } })));
+    },
+    loadModel: async (id) => {
+      await attempt(() => call({ load_model: { id } }));
+      await get().refreshEnvironment();
+      await get().refreshModelCatalog();
+    },
+    unloadModel: async () => {
+      await attempt(() => call("unload_model"));
+      await get().refreshEnvironment();
+      await get().refreshModelCatalog();
+      await get().refreshModels();
+    },
+    importModel: async (path) => {
+      await attempt(async () => takeModelCatalog(await call({ import_model: { path } })));
     },
     previewContext: async (budget) => {
       await attempt(async () => {

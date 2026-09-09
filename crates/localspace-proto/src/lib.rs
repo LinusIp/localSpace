@@ -156,6 +156,10 @@ pub struct EnvironmentState {
 pub struct EngineState {
     pub running: bool,
     pub detail: String,
+    /// The catalog id of the model the sidecar serves, when one is loaded or loading.
+    pub model: Option<String>,
+    /// A sidecar has been started and is not yet answering.
+    pub loading: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
@@ -257,6 +261,46 @@ pub struct CapabilitySummary {
 // ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
+
+/// One model in the catalog (architecture v2 §4.4), with the planner's verdict
+/// for this machine and what is on disk.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct ModelCatalogEntry {
+    pub id: String,
+    pub title: String,
+    pub family: String,
+    pub params_b: f32,
+    /// Parameters active per token; equals `params_b` for a dense model.
+    pub active_params_b: f32,
+    pub quant: String,
+    pub license: String,
+    pub license_url: String,
+    /// Approximate size on disk of all files.
+    pub bytes: u64,
+    pub context_len: u32,
+    /// `hf:<repo>` for the Hugging Face catalog, `import` for a file the user brought.
+    pub source: String,
+    pub files: Vec<String>,
+    pub installed: bool,
+    pub loaded: bool,
+    pub download: Option<DownloadState>,
+    /// `resident`, `hybrid`, `streaming`, `does not fit`, or `unknown`.
+    pub verdict: String,
+    pub estimated_tok_s: f32,
+    pub first_token_ms: f32,
+    pub plan_summary: String,
+    pub plan_notes: Vec<String>,
+    pub supports_tools: bool,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct DownloadState {
+    pub done_bytes: u64,
+    pub total_bytes: u64,
+    /// `downloading`, `verifying`, `done`, or `failed: <why>`.
+    pub stage: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct ModelInfo {
@@ -701,6 +745,25 @@ pub enum Request {
     RunEvals {
         harness: HarnessId,
     },
+    /// The model catalog with the planner's verdict per entry (v2 §4.4).
+    ListModelCatalog,
+    /// Fetch a catalog model's files from Hugging Face: provisioning egress.
+    DownloadModel {
+        id: String,
+    },
+    /// Start the inference sidecar on a downloaded or imported model.
+    LoadModel {
+        id: String,
+    },
+    UnloadModel,
+    /// Bring a GGUF file the user already has into the catalog, in place.
+    ImportModel {
+        path: String,
+    },
+    /// The last lines of the sidecar's log.
+    EngineLog {
+        lines: usize,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -763,6 +826,12 @@ pub enum Response {
         token: String,
         diff: Vec<String>,
         native_reason: Option<String>,
+    },
+    ModelCatalog {
+        entries: Vec<ModelCatalogEntry>,
+    },
+    EngineLog {
+        lines: Vec<String>,
     },
     Error {
         message: String,
@@ -890,6 +959,15 @@ pub enum Event {
     },
     /// The ledger changed: a plan was written, an artifact produced, a note added.
     TaskChanged(Task),
+    /// A model download moved, finished or failed.
+    ModelProgress {
+        id: String,
+        done_bytes: u64,
+        total_bytes: u64,
+        stage: String,
+    },
+    /// The inference sidecar changed state: loading, ready, crashed, stopped.
+    EngineChanged(EngineState),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]

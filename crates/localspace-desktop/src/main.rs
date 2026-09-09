@@ -43,6 +43,8 @@ struct Args {
     harnesses: Option<PathBuf>,
     data: Option<PathBuf>,
     registry: Vec<PathBuf>,
+    models: Option<PathBuf>,
+    llama_server: Option<PathBuf>,
     user: String,
     organisation: bool,
     allow_below_floor: bool,
@@ -64,6 +66,8 @@ fn parse_args() -> Args {
         harnesses: None,
         data: None,
         registry: Vec::new(),
+        models: None,
+        llama_server: None,
         user: whoami(),
         organisation: false,
         allow_below_floor: false,
@@ -83,6 +87,8 @@ fn parse_args() -> Args {
             "--harnesses" => args.harnesses = it.next().map(PathBuf::from),
             "--data" => args.data = it.next().map(PathBuf::from),
             "--registry" => args.registry.extend(it.next().map(PathBuf::from)),
+            "--models" => args.models = it.next().map(PathBuf::from),
+            "--llama-server" => args.llama_server = it.next().map(PathBuf::from),
             "--user" => args.user = it.next().unwrap_or_else(whoami),
             "--organisation" | "--organization" => args.organisation = true,
             "--allow-below-floor" => args.allow_below_floor = true,
@@ -115,6 +121,11 @@ fn config(args: &Args) -> Config {
     } else {
         args.registry.clone()
     };
+    cfg.models_dir = args
+        .models
+        .clone()
+        .or_else(|| Some(PathBuf::from("models")).filter(|p| p.exists()));
+    cfg.llama_server = args.llama_server.clone();
     cfg
 }
 

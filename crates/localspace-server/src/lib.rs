@@ -42,6 +42,10 @@ pub struct ServerConfig {
     pub token: Option<String>,
     /// Mark the session cookie `Secure` (behind TLS).
     pub secure_cookies: bool,
+    /// An organisation's own model catalog directory, on top of the built-in one.
+    pub models: Option<PathBuf>,
+    /// `llama-server`, when it is not under `<data>/engines` or on PATH.
+    pub llama_server: Option<PathBuf>,
 }
 
 impl Default for ServerConfig {
@@ -57,6 +61,8 @@ impl Default for ServerConfig {
             user: whoami(),
             token: None,
             secure_cookies: false,
+            models: Some(PathBuf::from("models")).filter(|p| p.exists()),
+            llama_server: None,
         }
     }
 }
@@ -116,6 +122,8 @@ impl Server {
         };
         cfg.harness_dir = self.cfg.harnesses.clone();
         cfg.catalog_dirs = self.cfg.registry.clone();
+        cfg.models_dir = self.cfg.models.clone();
+        cfg.llama_server = self.cfg.llama_server.clone();
         cfg.data_dir = self.cfg.data.as_ref().map(|d| {
             if self.cfg.personal {
                 d.clone()
