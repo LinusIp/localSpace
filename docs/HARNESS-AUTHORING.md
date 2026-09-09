@@ -254,6 +254,14 @@ frame would put sixty commits in the history for one drag, and undo would become
 useless. Anything continuous — dragging, resizing, drawing ink — should follow this
 shape.
 
+**Draw what is on screen, and no more.** Immediate mode rebuilds the shape
+list every frame, so every draw pass first tests the shape's screen rectangle
+against `painter.clip_rect()` and skips the rest; on a thousand-note board
+with sixty visible, a frame costs what sixty cost. The background dot grid is
+one mesh of quads rather than 2,600 tessellated circles, and note text is laid
+out at a wrap width snapped to 8 px so egui's galley cache survives a zoom.
+The Client's `tests/surface.rs` measures all of this.
+
 **The schema is the only contract.** The board's array-taking tools accept `ids`,
 never a bare `id`, because `required: ["ids"]` means Core refuses the other form
 before the harness runs and the grammar built from that schema will not let a model

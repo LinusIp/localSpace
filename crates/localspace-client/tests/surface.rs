@@ -404,6 +404,97 @@ fn zoom_sweep(bytes: &[u8], doc: String) -> Sweep {
     }
 }
 
+/// A thousand stickies on a 40 by 25 grid: at 100 % in a 1400 by 900 panel
+/// about sixty are on screen.
+fn thousand_sticky_doc() -> String {
+    let mut shapes = Vec::with_capacity(1000);
+    for i in 0..1000 {
+        let (x, y) = ((i % 40) as f32 * 160.0, (i / 40) as f32 * 130.0);
+        shapes.push(format!(
+            r#"{{"id":"s{i}","kind":"sticky","x":{x},"y":{y},"w":130.0,"h":110.0,"fill":"yellow","text":"Item {i}: a line of text that wraps inside the note"}}"#
+        ));
+    }
+    format!(
+        r#"{{"title":"Big","frames":[],"shapes":[{}],"selection":[]}}"#,
+        shapes.join(",")
+    )
+}
+
+#[test]
+fn a_thousand_shape_board_costs_only_its_visible_part() {
+    // Immediate mode rebuilds the shape list every frame, so a board must draw
+    // what is on screen and skip the rest. Here sixty of a thousand stickies
+    // are visible; a frame must cost what sixty cost, not what a thousand do.
+    let Some(bytes) = board_wasm() else { return };
+    let mut runner = SurfaceRunner::load("test/board", &bytes, SURFACE_BUDGET_MB).expect("load");
+    runner.set_doc(thousand_sticky_doc());
+
+    let ctx = egui::Context::default();
+    let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1400.0, 900.0));
+    let mut time = 0.0;
+    // Warm up: fonts, galleys and the first document hand-over.
+    for _ in 0..5 {
+        time += 0.016;
+        quiet_frame(&mut runner, &ctx, rect, time);
+        let events = vec![egui::Event::PointerMoved(egui::pos2(700.0 + time as f32, 450.0))];
+        try_frame(&mut runner, &ctx, rect, time + 0.008, events, Vec::new()).expect("frame");
+    }
+
+    // Thirty frames with the pointer moving, so the guest runs every time.
+    let mut total_ms = 0.0;
+    let mut max_ms: f32 = 0.0;
+    let before = runner.guest_frames;
+    for i in 0..30 {
+        time += 0.016;
+        let events = vec![egui::Event::PointerMoved(egui::pos2(600.0 + i as f32 * 3.0, 400.0))];
+        try_frame(&mut runner, &ctx, rect, time, events, Vec::new()).expect("frame");
+        total_ms += runner.stats.last_ms;
+        max_ms = max_ms.max(runner.stats.last_ms);
+    }
+    let ran = (runner.guest_frames - before) as f32;
+    let avg_ms = total_ms / ran.max(1.0);
+    eprintln!(
+        "thousand-sticky board: guest frame avg {avg_ms:.2} ms, max {max_ms:.2} ms over {ran} frames; memory {:.1} MB",
+        runner.memory_bytes() as f64 / 1048576.0
+    );
+    assert!(ran >= 30.0, "the guest must run on every frame with pointer input");
+    assert!(
+        avg_ms < 8.0,
+        "a frame of a thousand-sticky board costs {avg_ms:.2} ms; the surface budget is 8 ms"
+    );
+
+    // The same thousand stickies, all off screen: what a frame costs before
+    // anything is drawn at all — the per-shape work that visibility cannot save.
+    let mut shapes = Vec::with_capacity(1000);
+    for i in 0..1000 {
+        let (x, y) = (50000.0 + (i % 40) as f32 * 160.0, 50000.0 + (i / 40) as f32 * 130.0);
+        shapes.push(format!(
+            r#"{{"id":"s{i}","kind":"sticky","x":{x},"y":{y},"w":130.0,"h":110.0,"fill":"yellow","text":"Item {i}: a line of text that wraps inside the note"}}"#
+        ));
+    }
+    runner.set_doc(format!(
+        r#"{{"title":"Far","frames":[],"shapes":[{}],"selection":[]}}"#,
+        shapes.join(",")
+    ));
+    for _ in 0..3 {
+        time += 0.016;
+        quiet_frame(&mut runner, &ctx, rect, time);
+    }
+    let mut far_total = 0.0;
+    let before = runner.guest_frames;
+    for i in 0..30 {
+        time += 0.016;
+        let events = vec![egui::Event::PointerMoved(egui::pos2(600.0 + i as f32 * 3.0, 400.0))];
+        try_frame(&mut runner, &ctx, rect, time, events, Vec::new()).expect("frame");
+        far_total += runner.stats.last_ms;
+    }
+    let far_ran = (runner.guest_frames - before) as f32;
+    eprintln!(
+        "thousand stickies all off screen: guest frame avg {:.2} ms over {far_ran} frames",
+        far_total / far_ran.max(1.0)
+    );
+}
+
 #[test]
 fn a_throttled_surface_is_entered_less_not_more() {
     // Being slow is a reason to enter a surface less often. The bug this

@@ -185,3 +185,11 @@ and Tier B together — but it depends on items 5 and 2.
   default fonts in the data segment; shipping one font would cut it by 1.5 MB.
 - The Library does not yet show a surface's live memory against its budget,
   though the runner now measures it (`SurfaceRunner::memory_bytes`).
+- The whiteboard surface draws only what is on screen, but it still clones
+  and z-sorts the whole shape list from the document every frame: 1.95 ms of
+  a 4.6 ms frame on a thousand-note board, against 2.6 ms for drawing the
+  sixty visible notes (`tests/surface.rs`, the thousand-sticky test prints
+  both). It clones because the pointer handler mutates the document while the
+  list is in use. Borrowing the list and separating the read phase from the
+  mutation phase in `canvas()` would make that cost proportional to what is
+  visible.

@@ -407,15 +407,23 @@ impl Board {
             (self.pan.x * self.zoom) % step,
             (self.pan.y * self.zoom) % step,
         );
+        // One mesh of tiny quads, not a tessellated circle per dot. At 100 %
+        // a laptop screen holds about 2,600 dots, and a feathered circle each
+        // was the single largest thing a frame produced.
+        let mut mesh = egui::Mesh::default();
         let mut y = rect.top() + offset.y;
         while y < rect.bottom() {
             let mut x = rect.left() + offset.x;
             while x < rect.right() {
-                painter.circle_filled(egui::pos2(x, y), 1.0, DOT);
+                mesh.add_colored_rect(
+                    Rect::from_center_size(egui::pos2(x, y), Vec2::splat(2.0)),
+                    DOT,
+                );
                 x += step;
             }
             y += step;
         }
+        painter.add(egui::Shape::mesh(mesh));
     }
 }
 
@@ -430,6 +438,10 @@ impl Board {
                 to_screen(egui::pos2(num(&f, "x") as f32, num(&f, "y") as f32)),
                 egui::vec2(num(&f, "w") as f32, num(&f, "h") as f32) * self.zoom,
             );
+            // The title sits above the frame; a frame wholly off screen costs nothing.
+            if !painter.clip_rect().intersects(r.expand(24.0)) {
+                continue;
+            }
             painter.rect_stroke(
                 r,
                 CornerRadius::same(10),
@@ -462,6 +474,9 @@ impl Board {
             };
             let ar = screen_rect(a, z, to_screen);
             let br = screen_rect(b, z, to_screen);
+            if !painter.clip_rect().intersects(ar.union(br).expand(16.0)) {
+                continue;
+            }
             let start = edge_point(ar, br.center());
             let end = edge_point(br, ar.center());
 
@@ -511,6 +526,25 @@ impl Board {
             }
             let id = sh["id"].as_str().unwrap_or("");
             let selected = selection.iter().any(|s| s == id);
+
+            // Only what is on screen is drawn. Immediate mode rebuilds the
+            // shape list every frame, so a thousand-note board must cost what
+            // its visible part costs, not what the whole document does.
+            let bounds = screen_rect(sh, z, to_screen);
+            let overflow = if sh["kind"].as_str() == Some("text") {
+                // A text shape draws unwrapped and may run past its own width.
+                sh["text"].as_str().map_or(0, str::len) as f32
+                    * num(sh, "size").max(12.0) as f32
+                    * z
+            } else {
+                0.0
+            };
+            if !painter
+                .clip_rect()
+                .intersects(bounds.expand2(egui::vec2(48.0 + overflow, 48.0)))
+            {
+                continue;
+            }
 
             if is_ink(sh) {
                 let (accent, _) = palette(sh["fill"].as_str().unwrap_or("grey"));
@@ -595,11 +629,15 @@ impl Board {
                     accent,
                 );
                 if !text.is_empty() {
+                    // The wrap width is snapped to 8 px: egui caches galleys by
+                    // their exact layout parameters, and a smooth zoom would
+                    // otherwise re-lay out every note's text on every frame.
+                    let wrap = ((r.width() - pad * 2.0).max(20.0) / 8.0).round() * 8.0;
                     let galley = painter.layout(
                         text.to_string(),
                         egui::FontId::proportional(pt(12.5 * z.clamp(0.6, 1.5))),
                         TEXT,
-                        (r.width() - pad * 2.0).max(20.0),
+                        wrap,
                     );
                     painter.galley(
                         egui::pos2(r.left() + pad, chip.bottom() + 7.0 * z.clamp(0.6, 1.4)),
