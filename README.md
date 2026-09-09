@@ -106,8 +106,9 @@ llama.cpp) onto what exists, what it retires, and what must be decided first.
 Architecture v2 is under way: the TypeScript client in `web/` is the main GUI — chat,
 agents, tools, models, data, history, library, settings — served by `localspace serve`
 and loaded by the Tauri shell in `crates/localspace-shell`; the JSON API in
-`localspace-server` is what both speak. Step 1 of the v2 build order is done and the
-chat harness shell of step 3 is in place; the egui client stays until parity.
+`localspace-server` is what both speak. Steps 1 and 2 of the v2 build order are done
+(the llama.cpp sidecar, the plan as its flags, the model catalog with download) and
+the chat harness shell of step 3 is in place; the egui client stays until parity.
 
 Short version: the plugin core runs end to end. A wasm harness installs, its tools
 are exposed to the agent under a per-turn budget, its surface runs sandboxed in the

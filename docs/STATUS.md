@@ -133,7 +133,7 @@ WebView2 processes 364 MB private together across 18 processes, above the
 150–300 MB v2 §6.6 expects, to be watched as panels arrive. The base bundle is
 70 KB gzipped against a 2 MB budget.
 
-### v2 step 2, in progress (2026-09-10)
+### v2 step 2, verified on the review laptop (2026-09-09)
 
 Built: the model catalog (`models/catalog.json`, five entries from a 0.5B
 smoke-test model to the 120B mixture of experts the W32 profile is planned
@@ -144,11 +144,23 @@ sidecar supervisor (`core::engine`): a free loopback port, the plan as flags
 (`-ngl`, `--n-cpu-moe`, KV precision, context), health polling until ready,
 the worker installed in the router, restart on crash up to three times in
 ten minutes, stop on request, a log tail; six new requests and two new
-events; the Models page showing all of it. Not yet done: the 15 tok/s gate,
-which needs a W32 machine and a real `llama-server`; the utility model and
-speculative decoding of §4.3.
+events; the Models page showing all of it.
 
-Verification on this laptop is limited: Smart App Control refuses freshly
-built test executables, so the sidecar tests (`tests/engine.rs`, against a
-fake engine) could not be run here; they are written to run wherever a new
-unsigned executable may execute.
+Measured, with llama.cpp build b10869 (Vulkan, Windows) placed under
+`<data>/engines/` and Qwen2.5 0.5B Instruct Q4_K_M downloaded through the
+catalog (491,400,032 bytes, the real size correcting the estimate):
+
+| | |
+|---|---|
+| Load to ready | 16 s, resident, `-ngl 999`, quantised KV, 16,384 context |
+| Prompt processing | 862 tokens/s on the RTX 3050 Ti |
+| Generation | 87 tokens/s |
+| One chat turn, 3,722-token prompt | 4.5 s |
+| Whiteboard evals | 3 of 6 passed in 26 s: stickies placed, the board read; a frame not created |
+
+The GUI showed the model in the top bar, the pill went to Ready, the Active
+Model card read "Running". Not yet done: the 15 tok/s gate, which needs a W32
+machine and the 120B model; the utility model and speculative decoding of
+§4.3. The sidecar tests in `tests/engine.rs`, against a fake engine, could
+not be run here because Application Control refused their executable; they
+are written to run wherever a new unsigned executable may execute.

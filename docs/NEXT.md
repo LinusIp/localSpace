@@ -22,9 +22,13 @@ localspace evals io.localspace.whiteboard --harnesses harnesses
 ```
 
 The eval runner, the grammar, the active-set computation and the six whiteboard
-cases are all built. What is missing is the number. Record it per model, then widen
-`evals.json` toward the 5–20 cases the spec asks for and add a second harness so
-`find_capability` is exercised under a real tool count.
+cases are all built, and since the sidecar of v2 step 2 the number exists: **3 of
+6 on Qwen2.5 0.5B Instruct Q4_K_M**, 26 s, on the review laptop (stickies placed
+and the board read; a frame not created). Record it per model — the 3B and 7B
+entries in the catalog are the next two, then the W32 gate — widen `evals.json`
+toward the 5–20 cases the spec asks for, and add a second harness so
+`find_capability` is exercised under a real tool count. The eval prompts share
+the environment's transcript and commits today; a run should get its own.
 
 **Seam:** `evals.rs`, `harnesses/whiteboard/evals.json`.
 **Done when:** a pass rate exists for at least two models, and the malformed-tool-call
