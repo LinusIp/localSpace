@@ -254,8 +254,36 @@ blocks are documented; the CLI's output goes through one module; TanStack
 Query is gone; `cargo run -p localspace-proto --bin export-ts` writes the
 bindings where a fresh test executable is refused.
 
-Not yet, in the order they come: the canvas package with its benchmark and
-tests, `@localspace/ui` and the shell off Tailwind, Radix, Zustand,
-lucide-react and react-markdown, the whiteboard surface on the canvas with
-Automerge in the frame, the gate on the W32 machine, the edition 2024
-switch as its own commit.
+Landed later the same day, as the step's own work: `@localspace/canvas`
+(`web/packages/canvas`, no runtime dependency: camera, retained scene graph
+over an R-tree, hit-testing, selection and handles, text layout, the seven
+shape kinds, the tools, level-of-detail rendering; 19 node tests; a
+benchmark page with a headless runner and a laptop baseline);
+`@localspace/ui` (tokens, controls, overlays, docking, an own icon set, a
+store on `useSyncExternalStore`) with the shell moved onto it and off
+Tailwind, Radix, Zustand, lucide-react and react-markdown; React, the
+canvas, the UI library and Automerge served once per harness origin through
+the import map; the replica channel in the SDK and Core, sync messages both
+ways, every message that changes the document a `surface:sync` commit by
+the user; the whiteboard's web surface (8 KB) on the canvas with the
+document as an Automerge replica; undo, redo and run drop as forward
+changes, so a replica follows them instead of sending the undone change
+back; the edition 2024 switch as its own commit; the gate walk as a browser
+test.
+
+Verified on the review laptop (2026-09-10), a 0.5B model loaded:
+
+| check | result |
+|---|---|
+| `node e2e/whiteboard.mjs`: install from the catalog, the board on its own origin shows Core's document, the agent's note lands and the frame shows it, a note typed in the frame lands as the user's `surface:sync` commit, Ctrl+Z twice and Ctrl+Shift+Z twice through Core's history with the frame following, zoom from the shell's bar reaches the frame | PASS; the agent added 1 shape |
+| `node e2e/bench-canvas.mjs --profile laptop`, 5,120 shapes at 1600×900 | pan and drag p95 7.0 ms at both zooms, which is the runner's pointer cadence; paint p95 2.9 ms with all 5,120 drawn and 3.0 ms at reading zoom; 142.9 fps at the worst p95 |
+| the whiteboard evals on Qwen2.5 0.5B Instruct, through the API | 3 of 6, as in step 2 |
+| `cargo test --release -p localspace-core --lib docs::`, `--test sync`, `npm test` | 11, 2 and 19 pass |
+| gzipped: the shell bundle, canvas, ui, the whiteboard surface, the Automerge library | 110 KB, 14 KB, 5.6 KB, 3.5 KB, 1.6 MB |
+
+Not done: the 60 fps at 5,000 shapes gate on the W32 machine, which is not
+available here; the frame-time regression check in CI, as the repository
+has no CI yet; snapping and SVG/PNG export, which follow the gate
+measurement by decision; the IndexedDB storage adapter for the replica,
+raised as a question instead; the Automerge library's size, the vendor's
+full build with its WebAssembly inlined as base64.

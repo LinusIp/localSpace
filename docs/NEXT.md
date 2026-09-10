@@ -14,16 +14,18 @@ steps land on; they still hold, and their numbering is the older one.
 
 Small things step 4 left open, in the order they will matter:
 
-- **Automerge in the client** is now part of step 5 (decision of
-  2026-09-10): `@automerge/automerge` in the whiteboard frame with an own
-  network adapter to Core and an own IndexedDB storage adapter; the sync
-  messages Core emits are the ones it needs. Whole-document JSON writes stay
-  for blob documents.
+- **Automerge in the client** landed in step 5 (decision of 2026-09-10):
+  `@automerge/automerge` in the whiteboard frame over the bridge's sync
+  channel to Core, every message that changes the document a commit. The
+  IndexedDB storage adapter the decision names is an open question in the
+  step-5 report: the frame receives Core's snapshot at every connect, so a
+  local copy only adds a way for a stale one to push old content back.
+  Whole-document JSON writes stay for blob documents.
 - **A policy header on the shell page.** The harness origins carry a strict
   CSP; the shell's own `index.html` is served by `ServeDir` without one. It
   should name `frame-src` as the harness hosts and nothing else.
-- **`snapshot()` in the SDK** (v2 §6.3), once a surface has something to
-  export; and a **memory budget per frame** when a browser exposes one.
+- **A memory budget per frame** when a browser exposes one. The SDK's
+  `snapshot()` (v2 §6.3) now hands a surface Core's Automerge bytes.
 - **Grants expire only by count.** Five hundred and twelve are kept; an
   organisation with more open surfaces than that wants an age limit and a
   revocation on logout.
@@ -44,7 +46,10 @@ localspace evals io.localspace.whiteboard --harnesses harnesses
 The eval runner, the grammar, the active-set computation and the six whiteboard
 cases are all built, and since the sidecar of v2 step 2 the number exists: **3 of
 6 on Qwen2.5 0.5B Instruct Q4_K_M**, 26 s, on the review laptop (stickies placed
-and the board read; a frame not created). Record it per model — the 3B and 7B
+and the board read; a frame not created). The same 3 of 6 on 2026-09-10
+through the API on the v2.1 stack, 3.4 s with the model already loaded: one
+sticky, a frame and the read pass; three stickies, a title and an arrow
+fail. Record it per model — the 3B and 7B
 entries in the catalog are the next two, then the W32 gate — widen `evals.json`
 toward the 5–20 cases the spec asks for, and add a second harness so
 `find_capability` is exercised under a real tool count. The eval prompts share
@@ -222,3 +227,11 @@ and Tier B together — but it depends on items 5 and 2.
   list is in use. Borrowing the list and separating the read phase from the
   mutation phase in `canvas()` would make that cost proportional to what is
   visible.
+- The Automerge library the shell serves to harness frames is the vendor's
+  full build, 4.9 MB (1.6 MB gzipped) with the WebAssembly inlined as base64
+  beside the `.wasm` file the build also copies. The `slim` entry with the
+  served file would take the base64 out; a frame's first load is what pays.
+- `crates/localspace-core` is 299 hunks away from rustfmt's layout, so
+  clippy's automatic fixes of 2026-09-10 were left as the tool laid them out
+  rather than formatting the whole crate. Adopting rustfmt is one dedicated
+  commit, once decided.

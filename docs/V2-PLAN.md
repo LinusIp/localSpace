@@ -94,7 +94,7 @@ something changed; only what is on screen is drawn.
 | 2 llama.cpp sidecar + planner + catalog download | **done**: the supervisor, the plan as flags, the catalog with verdicts, download and import, the Models page; verified live with llama.cpp b10869 and a 0.5B model (87 tokens/s on the laptop, evals 3 of 6) | the 15 tok/s gate needs a W32 machine and the 120B model | the utility model and speculative decoding of §4.3 | the gate |
 | 3 chat harness | **done** except citations, which come with retrieval in step 6: the GUI, token streaming from the sidecar, persisted conversations | | | |
 | 4 harness runtime with iframe surfaces | manifest, logic components, install and uninstall, local registry | `widgets` kind stays | `web` kind, bridge SDK, iframe host, CSP | 1–2 weeks |
-| 5 whiteboard as the first package | logic, tools, context provider, evals, Automerge document | | the surface bundle; the tldraw decision | 1–2 weeks |
+| 5 whiteboard as the first package | logic, tools, context provider, evals, Automerge document; `@localspace/canvas`, `@localspace/ui`, the web surface with a replica in the frame, undo as a forward change, the gate walk as a browser test (2026-09-10) | | the gate number on a W32 machine; the CI check; snapping and SVG/PNG export | days, once a W32 machine is at hand |
 | 6 retrieval, upload, gateway, web tools | gateway modes, `web.search` and `web.fetch` | BM25 for `find_capability` only | tantivy, usearch, ACL pre-filter, upload | 2 weeks |
 | 7 multi-user `serve` | ACL, workspaces, proposals, audit, Core-side sync | one local user always | OIDC, sessions, browser-to-browser sync | 2 weeks |
 | 8 Tier B runtime, physics harness, handoff bench | MCP subprocess, handoff, ledger | no sandbox | sandbox, GPU pool, state streaming, the engine | large |
@@ -233,3 +233,15 @@ view kind reserved in the contract; the workspace's lints, `deny(unsafe_code)`
 and SAFETY comments; one output module for the CLI; the TanStack dependency
 gone; a binary that writes the TypeScript bindings where a fresh test
 executable is refused.
+
+Landed later the same day: `@localspace/canvas` with its tests and
+benchmark; `@localspace/ui` with the shell on it; React, the canvas, the UI
+library and Automerge served on every harness origin through the import
+map; the replica channel in the SDK and Core; the whiteboard's web surface
+on the canvas with the document as a replica in the frame; undo, redo and
+run drop as forward changes, so a connected replica follows them; the gate
+walk as a browser test, which passes on the review laptop with a 0.5B model
+(the agent's note, a live edit, two undos and two redos through Core's
+history, zoom both ways). The numbers are in `docs/STATUS.md`. Open: the
+W32 measurement, the CI check, snapping and export, the storage adapter
+(`docs/DECISIONS.md` and the step report's questions).
