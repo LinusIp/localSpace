@@ -761,6 +761,12 @@ impl App {
                 self.show_widget_view(&mut child, &focus, &view.id);
             }
             proto::SurfaceKind::Egui => self.show_egui_surface(ui, &focus, &view.id, sheet),
+            proto::SurfaceKind::Web => self.empty_state(
+                ui,
+                sheet,
+                "This view runs in the web client",
+                "A web view is an iframe on its own origin (architecture v2 §6.3); open it in the browser or the desktop app.",
+            ),
             proto::SurfaceKind::Stream => self.empty_state(
                 ui,
                 sheet,
