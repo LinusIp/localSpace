@@ -231,11 +231,12 @@ fn without_llama_server_loading_says_where_to_put_it() {
 fn an_airgapped_environment_refuses_to_download_and_points_at_import() {
     let dir = tempfile::tempdir().unwrap();
     let (mut core, _) = core_with_fake_engine(dir.path());
+    // Like every setter it answers Ok; the new environment is broadcast.
     assert!(matches!(
         core.handle(proto::Request::SetNetworkMode {
             mode: proto::NetworkMode::Airgapped
         }),
-        proto::Response::Environment(_)
+        proto::Response::Ok
     ));
     match core.handle(proto::Request::DownloadModel { id: "tiny".into() }) {
         proto::Response::Error { message } => assert!(message.contains("import"), "{message}"),
