@@ -6,6 +6,9 @@
 //   node e2e/bench-canvas.mjs --record        run, write the baseline
 //   node e2e/bench-canvas.mjs --profile w32   name the machine class (default: ci)
 //   node e2e/bench-canvas.mjs --shapes 5000 --frames 240
+//   node e2e/bench-canvas.mjs --profile w32 --out ../docs/gates/w32-canvas.json
+//                                             also write the numbers, and the machine
+//                                             they were taken on, to that file
 //
 // Serves the page with Vite's own dev server on a free port and drives Edge
 // or Chrome already on the machine through playwright-core; nothing is
@@ -73,6 +76,21 @@ try {
     fpsAtP95: r.fpsAtP95,
     recorded: new Date().toISOString().slice(0, 10),
   };
+  // The same numbers written somewhere else, with the machine they were
+  // taken on: how a gate measurement is recorded in docs/gates/.
+  const out = flag("out", null);
+  if (out) {
+    const { cpus, platform, release, totalmem } = await import("node:os");
+    const machine = {
+      cpu: cpus()[0]?.model?.trim() ?? "unknown",
+      threads: cpus().length,
+      memoryGb: Math.round(totalmem() / 2 ** 30),
+      os: `${platform()} ${release()}`,
+      browser: `${browser.browserType().name()} ${browser.version()}`,
+    };
+    writeFileSync(resolve(out), JSON.stringify({ ...summary, machine }, null, 2) + "\n");
+    console.log(`measurement written: ${resolve(out)}`);
+  }
   if (record || !existsSync(baselinePath)) {
     writeFileSync(baselinePath, JSON.stringify(summary, null, 2) + "\n");
     console.log(`baseline ${record ? "written" : "created"}: ${baselinePath}`);

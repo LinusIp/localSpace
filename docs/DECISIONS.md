@@ -84,6 +84,29 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   `--harnesses`, `--registry` and the tests load. Zipping and signing a
   layout into an `.hpack`, and where surface sources live, are the
   packaging step's (§13 step 10).
+- **CI** (answer 6; `CLAUDE.md`, "How you work"). `.github/workflows/ci.yml`
+  runs on every push and pull request. **web**: lint, both typechecks, the
+  node tests, the shell's build and the whiteboard's, the bundle sizes
+  against `web/size-limits.json`, the canvas frame times against the CI
+  baseline. **rust**: rustfmt over the workspace and the harness crates;
+  clippy over every target with `unwrap_used` forced to a warning and
+  everything else an error; the workspace's tests, with the harness
+  packages built first by `scripts/hpack.mjs --in-place` so that no test
+  skips for want of them. **e2e**: the server built, the whiteboard
+  installed from the catalog into a fresh data directory, and the gate
+  walked in the runner's Chrome without an agent. A manual run adds
+  **w32-gate**, which checks the measurement recorded in
+  `docs/gates/w32-canvas.json` and puts it on the run's page. The runners
+  are ubuntu-latest, with the Tauri shell's system libraries from apt; the
+  only actions are GitHub's own. Size limits: the shell's is the
+  architecture's 2 MB; each package's is its size on 2026-09-10 plus about
+  a quarter. The frame-time check compares against
+  `web/packages/canvas/bench/baseline.ci.json`: until that file is
+  committed, a run records one as an artifact and warns. The repository
+  has no remote yet, so the workflow has not run.
+- **rustfmt** (answer 9): the default configuration, applied in one commit
+  with nothing else in it, over the workspace and the three harness crates;
+  CI checks it.
 
 ## 2026-09-10, during the step-5 build
 

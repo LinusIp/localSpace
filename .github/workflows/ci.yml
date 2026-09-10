@@ -1,0 +1,158 @@
+# Every commit compiles, passes its tests and the linters, and the gates
+# that can be measured on a runner are checks that fail on regression
+# (CLAUDE.md, "How you work"; docs/DECISIONS.md, answer 6 to the step-5
+# report). The toolchains come from rustup and setup-node on the runner;
+# the only actions used are GitHub's own. Nothing here downloads a browser
+# or a model: the end-to-end walk drives the Chrome already on the runner
+# and runs without an agent.
+
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      w32_gate:
+        description: "Check the W32 canvas measurement recorded in docs/gates/w32-canvas.json"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  web:
+    name: web (lint, types, tests, build, sizes, frame times)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck:packages
+      - run: npm run typecheck:whiteboard
+      - run: npm test
+      - run: npm run build
+      - run: npm run build:whiteboard
+      - name: bundle sizes against their limits
+        run: node scripts/check-sizes.mjs
+      - name: canvas frame times against the CI baseline
+        run: |
+          if [ -f packages/canvas/bench/baseline.ci.json ]; then
+            node e2e/bench-canvas.mjs --profile ci
+          else
+            node e2e/bench-canvas.mjs --profile ci --record
+            echo "::warning::No CI frame-time baseline is committed yet. This run recorded one (artifact bench-baseline-ci); commit it as web/packages/canvas/bench/baseline.ci.json to turn the regression check on."
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-baseline-ci
+          path: web/packages/canvas/bench/baseline.ci.json
+          if-no-files-found: ignore
+
+  rust:
+    name: rust (format, clippy, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup default stable
+          rustup target add wasm32-wasip2 wasm32-unknown-unknown
+      - name: system libraries the Tauri shell links against
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            harnesses/*/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: rustfmt
+        run: |
+          cargo fmt --all -- --check
+          for crate in harnesses/*-logic harnesses/*-surface; do (cd "$crate" && cargo fmt -- --check); done
+      - name: the web bundle the shell embeds, and the harness packages the tests load
+        run: |
+          (cd web && npm ci && npm run build)
+          node scripts/hpack.mjs --in-place
+      - name: clippy, with unwrap_used a warning and everything else an error
+        run: cargo clippy --workspace --all-targets -- -D warnings --force-warn clippy::unwrap_used
+      - name: tests
+        run: cargo test --workspace
+
+  e2e:
+    name: the step-5 gate, end to end in a browser
+    runs-on: ubuntu-latest
+    needs: [web, rust]
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add wasm32-wasip2 wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            harnesses/*/target
+          key: cargo-e2e-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: build the shell, the harness packages and the server
+        run: |
+          (cd web && npm ci && npm run build)
+          node scripts/hpack.mjs --in-place
+          cargo build --release -p localspace-server
+      - name: serve, then install the whiteboard from the catalog and walk the gate
+        run: |
+          ./target/release/localspace-serve --personal --allow-below-floor --bind 127.0.0.1:8443 \
+            --registry harnesses --registry registry --data "$RUNNER_TEMP/data" --token ci-token --web web/dist \
+            > "$RUNNER_TEMP/serve.log" 2>&1 &
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8443/healthz > /dev/null && break; sleep 1; done
+          cd web && node e2e/whiteboard.mjs http://127.0.0.1:8443 ci-token --no-agent
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: serve-log
+          path: ${{ runner.temp }}/serve.log
+
+  w32-gate:
+    name: the canvas gate on W32, from its recorded measurement
+    if: github.event_name == 'workflow_dispatch' && inputs.w32_gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/w32-canvas-gate.mjs docs/gates/w32-canvas.json | tee -a "$GITHUB_STEP_SUMMARY"
+        shell: bash
