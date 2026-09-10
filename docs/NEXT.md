@@ -1,22 +1,24 @@
 # What to do next
 
-Architecture v2 (2026-09-09) sets the order now: its build order is in
-`docs/V2-PLAN.md` §5. Steps 1 to 4 are done: the generated API and the React
-shell, the `llama-server` sidecar with the model catalog, the chat harness
-with streaming and conversations, and the harness runtime with iframe
-surfaces and the bridge SDK (`docs/V2-PLAN.md` §8–10). Step 5 is next: the
-whiteboard's surface on tldraw as the first downloadable package, against
-the logic, tools and evals that already exist, with the licence budgeted
-first. Behind it, the 15 tok/s gate on a W32 machine, then retrieval (step
-6) and OIDC (step 7). The items below are the seams inside Core that those
+Architecture v2.1 (2026-09-10) sets the order now: its build order is in
+`docs/localspace-architecture-v2.md` §13, and `CLAUDE.md` sets how the work
+is done. Steps 1 to 4 are done: the generated API and the React shell, the
+`llama-server` sidecar with the model catalog, the chat harness with
+streaming and conversations, and the harness runtime with iframe surfaces
+and the bridge SDK (`docs/V2-PLAN.md` §8–11). Step 5 is under way:
+`@localspace/canvas` and the whiteboard as the first downloadable package,
+with `@localspace/ui` and Automerge in the frame, as approved in
+`docs/DECISIONS.md`. Behind it, the 15 tok/s gate on a W32 machine, then
+retrieval (step 6) and OIDC (step 7). The items below are the seams inside Core that those
 steps land on; they still hold, and their numbering is the older one.
 
 Small things step 4 left open, in the order they will matter:
 
-- **Automerge in the client.** A web surface gets its document as JSON and
-  fetches it again on every `doc_patch`; v2 §6 wants `automerge-repo` in the
-  shell so a board over a WAN receives changes, not snapshots. The sync
-  messages Core emits are the ones it needs.
+- **Automerge in the client** is now part of step 5 (decision of
+  2026-09-10): `@automerge/automerge` in the whiteboard frame with an own
+  network adapter to Core and an own IndexedDB storage adapter; the sync
+  messages Core emits are the ones it needs. Whole-document JSON writes stay
+  for blob documents.
 - **A policy header on the shell page.** The harness origins carry a strict
   CSP; the shell's own `index.html` is served by `ServeDir` without one. It
   should name `frame-src` as the harness hosts and nothing else.

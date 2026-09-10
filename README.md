@@ -110,7 +110,10 @@ and loaded by the Tauri shell in `crates/localspace-shell`; the JSON API in
 the llama.cpp sidecar with the plan as its flags and the model catalog, the chat
 harness with token streaming and conversations, and the harness runtime with `web`
 views in sandboxed iframes on their own origins behind the bridge SDK
-(`docs/HARNESS-AUTHORING.md` §4). The egui client stays until parity.
+(`docs/HARNESS-AUTHORING.md` §4). Architecture v2.1 (2026-09-10) builds the product
+layer in-house; step 5, the own canvas and the whiteboard as the first downloadable
+package, is under way. `CLAUDE.md` is how the work is done, `docs/DECISIONS.md` what
+was decided. The egui client stays until parity.
 
 Short version: the plugin core runs end to end. A wasm harness installs, its tools
 are exposed to the agent under a per-turn budget, its surface runs sandboxed in the

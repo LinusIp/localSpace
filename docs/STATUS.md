@@ -229,3 +229,33 @@ the frame: the review browser's automation does not reach into a
 cross-origin frame, so the surface's own "Add sticky" was exercised only by
 reading its code; it posts through the same function as the hello that was
 seen.
+
+### v2.1, and step 5 under way (2026-09-10)
+
+The architecture was revised to v2.1 the same day (`docs/V2-PLAN.md` §11):
+the product layer is built in-house, so step 5 is `@localspace/canvas` and
+the whiteboard as the first downloadable package, not a surface on tldraw.
+The tldraw surface built that morning is parked on `spike/tldraw`; it had
+proved the bridge end to end in a real browser and found that the SDK
+refuses production use without a key and calls its vendor's CDN.
+
+Landed on `master` before the canvas work, each verified where the review
+machine let a test binary run: catalog installs are copied under the data
+directory, come back after a restart and go on uninstall, with the document
+restored from the DAG (2 tests); a document write without a commit and
+numbered writes on the bridge, closing a race in which a document read
+between two writes deleted the user's fresh edit (1 test); the desktop shell
+installs nothing by default and keeps the user's data under
+`%LOCALAPPDATA%\localSpace`; `data:` is allowed in a harness origin's
+connect-src; the `native` view kind is reserved in the contract and refused
+at validation with a reason (1 test); the workspace warns on
+`clippy::unwrap_used`, every crate denies `unsafe_code`, the five unsafe
+blocks are documented; the CLI's output goes through one module; TanStack
+Query is gone; `cargo run -p localspace-proto --bin export-ts` writes the
+bindings where a fresh test executable is refused.
+
+Not yet, in the order they come: the canvas package with its benchmark and
+tests, `@localspace/ui` and the shell off Tailwind, Radix, Zustand,
+lucide-react and react-markdown, the whiteboard surface on the canvas with
+Automerge in the frame, the gate on the W32 machine, the edition 2024
+switch as its own commit.

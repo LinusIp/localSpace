@@ -128,7 +128,8 @@ gate passes today on the egui stack; v2 re-earns it.
 
 1. **v2 stands**, in full and as written.
 2. **tldraw** for the whiteboard surface, as v2 §6.4 lists first; the licence
-   is to be budgeted before step 5.
+   is to be budgeted before step 5. *Superseded on 2026-09-10 by architecture
+   v2.1 (§11 below): the canvas is built in-house.*
 3. **The egui client stays in the tree until the web client reaches parity.**
    The server keeps answering its postcard socket at `/ws`.
 
@@ -189,3 +190,46 @@ replaces it with tldraw. Not in this step: Automerge in the client (the
 frame refetches JSON on each patch), a memory budget per frame (browsers do
 not expose one), a policy header on the shell page itself, and the
 `snapshot()` call of §6.3.
+
+## 11. Architecture v2.1 and step 5 (2026-09-10)
+
+Mid step 5 the architecture was revised to v2.1 (`docs/localspace-architecture-v2.md`),
+and the coding-agent prompt became `CLAUDE.md`. Principle 4 now reads "own the
+product, stand on foundations": the canvas engine, the 3D viewport, physics,
+the sketcher, the UI component library, docking, the app store and the fetch
+client are in-house; React, Vite, Automerge, tokio, axum, wgpu, wasmtime and
+llama.cpp are the foundations. tldraw, Excalidraw, Konva, Three.js, Rapier,
+Tailwind, Radix, Zustand, TanStack, dockview and Monaco are out. Step 5 is
+now **`@localspace/canvas` and the whiteboard as the first downloadable
+package**, with a gate of install from the catalog, the agent's plan on the
+board, live editing at 60 fps with 5,000 shapes, undo through the DAG.
+
+What had been built on tldraw that morning is parked on the branch
+`spike/tldraw` as a reference for the bridge semantics; nothing on `master`
+imports from it. It had found two things worth keeping: tldraw 5 allows
+unlicensed use in development environments only and hides its editor on a
+production build, and it calls `cdn.tldraw.com`, which the deployment spec's
+no-outbound rule forbids anyway. The decisions taken on the questions this
+raised are in `docs/DECISIONS.md`.
+
+Step 5 under v2.1, as approved: `@localspace/canvas` (camera, retained scene
+graph, R-tree culling, hit-testing, selection and handles, text, the seven
+whiteboard shape kinds, undo through Core; snapping and export after the
+gate; WebGPU later) with its benchmark and tests from the first commit;
+`@localspace/ui` for what the shell needs today (tokens, buttons, inputs,
+menus, dialogs, icons, docking) and the shell moved onto it, off Tailwind,
+Radix, Zustand, lucide-react and react-markdown's components; the
+whiteboard's surface on the canvas with `@automerge/automerge` in the frame
+over an own network adapter to Core and an own IndexedDB storage adapter;
+the gate measured on the W32 machine, a frame-time regression check in CI,
+the catalog-to-undo walk driven in a real browser through playwright-core
+(approved, dev-only).
+
+Landed the same day before the canvas work, each as one commit: catalog
+installs persist under the data directory; a document write without a
+commit and numbered writes on the bridge; only chat in the box by default in
+the desktop shell; `data:` in the harness origin's connect-src; the `native`
+view kind reserved in the contract; the workspace's lints, `deny(unsafe_code)`
+and SAFETY comments; one output module for the CLI; the TanStack dependency
+gone; a binary that writes the TypeScript bindings where a fresh test
+executable is refused.
