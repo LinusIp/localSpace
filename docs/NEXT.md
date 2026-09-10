@@ -227,10 +227,6 @@ and Tier B together — but it depends on items 5 and 2.
   list is in use. Borrowing the list and separating the read phase from the
   mutation phase in `canvas()` would make that cost proportional to what is
   visible.
-- The Automerge library the shell serves to harness frames is the vendor's
-  full build, 4.9 MB (1.6 MB gzipped) with the WebAssembly inlined as base64
-  beside the `.wasm` file the build also copies. The `slim` entry with the
-  served file would take the base64 out; a frame's first load is what pays.
 - `crates/localspace-core` is 299 hunks away from rustfmt's layout, so
   clippy's automatic fixes of 2026-09-10 were left as the tool laid them out
   rather than formatting the whole crate. Adopting rustfmt is one dedicated

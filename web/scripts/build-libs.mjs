@@ -99,6 +99,10 @@ for (const file of readdirSync(outDir)) {
   if (m) renameSync(resolve(outDir, file), resolve(outDir, `${m[1]}.css`));
 }
 
-// Automerge loads its WebAssembly from beside its module, by this name.
+// Automerge's WebAssembly, a file of its own: the slim build fetches it from
+// beside its module by this name (packages/libs/automerge.ts). Without it no
+// frame can hold a replica, so its absence fails the build.
 const wasm = resolve(root, "node_modules/@automerge/automerge/dist/automerge.wasm");
-if (existsSync(wasm)) copyFileSync(wasm, resolve(outDir, "automerge_wasm_bg.wasm"));
+if (!existsSync(wasm)) throw new Error(`Automerge's WebAssembly is not at ${wasm}; run npm install`);
+copyFileSync(wasm, resolve(outDir, "automerge_wasm_bg.wasm"));
+console.log("copied automerge_wasm_bg.wasm");

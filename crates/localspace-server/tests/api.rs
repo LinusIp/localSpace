@@ -426,6 +426,14 @@ async fn a_harness_origin_serves_the_shell_s_libraries_and_nothing_beside_them()
     let text = String::from_utf8(lib.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
     assert_eq!(text, "export const canvas = 1;");
 
+    // Automerge's WebAssembly, fetched by its module from beside it, comes
+    // with the type a browser compiles as it streams in, under the same policy.
+    std::fs::write(web.path().join("_localspace/automerge_wasm_bg.wasm"), b"\0asm\x01\0\0\0").unwrap();
+    let wasm = fetch(format!("/s/{token}/_localspace/automerge_wasm_bg.wasm")).await.unwrap();
+    assert_eq!(wasm.status(), StatusCode::OK);
+    assert_eq!(wasm.headers().get(header::CONTENT_TYPE).unwrap(), "application/wasm");
+    assert!(wasm.headers().contains_key(header::CONTENT_SECURITY_POLICY));
+
     for missing in ["_localspace/nothing.js", "_localspace/../secret.txt", "_localspace/..%2Fsecret.txt", "_localspace/.hidden", "_localspace/"] {
         let refused = fetch(format!("/s/{token}/{missing}")).await.unwrap();
         assert_eq!(refused.status(), StatusCode::NOT_FOUND, "`{missing}` must not be served");

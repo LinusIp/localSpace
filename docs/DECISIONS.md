@@ -41,6 +41,18 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   every change); the gate walk edits one board from two browser windows
   (`web/e2e/whiteboard.mjs`, step 9). Identities at step 7 add attribution
   on top.
+- **Automerge's slim build in frames** (answer 8; architecture §6.1, §6.3).
+  The library the shell serves to harness frames is
+  `@automerge/automerge/slim`, which loads its WebAssembly from
+  `_localspace/automerge_wasm_bg.wasm` beside it on the harness origin and
+  compiles it as it streams in; the full build carried the same
+  WebAssembly inside the script as base64. The frame's policy is
+  unchanged: `'wasm-unsafe-eval'`, `connect-src 'self' data:`, and no host
+  named but the shell's in `frame-ancestors`, which a unit test now holds.
+  The server test asserts the file comes as `application/wasm` under the
+  policy, and the libraries build fails without it. Gzipped, the script
+  went from 1,635 KB to 16.6 KB beside a 1,123 KB WebAssembly file: a
+  frame's first load of Automerge from 1,635 KB to 1,140 KB.
 
 ## 2026-09-10, during the step-5 build
 

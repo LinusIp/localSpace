@@ -466,6 +466,10 @@ mod tests {
         assert!(policy.contains("frame-ancestors http://127.0.0.1:8443"));
         assert!(policy.contains("script-src 'self' 'wasm-unsafe-eval';"), "{policy}");
         assert!(policy.starts_with("default-src 'none'"));
+        // Automerge's WebAssembly comes from the frame's own origin: no host
+        // is named anywhere but the one shell allowed to frame it.
+        assert!(policy.contains("connect-src 'self' data:;"), "{policy}");
+        assert_eq!(policy.matches("http").count(), 1, "{policy}");
         // The generated page's import map is inline, so that one response
         // admits it by nonce; every file response stays without one.
         let page = csp("http://127.0.0.1:8443", Some("abc"));
