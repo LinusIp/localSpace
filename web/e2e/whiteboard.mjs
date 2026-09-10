@@ -98,29 +98,12 @@ try {
       const shapesBefore = (await doc()).shapes.length;
       await request("new_conversation");
       step("asking the agent for a plan on the board, in a new conversation");
-      await request({ send_message: { text: "Add a yellow sticky that says \"Plan: design, build, launch\"." } });
-      // The run is over when the history and the transcript have been quiet
-      // for a while and the transcript's last word is the assistant's; a
-      // small model may keep calling tools until Core's cap on one turn, and
-      // the user's edit below must not interleave with the agent's commits.
-      let fingerprint = null;
-      let quietSince = Date.now();
-      await until(
-        "the agent's run to end",
-        async () => {
-          const t = (await request("get_transcript")).transcript;
-          const messages = Array.isArray(t) ? t : (t.messages ?? []);
-          const last = messages[messages.length - 1];
-          const now = `${(await history())[0]?.id}|${messages.length}|${last?.content?.length ?? 0}|${last?.tool_calls?.length ?? 0}`;
-          if (now !== fingerprint) {
-            fingerprint = now;
-            quietSince = Date.now();
-            return false;
-          }
-          return Date.now() - quietSince >= 4000 && last?.role === "assistant";
-        },
-        240000,
-      );
+      // Core answers a message when its turn is over, however it ended: with
+      // the assistant's reply, or stopped at Core's cap on tool calls, which a
+      // small model can reach. So the user's edit below never interleaves
+      // with the agent's commits.
+      const answer = await request({ send_message: { text: "Add a yellow sticky that says \"Plan: design, build, launch\"." } });
+      if (answer && typeof answer === "object" && "error" in answer) step(`the turn ended with an error: ${JSON.stringify(answer.error).slice(0, 200)}`);
       const settled = await doc();
       agentAdded = settled.shapes.length - shapesBefore;
       await until("the frame to show the document as it is", async () => (await state()).shapes === settled.shapes.length + settled.frames.length, 15000);
