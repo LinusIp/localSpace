@@ -294,8 +294,7 @@ pub fn toggle(ui: &mut Ui, on: &mut bool, enabled: bool) -> bool {
     } else {
         P.border_strong
     };
-    ui.painter()
-        .rect_filled(rect, CornerRadius::same(9), bg);
+    ui.painter().rect_filled(rect, CornerRadius::same(9), bg);
     let knob_x = egui::lerp((rect.left() + 9.0)..=(rect.right() - 9.0), how_on);
     ui.painter()
         .circle_filled(egui::pos2(knob_x, rect.center().y), 7.0, Color32::WHITE);
@@ -411,10 +410,7 @@ pub fn draw_icon(painter: &egui::Painter, rect: egui::Rect, icon: Icon, colour: 
             for i in -1..=1 {
                 let y = c.y + i as f32 * r * 0.62;
                 painter.rect_stroke(
-                    egui::Rect::from_center_size(
-                        egui::pos2(c.x, y),
-                        Vec2::new(r * 1.8, r * 0.42),
-                    ),
+                    egui::Rect::from_center_size(egui::pos2(c.x, y), Vec2::new(r * 1.8, r * 0.42)),
                     CornerRadius::same(2),
                     stroke,
                     egui::StrokeKind::Inside,
@@ -462,10 +458,7 @@ pub fn draw_icon(painter: &egui::Painter, rect: egui::Rect, icon: Icon, colour: 
             for i in -1..=1 {
                 let x = c.x + i as f32 * r * 0.66;
                 painter.line_segment(
-                    [
-                        egui::pos2(x, c.y - r * 0.35),
-                        egui::pos2(x, c.y - r * 0.95),
-                    ],
+                    [egui::pos2(x, c.y - r * 0.35), egui::pos2(x, c.y - r * 0.95)],
                     stroke,
                 );
             }
@@ -505,17 +498,11 @@ pub fn draw_icon(painter: &egui::Painter, rect: egui::Rect, icon: Icon, colour: 
             for i in -1..=1 {
                 let x = c.x + i as f32 * r * 0.5;
                 painter.line_segment(
-                    [
-                        egui::pos2(x, c.y - r * 1.05),
-                        egui::pos2(x, c.y - r * 0.75),
-                    ],
+                    [egui::pos2(x, c.y - r * 1.05), egui::pos2(x, c.y - r * 0.75)],
                     stroke,
                 );
                 painter.line_segment(
-                    [
-                        egui::pos2(x, c.y + r * 0.75),
-                        egui::pos2(x, c.y + r * 1.05),
-                    ],
+                    [egui::pos2(x, c.y + r * 0.75), egui::pos2(x, c.y + r * 1.05)],
                     stroke,
                 );
             }
@@ -560,12 +547,6 @@ fn arc_points(centre: egui::Pos2, radius: f32, from_deg: f32, to_deg: f32) -> Ve
 /// A small rounded square holding an icon, as on every node card.
 pub fn icon_chip(ui: &mut Ui, icon: Icon, fg: Color32, bg: Color32, size: f32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
-    ui.painter()
-        .rect_filled(rect, CornerRadius::same(5), bg);
-    draw_icon(
-        ui.painter(),
-        rect.shrink(size * 0.26),
-        icon,
-        fg,
-    );
+    ui.painter().rect_filled(rect, CornerRadius::same(5), bg);
+    draw_icon(ui.painter(), rect.shrink(size * 0.26), icon, fg);
 }

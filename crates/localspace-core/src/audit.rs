@@ -184,8 +184,8 @@ pub fn verify_chain(records: &[Record]) -> std::result::Result<usize, VerifyErro
 }
 
 pub fn read_records(path: &Path) -> Result<Vec<Record>> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let mut out = Vec::new();
     for (i, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
@@ -245,7 +245,9 @@ mod tests {
         records[2].result = "denied".into();
         let err = verify_chain(&records).unwrap_err();
         match err {
-            VerifyError::Broken { index, .. } => assert_eq!(index, 3, "the break shows at the next link"),
+            VerifyError::Broken { index, .. } => {
+                assert_eq!(index, 3, "the break shows at the next link")
+            }
         }
     }
 

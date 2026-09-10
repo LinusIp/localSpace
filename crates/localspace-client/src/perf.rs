@@ -163,7 +163,12 @@ impl Meter {
             };
             log(format!(
                 "{} host frames/s · host cpu avg {:.2} max {:.2} ms · guest ran {} (avg {:.2} max {:.2} ms){gaps}",
-                self.frames, host_avg, self.host_ms_max, self.guest_runs, guest_avg, self.guest_ms_max
+                self.frames,
+                host_avg,
+                self.host_ms_max,
+                self.guest_runs,
+                guest_avg,
+                self.guest_ms_max
             ));
             self.gap_ms_sum = 0.0;
             self.gap_ms_max = 0.0;

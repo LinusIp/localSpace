@@ -4,7 +4,7 @@
 
 use localspace_proto as proto;
 use schemars::generate::SchemaSettings;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::OnceLock;
 
 pub fn document() -> &'static Value {
@@ -101,7 +101,10 @@ fn build() -> Value {
         ("/readyz", "a Core answers"),
         ("/metrics", "Prometheus metrics"),
     ] {
-        paths.insert(path.into(), json!({"get": {"summary": summary, "responses": {"200": {"description": "ok"}}}}));
+        paths.insert(
+            path.into(),
+            json!({"get": {"summary": summary, "responses": {"200": {"description": "ok"}}}}),
+        );
     }
 
     let mut schemas = definitions;

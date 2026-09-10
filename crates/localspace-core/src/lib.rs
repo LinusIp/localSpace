@@ -56,7 +56,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
-pub const CORE_TOOLS: &[&str] = &["find_capability", "web.search", "web.fetch", "task.plan", "task.note"];
+pub const CORE_TOOLS: &[&str] = &[
+    "find_capability",
+    "web.search",
+    "web.fetch",
+    "task.plan",
+    "task.note",
+];
 
 /// How many tool calls one agent turn may make before Core stops it.
 pub const MAX_AGENT_STEPS: usize = 24;
@@ -212,7 +218,10 @@ impl Core {
         let models = models::Catalog::load(cfg.models_dir.as_deref(), &models_store);
 
         let conversations = conversations::Store::load(cfg.data_dir.as_deref(), dag::now_ms());
-        let transcript = conversations.current().map(|c| c.messages.clone()).unwrap_or_default();
+        let transcript = conversations
+            .current()
+            .map(|c| c.messages.clone())
+            .unwrap_or_default();
 
         let mut core = Core {
             conversations,
@@ -252,9 +261,10 @@ impl Core {
         // What the user installed from a catalog, kept under the data
         // directory (v2 §1: only chat ships in the box; the rest is installed).
         if let Some(root) = core.installed_root()
-            && root.is_dir() {
-                core.load_harnesses(&root);
-            }
+            && root.is_dir()
+        {
+            core.load_harnesses(&root);
+        }
         Ok(core)
     }
 
@@ -338,7 +348,9 @@ impl Core {
 
     pub fn load_harnesses(&mut self, dir: &std::path::Path) {
         let services = self.services();
-        let failures = self.registry.load_dir(dir, &self.cfg.policy.clone(), services);
+        let failures = self
+            .registry
+            .load_dir(dir, &self.cfg.policy.clone(), services);
         for (name, err) in failures {
             self.notice(
                 proto::NoticeLevel::Error,
@@ -348,7 +360,13 @@ impl Core {
         let ids: Vec<(String, proto::DocKind, String)> = self
             .registry
             .iter()
-            .map(|h| (h.doc_id.clone(), h.doc_kind(), h.manifest.harness.title.clone()))
+            .map(|h| {
+                (
+                    h.doc_id.clone(),
+                    h.doc_kind(),
+                    h.manifest.harness.title.clone(),
+                )
+            })
             .collect();
         for (doc_id, kind, title) in ids {
             self.docs.ensure(&doc_id, kind);
@@ -444,7 +462,10 @@ impl Core {
         // installed first, in dependency order; a conflict names both dependents.
         if !staged.manifest.dependencies.is_empty() {
             let mut candidates = catalog::candidates(&self.catalog_dirs_all(), &self.registry);
-            if !candidates.iter().any(|c| c.id == staged.manifest.harness.id) {
+            if !candidates
+                .iter()
+                .any(|c| c.id == staged.manifest.harness.id)
+            {
                 candidates.push(deps::Candidate {
                     id: staged.manifest.harness.id.clone(),
                     version: staged.manifest.harness.version.clone(),
@@ -461,7 +482,9 @@ impl Core {
                 if *id == staged.manifest.harness.id {
                     continue;
                 }
-                let Some(dep) = candidates.iter().find(|c| c.id == *id && c.version == *version)
+                let Some(dep) = candidates
+                    .iter()
+                    .find(|c| c.id == *id && c.version == *version)
                 else {
                     continue;
                 };
@@ -483,24 +506,23 @@ impl Core {
 
         // An update that widens capabilities does not auto-install: it re-prompts
         // with a diff, and only proceeds once the user has answered.
-        if !capabilities_approved
-            && let Some(existing) = self.registry.get(staged.id()) {
-                let diff = staged
-                    .manifest
-                    .capabilities
-                    .widening_over(&existing.manifest.capabilities);
-                if !diff.is_empty() {
-                    let token = format!("t{}", dag::now_ms());
-                    self.pending_installs
-                        .insert(token.clone(), dir.to_path_buf());
-                    return Ok(proto::Response::InstallPrompt {
-                        harness: staged.manifest.harness.id.clone(),
-                        token,
-                        diff,
-                        native_reason: staged.manifest.harness.native_reason.clone(),
-                    });
-                }
+        if !capabilities_approved && let Some(existing) = self.registry.get(staged.id()) {
+            let diff = staged
+                .manifest
+                .capabilities
+                .widening_over(&existing.manifest.capabilities);
+            if !diff.is_empty() {
+                let token = format!("t{}", dag::now_ms());
+                self.pending_installs
+                    .insert(token.clone(), dir.to_path_buf());
+                return Ok(proto::Response::InstallPrompt {
+                    harness: staged.manifest.harness.id.clone(),
+                    token,
+                    diff,
+                    native_reason: staged.manifest.harness.native_reason.clone(),
+                });
             }
+        }
         // A Tier B package must show its reason before anything runs.
         if staged.manifest.harness.tier == manifest::Tier::Native {
             let reason = staged
@@ -594,7 +616,8 @@ impl Core {
                 "this environment is air-gapped: bring the file over and import it instead"
             );
         }
-        self.models.download(id, self.downloads.clone(), self.sink())?;
+        self.models
+            .download(id, self.downloads.clone(), self.sink())?;
         self.trace(format!("models: downloading `{id}`"));
         let _ = self.audit.append(
             self.actor(),
@@ -609,14 +632,17 @@ impl Core {
     /// Start the sidecar on a model that is here, with the flags its
     /// placement plan calls for.
     fn load_model(&mut self, id: &str) -> Result<()> {
-        let binary = engine::find_binary(self.cfg.llama_server.as_deref(), self.cfg.data_dir.as_deref())
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "llama-server is not installed: put {} under <data>/engines/, pass \
+        let binary = engine::find_binary(
+            self.cfg.llama_server.as_deref(),
+            self.cfg.data_dir.as_deref(),
+        )
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "llama-server is not installed: put {} under <data>/engines/, pass \
                      --llama-server <path>, or set LOCALSPACE_LLAMA_SERVER",
-                    engine::binary_name()
-                )
-            })?;
+                engine::binary_name()
+            )
+        })?;
         let path = self
             .models
             .installed_path(id)
@@ -631,7 +657,12 @@ impl Core {
                 self.trace(format!("planner: {}", plan.summary()));
                 engine::flags(&plan, &map, context_len)
             }
-            None => vec!["-c".into(), context_len.to_string(), "-ngl".into(), "999".into()],
+            None => vec![
+                "-c".into(),
+                context_len.to_string(),
+                "-ngl".into(),
+                "999".into(),
+            ],
         };
         if let Some(old) = self.engine.take() {
             old.stop();
@@ -746,10 +777,14 @@ impl Core {
         wanted.extend(also.iter().cloned());
         for id in wanted {
             if let Some(h) = self.registry.get_mut(&id)
-                && h.enabled && h.manifest.contributes.context_provider
-                    && let Err(e) = Registry::ensure_runtime(h, services.clone()) {
-                        self.trace(format!("`{id}` could not start for its context provider: {e:#}"));
-                    }
+                && h.enabled
+                && h.manifest.contributes.context_provider
+                && let Err(e) = Registry::ensure_runtime(h, services.clone())
+            {
+                self.trace(format!(
+                    "`{id}` could not start for its context provider: {e:#}"
+                ));
+            }
         }
 
         context::assemble(
@@ -767,7 +802,12 @@ impl Core {
     /// Every tool call — from the agent, from the Client, from an eval — comes
     /// through here. Permission check, confirm gate, schema validation, run,
     /// commit, short result.
-    pub fn call_tool(&mut self, tool: &str, params: &J, author: proto::Author) -> proto::ToolOutcome {
+    pub fn call_tool(
+        &mut self,
+        tool: &str,
+        params: &J,
+        author: proto::Author,
+    ) -> proto::ToolOutcome {
         if CORE_TOOLS.contains(&tool) {
             return self.call_core_tool(tool, params);
         }
@@ -782,11 +822,7 @@ impl Core {
 
         let (decl, doc_id, enabled) = {
             let h = self.registry.get(&owner).expect("owner exists");
-            (
-                h.tools.get(tool).cloned(),
-                h.doc_id.clone(),
-                h.enabled,
-            )
+            (h.tools.get(tool).cloned(), h.doc_id.clone(), h.enabled)
         };
         let Some(decl) = decl else {
             return proto::ToolOutcome::Error {
@@ -932,7 +968,9 @@ impl Core {
 
         if !out.ok {
             return proto::ToolOutcome::Error {
-                message: out.error.unwrap_or_else(|| "the harness reported a failure".into()),
+                message: out
+                    .error
+                    .unwrap_or_else(|| "the harness reported a failure".into()),
             };
         }
 
@@ -969,15 +1007,17 @@ impl Core {
                             Err(e) => {
                                 return proto::ToolOutcome::Error {
                                     message: format!("the change could not be committed: {e:#}"),
-                                }
+                                };
                             }
                         }
                     }
                 }
                 Err(e) => {
                     return proto::ToolOutcome::Error {
-                        message: format!("the harness returned a document Core could not apply: {e:#}"),
-                    }
+                        message: format!(
+                            "the harness returned a document Core could not apply: {e:#}"
+                        ),
+                    };
                 }
             }
         }
@@ -1182,7 +1222,10 @@ impl Core {
             }
             "web.fetch" => {
                 let url = params.get("url").and_then(|u| u.as_str()).unwrap_or("");
-                let mode = params.get("mode").and_then(|m| m.as_str()).unwrap_or("text");
+                let mode = params
+                    .get("mode")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("text");
                 let decision = self.gateway.lock().unwrap().check(url);
                 match decision {
                     Egress::Denied(why) => proto::ToolOutcome::Denied { reason: why },
@@ -1271,9 +1314,10 @@ impl Core {
     fn catalog_dirs_all(&self) -> Vec<PathBuf> {
         let mut dirs = self.cfg.catalog_dirs.clone();
         if let Some(installed) = &self.cfg.harness_dir
-            && !dirs.contains(installed) {
-                dirs.push(installed.clone());
-            }
+            && !dirs.contains(installed)
+        {
+            dirs.push(installed.clone());
+        }
         dirs
     }
 
@@ -1343,7 +1387,11 @@ impl Core {
 
     /// If the call names an `artifact`, resolve it and check the handoff.
     /// Returns what to hand the harness: `(id, JSON payload)` pairs.
-    fn resolve_handoff(&mut self, owner: &str, params: &J) -> std::result::Result<Vec<(String, String)>, String> {
+    fn resolve_handoff(
+        &mut self,
+        owner: &str,
+        params: &J,
+    ) -> std::result::Result<Vec<(String, String)>, String> {
         let Some(id) = params.get("artifact").and_then(|a| a.as_str()) else {
             return Ok(Vec::new());
         };
@@ -1352,7 +1400,10 @@ impl Core {
             return Err(if known.is_empty() {
                 format!("`{id}` is not an artifact in this task; nothing has been produced yet")
             } else {
-                format!("`{id}` is not an artifact in this task; the ledger has {}", known.join(", "))
+                format!(
+                    "`{id}` is not an artifact in this task; the ledger has {}",
+                    known.join(", ")
+                )
             });
         };
 
@@ -1364,7 +1415,10 @@ impl Core {
         if !accepts.contains(&art.kind) {
             let takers = task::who_accepts(&self.registry, &art.kind);
             return Err(if takers.is_empty() {
-                format!("`{owner}` does not accept {}, and nothing installed does", art.kind)
+                format!(
+                    "`{owner}` does not accept {}, and nothing installed does",
+                    art.kind
+                )
             } else {
                 format!(
                     "`{owner}` does not accept {}; {} does",
@@ -1383,7 +1437,12 @@ impl Core {
             match self.dag.get_commit(&art.commit) {
                 Ok(Some(c)) => match self.dag.get_blob(&c.doc_hash) {
                     Ok(Some(bytes)) => DocStore::json_of_snapshot(kind, &bytes).unwrap_or(J::Null),
-                    _ => return Err(format!("the version {} is pinned to is missing from the DAG", art.id)),
+                    _ => {
+                        return Err(format!(
+                            "the version {} is pinned to is missing from the DAG",
+                            art.id
+                        ));
+                    }
                 },
                 _ => return Err(format!("commit {} is not in the DAG", art.commit)),
             }
@@ -1474,7 +1533,9 @@ impl Core {
             return;
         }
         for id in &dropped {
-            self.trace(format!("unloaded `{id}` after idle_unload; its document stays"));
+            self.trace(format!(
+                "unloaded `{id}` after idle_unload; its document stays"
+            ));
         }
         // The Library shows which harnesses are resident; tell it.
         self.broadcast_environment();
@@ -1597,10 +1658,11 @@ impl Core {
                 // The environment's own copy goes with it; a package used
                 // where it lies (`--harnesses`) is left alone.
                 if let (Some(removed), Some(root)) = (removed, self.installed_root())
-                    && removed.dir.starts_with(&root) {
-                        drop(removed);
-                        let _ = std::fs::remove_dir_all(root.join(&harness));
-                    }
+                    && removed.dir.starts_with(&root)
+                {
+                    drop(removed);
+                    let _ = std::fs::remove_dir_all(root.join(&harness));
+                }
                 if self.focus.as_deref() == Some(harness.as_str()) {
                     self.focus = None;
                 }
@@ -1695,9 +1757,10 @@ impl Core {
                 }
                 if id.starts_with("egress:")
                     && let Some(url) = p.params.get("url").and_then(|u| u.as_str())
-                        && let Some(domain) = gateway::host_of(url) {
-                            self.gateway.lock().unwrap().approve_domain(&domain);
-                        }
+                    && let Some(domain) = gateway::host_of(url)
+                {
+                    self.gateway.lock().unwrap().approve_domain(&domain);
+                }
                 // Run it as the user: they just authorised this exact call.
                 let outcome = self.call_tool(&p.tool, &p.params.clone(), proto::Author::User);
                 self.emit(proto::Event::ToolCallFinished {
@@ -1732,7 +1795,11 @@ impl Core {
                 },
             },
 
-            R::GetSurfaceFile { harness, view, path } => match self.registry.get(&harness) {
+            R::GetSurfaceFile {
+                harness,
+                view,
+                path,
+            } => match self.registry.get(&harness) {
                 Some(h) => match h.surface_file(&view, &path) {
                     Ok((bytes, mime)) => proto::Response::SurfaceFile { bytes, mime },
                     Err(e) => proto::Response::Error {
@@ -1766,7 +1833,9 @@ impl Core {
                     Some(Ok(tree)) => match widgets::parse(&tree) {
                         Ok(root) => proto::Response::WidgetView { root },
                         Err(e) => proto::Response::Error {
-                            message: format!("`{harness}` returned a widget tree Core cannot read: {e:#}"),
+                            message: format!(
+                                "`{harness}` returned a widget tree Core cannot read: {e:#}"
+                            ),
                         },
                     },
                     Some(Err(e)) => proto::Response::Error {
@@ -1806,7 +1875,7 @@ impl Core {
                     None => {
                         return proto::Response::Error {
                             message: format!("no harness `{harness}`"),
-                        }
+                        };
                     }
                 };
                 let doc = self.docs.json(&doc_id).unwrap_or(J::Null);
@@ -1833,21 +1902,21 @@ impl Core {
                     Ok((reply, doc_out)) => {
                         if let Some(next) = doc_out
                             && let Ok(changes) = self.docs.apply_json(&doc_id, &next)
-                                && !changes.is_empty() {
-                                    let snapshot =
-                                        self.docs.snapshot(&doc_id).unwrap_or_default();
-                                    let _ = self.dag.commit(
-                                        &doc_id,
-                                        &harness,
-                                        &format!("surface:{view}"),
-                                        Json(J::Null),
-                                        &snapshot,
-                                        &changes.summary(),
-                                        proto::Author::User,
-                                        None,
-                                    );
-                                    self.doc_changed(&doc_id);
-                                }
+                            && !changes.is_empty()
+                        {
+                            let snapshot = self.docs.snapshot(&doc_id).unwrap_or_default();
+                            let _ = self.dag.commit(
+                                &doc_id,
+                                &harness,
+                                &format!("surface:{view}"),
+                                Json(J::Null),
+                                &snapshot,
+                                &changes.summary(),
+                                proto::Author::User,
+                                None,
+                            );
+                            self.doc_changed(&doc_id);
+                        }
                         if !reply.is_empty() {
                             self.emit(proto::Event::HarnessMessage {
                                 harness,
@@ -1933,7 +2002,7 @@ impl Core {
                     Err(e) => {
                         return proto::Response::Error {
                             message: format!("the document could not be applied: {e:#}"),
-                        }
+                        };
                     }
                 };
                 if !changes.is_empty() {
@@ -2032,7 +2101,7 @@ impl Core {
                     _ => {
                         return proto::Response::Error {
                             message: "nothing to undo".into(),
-                        }
+                        };
                     }
                 };
                 match self.dag.undo(&doc) {
@@ -2049,7 +2118,7 @@ impl Core {
                     _ => {
                         return proto::Response::Error {
                             message: "nothing to redo".into(),
-                        }
+                        };
                     }
                 };
                 match self.dag.redo(&doc) {
@@ -2078,9 +2147,10 @@ impl Core {
                 // here is marked rather than offered again.
                 let mut dirs = self.cfg.catalog_dirs.clone();
                 if let Some(installed) = &self.cfg.harness_dir
-                    && !dirs.contains(installed) {
-                        dirs.push(installed.clone());
-                    }
+                    && !dirs.contains(installed)
+                {
+                    dirs.push(installed.clone());
+                }
                 proto::Response::Catalog {
                     entries: catalog::scan(&dirs, &self.registry, &self.cfg.policy),
                 }
@@ -2128,7 +2198,10 @@ impl Core {
             R::UnloadModel => {
                 if let Some(engine) = self.engine.take() {
                     engine.stop();
-                    self.trace(format!("engine: stopped llama-server for {}", engine.model_id));
+                    self.trace(format!(
+                        "engine: stopped llama-server for {}",
+                        engine.model_id
+                    ));
                     let _ = self.audit.append(
                         self.actor(),
                         self.scope("models"),
@@ -2163,7 +2236,8 @@ impl Core {
                 let mut profile = self.cfg.profile.clone();
                 if budget > 0 {
                     profile.context_budget_tokens = budget;
-                    profile.focused_context_tokens = budget.min(profile.focused_context_tokens.max(budget / 2));
+                    profile.focused_context_tokens =
+                        budget.min(profile.focused_context_tokens.max(budget / 2));
                 }
                 let saved = std::mem::replace(&mut self.cfg.profile, profile);
                 let blocks = self.context_blocks();
@@ -2280,7 +2354,10 @@ impl CoreServices for Services {
     ) -> std::result::Result<String, String> {
         let mut gw = self.gateway.lock().unwrap();
         match gw.check(url) {
-            Egress::Allowed => gw.fetch(url, mode).map(|f| f.content).map_err(|e| format!("{e:#}")),
+            Egress::Allowed => gw
+                .fetch(url, mode)
+                .map(|f| f.content)
+                .map_err(|e| format!("{e:#}")),
             Egress::NeedsApproval(d) => Err(format!(
                 "`{d}` needs the user's approval before this environment will fetch from it"
             )),
@@ -2346,11 +2423,13 @@ mod tests {
             other => panic!("expected denial, got {other:?}"),
         }
         // And the tool is not even in the model's view.
-        assert!(!core
-            .active_set()
-            .tools
-            .iter()
-            .any(|t| t.name.starts_with("web.")));
+        assert!(
+            !core
+                .active_set()
+                .tools
+                .iter()
+                .any(|t| t.name.starts_with("web."))
+        );
     }
 
     #[test]

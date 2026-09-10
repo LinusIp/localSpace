@@ -57,7 +57,10 @@ fn json_payloads_are_values_on_a_json_wire_and_text_on_a_binary_one() {
     let value = proto::Json(serde_json::json!({"a": [1, 2, {"b": "c"}]}));
 
     let json = serde_json::to_string(&value).unwrap();
-    assert_eq!(json, r#"{"a":[1,2,{"b":"c"}]}"#, "JSON must carry the value itself");
+    assert_eq!(
+        json, r#"{"a":[1,2,{"b":"c"}]}"#,
+        "JSON must carry the value itself"
+    );
     let back: proto::Json = serde_json::from_str(&json).unwrap();
     assert_eq!(back, value);
 

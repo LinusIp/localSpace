@@ -202,7 +202,6 @@ mod imp {
                 }
             };
 
-
             let memory = instance
                 .get_memory(&mut store, "memory")
                 .context("the surface exports no memory")?;
@@ -218,7 +217,9 @@ mod imp {
                 .get_typed_func::<(i32, i32), i64>(&mut store, "hs_frame")
                 .map_err(|e| anyhow::anyhow!("{e}"))
                 .context("the surface exports no hs_frame")?;
-            let release = instance.get_typed_func::<(), ()>(&mut store, "hs_release").ok();
+            let release = instance
+                .get_typed_func::<(), ()>(&mut store, "hs_release")
+                .ok();
 
             Ok(Runner {
                 store,
@@ -298,7 +299,7 @@ mod imp {
 
 #[cfg(target_arch = "wasm32")]
 mod imp {
-    use anyhow::{bail, Result};
+    use anyhow::{Result, bail};
 
     /// The browser runner drives the same three exports through the browser's own
     /// `WebAssembly` API. It is not built in this configuration — see
@@ -531,8 +532,7 @@ impl SurfaceRunner {
             // Read; the surface may drop its copies now rather than next frame.
             self.inner.release()?;
         }
-        let (meshes, vertices) =
-            self.rebuild_cache(offset, std::mem::take(&mut out.primitives));
+        let (meshes, vertices) = self.rebuild_cache(offset, std::mem::take(&mut out.primitives));
         self.paint_cached(ui, rect, offset);
         self.cached_cursor = out.cursor;
 
@@ -623,7 +623,6 @@ pub fn filter_events(
 }
 
 impl SurfaceRunner {
-
     /// Upload the surface's textures under host-owned ids. The pixels are read
     /// straight out of the surface's memory, where it left them for this call.
     fn apply_textures(
@@ -775,12 +774,23 @@ mod tests {
     fn keyboard_needs_focus_not_hover() {
         // The bug this guards: a window being focused or maximised must not be
         // able to deliver a Delete to the board. Hover is not consent.
-        let events = vec![key(egui::Key::Delete), key(egui::Key::A), egui::Event::Text("x".into())];
+        let events = vec![
+            key(egui::Key::Delete),
+            key(egui::Key::A),
+            egui::Event::Text("x".into()),
+        ];
         let hovered_only = filter_events(events.clone(), Vec2::ZERO, rect(), true, false);
-        assert!(hovered_only.is_empty(), "keyboard leaked on hover: {hovered_only:?}");
+        assert!(
+            hovered_only.is_empty(),
+            "keyboard leaked on hover: {hovered_only:?}"
+        );
 
         let focused = filter_events(events, Vec2::ZERO, rect(), true, true);
-        assert_eq!(focused.len(), 3, "keyboard must flow once the panel is focused");
+        assert_eq!(
+            focused.len(),
+            3,
+            "keyboard must flow once the panel is focused"
+        );
     }
 
     #[test]
@@ -793,8 +803,12 @@ mod tests {
         }
 
         // Outside the panel, or not hovered at all: nothing reaches the guest.
-        assert!(filter_events(vec![pointer_at(10.0, 10.0)], offset, rect(), true, false).is_empty());
-        assert!(filter_events(vec![pointer_at(150.0, 150.0)], offset, rect(), false, false).is_empty());
+        assert!(
+            filter_events(vec![pointer_at(10.0, 10.0)], offset, rect(), true, false).is_empty()
+        );
+        assert!(
+            filter_events(vec![pointer_at(150.0, 150.0)], offset, rect(), false, false).is_empty()
+        );
     }
 
     #[test]
@@ -806,7 +820,10 @@ mod tests {
             "a second break inside the cooldown must wait for the user"
         );
         r.manual(25.0);
-        assert!(!r.automatic(30.0), "the user's restart begins a fresh cooldown");
+        assert!(
+            !r.automatic(30.0),
+            "the user's restart begins a fresh cooldown"
+        );
         assert!(r.automatic(25.0 + Restarts::COOLDOWN_SECS));
         assert_eq!(r.count, 3);
     }

@@ -328,8 +328,14 @@ mod tests {
             .map(|d| d.id.as_str())
             .collect();
         assert!(visible.contains(&"d_shared"));
-        assert!(!visible.contains(&"d_tight"), "tightened doc must not be visible");
-        assert!(!visible.contains(&"d_personal"), "another user's personal doc");
+        assert!(
+            !visible.contains(&"d_tight"),
+            "tightened doc must not be visible"
+        );
+        assert!(
+            !visible.contains(&"d_personal"),
+            "another user's personal doc"
+        );
     }
 
     #[test]

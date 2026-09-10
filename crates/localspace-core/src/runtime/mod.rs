@@ -58,11 +58,7 @@ impl HarnessOutput {
 /// the capability check in the host bindings has passed.
 pub trait CoreServices: Send + Sync {
     fn model_complete(&self, prompt: &str) -> std::result::Result<String, String>;
-    fn model_structured(
-        &self,
-        schema: &str,
-        prompt: &str,
-    ) -> std::result::Result<String, String>;
+    fn model_structured(&self, schema: &str, prompt: &str) -> std::result::Result<String, String>;
     fn model_embed(&self, texts: &[String]) -> std::result::Result<Vec<Vec<f32>>, String>;
     fn docs_search(&self, query: &str) -> std::result::Result<String, String>;
     /// `harness` is passed so the gateway can check the package's own allowlist.

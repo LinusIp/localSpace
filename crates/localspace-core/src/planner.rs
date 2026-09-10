@@ -268,9 +268,8 @@ pub fn plan(map: &TensorMap, machine: &Machine, req: &PlanRequest) -> PlacementP
         ));
     }
     if !map.is_moe() && overflow > 0 {
-        notes.push(
-            "dense model with layer offload — the catalog steers this machine to MoE".into(),
-        );
+        notes
+            .push("dense model with layer offload — the catalog steers this machine to MoE".into());
     }
     if hot_fraction < 1.0 && map.is_moe() {
         notes.push(
@@ -371,12 +370,12 @@ fn estimate_throughput(
 
     // Prefill reads every weight the prompt touches once; approximate as the core
     // weights plus the whole hot cache, at HBM speed, plus a fixed launch cost.
-    let prefill_s =
-        (map.core_bytes as f64 + (map.routed_expert_bytes as f64 * hot_fraction as f64))
-            / (hbm_gbps * GB);
+    let prefill_s = (map.core_bytes as f64
+        + (map.routed_expert_bytes as f64 * hot_fraction as f64))
+        / (hbm_gbps * GB);
     let prompt_tokens = req.context_len.min(8192) as f64;
-    let first_token_ms = ((prefill_s + prompt_tokens / (tok_s.max(1.0) as f64 * 12.0)) * 1000.0
-        + 120.0) as f32;
+    let first_token_ms =
+        ((prefill_s + prompt_tokens / (tok_s.max(1.0) as f64 * 12.0)) * 1000.0 + 120.0) as f32;
 
     (tok_s, first_token_ms)
 }
@@ -493,7 +492,10 @@ mod tests {
     #[test]
     fn a_70b_dense_is_resident_on_w96_and_does_not_fit_on_w32() {
         let map = reference_dense_70b_fp8();
-        assert_eq!(plan(&map, &w96(), &PlanRequest::default()).verdict, Verdict::Resident);
+        assert_eq!(
+            plan(&map, &w96(), &PlanRequest::default()).verdict,
+            Verdict::Resident
+        );
         assert_eq!(
             plan(&map, &w32(), &PlanRequest::default()).verdict,
             Verdict::DoesNotFit
@@ -507,17 +509,32 @@ mod tests {
         let plan = plan(&map, &w32(), &PlanRequest::default());
         assert_eq!(plan.verdict, Verdict::Streaming);
         assert!(plan.nvme_expert_bytes > 0);
-        assert!(plan
-            .notes
-            .iter()
-            .any(|n| n.contains("honest, not optimistic")));
+        assert!(
+            plan.notes
+                .iter()
+                .any(|n| n.contains("honest, not optimistic"))
+        );
     }
 
     #[test]
     fn quantized_kv_leaves_more_room_for_experts() {
         let map = reference_moe_100b_q4();
-        let q8 = plan(&map, &w32(), &PlanRequest { kv_quantized: true, ..Default::default() });
-        let fp16 = plan(&map, &w32(), &PlanRequest { kv_quantized: false, ..Default::default() });
+        let q8 = plan(
+            &map,
+            &w32(),
+            &PlanRequest {
+                kv_quantized: true,
+                ..Default::default()
+            },
+        );
+        let fp16 = plan(
+            &map,
+            &w32(),
+            &PlanRequest {
+                kv_quantized: false,
+                ..Default::default()
+            },
+        );
         assert!(q8.kv_cache_bytes < fp16.kv_cache_bytes);
         assert!(q8.hot_expert_cache_bytes > fp16.hot_expert_cache_bytes);
     }
@@ -525,8 +542,14 @@ mod tests {
     #[test]
     fn a_bigger_hot_cache_means_more_tokens_per_second() {
         let map = reference_moe_100b_q4();
-        let small_gpu = Machine { gpus: vec![24], ..w32() };
-        let big_gpu = Machine { gpus: vec![48], ..w32() };
+        let small_gpu = Machine {
+            gpus: vec![24],
+            ..w32()
+        };
+        let big_gpu = Machine {
+            gpus: vec![48],
+            ..w32()
+        };
         let a = plan(&map, &small_gpu, &PlanRequest::default());
         let b = plan(&map, &big_gpu, &PlanRequest::default());
         assert!(b.hot_expert_fraction > a.hot_expert_fraction);
@@ -538,6 +561,10 @@ mod tests {
         let map = reference_dense_70b_fp8();
         let p = plan(&map, &w32(), &PlanRequest::default());
         assert_eq!(p.verdict, Verdict::DoesNotFit);
-        assert!(p.notes.iter().any(|n| n.contains("before any experts")), "{:?}", p.notes);
+        assert!(
+            p.notes.iter().any(|n| n.contains("before any experts")),
+            "{:?}",
+            p.notes
+        );
     }
 }

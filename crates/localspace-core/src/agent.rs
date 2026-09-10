@@ -6,7 +6,7 @@
 //! DAG commit tagged with the run, so rejecting the whole run is a branch drop
 //! rather than forty undos.
 
-use crate::{model, prompt, Core, Proposal, MAX_AGENT_STEPS};
+use crate::{Core, MAX_AGENT_STEPS, Proposal, model, prompt};
 use localspace_proto as proto;
 use localspace_proto::Json;
 use serde_json::Value as J;
@@ -106,9 +106,10 @@ fn run_loop(core: &mut Core, mut steps: usize) {
             router.chat_streaming(model::WorkerRole::Chat, &request, &mut |delta: &str| {
                 seen.push_str(delta);
                 if calling.is_none()
-                    && let Some(first) = seen.trim_start().chars().next() {
-                        calling = Some(first == '{');
-                    }
+                    && let Some(first) = seen.trim_start().chars().next()
+                {
+                    calling = Some(first == '{');
+                }
                 if calling == Some(false) {
                     streamed += delta.len();
                     core.emit(proto::Event::AssistantDelta {
@@ -379,7 +380,10 @@ mod tests {
         assert!(refused, "{:#?}", core.transcript);
 
         let router = core.router.read().unwrap();
-        assert_eq!(router.metrics.malformed_tool_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            router.metrics.malformed_tool_calls.load(Ordering::Relaxed),
+            1
+        );
         assert_eq!(router.metrics.tool_calls.load(Ordering::Relaxed), 1);
     }
 
@@ -392,11 +396,7 @@ mod tests {
         let mut core = core_with(Script::new(replies));
         turn(&mut core, "loop please");
 
-        let calls = core
-            .transcript
-            .iter()
-            .flat_map(|m| &m.tool_calls)
-            .count();
+        let calls = core.transcript.iter().flat_map(|m| &m.tool_calls).count();
         assert!(calls <= MAX_AGENT_STEPS, "ran {calls} tool calls");
     }
 
@@ -406,7 +406,11 @@ mod tests {
         turn(&mut core, "hello");
         let last = core.transcript.last().unwrap();
         assert_eq!(last.role, proto::Role::Assistant);
-        assert!(last.content.contains("could not reach a model"), "{}", last.content);
+        assert!(
+            last.content.contains("could not reach a model"),
+            "{}",
+            last.content
+        );
     }
 
     #[test]

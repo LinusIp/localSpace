@@ -87,9 +87,13 @@ fn config() -> ServerConfig {
         let beside = std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|d| d.join("registry")));
-        for dir in [beside, Some(PathBuf::from("registry")), Some(PathBuf::from("harnesses"))]
-            .into_iter()
-            .flatten()
+        for dir in [
+            beside,
+            Some(PathBuf::from("registry")),
+            Some(PathBuf::from("harnesses")),
+        ]
+        .into_iter()
+        .flatten()
         {
             if dir.is_dir() && !cfg.registry.contains(&dir) {
                 cfg.registry.push(dir);

@@ -15,7 +15,9 @@
 //!
 //! It has no filesystem, no network and no model access.
 
-use localspace_surface_sdk::egui::{self, Color32, CornerRadius, Key, Pos2, Rect, Sense, Stroke, Vec2};
+use localspace_surface_sdk::egui::{
+    self, Color32, CornerRadius, Key, Pos2, Rect, Sense, Stroke, Vec2,
+};
 use localspace_surface_sdk::{Surface, SurfaceInit, SurfaceState};
 use serde_json::{json, Value};
 
@@ -115,12 +117,23 @@ impl Handle {
 enum Gesture {
     None,
     Pan,
-    Marquee { from: Pos2 },
+    Marquee {
+        from: Pos2,
+    },
     /// Board-space offset of each moving shape from the pointer.
-    Move { grabs: Vec<(String, Vec2)> },
-    Resize { id: String, handle: Handle },
-    Ink { points: Vec<[f64; 2]> },
-    Connect { from: String },
+    Move {
+        grabs: Vec<(String, Vec2)>,
+    },
+    Resize {
+        id: String,
+        handle: Handle,
+    },
+    Ink {
+        points: Vec<[f64; 2]>,
+    },
+    Connect {
+        from: String,
+    },
 }
 
 #[derive(Default)]
@@ -376,15 +389,7 @@ impl Board {
 
         self.handle_keyboard(ui, state, &shapes, &selection, time);
         self.handle_pointer(
-            ui,
-            state,
-            &response,
-            &shapes,
-            &selection,
-            pointer,
-            modifiers,
-            time,
-            &to_screen,
+            ui, state, &response, &shapes, &selection, pointer, modifiers, time, &to_screen,
             &to_board,
         );
 
@@ -593,7 +598,11 @@ impl Board {
                     TEXT,
                 );
             } else if kind == "ellipse" {
-                painter.add(egui::Shape::ellipse_filled(r.center(), r.size() * 0.5, PAGE));
+                painter.add(egui::Shape::ellipse_filled(
+                    r.center(),
+                    r.size() * 0.5,
+                    PAGE,
+                ));
                 painter.add(egui::Shape::ellipse_stroke(
                     r.center(),
                     r.size() * 0.5,
@@ -680,12 +689,7 @@ impl Board {
         }
     }
 
-    fn draw_guides(
-        &self,
-        painter: &egui::Painter,
-        to_screen: &impl Fn(Pos2) -> Pos2,
-        clip: Rect,
-    ) {
+    fn draw_guides(&self, painter: &egui::Painter, to_screen: &impl Fn(Pos2) -> Pos2, clip: Rect) {
         for (vertical, at, from, to) in &self.guides {
             let stroke = Stroke::new(1.0, GUIDE);
             if *vertical {
@@ -782,9 +786,7 @@ impl Board {
         let hit = shapes
             .iter()
             .rev()
-            .find(|sh| {
-                !is_connector(sh) && screen_rect(sh, self.zoom, to_screen).contains(p)
-            })
+            .find(|sh| !is_connector(sh) && screen_rect(sh, self.zoom, to_screen).contains(p))
             .and_then(|sh| sh["id"].as_str().map(|s| s.to_string()));
 
         let handle_hit = if selection.len() == 1 {
@@ -806,7 +808,8 @@ impl Board {
         }
 
         // --- begin a gesture -------------------------------------------------
-        if response.drag_started() || (response.clicked() && matches!(self.gesture, Gesture::None)) {
+        if response.drag_started() || (response.clicked() && matches!(self.gesture, Gesture::None))
+        {
             let starting_drag = response.drag_started();
 
             match self.tool {
@@ -1007,10 +1010,7 @@ impl Board {
 
         let candidates: Vec<Rect> = shapes
             .iter()
-            .filter(|sh| {
-                !is_connector(sh)
-                    && !moving.contains(&sh["id"].as_str().unwrap_or(""))
-            })
+            .filter(|sh| !is_connector(sh) && !moving.contains(&sh["id"].as_str().unwrap_or("")))
             .map(board_rect)
             .collect();
 
@@ -1024,7 +1024,8 @@ impl Board {
             for (i, mx) in mine_x.iter().enumerate() {
                 for ox in [other.left(), other.center().x, other.right()] {
                     let d = ox - mx;
-                    if d.abs() <= threshold && best_x.map(|(bd, _)| d.abs() < bd.abs()).unwrap_or(true)
+                    if d.abs() <= threshold
+                        && best_x.map(|(bd, _)| d.abs() < bd.abs()).unwrap_or(true)
                     {
                         best_x = Some((d, ox));
                         let _ = i;
@@ -1034,7 +1035,8 @@ impl Board {
             for my in mine_y.iter() {
                 for oy in [other.top(), other.center().y, other.bottom()] {
                     let d = oy - my;
-                    if d.abs() <= threshold && best_y.map(|(bd, _)| d.abs() < bd.abs()).unwrap_or(true)
+                    if d.abs() <= threshold
+                        && best_y.map(|(bd, _)| d.abs() < bd.abs()).unwrap_or(true)
                     {
                         best_y = Some((d, oy));
                     }
@@ -1046,7 +1048,11 @@ impl Board {
             out.x += d;
             let span = candidates
                 .iter()
-                .filter(|r| (r.left() - at).abs() < 0.5 || (r.center().x - at).abs() < 0.5 || (r.right() - at).abs() < 0.5)
+                .filter(|r| {
+                    (r.left() - at).abs() < 0.5
+                        || (r.center().x - at).abs() < 0.5
+                        || (r.right() - at).abs() < 0.5
+                })
                 .fold((out.y, out.y + size.y), |(lo, hi), r| {
                     (lo.min(r.top()), hi.max(r.bottom()))
                 });
@@ -1056,7 +1062,11 @@ impl Board {
             out.y += d;
             let span = candidates
                 .iter()
-                .filter(|r| (r.top() - at).abs() < 0.5 || (r.center().y - at).abs() < 0.5 || (r.bottom() - at).abs() < 0.5)
+                .filter(|r| {
+                    (r.top() - at).abs() < 0.5
+                        || (r.center().y - at).abs() < 0.5
+                        || (r.bottom() - at).abs() < 0.5
+                })
                 .fold((out.x, out.x + size.x), |(lo, hi), r| {
                     (lo.min(r.left()), hi.max(r.right()))
                 });
@@ -1174,7 +1184,11 @@ impl Board {
         state.doc_dirty = true;
         // A new sticky or label is almost always about to be typed into.
         if matches!(tool, Tool::Sticky | Tool::Text) {
-            self.edit_buffer = if tool == Tool::Text { "Text".into() } else { String::new() };
+            self.edit_buffer = if tool == Tool::Text {
+                "Text".into()
+            } else {
+                String::new()
+            };
             self.editing = Some(id);
         }
     }
@@ -1401,7 +1415,12 @@ impl Board {
             } else if r.hovered() {
                 painter.rect_filled(slot, CornerRadius::same(7), Color32::from_gray(0xF3));
             }
-            draw_tool_icon(&painter, slot.shrink(9.0), tool, if selected { ACCENT } else { MUTED });
+            draw_tool_icon(
+                &painter,
+                slot.shrink(9.0),
+                tool,
+                if selected { ACCENT } else { MUTED },
+            );
             if r.clicked() {
                 self.tool = tool;
             }
@@ -1476,8 +1495,10 @@ impl Board {
         };
         let bar = Rect::from_min_size(
             egui::pos2(
-                (bounds.center().x - width / 2.0)
-                    .clamp(clip.left() + 6.0, (clip.right() - width - 6.0).max(clip.left() + 6.0)),
+                (bounds.center().x - width / 2.0).clamp(
+                    clip.left() + 6.0,
+                    (clip.right() - width - 6.0).max(clip.left() + 6.0),
+                ),
                 top,
             ),
             Vec2::new(width, 34.0),
@@ -1491,7 +1512,10 @@ impl Board {
         );
 
         let slot = |i: usize| {
-            Rect::from_min_size(bar.min + Vec2::new(3.0 + i as f32 * 30.0, 3.0), Vec2::splat(28.0))
+            Rect::from_min_size(
+                bar.min + Vec2::new(3.0 + i as f32 * 30.0, 3.0),
+                Vec2::splat(28.0),
+            )
         };
         let mut action: Option<&'static str> = None;
         let mut recolour: Option<&'static str> = None;
@@ -1529,7 +1553,17 @@ impl Board {
             if r.hovered() {
                 painter.rect_filled(slot(i), CornerRadius::same(6), Color32::from_gray(0xF3));
             }
-            draw_action_icon(painter, slot(i).shrink(8.0), key, if key == "del" { Color32::from_rgb(0xDC, 0x26, 0x26) } else { MUTED }, locked_now);
+            draw_action_icon(
+                painter,
+                slot(i).shrink(8.0),
+                key,
+                if key == "del" {
+                    Color32::from_rgb(0xDC, 0x26, 0x26)
+                } else {
+                    MUTED
+                },
+                locked_now,
+            );
             if r.clicked() {
                 action = Some(key);
             }
@@ -1697,7 +1731,12 @@ fn draw_tool_icon(painter: &egui::Painter, rect: Rect, tool: Tool, colour: Color
         }
         Tool::Sticky => {
             painter.rect_filled(rect, CornerRadius::same(2), colour.gamma_multiply(0.25));
-            painter.rect_stroke(rect, CornerRadius::same(2), stroke, egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                rect,
+                CornerRadius::same(2),
+                stroke,
+                egui::StrokeKind::Inside,
+            );
         }
         Tool::Rect => {
             painter.rect_stroke(
@@ -1716,7 +1755,13 @@ fn draw_tool_icon(painter: &egui::Painter, rect: Rect, tool: Tool, colour: Color
         }
         Tool::Text => {
             painter.line_segment([rect.left_top(), rect.right_top()], stroke);
-            painter.line_segment([c.to_owned() - Vec2::new(0.0, rect.height() * 0.5), c + Vec2::new(0.0, rect.height() * 0.5)], stroke);
+            painter.line_segment(
+                [
+                    c.to_owned() - Vec2::new(0.0, rect.height() * 0.5),
+                    c + Vec2::new(0.0, rect.height() * 0.5),
+                ],
+                stroke,
+            );
         }
         Tool::Pen => {
             painter.add(egui::Shape::Path(egui::epaint::PathShape {
@@ -1746,13 +1791,7 @@ fn draw_tool_icon(painter: &egui::Painter, rect: Rect, tool: Tool, colour: Color
     }
 }
 
-fn draw_action_icon(
-    painter: &egui::Painter,
-    rect: Rect,
-    key: &str,
-    colour: Color32,
-    locked: bool,
-) {
+fn draw_action_icon(painter: &egui::Painter, rect: Rect, key: &str, colour: Color32, locked: bool) {
     let stroke = Stroke::new(1.4, colour);
     let c = rect.center();
     match key {
@@ -1761,9 +1800,19 @@ fn draw_action_icon(
             let back = Rect::from_center_size(c + Vec2::new(2.5, 2.5), rect.size() * 0.66);
             let front = Rect::from_center_size(c - Vec2::new(2.5, 2.5), rect.size() * 0.66);
             let (dim, solid) = if up { (back, front) } else { (front, back) };
-            painter.rect_stroke(dim, CornerRadius::same(2), Stroke::new(1.0, colour.gamma_multiply(0.4)), egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                dim,
+                CornerRadius::same(2),
+                Stroke::new(1.0, colour.gamma_multiply(0.4)),
+                egui::StrokeKind::Inside,
+            );
             painter.rect_filled(solid, CornerRadius::same(2), colour.gamma_multiply(0.35));
-            painter.rect_stroke(solid, CornerRadius::same(2), stroke, egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                solid,
+                CornerRadius::same(2),
+                stroke,
+                egui::StrokeKind::Inside,
+            );
         }
         "dup" => {
             painter.rect_stroke(
@@ -1781,7 +1830,10 @@ fn draw_action_icon(
         }
         "lock" => {
             painter.rect_stroke(
-                Rect::from_center_size(c + Vec2::new(0.0, 2.5), egui::vec2(rect.width() * 0.8, rect.height() * 0.5)),
+                Rect::from_center_size(
+                    c + Vec2::new(0.0, 2.5),
+                    egui::vec2(rect.width() * 0.8, rect.height() * 0.5),
+                ),
                 CornerRadius::same(2),
                 stroke,
                 egui::StrokeKind::Inside,
@@ -1796,7 +1848,10 @@ fn draw_action_icon(
                 points: if locked {
                     shackle
                 } else {
-                    shackle.into_iter().map(|p| p + Vec2::new(3.0, 0.0)).collect()
+                    shackle
+                        .into_iter()
+                        .map(|p| p + Vec2::new(3.0, 0.0))
+                        .collect()
                 },
                 closed: false,
                 fill: Color32::TRANSPARENT,
@@ -1821,7 +1876,13 @@ fn draw_action_icon(
                 stroke,
                 egui::StrokeKind::Inside,
             );
-            painter.line_segment([egui::pos2(c.x, rect.top() + 7.0), egui::pos2(c.x, rect.bottom() - 3.0)], stroke);
+            painter.line_segment(
+                [
+                    egui::pos2(c.x, rect.top() + 7.0),
+                    egui::pos2(c.x, rect.bottom() - 3.0),
+                ],
+                stroke,
+            );
         }
     }
 }

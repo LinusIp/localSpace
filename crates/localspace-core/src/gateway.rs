@@ -108,11 +108,10 @@ impl Gateway {
             return Egress::Denied(format!("`{url}` is not a fetchable URL"));
         };
 
-        if self.config.mode == proto::NetworkMode::Airgapped && !matches_any(&host, &self.config.intranet)
+        if self.config.mode == proto::NetworkMode::Airgapped
+            && !matches_any(&host, &self.config.intranet)
         {
-            return Egress::Denied(
-                "this environment is airgapped; no egress is possible".into(),
-            );
+            return Egress::Denied("this environment is airgapped; no egress is possible".into());
         }
         if matches_any(&host, &self.config.blocklist) {
             return Egress::Denied(format!("`{host}` is on the blocklist"));
@@ -205,7 +204,11 @@ impl Gateway {
             Some(s) => format!("{query} site:{s}"),
             None => query.to_string(),
         };
-        let url = format!("{}/search?format=json&q={}", base.trim_end_matches('/'), urlencode(&q));
+        let url = format!(
+            "{}/search?format=json&q={}",
+            base.trim_end_matches('/'),
+            urlencode(&q)
+        );
 
         match self.check(&url) {
             Egress::Allowed | Egress::NeedsApproval(_) => {}
@@ -271,8 +274,17 @@ pub fn matches_any(host: &str, patterns: &[String]) -> bool {
 }
 
 const TRACKING: &[&str] = &[
-    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gclid", "fbclid",
-    "mc_cid", "mc_eid", "ref", "ref_src",
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "gclid",
+    "fbclid",
+    "mc_cid",
+    "mc_eid",
+    "ref",
+    "ref_src",
 ];
 
 pub fn strip_tracking(url: &str) -> String {
@@ -347,9 +359,11 @@ pub fn html_to_text(html: &str) -> String {
                 continue;
             }
             // Block-level tags become line breaks so the text stays readable.
-            let is_block = ["<p", "<br", "<div", "<li", "<h1", "<h2", "<h3", "<tr", "</p", "</div"]
-                .iter()
-                .any(|t| lower[i..].starts_with(t));
+            let is_block = [
+                "<p", "<br", "<div", "<li", "<h1", "<h2", "<h3", "<tr", "</p", "</div",
+            ]
+            .iter()
+            .any(|t| lower[i..].starts_with(t));
             match html[i..].find('>') {
                 Some(end) => i += end + 1,
                 None => break,
@@ -421,7 +435,10 @@ mod tests {
     #[test]
     fn airgapped_denies_the_internet_but_not_the_intranet() {
         let g = gw(proto::NetworkMode::Airgapped, &[]);
-        assert!(matches!(g.check("https://example.com/x"), Egress::Denied(_)));
+        assert!(matches!(
+            g.check("https://example.com/x"),
+            Egress::Denied(_)
+        ));
         assert_eq!(g.check("https://wiki.corp.example/page"), Egress::Allowed);
     }
 
@@ -444,8 +461,14 @@ mod tests {
     #[test]
     fn online_mode_still_respects_the_allowlist() {
         let g = gw(proto::NetworkMode::Online, &["*.wikipedia.org"]);
-        assert_eq!(g.check("https://en.wikipedia.org/wiki/Rust"), Egress::Allowed);
-        assert!(matches!(g.check("https://evil.example/x"), Egress::Denied(_)));
+        assert_eq!(
+            g.check("https://en.wikipedia.org/wiki/Rust"),
+            Egress::Allowed
+        );
+        assert!(matches!(
+            g.check("https://evil.example/x"),
+            Egress::Denied(_)
+        ));
     }
 
     #[test]
@@ -455,7 +478,10 @@ mod tests {
             ceiling: proto::NetworkMode::Ask,
             ..Default::default()
         });
-        assert_eq!(g.set_mode(proto::NetworkMode::Online), proto::NetworkMode::Ask);
+        assert_eq!(
+            g.set_mode(proto::NetworkMode::Online),
+            proto::NetworkMode::Ask
+        );
         assert_eq!(
             g.set_mode(proto::NetworkMode::Airgapped),
             proto::NetworkMode::Airgapped

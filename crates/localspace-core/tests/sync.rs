@@ -54,7 +54,9 @@ impl Bench {
             tool: "canvas.add_sticky".into(),
             params: proto::Json(serde_json::json!({"text": "first"})),
         });
-        let doc = match core.handle(proto::Request::OpenDoc { harness: BOARD.into() }) {
+        let doc = match core.handle(proto::Request::OpenDoc {
+            harness: BOARD.into(),
+        }) {
             proto::Response::DocOpened { doc, .. } => doc,
             other => panic!("open: {other:?}"),
         };
@@ -73,7 +75,9 @@ impl Bench {
     /// A frame opening the board: Core's snapshot, a fresh sync state, and
     /// the first exchange.
     fn open(&mut self, peer: &str) -> Frame {
-        let snapshot = match self.core.handle(proto::Request::OpenDoc { harness: BOARD.into() }) {
+        let snapshot = match self.core.handle(proto::Request::OpenDoc {
+            harness: BOARD.into(),
+        }) {
             proto::Response::DocOpened { snapshot, .. } => snapshot,
             other => panic!("open: {other:?}"),
         };
@@ -140,7 +144,9 @@ impl Bench {
     }
 
     fn json(&mut self) -> serde_json::Value {
-        match self.core.handle(proto::Request::GetDocJson { harness: BOARD.into() }) {
+        match self.core.handle(proto::Request::GetDocJson {
+            harness: BOARD.into(),
+        }) {
             proto::Response::DocJson { json, .. } => json.0,
             other => panic!("{other:?}"),
         }
@@ -164,16 +170,25 @@ fn title_of(frame: &Frame) -> Option<String> {
 
 #[test]
 fn a_replica_s_edit_lands_as_the_user_s_commit_and_core_s_edit_reaches_the_replica() {
-    let Some(mut bench) = Bench::new() else { return };
+    let Some(mut bench) = Bench::new() else {
+        return;
+    };
     let mut frame = bench.open("frame-1");
     let before = bench.history().len();
 
     // The user edits on the board: a title, in the replica.
-    frame.doc.put(automerge::ROOT, "title", "Launch plan").expect("a change");
+    frame
+        .doc
+        .put(automerge::ROOT, "title", "Launch plan")
+        .expect("a change");
     bench.settle(&mut frame);
 
     let commits = bench.history();
-    assert_eq!(commits.len(), before + 1, "one commit for the replica's edit");
+    assert_eq!(
+        commits.len(),
+        before + 1,
+        "one commit for the replica's edit"
+    );
     assert_eq!(commits[0].tool, "surface:sync");
     assert_eq!(commits[0].harness, BOARD);
     assert_eq!(commits[0].author, proto::Author::User);
@@ -184,37 +199,70 @@ fn a_replica_s_edit_lands_as_the_user_s_commit_and_core_s_edit_reaches_the_repli
     assert_eq!(bench.history().len(), before + 1);
 
     // The agent's edit in Core reaches the replica the same way.
-    bench.call("canvas.set_title", serde_json::json!({"title": "Shipping plan"}));
+    bench.call(
+        "canvas.set_title",
+        serde_json::json!({"title": "Shipping plan"}),
+    );
     bench.settle(&mut frame);
     assert_eq!(title_of(&frame).as_deref(), Some("\"Shipping plan\""));
 }
 
 #[test]
 fn an_undo_in_core_reaches_the_replica_as_a_change_and_stays_undone() {
-    let Some(mut bench) = Bench::new() else { return };
+    let Some(mut bench) = Bench::new() else {
+        return;
+    };
     let mut frame = bench.open("frame-1");
 
     // The user's edit on the board, committed.
-    frame.doc.put(automerge::ROOT, "title", "Launch plan").expect("a change");
+    frame
+        .doc
+        .put(automerge::ROOT, "title", "Launch plan")
+        .expect("a change");
     bench.settle(&mut frame);
     let committed = bench.history();
     assert_eq!(committed[0].tool, "surface:sync");
 
     // Ctrl+Z in the frame: the environment's undo. The replica holds the
     // undone change; it must receive the revert, not send the change back.
-    assert!(matches!(bench.core.handle(proto::Request::Undo), proto::Response::Ok));
+    assert!(matches!(
+        bench.core.handle(proto::Request::Undo),
+        proto::Response::Ok
+    ));
     bench.settle(&mut frame);
     let json = bench.json();
     // The logic names a new board "Board"; the undo goes back to that.
-    assert_eq!(json["title"], "Board", "Core's document is back to its title from before the edit: {json}");
-    assert_eq!(title_of(&frame).as_deref(), Some("\"Board\""), "the replica followed the undo");
-    assert_eq!(json["shapes"].as_array().map(Vec::len), Some(1), "the sticky from before the edit stays");
-    assert_eq!(bench.history().len(), committed.len(), "an undo moves the head; nothing was committed again");
+    assert_eq!(
+        json["title"], "Board",
+        "Core's document is back to its title from before the edit: {json}"
+    );
+    assert_eq!(
+        title_of(&frame).as_deref(),
+        Some("\"Board\""),
+        "the replica followed the undo"
+    );
+    assert_eq!(
+        json["shapes"].as_array().map(Vec::len),
+        Some(1),
+        "the sticky from before the edit stays"
+    );
+    assert_eq!(
+        bench.history().len(),
+        committed.len(),
+        "an undo moves the head; nothing was committed again"
+    );
     bench.settle(&mut frame);
-    assert_eq!(bench.history().len(), committed.len(), "and the replica stays quiet");
+    assert_eq!(
+        bench.history().len(),
+        committed.len(),
+        "and the replica stays quiet"
+    );
 
     // Redo brings the edit back to both.
-    assert!(matches!(bench.core.handle(proto::Request::Redo), proto::Response::Ok));
+    assert!(matches!(
+        bench.core.handle(proto::Request::Redo),
+        proto::Response::Ok
+    ));
     bench.settle(&mut frame);
     assert_eq!(bench.json()["title"], "Launch plan");
     assert_eq!(title_of(&frame).as_deref(), Some("\"Launch plan\""));
@@ -223,14 +271,18 @@ fn an_undo_in_core_reaches_the_replica_as_a_change_and_stays_undone() {
 
 #[test]
 fn two_frames_on_one_board_keep_their_own_sync_states_and_stay_in_step() {
-    let Some(mut bench) = Bench::new() else { return };
+    let Some(mut bench) = Bench::new() else {
+        return;
+    };
     let mut a = bench.open("window-a");
     let mut b = bench.open("window-b");
     let before = bench.history().len();
 
     // An edit in one window reaches Core, and Core writes it to the other
     // window under that window's own state.
-    a.doc.put(automerge::ROOT, "title", "From a").expect("a change");
+    a.doc
+        .put(automerge::ROOT, "title", "From a")
+        .expect("a change");
     bench.settle(&mut a);
     assert_eq!(bench.json()["title"], "From a");
     assert!(
@@ -241,7 +293,9 @@ fn two_frames_on_one_board_keep_their_own_sync_states_and_stay_in_step() {
     assert_eq!(title_of(&b).as_deref(), Some("\"From a\""));
 
     // And back the other way.
-    b.doc.put(automerge::ROOT, "title", "From b").expect("a change");
+    b.doc
+        .put(automerge::ROOT, "title", "From b")
+        .expect("a change");
     bench.settle(&mut b);
     bench.settle(&mut a);
     assert_eq!(bench.json()["title"], "From b");
@@ -260,7 +314,9 @@ fn two_frames_on_one_board_keep_their_own_sync_states_and_stay_in_step() {
 
 #[test]
 fn a_frame_that_closed_is_sent_nothing_more_and_the_others_still_are() {
-    let Some(mut bench) = Bench::new() else { return };
+    let Some(mut bench) = Bench::new() else {
+        return;
+    };
     let _a = bench.open("window-a");
     let _b = bench.open("window-b");
     match bench.core.handle(proto::Request::DocSyncEnd {
@@ -271,9 +327,15 @@ fn a_frame_that_closed_is_sent_nothing_more_and_the_others_still_are() {
         other => panic!("end: {other:?}"),
     }
     bench.mail.clear();
-    bench.call("canvas.set_title", serde_json::json!({"title": "After a closed"}));
+    bench.call(
+        "canvas.set_title",
+        serde_json::json!({"title": "After a closed"}),
+    );
     bench.pump();
-    assert!(!bench.mail.contains_key("window-a"), "no message for a closed frame");
+    assert!(
+        !bench.mail.contains_key("window-a"),
+        "no message for a closed frame"
+    );
     assert!(
         bench.mail.get("window-b").is_some_and(|m| !m.is_empty()),
         "the open one is still kept current"
@@ -282,7 +344,9 @@ fn a_frame_that_closed_is_sent_nothing_more_and_the_others_still_are() {
 
 #[test]
 fn a_reader_of_the_json_is_told_of_each_change_with_no_replica_open() {
-    let Some(mut bench) = Bench::new() else { return };
+    let Some(mut bench) = Bench::new() else {
+        return;
+    };
     bench.call("canvas.set_title", serde_json::json!({"title": "Read me"}));
     bench.pump();
     assert_eq!(bench.changed, 1, "one DocChanged for one change");

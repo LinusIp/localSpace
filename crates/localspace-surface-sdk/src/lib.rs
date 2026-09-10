@@ -360,7 +360,8 @@ impl<S: Surface> SurfaceHost<S> {
 macro_rules! export_surface {
     ($ty:ty) => {
         static mut HS_SCRATCH: ::std::vec::Vec<u8> = ::std::vec::Vec::new();
-        static mut HS_HOST: ::std::option::Option<$crate::SurfaceHost<$ty>> = ::std::option::Option::None;
+        static mut HS_HOST: ::std::option::Option<$crate::SurfaceHost<$ty>> =
+            ::std::option::Option::None;
 
         #[allow(static_mut_refs, unsafe_code)]
         fn hs_host() -> &'static mut $crate::SurfaceHost<$ty> {
@@ -424,7 +425,10 @@ macro_rules! export_surface {
 
 /// Unpack what `hs_frame` returned.
 pub fn unpack(ret: i64) -> (u32, u32) {
-    (((ret >> 32) & 0xffff_ffff) as u32, (ret & 0xffff_ffff) as u32)
+    (
+        ((ret >> 32) & 0xffff_ffff) as u32,
+        (ret & 0xffff_ffff) as u32,
+    )
 }
 
 #[cfg(test)]
@@ -494,7 +498,10 @@ mod tests {
         delta.free.insert(epaint::TextureId::Managed(7));
 
         let wire = host.take_textures(&mut delta);
-        assert!(delta.is_empty(), "the delta must be left empty so it can drop");
+        assert!(
+            delta.is_empty(),
+            "the delta must be left empty so it can drop"
+        );
         assert_eq!(wire.set.len(), 1);
         assert_eq!(wire.set[0].id, epaint::TextureId::Managed(0));
         assert_eq!(wire.set[0].size, [2, 2]);
@@ -525,10 +532,7 @@ mod tests {
         };
         let bytes = postcard::to_allocvec(&input).unwrap();
         let back: FrameInput = postcard::from_bytes(&bytes).unwrap();
-        assert_eq!(
-            back.raw_input.screen_rect.unwrap().width(),
-            800.0
-        );
+        assert_eq!(back.raw_input.screen_rect.unwrap().width(), 800.0);
     }
 
     #[test]

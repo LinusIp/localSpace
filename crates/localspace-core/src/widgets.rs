@@ -5,7 +5,7 @@
 //! externally tagged instead, because postcard has no `deserialize_any` and the
 //! wire format has to work on both transports. This is the one place the two meet.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use localspace_proto as proto;
 use serde_json::Value as J;
 
@@ -66,10 +66,7 @@ pub fn parse(v: &J) -> Result<proto::Widget> {
         "button" => proto::Widget::Button {
             id: text("id"),
             label: text("label"),
-            enabled: obj
-                .get("enabled")
-                .and_then(|x| x.as_bool())
-                .unwrap_or(true),
+            enabled: obj.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true),
         },
         "input" => proto::Widget::Input {
             id: text("id"),
@@ -124,7 +121,11 @@ pub fn parse(v: &J) -> Result<proto::Widget> {
         },
         "badge" => proto::Widget::Badge {
             text: text("text"),
-            tone: match obj.get("tone").and_then(|t| t.as_str()).unwrap_or("neutral") {
+            tone: match obj
+                .get("tone")
+                .and_then(|t| t.as_str())
+                .unwrap_or("neutral")
+            {
                 "good" => proto::Tone::Good,
                 "warn" => proto::Tone::Warn,
                 "bad" => proto::Tone::Bad,

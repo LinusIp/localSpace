@@ -7,13 +7,13 @@
 //! Requests register a one-shot before they are sent; the pump completes them
 //! by id and fans events out to every open socket.
 
-use localspace_core::transport::{Backend, InProcess, Incoming};
 use localspace_core::Core;
+use localspace_core::transport::{Backend, InProcess, Incoming};
 use localspace_proto as proto;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::{broadcast, oneshot, Notify};
+use tokio::sync::{Notify, broadcast, oneshot};
 
 /// How long a request may take before the caller is told so. Model turns
 /// stream their progress as events and answer at the end, so this is a

@@ -90,11 +90,7 @@ impl ContextBlock {
 /// The same estimate Core uses for every budget, so a provider can size itself
 /// against the number the host will actually measure.
 pub fn estimate_tokens(s: &str) -> usize {
-    if s.is_empty() {
-        0
-    } else {
-        s.len().div_ceil(4)
-    }
+    if s.is_empty() { 0 } else { s.len().div_ceil(4) }
 }
 
 /// Append lines until the budget is spent, then say so.
@@ -154,7 +150,7 @@ impl BudgetedText {
 ///
 /// The tree is the `{"w": "<kind>", ...}` form documented in `wit/harness.wit`.
 pub mod widgets {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     pub fn column(children: Vec<Value>) -> Value {
         json!({"w": "column", "children": children})
@@ -205,7 +201,8 @@ mod tests {
 
     #[test]
     fn a_failure_carries_the_message_and_no_result() {
-        let back: Value = serde_json::from_str(&ToolResult::failed("no shape `s9`").encode()).unwrap();
+        let back: Value =
+            serde_json::from_str(&ToolResult::failed("no shape `s9`").encode()).unwrap();
         assert_eq!(back["ok"], false);
         assert_eq!(back["error"], "no shape `s9`");
     }
@@ -216,7 +213,9 @@ mod tests {
         t.header("board: 200 shapes");
         let mut written = 0;
         for i in 0..200 {
-            if t.line(format!("  s{i} sticky red at (10,{i}) \"a risk worth noting\"")) {
+            if t.line(format!(
+                "  s{i} sticky red at (10,{i}) \"a risk worth noting\""
+            )) {
                 written += 1;
             } else {
                 break;

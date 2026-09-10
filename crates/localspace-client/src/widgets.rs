@@ -53,10 +53,7 @@ fn render(ui: &mut egui::Ui, w: &proto::Widget, out: &mut Vec<proto::WidgetEvent
             ui.add_space(*size);
         }
         W::Button { id, label, enabled } => {
-            if ui
-                .add_enabled(*enabled, egui::Button::new(label))
-                .clicked()
-            {
+            if ui.add_enabled(*enabled, egui::Button::new(label)).clicked() {
                 out.push(proto::WidgetEvent {
                     id: id.clone(),
                     value: proto::WidgetValue::Clicked,
@@ -110,10 +107,7 @@ fn render(ui: &mut egui::Ui, w: &proto::Widget, out: &mut Vec<proto::WidgetEvent
                     .selected_text(value)
                     .show_ui(ui, |ui| {
                         for option in options {
-                            if ui
-                                .selectable_label(option == value, option)
-                                .clicked()
-                            {
+                            if ui.selectable_label(option == value, option).clicked() {
                                 out.push(proto::WidgetEvent {
                                     id: id.clone(),
                                     value: proto::WidgetValue::Text(option.clone()),

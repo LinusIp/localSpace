@@ -14,11 +14,11 @@ pub mod session;
 pub mod surfaces;
 pub mod ws;
 
+use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
-use axum::Router;
 use localspace_core::transport::InProcess;
 use localspace_core::{Config, Core};
 use session::Session;
@@ -252,7 +252,10 @@ pub fn router(server: Arc<Server>) -> Router {
         }
     }
     // Harness origins are answered before anything else sees the request.
-    app.layer(axum::middleware::from_fn_with_state(server, surfaces::route))
+    app.layer(axum::middleware::from_fn_with_state(
+        server,
+        surfaces::route,
+    ))
 }
 
 /// A running server: where it listens, and the token it accepts.
@@ -297,7 +300,7 @@ async fn readyz(State(server): State<Arc<Server>>) -> impl IntoResponse {
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
                 format!("core could not start: {e:#}"),
-            )
+            );
         }
     };
     match tokio::time::timeout(
@@ -307,7 +310,10 @@ async fn readyz(State(server): State<Arc<Server>>) -> impl IntoResponse {
     .await
     {
         Ok(Ok(_)) => (StatusCode::OK, "ready".to_string()),
-        _ => (StatusCode::SERVICE_UNAVAILABLE, "core not answering".to_string()),
+        _ => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "core not answering".to_string(),
+        ),
     }
 }
 

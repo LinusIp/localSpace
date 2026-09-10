@@ -62,7 +62,10 @@ fn switching_conversations_switches_the_transcript_and_survives_a_restart() {
             }
             other => panic!("{other:?}"),
         }
-        assert!(transcript(&mut core).is_empty(), "a new conversation starts empty");
+        assert!(
+            transcript(&mut core).is_empty(),
+            "a new conversation starts empty"
+        );
         core.handle(proto::Request::SendMessage {
             text: "second conversation".into(),
         });
@@ -81,7 +84,10 @@ fn switching_conversations_switches_the_transcript_and_survives_a_restart() {
     assert_eq!(list.len(), 2);
     assert_eq!(current, first, "the selection persists too");
     assert_eq!(transcript(&mut core)[0].content, "first conversation");
-    assert!(list.iter().any(|c| c.id == second && c.title == "second conversation"));
+    assert!(
+        list.iter()
+            .any(|c| c.id == second && c.title == "second conversation")
+    );
 
     // Deleting the current one moves to the other.
     match core.handle(proto::Request::DeleteConversation { id: first }) {

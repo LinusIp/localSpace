@@ -50,7 +50,10 @@ fn next_id(doc: &Value, prefix: &str) -> String {
     let n = doc["shapes"].as_array().map(|a| a.len()).unwrap_or(0)
         + doc["frames"].as_array().map(|a| a.len()).unwrap_or(0)
         + 1;
-    format!("{prefix}{n}_{}", localspace::harness::host::now_ms() % 100_000)
+    format!(
+        "{prefix}{n}_{}",
+        localspace::harness::host::now_ms() % 100_000
+    )
 }
 
 fn ok(result: Value, summary: &str) -> String {
@@ -89,13 +92,7 @@ fn ids_of(params: &Value) -> Vec<String> {
 fn next_z(doc: &Value) -> i64 {
     doc["shapes"]
         .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|s| s["z"].as_i64())
-                .max()
-                .unwrap_or(0)
-                + 1
-        })
+        .map(|a| a.iter().filter_map(|s| s["z"].as_i64()).max().unwrap_or(0) + 1)
         .unwrap_or(1)
 }
 
@@ -184,11 +181,7 @@ impl Guest for Whiteboard {
                     .collect();
                 ok(
                     json!({"title": doc["title"], "frames": frames, "shapes": shapes}),
-                    &format!(
-                        "{} frame(s), {} shape(s)",
-                        frames.len(),
-                        shapes.len()
-                    ),
+                    &format!("{} frame(s), {} shape(s)", frames.len(), shapes.len()),
                 )
             }
 
@@ -277,7 +270,9 @@ impl Guest for Whiteboard {
                 let id = s(&params, "id", "");
                 let fill = s(&params, "fill", "grey").to_string();
                 if !["red", "amber", "green", "blue", "yellow", "grey"].contains(&fill.as_str()) {
-                    return fail(format!("`{fill}` is not one of red, amber, green, blue, yellow, grey"));
+                    return fail(format!(
+                        "`{fill}` is not one of red, amber, green, blue, yellow, grey"
+                    ));
                 }
                 let Some(i) = shape_index(&doc, id) else {
                     return fail(format!("no shape `{id}`"));
@@ -452,7 +447,9 @@ impl Guest for Whiteboard {
                     doc["shapes"].as_array_mut().unwrap().push(copy);
                 }
                 if made.is_empty() {
-                    return fail("nothing was duplicated (connectors cannot be copied on their own)");
+                    return fail(
+                        "nothing was duplicated (connectors cannot be copied on their own)",
+                    );
                 }
                 if let Err(e) = save(&doc) {
                     return fail(e);
@@ -544,7 +541,9 @@ impl Guest for Whiteboard {
                 let bottom = boxes.iter().map(|b| b.1 + b.3).fold(f64::MIN, f64::max);
 
                 let result = edit_each(&mut doc, &ids, |sh| {
-                    let Some((x, y, w, h)) = bounds(sh) else { return };
+                    let Some((x, y, w, h)) = bounds(sh) else {
+                        return;
+                    };
                     match edge.as_str() {
                         "left" => sh["x"] = json!(left),
                         "right" => sh["x"] = json!(right - w),
@@ -582,7 +581,9 @@ impl Guest for Whiteboard {
                         return fail(format!("no shape `{id}`"));
                     };
                     let sh = &doc["shapes"].as_array().unwrap()[i];
-                    let Some((x, y, w, h)) = bounds(sh) else { continue };
+                    let Some((x, y, w, h)) = bounds(sh) else {
+                        continue;
+                    };
                     if axis == "x" {
                         placed.push((id.clone(), x, w));
                     } else {
@@ -603,7 +604,9 @@ impl Guest for Whiteboard {
                 let mut cursor = first.1;
                 let mut moved = 0;
                 for (id, _, size) in &placed {
-                    let Some(i) = shape_index(&doc, id) else { continue };
+                    let Some(i) = shape_index(&doc, id) else {
+                        continue;
+                    };
                     let list = doc["shapes"].as_array_mut().unwrap();
                     if !locked(&list[i]) {
                         list[i][if axis == "x" { "x" } else { "y" }] = json!(cursor.round());
@@ -624,13 +627,18 @@ impl Guest for Whiteboard {
                 // outline.v1: `{title, items: [{id, text, kind, fill, frame}]}`.
                 // Written into the document so the artifact Core registers is a
                 // DAG reference to a version that contains it — not a copy.
-                let frame = params.get("frame").and_then(|f| f.as_str()).map(|s| s.to_string());
+                let frame = params
+                    .get("frame")
+                    .and_then(|f| f.as_str())
+                    .map(|s| s.to_string());
                 let items: Vec<Value> = doc["shapes"]
                     .as_array()
                     .cloned()
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|sh| sh["kind"].as_str() != Some("arrow") && sh["kind"].as_str() != Some("ink"))
+                    .filter(|sh| {
+                        sh["kind"].as_str() != Some("arrow") && sh["kind"].as_str() != Some("ink")
+                    })
                     .filter(|sh| !sh["text"].as_str().unwrap_or("").trim().is_empty())
                     .filter(|sh| match &frame {
                         Some(f) => sh["frame"].as_str() == Some(f),
@@ -708,7 +716,10 @@ impl Guest for Whiteboard {
                 .iter()
                 .filter(|sh| sh["frame"].as_str() == Some(id))
                 .collect();
-            out.push_str(&format!("frame {id} \"{name}\" ({} shapes)\n", inside.len()));
+            out.push_str(&format!(
+                "frame {id} \"{name}\" ({} shapes)\n",
+                inside.len()
+            ));
             for sh in inside {
                 out.push_str(&line(sh, false));
                 if estimate(&out) > budget {

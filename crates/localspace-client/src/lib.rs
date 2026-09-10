@@ -153,7 +153,8 @@ impl App {
         };
         app.backend.request(proto::Request::GetEnvironment);
         app.backend.request(proto::Request::GetActiveSet);
-        app.backend.request(proto::Request::GetHistory { limit: 50 });
+        app.backend
+            .request(proto::Request::GetHistory { limit: 50 });
         app.backend.request(proto::Request::ListCatalog);
         app
     }
@@ -301,13 +302,17 @@ impl App {
                 let mut prompt = format!(
                     "Installing `{harness}` would grant it:
   {}",
-                    diff.join("
-  ")
+                    diff.join(
+                        "
+  "
+                    )
                 );
                 if let Some(reason) = native_reason {
-                    prompt.push_str(&format!("
+                    prompt.push_str(&format!(
+                        "
 
-It runs as a native process. Its stated reason: {reason}"));
+It runs as a native process. Its stated reason: {reason}"
+                    ));
                 }
                 self.approvals.push((
                     format!("install:{harness}:{token}"),
@@ -363,7 +368,6 @@ It runs as a native process. Its stated reason: {reason}"));
                 for harness in asked {
                     self.send(proto::Request::GetDocJson { harness });
                 }
-
             }
             E::HarnessMessage {
                 harness,
@@ -382,9 +386,9 @@ It runs as a native process. Its stated reason: {reason}"));
                 self.widget_views.insert((harness, view), root);
             }
             E::ApprovalRequest { id, kind, prompt } => self.approvals.push((id, kind, prompt)),
-            E::SurfaceSlow { harness, view, ms } => self
-                .trace
-                .push(format!("{harness}/{view} took {ms:.1} ms")),
+            E::SurfaceSlow { harness, view, ms } => {
+                self.trace.push(format!("{harness}/{view} took {ms:.1} ms"))
+            }
             E::Notice { level, text } => self.notices.push((level, text)),
             // The web client shows these; the egui client, kept until parity, does not.
             E::ModelProgress { .. } | E::EngineChanged(_) | E::ConversationChanged { .. } => {}
@@ -481,17 +485,18 @@ impl App {
     fn poll_surface_loads(&mut self) {
         use std::sync::mpsc::TryRecvError;
         let mut done = Vec::new();
-        self.surface_loads.retain_mut(|(key, rx)| match rx.try_recv() {
-            Ok(result) => {
-                done.push((key.clone(), result));
-                false
-            }
-            Err(TryRecvError::Empty) => true,
-            Err(TryRecvError::Disconnected) => {
-                done.push((key.clone(), Err("the surface loader thread died".into())));
-                false
-            }
-        });
+        self.surface_loads
+            .retain_mut(|(key, rx)| match rx.try_recv() {
+                Ok(result) => {
+                    done.push((key.clone(), result));
+                    false
+                }
+                Err(TryRecvError::Empty) => true,
+                Err(TryRecvError::Disconnected) => {
+                    done.push((key.clone(), Err("the surface loader thread died".into())));
+                    false
+                }
+            });
         for (key, result) in done {
             self.finish_surface_load(key, result);
         }
@@ -509,7 +514,9 @@ impl eframe::App for App {
             .surfaces
             .values()
             .filter_map(|s| s.runner.as_ref())
-            .fold((0u64, 0f32), |(t, l), r| (t + r.guest_frames, l.max(r.stats.last_ms)));
+            .fold((0u64, 0f32), |(t, l), r| {
+                (t + r.guest_frames, l.max(r.stats.last_ms))
+            });
         self.perf
             .frame(frame.info().cpu_usage, guest_total, guest_last);
         if perf::enabled() {

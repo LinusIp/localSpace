@@ -51,13 +51,19 @@ impl Store {
             store.start(now_ms);
         }
         if store.current_index().is_none() {
-            store.current = store.conversations.last().map(|c| c.id.clone()).unwrap_or_default();
+            store.current = store
+                .conversations
+                .last()
+                .map(|c| c.id.clone())
+                .unwrap_or_default();
         }
         store
     }
 
     pub fn save(&self) -> Result<()> {
-        let Some(path) = &self.path else { return Ok(()) };
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).ok();
         }
@@ -89,16 +95,19 @@ impl Store {
 
     /// Write the transcript back into the current conversation.
     pub fn record(&mut self, messages: &[proto::ChatMessage], now_ms: u64) {
-        let Some(i) = self.current_index() else { return };
+        let Some(i) = self.current_index() else {
+            return;
+        };
         let c = &mut self.conversations[i];
         if c.messages.len() != messages.len() || c.messages.is_empty() && !messages.is_empty() {
             c.updated_ms = now_ms;
         }
         c.messages = messages.to_vec();
         if c.title == "New chat"
-            && let Some(first) = c.messages.iter().find(|m| m.role == proto::Role::User) {
-                c.title = title_from(&first.content);
-            }
+            && let Some(first) = c.messages.iter().find(|m| m.role == proto::Role::User)
+        {
+            c.title = title_from(&first.content);
+        }
     }
 
     pub fn select(&mut self, id: &str) -> Option<&Conversation> {
@@ -146,10 +155,18 @@ impl Store {
                 title: c.title.clone(),
                 created_ms: c.created_ms,
                 updated_ms: c.updated_ms,
-                messages: c.messages.iter().filter(|m| m.role != proto::Role::Tool).count(),
+                messages: c
+                    .messages
+                    .iter()
+                    .filter(|m| m.role != proto::Role::Tool)
+                    .count(),
             })
             .collect();
-        list.sort_by(|a, b| b.updated_ms.cmp(&a.updated_ms).then(b.created_ms.cmp(&a.created_ms)));
+        list.sort_by(|a, b| {
+            b.updated_ms
+                .cmp(&a.updated_ms)
+                .then(b.created_ms.cmp(&a.created_ms))
+        });
         list
     }
 }
@@ -184,7 +201,10 @@ mod tests {
     fn a_fresh_store_has_one_current_conversation() {
         let s = Store::load(None, 1000);
         assert_eq!(s.conversations.len(), 1);
-        assert_eq!(s.current().map(|c| c.id.clone()), s.conversations.first().map(|c| c.id.clone()));
+        assert_eq!(
+            s.current().map(|c| c.id.clone()),
+            s.conversations.first().map(|c| c.id.clone())
+        );
         assert_eq!(s.current().unwrap().title, "New chat");
     }
 
@@ -192,7 +212,10 @@ mod tests {
     fn recording_titles_the_conversation_from_its_first_message_and_persists() {
         let dir = tempfile::tempdir().unwrap();
         let mut s = Store::load(Some(dir.path()), 1000);
-        s.record(&[user("Put three risks on the board as red stickies")], 2000);
+        s.record(
+            &[user("Put three risks on the board as red stickies")],
+            2000,
+        );
         s.save().unwrap();
         let again = Store::load(Some(dir.path()), 3000);
         let c = again.current().unwrap();
@@ -215,7 +238,11 @@ mod tests {
         assert!(s.delete(&first, 3000));
         assert_eq!(s.current, second, "the other one became current");
         assert!(s.delete(&second, 4000));
-        assert_eq!(s.conversations.len(), 1, "deleting the last one starts a fresh one");
+        assert_eq!(
+            s.conversations.len(),
+            1,
+            "deleting the last one starts a fresh one"
+        );
         assert_ne!(s.current, second);
 
         let list = s.summaries();

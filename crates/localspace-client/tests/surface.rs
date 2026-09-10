@@ -61,7 +61,8 @@ fn a_surface_imports_only_the_wasm_bindgen_placeholders() {
 #[test]
 fn the_reference_surface_paints_a_frame_through_the_runner() {
     let Some(bytes) = board_wasm() else { return };
-    let mut runner = SurfaceRunner::load("test/board", &bytes, 16).expect("the runner refused the surface");
+    let mut runner =
+        SurfaceRunner::load("test/board", &bytes, 16).expect("the runner refused the surface");
     runner.set_doc(DOC.to_string());
 
     let ctx = egui::Context::default();
@@ -133,7 +134,10 @@ fn a_frame_in_which_nothing_changed_does_not_run_the_guest() {
     let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
 
     quiet_frame(&mut runner, &ctx, rect, 0.0);
-    assert_eq!(runner.guest_frames, 1, "the first frame carries the document");
+    assert_eq!(
+        runner.guest_frames, 1,
+        "the first frame carries the document"
+    );
 
     // Settle: a fresh egui context may ask for a repaint or two while it lays
     // out fonts. Those requests are honoured, and then it goes quiet.
@@ -146,7 +150,8 @@ fn a_frame_in_which_nothing_changed_does_not_run_the_guest() {
         quiet_frame(&mut runner, &ctx, rect, i as f64 * 0.1);
     }
     assert_eq!(
-        runner.guest_frames, after_settling,
+        runner.guest_frames,
+        after_settling,
         "twenty quiet host frames ran the guest {} more time(s)",
         runner.guest_frames - after_settling
     );
@@ -155,12 +160,19 @@ fn a_frame_in_which_nothing_changed_does_not_run_the_guest() {
     // The same document again is not a change.
     runner.set_doc(DOC.to_string());
     quiet_frame(&mut runner, &ctx, rect, 3.0);
-    assert_eq!(runner.guest_frames, after_settling, "an identical document re-ran the guest");
+    assert_eq!(
+        runner.guest_frames, after_settling,
+        "an identical document re-ran the guest"
+    );
 
     // A different document is.
     runner.set_doc(DOC.replacen('{', "{\"changed\":true,", 1));
     quiet_frame(&mut runner, &ctx, rect, 3.1);
-    assert_eq!(runner.guest_frames, after_settling + 1, "a changed document did not reach the guest");
+    assert_eq!(
+        runner.guest_frames,
+        after_settling + 1,
+        "a changed document did not reach the guest"
+    );
 }
 
 #[test]
@@ -436,7 +448,10 @@ fn a_thousand_shape_board_costs_only_its_visible_part() {
     for _ in 0..5 {
         time += 0.016;
         quiet_frame(&mut runner, &ctx, rect, time);
-        let events = vec![egui::Event::PointerMoved(egui::pos2(700.0 + time as f32, 450.0))];
+        let events = vec![egui::Event::PointerMoved(egui::pos2(
+            700.0 + time as f32,
+            450.0,
+        ))];
         try_frame(&mut runner, &ctx, rect, time + 0.008, events, Vec::new()).expect("frame");
     }
 
@@ -446,7 +461,10 @@ fn a_thousand_shape_board_costs_only_its_visible_part() {
     let before = runner.guest_frames;
     for i in 0..30 {
         time += 0.016;
-        let events = vec![egui::Event::PointerMoved(egui::pos2(600.0 + i as f32 * 3.0, 400.0))];
+        let events = vec![egui::Event::PointerMoved(egui::pos2(
+            600.0 + i as f32 * 3.0,
+            400.0,
+        ))];
         try_frame(&mut runner, &ctx, rect, time, events, Vec::new()).expect("frame");
         total_ms += runner.stats.last_ms;
         max_ms = max_ms.max(runner.stats.last_ms);
@@ -457,7 +475,10 @@ fn a_thousand_shape_board_costs_only_its_visible_part() {
         "thousand-sticky board: guest frame avg {avg_ms:.2} ms, max {max_ms:.2} ms over {ran} frames; memory {:.1} MB",
         runner.memory_bytes() as f64 / 1048576.0
     );
-    assert!(ran >= 30.0, "the guest must run on every frame with pointer input");
+    assert!(
+        ran >= 30.0,
+        "the guest must run on every frame with pointer input"
+    );
     assert!(
         avg_ms < 8.0,
         "a frame of a thousand-sticky board costs {avg_ms:.2} ms; the surface budget is 8 ms"
@@ -467,7 +488,10 @@ fn a_thousand_shape_board_costs_only_its_visible_part() {
     // anything is drawn at all — the per-shape work that visibility cannot save.
     let mut shapes = Vec::with_capacity(1000);
     for i in 0..1000 {
-        let (x, y) = (50000.0 + (i % 40) as f32 * 160.0, 50000.0 + (i / 40) as f32 * 130.0);
+        let (x, y) = (
+            50000.0 + (i % 40) as f32 * 160.0,
+            50000.0 + (i / 40) as f32 * 130.0,
+        );
         shapes.push(format!(
             r#"{{"id":"s{i}","kind":"sticky","x":{x},"y":{y},"w":130.0,"h":110.0,"fill":"yellow","text":"Item {i}: a line of text that wraps inside the note"}}"#
         ));
@@ -484,7 +508,10 @@ fn a_thousand_shape_board_costs_only_its_visible_part() {
     let before = runner.guest_frames;
     for i in 0..30 {
         time += 0.016;
-        let events = vec![egui::Event::PointerMoved(egui::pos2(600.0 + i as f32 * 3.0, 400.0))];
+        let events = vec![egui::Event::PointerMoved(egui::pos2(
+            600.0 + i as f32 * 3.0,
+            400.0,
+        ))];
         try_frame(&mut runner, &ctx, rect, time, events, Vec::new()).expect("frame");
         far_total += runner.stats.last_ms;
     }

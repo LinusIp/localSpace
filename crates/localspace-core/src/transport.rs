@@ -148,7 +148,10 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        assert!(woken.load(Ordering::SeqCst) >= 1, "the reply arrived without a wake");
+        assert!(
+            woken.load(Ordering::SeqCst) >= 1,
+            "the reply arrived without a wake"
+        );
         assert!(!backend.poll().is_empty(), "and it is waiting in poll");
     }
 

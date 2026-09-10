@@ -6,9 +6,9 @@
 //! changes, and therefore what keeps the worker's KV prefix cache warm.
 
 use crate::manifest::{Capabilities, DocKind, Manifest, SurfaceKind, Tier};
-use crate::runtime::{native::NativeHarness, wasm::WasmHarness, HarnessRuntime, RuntimeConfig};
+use crate::runtime::{HarnessRuntime, RuntimeConfig, native::NativeHarness, wasm::WasmHarness};
 use crate::tools::ToolSet;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use localspace_proto as proto;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -104,7 +104,10 @@ impl Installed {
         if view.kind != SurfaceKind::Web {
             bail!("view `{view_id}` is not a web surface");
         }
-        let module = view.module.as_ref().context("web view declares no module")?;
+        let module = view
+            .module
+            .as_ref()
+            .context("web view declares no module")?;
         let root = self
             .dir
             .join(module)
@@ -128,7 +131,8 @@ impl Installed {
         if !full_c.starts_with(&root_c) || !full_c.is_file() {
             bail!("`{path}` is not a file under the view's directory");
         }
-        let bytes = std::fs::read(&full_c).with_context(|| format!("reading {}", full_c.display()))?;
+        let bytes =
+            std::fs::read(&full_c).with_context(|| format!("reading {}", full_c.display()))?;
         Ok((bytes, mime_for(rel).to_string()))
     }
 }
@@ -336,8 +340,12 @@ impl Registry {
             match rt.tools_json() {
                 Ok(text) => {
                     if let Ok(reported) = ToolSet::parse(&text) {
-                        let declared: Vec<&str> =
-                            installed.tools.tools.iter().map(|t| t.name.as_str()).collect();
+                        let declared: Vec<&str> = installed
+                            .tools
+                            .tools
+                            .iter()
+                            .map(|t| t.name.as_str())
+                            .collect();
                         for t in &reported.tools {
                             if !declared.contains(&t.name.as_str()) {
                                 bail!(
@@ -349,7 +357,10 @@ impl Registry {
                         }
                     }
                 }
-                Err(e) => bail!("`{}` failed to report its tools: {e}", installed.manifest.harness.id),
+                Err(e) => bail!(
+                    "`{}` failed to report its tools: {e}",
+                    installed.manifest.harness.id
+                ),
             }
         }
         Ok(())
@@ -531,7 +542,10 @@ views = [{ id = "web", kind = "web", module = "ui/web/index.js", placement = "ma
                 "`{escape}` must not be served"
             );
         }
-        assert!(h.surface_file("board", "index.js").is_err(), "not a web view");
+        assert!(
+            h.surface_file("board", "index.js").is_err(),
+            "not a web view"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

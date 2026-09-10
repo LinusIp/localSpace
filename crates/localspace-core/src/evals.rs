@@ -6,7 +6,7 @@
 //! human can use but a model cannot drive is a broken plugin here, and nothing
 //! else surfaces that.
 
-use crate::{agent, Core};
+use crate::{Core, agent};
 use anyhow::{Context, Result};
 use localspace_proto as proto;
 use serde::{Deserialize, Serialize};
@@ -63,16 +63,20 @@ impl Assertion {
         }
 
         let Some(value) = found else {
-            return Err(format!("`{}` is not in the document", display_path(&self.path)));
+            return Err(format!(
+                "`{}` is not in the document",
+                display_path(&self.path)
+            ));
         };
 
         if let Some(want) = &self.equals
-            && value != want {
-                return Err(format!(
-                    "`{}` is {value}, expected {want}",
-                    display_path(&self.path)
-                ));
-            }
+            && value != want
+        {
+            return Err(format!(
+                "`{}` is {value}, expected {want}",
+                display_path(&self.path)
+            ));
+        }
         if let Some(needle) = &self.contains {
             let hay = match value {
                 J::String(s) => s.clone(),
@@ -108,11 +112,7 @@ impl Assertion {
 }
 
 fn display_path(path: &str) -> &str {
-    if path.is_empty() {
-        "<document>"
-    } else {
-        path
-    }
+    if path.is_empty() { "<document>" } else { path }
 }
 
 fn len_of(v: &J) -> usize {
@@ -217,8 +217,8 @@ pub fn parse_suite(text: &str) -> Result<EvalSuite> {
     if let Ok(s) = serde_json::from_str::<EvalSuite>(text) {
         return Ok(s);
     }
-    let cases: Vec<EvalCase> =
-        serde_json::from_str(text).context("evals.json must be a case array or {\"cases\": [...]}")?;
+    let cases: Vec<EvalCase> = serde_json::from_str(text)
+        .context("evals.json must be a case array or {\"cases\": [...]}")?;
     Ok(EvalSuite { cases })
 }
 

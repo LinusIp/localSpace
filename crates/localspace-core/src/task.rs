@@ -26,7 +26,12 @@ pub fn render(task: &proto::Task, budget_tokens: usize) -> String {
                 proto::StepStatus::Done => "[x]",
                 proto::StepStatus::Failed => "[!]",
             };
-            out.push_str(&format!("  {}. {mark} {} — {}\n", i + 1, step.harness, step.intent));
+            out.push_str(&format!(
+                "  {}. {mark} {} — {}\n",
+                i + 1,
+                step.harness,
+                step.intent
+            ));
         }
     }
 
@@ -74,10 +79,7 @@ pub fn next_artifact_id(task: &proto::Task) -> String {
 
 /// Which installed harnesses could take an artifact of this kind. Used to
 /// phrase a refusal as a suggestion ("the planning board accepts outline.v1").
-pub fn who_accepts<'a>(
-    registry: &'a crate::registry::Registry,
-    kind: &str,
-) -> Vec<&'a str> {
+pub fn who_accepts<'a>(registry: &'a crate::registry::Registry, kind: &str) -> Vec<&'a str> {
     registry
         .iter()
         .filter(|h| h.enabled && h.manifest.contributes.accepts.iter().any(|k| k == kind))
@@ -138,10 +140,15 @@ mod tests {
     fn the_ledger_respects_its_budget() {
         let mut t = task();
         for i in 0..200 {
-            t.notes.push(format!("note number {i} with enough words to cost tokens"));
+            t.notes
+                .push(format!("note number {i} with enough words to cost tokens"));
         }
         let text = render(&t, 120);
-        assert!(proto::estimate_tokens(&text) <= 130, "{}", proto::estimate_tokens(&text));
+        assert!(
+            proto::estimate_tokens(&text) <= 130,
+            "{}",
+            proto::estimate_tokens(&text)
+        );
         assert!(text.contains("truncated"));
         // The goal always survives: it is the first line.
         assert!(text.contains("goal:"));

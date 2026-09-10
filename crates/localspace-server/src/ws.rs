@@ -136,7 +136,10 @@ async fn serve_json(server: Arc<Server>, user: String, mut socket: WebSocket) {
 
 async fn send_json(socket: &mut WebSocket, env: &proto::Envelope) -> Result<(), ()> {
     let text = serde_json::to_string(env).map_err(|_| ())?;
-    socket.send(Message::Text(text.into())).await.map_err(|_| ())
+    socket
+        .send(Message::Text(text.into()))
+        .await
+        .map_err(|_| ())
 }
 
 // ---------------------------------------------------------------------------

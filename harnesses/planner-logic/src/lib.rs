@@ -152,7 +152,12 @@ impl Guest for Planner {
                 let all = columns(&doc);
                 let column = match params.get("column").and_then(|c| c.as_str()) {
                     Some(c) if all.iter().any(|x| x == c) => c.to_string(),
-                    Some(c) => return fail(format!("no column `{c}`; this board has {}", all.join(", "))),
+                    Some(c) => {
+                        return fail(format!(
+                            "no column `{c}`; this board has {}",
+                            all.join(", ")
+                        ))
+                    }
                     None => all.first().cloned().unwrap_or_else(|| "Backlog".into()),
                 };
                 let id = format!(
@@ -264,7 +269,10 @@ impl Guest for Planner {
                 let Some(list) = doc["columns"].as_array_mut() else {
                     return fail("this board has no columns");
                 };
-                let Some(c) = list.iter_mut().find(|c| c["name"].as_str() == Some(&column)) else {
+                let Some(c) = list
+                    .iter_mut()
+                    .find(|c| c["name"].as_str() == Some(&column))
+                else {
                     return fail(format!("no column `{column}`"));
                 };
                 c["wip"] = json!(wip);
@@ -346,7 +354,12 @@ impl Guest for Planner {
                 let all = columns(&doc);
                 let column = match params.get("column").and_then(|c| c.as_str()) {
                     Some(c) if all.iter().any(|x| x == c) => c.to_string(),
-                    Some(c) => return fail(format!("no column `{c}`; this board has {}", all.join(", "))),
+                    Some(c) => {
+                        return fail(format!(
+                            "no column `{c}`; this board has {}",
+                            all.join(", ")
+                        ))
+                    }
                     None => all.first().cloned().unwrap_or_else(|| "Backlog".into()),
                 };
 

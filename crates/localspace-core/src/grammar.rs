@@ -35,10 +35,7 @@ impl GrammarCache {
             hash: hash.clone(),
             gbnf: to_gbnf(tools),
         };
-        self.entries
-            .lock()
-            .unwrap()
-            .insert(hash, grammar.clone());
+        self.entries.lock().unwrap().insert(hash, grammar.clone());
         grammar
     }
 
@@ -168,7 +165,10 @@ fn leaf_rule(name: &str, spec: &J) -> String {
             return format!("{name} ::= {}\n", alts.join(" | "));
         }
     }
-    let ty = spec.get("type").and_then(|t| t.as_str()).unwrap_or("string");
+    let ty = spec
+        .get("type")
+        .and_then(|t| t.as_str())
+        .unwrap_or("string");
     let body = match ty {
         "string" => "string".to_string(),
         "number" | "integer" => "number".to_string(),
@@ -223,12 +223,18 @@ mod tests {
     #[test]
     fn the_grammar_lists_exactly_the_active_tools() {
         let tools = vec![
-            tool("canvas.add_shape", serde_json::json!({
-                "type": "object",
-                "properties": {"kind": {"type": "string", "enum": ["rect", "ellipse"]}},
-                "required": ["kind"]
-            })),
-            tool("canvas.clear", serde_json::json!({"type": "object", "properties": {}})),
+            tool(
+                "canvas.add_shape",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {"kind": {"type": "string", "enum": ["rect", "ellipse"]}},
+                    "required": ["kind"]
+                }),
+            ),
+            tool(
+                "canvas.clear",
+                serde_json::json!({"type": "object", "properties": {}}),
+            ),
         ];
         let g = to_gbnf(&tools);
         assert!(g.contains("root ::= call0 | call1"));
@@ -257,14 +263,23 @@ mod tests {
             }),
         )];
         let g = to_gbnf(&tools);
-        assert!(g.contains(r#"( ws "," ws "\"dx\"" ws ":" ws params0_dx )?"#), "{g}");
+        assert!(
+            g.contains(r#"( ws "," ws "\"dx\"" ws ":" ws params0_dx )?"#),
+            "{g}"
+        );
     }
 
     #[test]
     fn the_cache_is_keyed_by_the_active_set_not_the_registry() {
         let cache = GrammarCache::new();
-        let a = vec![tool("a.one", serde_json::json!({"type": "object", "properties": {}}))];
-        let b = vec![tool("b.two", serde_json::json!({"type": "object", "properties": {}}))];
+        let a = vec![tool(
+            "a.one",
+            serde_json::json!({"type": "object", "properties": {}}),
+        )];
+        let b = vec![tool(
+            "b.two",
+            serde_json::json!({"type": "object", "properties": {}}),
+        )];
 
         let g1 = cache.compile(&a);
         let g2 = cache.compile(&a);
@@ -278,8 +293,14 @@ mod tests {
 
     #[test]
     fn the_hash_ignores_tool_ordering() {
-        let a = tool("a.one", serde_json::json!({"type": "object", "properties": {}}));
-        let b = tool("b.two", serde_json::json!({"type": "object", "properties": {}}));
+        let a = tool(
+            "a.one",
+            serde_json::json!({"type": "object", "properties": {}}),
+        );
+        let b = tool(
+            "b.two",
+            serde_json::json!({"type": "object", "properties": {}}),
+        );
         assert_eq!(
             active_set_hash(&[a.clone(), b.clone()]),
             active_set_hash(&[b, a])

@@ -5,12 +5,12 @@
 //! same operator.
 
 use crate::Server;
+use axum::Json;
 use axum::body::Body;
 use axum::extract::{Query, State};
-use axum::http::{header, HeaderMap, Request, StatusCode};
+use axum::http::{HeaderMap, Request, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -18,7 +18,10 @@ pub const COOKIE: &str = "ls_session";
 
 /// The token the request presents, wherever it put it.
 pub fn presented(headers: &HeaderMap, query_token: Option<&str>) -> Option<String> {
-    if let Some(value) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
+    if let Some(value) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
         if let Some(token) = value.strip_prefix("Bearer ") {
             return Some(token.trim().to_string());
         }
@@ -79,7 +82,11 @@ pub async fn login(State(server): State<Arc<Server>>, Json(login): Json<Login>) 
     let cookie = format!(
         "{COOKIE}={}; Path=/; HttpOnly; SameSite=Strict{}",
         login.token,
-        if server.cfg.secure_cookies { "; Secure" } else { "" }
+        if server.cfg.secure_cookies {
+            "; Secure"
+        } else {
+            ""
+        }
     );
     (
         [(header::SET_COOKIE, cookie)],
@@ -91,5 +98,9 @@ pub async fn login(State(server): State<Arc<Server>>, Json(login): Json<Login>) 
 /// `POST /api/v1/logout` clears it.
 pub async fn logout() -> Response {
     let cookie = format!("{COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
-    ([(header::SET_COOKIE, cookie)], Json(serde_json::json!({"ok": true}))).into_response()
+    (
+        [(header::SET_COOKIE, cookie)],
+        Json(serde_json::json!({"ok": true})),
+    )
+        .into_response()
 }

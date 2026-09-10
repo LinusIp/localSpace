@@ -30,7 +30,10 @@ fn an_install_from_the_catalog_is_copied_and_survives_a_restart() {
         cfg.data_dir = Some(data.path().to_path_buf());
         cfg.catalog_dirs = vec![harnesses.clone()];
         let mut core = Core::new(cfg).expect("creating Core");
-        assert!(environment(&mut core).harnesses.is_empty(), "only chat ships in the box");
+        assert!(
+            environment(&mut core).harnesses.is_empty(),
+            "only chat ships in the box"
+        );
 
         let entries = match core.handle(proto::Request::ListCatalog) {
             proto::Response::Catalog { entries } => entries,
@@ -62,8 +65,16 @@ fn an_install_from_the_catalog_is_copied_and_survives_a_restart() {
         let mut cfg = Config::personal("tester");
         cfg.data_dir = Some(data.path().to_path_buf());
         let mut core = Core::new(cfg).expect("creating Core again");
-        let ids: Vec<String> = environment(&mut core).harnesses.iter().map(|h| h.id.clone()).collect();
-        assert_eq!(ids, vec!["io.localspace.whiteboard".to_string()], "the install came back");
+        let ids: Vec<String> = environment(&mut core)
+            .harnesses
+            .iter()
+            .map(|h| h.id.clone())
+            .collect();
+        assert_eq!(
+            ids,
+            vec!["io.localspace.whiteboard".to_string()],
+            "the install came back"
+        );
 
         match core.handle(proto::Request::UninstallHarness {
             harness: "io.localspace.whiteboard".into(),
@@ -126,13 +137,19 @@ fn a_write_without_a_commit_moves_the_document_but_not_the_history() {
         proto::Response::Ok => {}
         other => panic!("write: {other:?}"),
     }
-    assert_eq!(doc_json(&mut core)["selection"], serde_json::json!(["nothing-yet"]));
+    assert_eq!(
+        doc_json(&mut core)["selection"],
+        serde_json::json!(["nothing-yet"])
+    );
     assert_eq!(history_len(&mut core), before, "no commit for a selection");
 
-    doc["shapes"].as_array_mut().unwrap().push(serde_json::json!({
-        "id": "s_test", "kind": "sticky", "x": 10.0, "y": 10.0, "w": 130.0, "h": 110.0,
-        "fill": "yellow", "text": "from the surface", "frame": null, "z": 1, "locked": false
-    }));
+    doc["shapes"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "id": "s_test", "kind": "sticky", "x": 10.0, "y": 10.0, "w": 130.0, "h": 110.0,
+            "fill": "yellow", "text": "from the surface", "frame": null, "z": 1, "locked": false
+        }));
     match core.handle(proto::Request::WriteDoc {
         harness: "io.localspace.whiteboard".into(),
         view: "web".into(),
@@ -156,5 +173,9 @@ fn a_write_without_a_commit_moves_the_document_but_not_the_history() {
         doc: proto::Json(doc),
         commit: true,
     });
-    assert_eq!(history_len(&mut core), before + 1, "the same document again is no change");
+    assert_eq!(
+        history_len(&mut core),
+        before + 1,
+        "the same document again is no change"
+    );
 }

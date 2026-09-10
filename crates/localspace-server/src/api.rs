@@ -5,12 +5,12 @@
 //! `GET` routes are the read-only requests a client asks for most, addressable
 //! by URL. Every call is checked by Core; the client is never trusted.
 
-use crate::session::CallError;
 use crate::Server;
+use crate::session::CallError;
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use localspace_proto as proto;
 use std::sync::Arc;
 
@@ -42,7 +42,7 @@ async fn call(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": format!("Core could not start: {e:#}")})),
             )
-                .into_response()
+                .into_response();
         }
     };
     match session.call(request).await {

@@ -99,7 +99,9 @@ pub type JobId = String;
 // Environment
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum NetworkMode {
     /// No egress at all. `web.*` tools are absent from the agent's tool set.
@@ -163,7 +165,9 @@ pub struct EngineState {
     pub loading: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Topology {
     Personal,
@@ -198,21 +202,27 @@ pub struct HarnessSummary {
     pub kind: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Tier {
     Wasm,
     Native,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum DocKind {
     Crdt,
     Blob,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum SurfaceKind {
     Widgets,
@@ -225,7 +235,9 @@ pub enum SurfaceKind {
     Native,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Placement {
     Main,
@@ -243,7 +255,9 @@ pub struct ViewDesc {
 
 /// What a harness declared it may cost (spec §1.2). Enforced by the runtime,
 /// shown in the store and the details panel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 pub struct ResourceSummary {
     /// Linear-memory limit for the logic component.
     pub logic_mb: u32,
@@ -332,7 +346,9 @@ pub struct ModelInfo {
 // Tools
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum ToolKind {
     Read,
@@ -340,7 +356,9 @@ pub enum ToolKind {
     Compute,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Confirm {
     Never,
@@ -348,7 +366,9 @@ pub enum Confirm {
     Always,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum CostHint {
     Instant,
@@ -372,7 +392,9 @@ pub struct ExposedTool {
     pub reason: ExposureReason,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ExposureReason {
     Focused,
@@ -404,7 +426,9 @@ pub struct ChatMessage {
     pub tool_calls: Vec<ToolCallRecord>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     System,
@@ -484,7 +508,9 @@ pub struct Step {
     pub status: StepStatus,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum StepStatus {
     Pending,
@@ -528,7 +554,9 @@ pub struct Commit {
     pub run: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Author {
     User,
@@ -607,7 +635,9 @@ pub enum Widget {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Tone {
     Neutral,
@@ -1048,7 +1078,9 @@ pub enum Event {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalKind {
     ToolConfirm,
@@ -1057,7 +1089,9 @@ pub enum ApprovalKind {
     NativeTier,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum NoticeLevel {
     Info,
@@ -1100,11 +1134,7 @@ pub fn decode(bytes: &[u8]) -> Result<Envelope, WireError> {
 /// Deliberately one function so the installer lint and the runtime agree.
 pub fn estimate_tokens(s: &str) -> usize {
     // ~4 chars per token for English + JSON, floor of 1 for non-empty input.
-    if s.is_empty() {
-        0
-    } else {
-        s.len().div_ceil(4)
-    }
+    if s.is_empty() { 0 } else { s.len().div_ceil(4) }
 }
 
 #[cfg(test)]

@@ -9,7 +9,7 @@
 //! environment can reach the internet), and the status bar states plainly that
 //! nothing is reported anywhere.
 
-use crate::theme::{self, Icon, Tone, P};
+use crate::theme::{self, Icon, P, Tone};
 use crate::{App, OpenSurface, RailTab};
 use egui::{Color32, CornerRadius, Margin, Stroke, Vec2};
 use localspace_proto as proto;
@@ -127,7 +127,8 @@ impl App {
             .unwrap_or('?')
             .to_ascii_uppercase();
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(26.0), egui::Sense::hover());
-        ui.painter().circle_filled(rect.center(), 12.0, P.accent_soft);
+        ui.painter()
+            .circle_filled(rect.center(), 12.0, P.accent_soft);
         ui.painter()
             .circle_stroke(rect.center(), 12.0, Stroke::new(1.0, P.border));
         ui.painter().text(
@@ -618,7 +619,11 @@ impl App {
 
     pub(crate) fn central(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(P.page).inner_margin(Margin::same(0)))
+            .frame(
+                egui::Frame::new()
+                    .fill(P.page)
+                    .inner_margin(Margin::same(0)),
+            )
             .show(ui, |ui| {
                 self.canvas_header(ui);
                 let area = ui.available_rect_before_wrap();
@@ -659,7 +664,8 @@ impl App {
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if !self.details_open && theme::ghost_button(ui, "Details", true).clicked() {
+                        if !self.details_open && theme::ghost_button(ui, "Details", true).clicked()
+                        {
                             self.details_open = true;
                         }
                         let branch = self
@@ -908,7 +914,9 @@ impl App {
     /// The task ledger (spec §18.1): what the agent is doing across harnesses,
     /// shown exactly as the model sees it — goal, plan, artifacts, notes.
     fn ledger_card(&mut self, ui: &mut egui::Ui) {
-        let Some(task) = self.task.clone() else { return };
+        let Some(task) = self.task.clone() else {
+            return;
+        };
         if task.goal.is_empty() && task.plan.is_empty() && task.artifacts.is_empty() {
             return;
         }
@@ -917,9 +925,7 @@ impl App {
                 ui.label(egui::RichText::new("TASK LEDGER").size(9.5).color(P.muted));
                 ui.label(theme::tiny(task.id.clone()));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(theme::tiny(
-                        "in every prompt, whichever harness is focused",
-                    ));
+                    ui.label(theme::tiny("in every prompt, whichever harness is focused"));
                 });
             });
             if !task.goal.is_empty() {
@@ -1019,29 +1025,25 @@ impl App {
                 for call in &m.tool_calls {
                     ui.add_space(6.0);
                     let (fill, border, colour, label, detail) = match &call.outcome {
-                        proto::ToolOutcome::Ok { diff_summary, .. } => {
-                            (P.accent_soft, P.accent, P.accent, "ok", diff_summary.clone())
-                        }
+                        proto::ToolOutcome::Ok { diff_summary, .. } => (
+                            P.accent_soft,
+                            P.accent,
+                            P.accent,
+                            "ok",
+                            diff_summary.clone(),
+                        ),
                         proto::ToolOutcome::Denied { reason } => {
                             (P.amber_soft, P.amber, P.amber, "denied", reason.clone())
                         }
                         proto::ToolOutcome::Error { message } => {
                             (P.danger_soft, P.danger, P.danger, "failed", message.clone())
                         }
-                        proto::ToolOutcome::AwaitingConfirm { prompt } => (
-                            P.amber_soft,
-                            P.amber,
-                            P.amber,
-                            "needs you",
-                            prompt.clone(),
-                        ),
-                        proto::ToolOutcome::Queued { job } => (
-                            P.blue_soft,
-                            P.blue,
-                            P.blue,
-                            "queued",
-                            format!("job {job}"),
-                        ),
+                        proto::ToolOutcome::AwaitingConfirm { prompt } => {
+                            (P.amber_soft, P.amber, P.amber, "needs you", prompt.clone())
+                        }
+                        proto::ToolOutcome::Queued { job } => {
+                            (P.blue_soft, P.blue, P.blue, "queued", format!("job {job}"))
+                        }
                     };
                     theme::tinted_card(ui, fill, border, |ui| {
                         ui.horizontal(|ui| {
@@ -1264,29 +1266,36 @@ impl App {
                                     h.front_door.len()
                                 )));
                             });
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                let mut enabled = h.enabled;
-                                if theme::toggle(ui, &mut enabled, true) {
-                                    app.send(proto::Request::SetHarnessEnabled {
-                                        harness: h.id.clone(),
-                                        enabled,
-                                    });
-                                }
-                                if theme::ghost_button(ui, if pinned { "Unpin" } else { "Pin" }, true)
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let mut enabled = h.enabled;
+                                    if theme::toggle(ui, &mut enabled, true) {
+                                        app.send(proto::Request::SetHarnessEnabled {
+                                            harness: h.id.clone(),
+                                            enabled,
+                                        });
+                                    }
+                                    if theme::ghost_button(
+                                        ui,
+                                        if pinned { "Unpin" } else { "Pin" },
+                                        true,
+                                    )
                                     .clicked()
-                                {
-                                    app.send(proto::Request::SetPinned {
-                                        harness: h.id.clone(),
-                                        pinned: !pinned,
-                                    });
-                                }
-                                if theme::ghost_button(ui, "Open", !focused).clicked() {
-                                    app.send(proto::Request::SetFocus {
-                                        harness: Some(h.id.clone()),
-                                    });
-                                    app.rail = RailTab::Canvas;
-                                }
-                            });
+                                    {
+                                        app.send(proto::Request::SetPinned {
+                                            harness: h.id.clone(),
+                                            pinned: !pinned,
+                                        });
+                                    }
+                                    if theme::ghost_button(ui, "Open", !focused).clicked() {
+                                        app.send(proto::Request::SetFocus {
+                                            harness: Some(h.id.clone()),
+                                        });
+                                        app.rail = RailTab::Canvas;
+                                    }
+                                },
+                            );
                         });
                     },
                 );
@@ -1647,7 +1656,10 @@ impl App {
         }
         let mut answered: Option<(String, bool)> = None;
         egui::Area::new(egui::Id::new("approvals"))
-            .anchor(egui::Align2::CENTER_TOP, [0.0, theme::TOP_BAR_HEIGHT + 16.0])
+            .anchor(
+                egui::Align2::CENTER_TOP,
+                [0.0, theme::TOP_BAR_HEIGHT + 16.0],
+            )
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 ui.set_width(460.0);
@@ -1805,13 +1817,12 @@ impl App {
                 }
                 if let Some(doc) = paint.doc {
                     self.dirty_since_commit = true;
-                    self.pending_doc_write = Some(self.backend.request(
-                        proto::Request::HarnessEvent {
+                    self.pending_doc_write =
+                        Some(self.backend.request(proto::Request::HarnessEvent {
                             harness: harness.to_string(),
                             view: view.to_string(),
                             payload: format!("{{\"doc\":{doc}}}").into_bytes(),
-                        },
-                    ));
+                        }));
                 }
             }
             Err(e) => {

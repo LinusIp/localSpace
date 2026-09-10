@@ -143,7 +143,11 @@ pub fn resolve(root: &str, candidates: &[Candidate]) -> Result<Resolution, Resol
                             if !p.installed && !chosen.contains_key(&p.id) {
                                 chosen.insert(
                                     p.id.clone(),
-                                    (p.version.clone(), dependent.clone(), format!("provides {}", dep.id)),
+                                    (
+                                        p.version.clone(),
+                                        dependent.clone(),
+                                        format!("provides {}", dep.id),
+                                    ),
                                 );
                                 order.push((p.id.clone(), p.version.clone()));
                                 queue.push_back((p.id.clone(), p.version.clone()));
@@ -155,7 +159,7 @@ pub fn resolve(root: &str, candidates: &[Candidate]) -> Result<Resolution, Resol
                         return Err(ResolveError::NoProvider {
                             interface: dep.id.clone(),
                             wanted_by: dependent.clone(),
-                        })
+                        });
                     }
                 }
                 continue;
@@ -183,10 +187,9 @@ pub fn resolve(root: &str, candidates: &[Candidate]) -> Result<Resolution, Resol
                 Some(c) => {
                     // Something already installed at an incompatible version is
                     // a conflict too: one version per package per environment.
-                    if let Some(inst) = candidates
-                        .iter()
-                        .find(|x| x.id == dep.id && x.installed && !version_satisfies(&req, &x.version))
-                    {
+                    if let Some(inst) = candidates.iter().find(|x| {
+                        x.id == dep.id && x.installed && !version_satisfies(&req, &x.version)
+                    }) {
                         return Err(ResolveError::Conflict {
                             id: dep.id.clone(),
                             first: ("installed".into(), format!("={}", inst.version)),
@@ -208,7 +211,7 @@ pub fn resolve(root: &str, candidates: &[Candidate]) -> Result<Resolution, Resol
                         id: dep.id.clone(),
                         req,
                         wanted_by: dependent.clone(),
-                    })
+                    });
                 }
             }
         }
@@ -279,13 +282,21 @@ mod tests {
             cand("io.x.geo", "1.9.0", &[], false),
         ];
         let r = resolve("io.x.app", &cands).unwrap();
-        assert!(r.install.is_empty(), "1.3.0 is installed and satisfies ^1.2");
+        assert!(
+            r.install.is_empty(),
+            "1.3.0 is installed and satisfies ^1.2"
+        );
     }
 
     #[test]
     fn two_dependents_wanting_incompatible_majors_is_a_conflict_that_names_both() {
         let cands = vec![
-            cand("io.x.app", "1.0.0", &[("io.x.a", "^1"), ("io.x.b", "^1")], false),
+            cand(
+                "io.x.app",
+                "1.0.0",
+                &[("io.x.a", "^1"), ("io.x.b", "^1")],
+                false,
+            ),
             cand("io.x.a", "1.0.0", &[("io.x.geo", "^1.0")], false),
             cand("io.x.b", "1.0.0", &[("io.x.geo", "^2.0")], false),
             cand("io.x.geo", "1.5.0", &[], false),
@@ -343,12 +354,21 @@ mod tests {
         cad.provides = vec!["localspace.geometry.v1".into()];
 
         let r = resolve("io.x.cfd", &[app.clone(), sketch.clone(), cad.clone()]).unwrap();
-        assert_eq!(r.bindings, vec![("localspace.geometry.v1".to_string(), "io.x.cad".to_string())]);
-        assert!(r.install.is_empty(), "the installed provider needs nothing installed");
+        assert_eq!(
+            r.bindings,
+            vec![("localspace.geometry.v1".to_string(), "io.x.cad".to_string())]
+        );
+        assert!(
+            r.install.is_empty(),
+            "the installed provider needs nothing installed"
+        );
 
         // With no installed provider, the offered one is installed.
         let r = resolve("io.x.cfd", &[app.clone(), sketch]).unwrap();
-        assert_eq!(r.install, vec![("io.x.sketch".to_string(), "3.0.0".to_string())]);
+        assert_eq!(
+            r.install,
+            vec![("io.x.sketch".to_string(), "3.0.0".to_string())]
+        );
 
         // With no provider at all, a clear refusal.
         assert!(matches!(

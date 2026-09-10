@@ -2,7 +2,7 @@
 //!
 //! Default deny: anything not declared here is unavailable to the harness.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use localspace_proto as proto;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -102,7 +102,13 @@ impl DepSpec {
     /// An interface dependency names a WIT interface, not a vendor: any
     /// installed package whose `[provides]` lists it satisfies it.
     pub fn is_interface(&self) -> bool {
-        matches!(self, DepSpec::Detailed { interface: true, .. })
+        matches!(
+            self,
+            DepSpec::Detailed {
+                interface: true,
+                ..
+            }
+        )
     }
 }
 
@@ -371,7 +377,13 @@ impl GpuCap {
     }
 
     pub fn exclusive(self) -> bool {
-        matches!(self, GpuCap::Request { exclusive: true, .. })
+        matches!(
+            self,
+            GpuCap::Request {
+                exclusive: true,
+                ..
+            }
+        )
     }
 
     pub fn describe(self) -> String {
@@ -498,7 +510,11 @@ impl Capabilities {
             spawn: self.spawn,
             clipboard: self.clipboard.describe(),
             docs: self.docs.describe(),
-            model: self.model.iter().map(|m| m.describe().to_string()).collect(),
+            model: self
+                .model
+                .iter()
+                .map(|m| m.describe().to_string())
+                .collect(),
         }
     }
 
@@ -514,7 +530,10 @@ impl Capabilities {
             ));
         }
         let (old_hosts, new_hosts) = (prev.net.hosts(), self.net.hosts());
-        let added: Vec<&String> = new_hosts.iter().filter(|h| !old_hosts.contains(h)).collect();
+        let added: Vec<&String> = new_hosts
+            .iter()
+            .filter(|h| !old_hosts.contains(h))
+            .collect();
         if !added.is_empty() {
             out.push(format!(
                 "network: adds {}",
@@ -526,7 +545,11 @@ impl Capabilities {
             ));
         }
         if self.gpu.wanted() && (!prev.gpu.wanted() || self.gpu.vram_gb() > prev.gpu.vram_gb()) {
-            out.push(format!("gpu: {} -> {}", prev.gpu.describe(), self.gpu.describe()));
+            out.push(format!(
+                "gpu: {} -> {}",
+                prev.gpu.describe(),
+                self.gpu.describe()
+            ));
         }
         if self.spawn && !prev.spawn {
             out.push("spawn subprocesses: no -> yes".into());
@@ -731,7 +754,9 @@ impl Manifest {
         if self.harness.tier == Tier::Native {
             match self.harness.native_reason.as_deref() {
                 Some(r) if !r.trim().is_empty() => {}
-                _ => bail!("tier = \"native\" requires a `native_reason` shown in the install dialog"),
+                _ => bail!(
+                    "tier = \"native\" requires a `native_reason` shown in the install dialog"
+                ),
             }
         }
         if self.harness.tier == Tier::Wasm && self.capabilities.gpu.wanted() {
@@ -1011,8 +1036,14 @@ net = { allowlist = ["tiles.example.com"], reason = "map tiles for the site plan
 tools = "tools.json"
 "#;
         let m = Manifest::parse(text).unwrap();
-        assert_eq!(m.capabilities.net.hosts(), &["tiles.example.com".to_string()]);
-        assert_eq!(m.capabilities.net.reason(), Some("map tiles for the site plan"));
+        assert_eq!(
+            m.capabilities.net.hosts(),
+            &["tiles.example.com".to_string()]
+        );
+        assert_eq!(
+            m.capabilities.net.reason(),
+            Some("map tiles for the site plan")
+        );
     }
 
     #[test]
@@ -1046,10 +1077,20 @@ tools = "tools.json"
         assert_eq!(m.resources.idle_unload_duration().as_secs(), 90);
 
         let zero = text.replace("logic = 64", "logic = 0");
-        assert!(Manifest::parse(&zero).unwrap_err().to_string().contains("positive"));
+        assert!(
+            Manifest::parse(&zero)
+                .unwrap_err()
+                .to_string()
+                .contains("positive")
+        );
 
         let bad = text.replace("\"90s\"", "\"soon\"");
-        assert!(Manifest::parse(&bad).unwrap_err().to_string().contains("idle_unload"));
+        assert!(
+            Manifest::parse(&bad)
+                .unwrap_err()
+                .to_string()
+                .contains("idle_unload")
+        );
     }
 
     #[test]
@@ -1075,7 +1116,10 @@ tools = "tools.json"
         let old = Capabilities::default();
         let new = Capabilities {
             fs: FsCap::Workspace,
-            gpu: GpuCap::Request { vram_gb: 24, exclusive: false },
+            gpu: GpuCap::Request {
+                vram_gb: 24,
+                exclusive: false,
+            },
             model: vec![ModelCap::Complete],
             ..Capabilities::default()
         };
@@ -1151,8 +1195,14 @@ views = [{ id = "scene", kind = "native", placement = "main", title = "Scene" }]
         // What installation sees is the reason, from validation.
         let err = Manifest::parse(text).expect_err("and must be refused at validation");
         let message = format!("{err:#}");
-        assert!(message.contains("reserved for the Tier B runtime"), "{message}");
-        assert!(message.contains(proto::HARNESS_API), "names the host's harness-api: {message}");
+        assert!(
+            message.contains("reserved for the Tier B runtime"),
+            "{message}"
+        );
+        assert!(
+            message.contains(proto::HARNESS_API),
+            "names the host's harness-api: {message}"
+        );
         assert!(!message.contains("unknown variant"), "{message}");
     }
 }

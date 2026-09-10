@@ -1,7 +1,7 @@
 //! `tools.json` — the typed actions a harness exposes to the agent, and the
 //! install-time lint that keeps them inside the model's attention budget.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use localspace_proto as proto;
 use serde::{Deserialize, Serialize};
 
@@ -121,8 +121,8 @@ pub struct ToolSet {
 
 impl ToolSet {
     pub fn parse(text: &str) -> Result<ToolSet> {
-        let tools: Vec<ToolDecl> =
-            serde_json::from_str(text).context("tools.json must be a JSON array of tool declarations")?;
+        let tools: Vec<ToolDecl> = serde_json::from_str(text)
+            .context("tools.json must be a JSON array of tool declarations")?;
         let set = ToolSet { tools };
         set.lint()?;
         Ok(set)
@@ -179,7 +179,10 @@ impl ToolSet {
                 );
             }
             if t.params.get("type").and_then(|v| v.as_str()) != Some("object") {
-                bail!("tool `{}` params schema must have \"type\": \"object\"", t.name);
+                bail!(
+                    "tool `{}` params schema must have \"type\": \"object\"",
+                    t.name
+                );
             }
 
             if t.front_door {
@@ -232,9 +235,10 @@ pub fn validate_params(schema: &serde_json::Value, params: &serde_json::Value) -
     if let Some(req) = schema.get("required").and_then(|r| r.as_array()) {
         for r in req {
             if let Some(key) = r.as_str()
-                && !obj.contains_key(key) {
-                    bail!("missing required parameter `{key}`");
-                }
+                && !obj.contains_key(key)
+            {
+                bail!("missing required parameter `{key}`");
+            }
         }
     }
     let props = match schema.get("properties").and_then(|p| p.as_object()) {
@@ -264,10 +268,11 @@ pub fn validate_params(schema: &serde_json::Value, params: &serde_json::Value) -
             }
         }
         if let Some(allowed) = spec.get("enum").and_then(|e| e.as_array())
-            && !allowed.contains(value) {
-                let names: Vec<String> = allowed.iter().map(|v| v.to_string()).collect();
-                bail!("parameter `{key}` must be one of {}", names.join(", "));
-            }
+            && !allowed.contains(value)
+        {
+            let names: Vec<String> = allowed.iter().map(|v| v.to_string()).collect();
+            bail!("parameter `{key}` must be one of {}", names.join(", "));
+        }
     }
     Ok(())
 }
@@ -308,10 +313,16 @@ mod tests {
 
     #[test]
     fn rejects_an_overlong_summary() {
-        let long = (0..30).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ");
+        let long = (0..30)
+            .map(|i| format!("w{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
         let text = serde_json::to_string(&serde_json::json!([tool("a.b", &long)])).unwrap();
         let err = ToolSet::parse(&text).unwrap_err().to_string();
-        assert!(err.contains("word budget") || err.contains("-word budget"), "got: {err}");
+        assert!(
+            err.contains("word budget") || err.contains("-word budget"),
+            "got: {err}"
+        );
     }
 
     #[test]

@@ -88,7 +88,9 @@ pub fn assemble(
         }
         cache.misses += 1;
 
-        let Some(h) = registry.get_mut(&id) else { continue };
+        let Some(h) = registry.get_mut(&id) else {
+            continue;
+        };
         let focused = Some(id.as_str()) == focus;
         let (text, expandable) = match h.runtime.as_mut() {
             Some(rt) => rt
@@ -120,7 +122,8 @@ pub fn truncate_to_budget(text: &str, budget_tokens: usize) -> String {
     if proto::estimate_tokens(text) <= budget_tokens {
         return text.to_string();
     }
-    let marker = "\n[truncated to fit the context budget — call the harness's zoom tool for detail]";
+    let marker =
+        "\n[truncated to fit the context budget — call the harness's zoom tool for detail]";
     let room = budget_tokens.saturating_sub(proto::estimate_tokens(marker));
     let mut out = String::new();
     for line in text.lines() {
@@ -152,11 +155,18 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         let out = truncate_to_budget(&text, 100);
-        assert!(proto::estimate_tokens(&out) <= 110, "got {} tokens", proto::estimate_tokens(&out));
+        assert!(
+            proto::estimate_tokens(&out) <= 110,
+            "got {} tokens",
+            proto::estimate_tokens(&out)
+        );
         assert!(out.contains("truncated to fit the context budget"));
         // Cut on a boundary: no half-written line before the marker.
         let body = out.split("[truncated").next().unwrap();
-        assert!(body.lines().all(|l| l.is_empty() || l.starts_with("shape ")));
+        assert!(
+            body.lines()
+                .all(|l| l.is_empty() || l.starts_with("shape "))
+        );
     }
 
     #[test]

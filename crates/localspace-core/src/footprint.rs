@@ -51,7 +51,11 @@ impl Footprint {
                 p / (1024 * 1024),
                 w / (1024 * 1024),
                 self.budget_bytes / (1024 * 1024),
-                if p <= self.budget_bytes { "within" } else { "over" }
+                if p <= self.budget_bytes {
+                    "within"
+                } else {
+                    "over"
+                }
             ),
             (Some(p), None) => format!(
                 "{} MB private against a {} MB budget",
@@ -108,11 +112,7 @@ mod imp {
         // SAFETY: a documented Win32 call with a correctly sized, initialised
         // out-parameter for the current process.
         let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) };
-        if ok != 0 {
-            Some(c)
-        } else {
-            None
-        }
+        if ok != 0 { Some(c) } else { None }
     }
 
     pub fn private_rss_bytes() -> Option<u64> {
@@ -170,10 +170,15 @@ mod tests {
     fn the_process_can_weigh_itself() {
         let f = Footprint::measure();
         if cfg!(any(target_os = "windows", target_os = "linux")) {
-            let p = f.private_bytes.expect("private RSS should be measurable here");
+            let p = f
+                .private_bytes
+                .expect("private RSS should be measurable here");
             // A test binary is at least a few MB and not tens of GB.
             assert!(p > 1024 * 1024, "{p} bytes is implausibly small");
-            assert!(p < 64 * 1024 * 1024 * 1024, "{p} bytes is implausibly large");
+            assert!(
+                p < 64 * 1024 * 1024 * 1024,
+                "{p} bytes is implausibly large"
+            );
             assert!(f.describe().contains("MB private"));
         }
     }

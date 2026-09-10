@@ -4,7 +4,7 @@
 //! DAG revert, regardless of harness. An agent run is one branch, so
 //! "reject the agent's changes" is a branch drop, not 40 undos.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use localspace_proto as proto;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use std::path::Path;
@@ -99,9 +99,11 @@ impl Dag {
     ) -> Result<proto::Commit> {
         let doc_hash = self.put_blob(doc_bytes)?;
         let parent = self.head(doc)?;
-        let id = format!("c{}", &blake3::hash(
-            format!("{doc}{tool}{doc_hash}{:?}{}", parent, now_ms()).as_bytes()
-        ).to_hex()[..12]);
+        let id = format!(
+            "c{}",
+            &blake3::hash(format!("{doc}{tool}{doc_hash}{:?}{}", parent, now_ms()).as_bytes())
+                .to_hex()[..12]
+        );
 
         let commit = proto::Commit {
             id: id.clone(),
@@ -421,8 +423,14 @@ mod tests {
         let mut reverts = dag.drop_run("r2").unwrap();
         reverts.sort_by(|a, b| a.doc.cmp(&b.doc));
         assert_eq!(reverts.len(), 2);
-        assert_eq!(reverts[0].bytes.as_deref(), Some(b"board-before".as_slice()));
-        assert_eq!(reverts[1].bytes.as_deref(), Some(b"notes-before".as_slice()));
+        assert_eq!(
+            reverts[0].bytes.as_deref(),
+            Some(b"board-before".as_slice())
+        );
+        assert_eq!(
+            reverts[1].bytes.as_deref(),
+            Some(b"notes-before".as_slice())
+        );
     }
 
     #[test]
@@ -441,6 +449,9 @@ mod tests {
         let h1 = dag.put_blob(b"same").unwrap();
         let h2 = dag.put_blob(b"same").unwrap();
         assert_eq!(h1, h2);
-        assert_eq!(dag.get_blob(&h1).unwrap().as_deref(), Some(b"same".as_slice()));
+        assert_eq!(
+            dag.get_blob(&h1).unwrap().as_deref(),
+            Some(b"same".as_slice())
+        );
     }
 }

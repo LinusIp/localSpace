@@ -12,11 +12,11 @@
 //! `/metrics`, and a deployment where the big model takes more than 60 % of calls
 //! is misconfigured.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use localspace_proto as proto;
-use serde_json::{json, Value as J};
-use std::sync::atomic::{AtomicU64, Ordering};
+use serde_json::{Value as J, json};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 // ---------------------------------------------------------------------------
@@ -94,7 +94,11 @@ pub trait ModelWorker: Send + Sync {
     fn chat(&self, req: &ChatRequest) -> Result<ChatReply>;
     /// Like `chat`, but each piece of text reaches `on_delta` as the model
     /// produces it (v2 step 3). A backend that cannot stream answers whole.
-    fn chat_streaming(&self, req: &ChatRequest, on_delta: &mut dyn FnMut(&str)) -> Result<ChatReply> {
+    fn chat_streaming(
+        &self,
+        req: &ChatRequest,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<ChatReply> {
         let reply = self.chat(req)?;
         if !reply.text.is_empty() {
             on_delta(&reply.text);
@@ -165,7 +169,10 @@ impl OpenAiWorker {
 
     fn post(&self, path: &str, body: J) -> Result<J> {
         let url = format!("{}{path}", self.base_url);
-        let mut req = ureq::post(&url).config().timeout_global(Some(self.timeout)).build();
+        let mut req = ureq::post(&url)
+            .config()
+            .timeout_global(Some(self.timeout))
+            .build();
         if let Some(k) = &self.api_key {
             req = req.header("Authorization", &format!("Bearer {k}"));
         }
@@ -209,7 +216,11 @@ impl ModelWorker for OpenAiWorker {
         parse_openai_reply(&res)
     }
 
-    fn chat_streaming(&self, req: &ChatRequest, on_delta: &mut dyn FnMut(&str)) -> Result<ChatReply> {
+    fn chat_streaming(
+        &self,
+        req: &ChatRequest,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<ChatReply> {
         let mut body = json!({
             "model": self.model,
             "messages": [{"role": "user", "content": req.prompt}],
@@ -223,7 +234,10 @@ impl ModelWorker for OpenAiWorker {
             body["tool_choice"] = json!("auto");
         }
         let url = format!("{}/chat/completions", self.base_url);
-        let mut request = ureq::post(&url).config().timeout_global(Some(self.timeout)).build();
+        let mut request = ureq::post(&url)
+            .config()
+            .timeout_global(Some(self.timeout))
+            .build();
         if let Some(k) = &self.api_key {
             request = request.header("Authorization", &format!("Bearer {k}"));
         }
@@ -236,17 +250,18 @@ impl ModelWorker for OpenAiWorker {
     }
 
     fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
-        let res = self.post(
-            "/embeddings",
-            json!({"model": self.model, "input": texts}),
-        )?;
+        let res = self.post("/embeddings", json!({"model": self.model, "input": texts}))?;
         let data = res["data"].as_array().context("no embedding data")?;
         Ok(data
             .iter()
             .map(|d| {
                 d["embedding"]
                     .as_array()
-                    .map(|a| a.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_f64().map(|f| f as f32))
+                            .collect()
+                    })
                     .unwrap_or_default()
             })
             .collect())
@@ -268,12 +283,12 @@ pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {
     if let Some(err) = res.get("error") {
         bail!(
             "model returned an error: {}",
-            err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown")
+            err.get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown")
         );
     }
-    let choice = res["choices"]
-        .get(0)
-        .context("model returned no choices")?;
+    let choice = res["choices"].get(0).context("model returned no choices")?;
     let message = &choice["message"];
     let text = message["content"].as_str().unwrap_or_default().to_string();
 
@@ -299,9 +314,10 @@ pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {
 
     // Backends without native tool calling emit the grammar's shape as content.
     if calls.is_empty()
-        && let Some(c) = parse_grammar_call(&text) {
-            calls.push(c);
-        }
+        && let Some(c) = parse_grammar_call(&text)
+    {
+        calls.push(c);
+    }
 
     Ok(ChatReply {
         text,
@@ -314,37 +330,51 @@ pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {
 /// An OpenAI-style server-sent event stream, read to the end: text deltas go
 /// to `on_delta` as they arrive, tool-call deltas are assembled by index, and
 /// the last event's usage is kept.
-pub fn read_sse<R: std::io::BufRead>(reader: R, on_delta: &mut dyn FnMut(&str)) -> Result<ChatReply> {
+pub fn read_sse<R: std::io::BufRead>(
+    reader: R,
+    on_delta: &mut dyn FnMut(&str),
+) -> Result<ChatReply> {
     let mut text = String::new();
     // (id, name, arguments) per tool-call index; arguments arrive in pieces.
     let mut calls: Vec<(String, String, String)> = Vec::new();
     let mut prompt_tokens = 0u32;
     let mut completion_tokens = 0u32;
     for line in reader.lines() {
-        let line = line.map_err(|e| anyhow::anyhow!("{e}")).context("reading the model's stream")?;
-        let Some(data) = line.strip_prefix("data:") else { continue };
+        let line = line
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .context("reading the model's stream")?;
+        let Some(data) = line.strip_prefix("data:") else {
+            continue;
+        };
         let data = data.trim();
         if data == "[DONE]" {
             break;
         }
-        let Ok(event) = serde_json::from_str::<J>(data) else { continue };
+        let Ok(event) = serde_json::from_str::<J>(data) else {
+            continue;
+        };
         if let Some(err) = event.get("error") {
             bail!(
                 "model returned an error: {}",
-                err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown")
+                err.get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("unknown")
             );
         }
         if let Some(usage) = event.get("usage").filter(|u| !u.is_null()) {
             prompt_tokens = usage["prompt_tokens"].as_u64().unwrap_or(0) as u32;
             completion_tokens = usage["completion_tokens"].as_u64().unwrap_or(0) as u32;
         }
-        let Some(choice) = event["choices"].get(0) else { continue };
+        let Some(choice) = event["choices"].get(0) else {
+            continue;
+        };
         let delta = &choice["delta"];
         if let Some(piece) = delta["content"].as_str()
-            && !piece.is_empty() {
-                text.push_str(piece);
-                on_delta(piece);
-            }
+            && !piece.is_empty()
+        {
+            text.push_str(piece);
+            on_delta(piece);
+        }
         if let Some(pieces) = delta["tool_calls"].as_array() {
             for tc in pieces {
                 let index = tc["index"].as_u64().unwrap_or(0) as usize;
@@ -371,15 +401,20 @@ pub fn read_sse<R: std::io::BufRead>(reader: R, on_delta: &mut dyn FnMut(&str)) 
         }
         let params: J = serde_json::from_str(&args).unwrap_or(json!({}));
         proposed.push(ProposedCall {
-            id: if id.is_empty() { format!("call_{i}") } else { id },
+            id: if id.is_empty() {
+                format!("call_{i}")
+            } else {
+                id
+            },
             tool: name.replace("__", "."),
             params,
         });
     }
     if proposed.is_empty()
-        && let Some(c) = parse_grammar_call(&text) {
-            proposed.push(c);
-        }
+        && let Some(c) = parse_grammar_call(&text)
+    {
+        proposed.push(c);
+    }
     Ok(ChatReply {
         text,
         calls: proposed,
@@ -422,22 +457,14 @@ impl Metrics {
     pub fn utility_share(&self) -> f32 {
         let u = self.utility_calls.load(Ordering::Relaxed) as f32;
         let c = self.chat_calls.load(Ordering::Relaxed) as f32;
-        if u + c == 0.0 {
-            0.0
-        } else {
-            u / (u + c)
-        }
+        if u + c == 0.0 { 0.0 } else { u / (u + c) }
     }
 
     /// §16.5 budget: under 0.5 %.
     pub fn malformed_rate(&self) -> f32 {
         let bad = self.malformed_tool_calls.load(Ordering::Relaxed) as f32;
         let all = self.tool_calls.load(Ordering::Relaxed) as f32;
-        if all == 0.0 {
-            0.0
-        } else {
-            bad / all
-        }
+        if all == 0.0 { 0.0 } else { bad / all }
     }
 }
 
@@ -613,7 +640,10 @@ mod tests {
             ..Default::default()
         };
         let req = ChatRequest::new("x".into());
-        assert_eq!(router.chat(WorkerRole::Utility, &req).unwrap().text, "small");
+        assert_eq!(
+            router.chat(WorkerRole::Utility, &req).unwrap().text,
+            "small"
+        );
         assert_eq!(router.chat(WorkerRole::Chat, &req).unwrap().text, "big");
         assert!((router.metrics.utility_share() - 0.5).abs() < 1e-6);
     }
@@ -626,7 +656,11 @@ mod tests {
         };
         let req = ChatRequest::new("x".into());
         assert_eq!(router.chat(WorkerRole::Utility, &req).unwrap().text, "big");
-        assert_eq!(router.metrics.utility_share(), 0.0, "no utility model was used");
+        assert_eq!(
+            router.metrics.utility_share(),
+            0.0,
+            "no utility model was used"
+        );
     }
 
     #[test]

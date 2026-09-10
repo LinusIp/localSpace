@@ -13,8 +13,8 @@
 //! profile) is NOT yet applied — see `docs/STATUS.md`.
 
 use super::{HarnessOutput, HarnessRuntime, RuntimeConfig};
-use anyhow::{bail, Context, Result};
-use serde_json::{json, Value as J};
+use anyhow::{Context, Result, bail};
+use serde_json::{Value as J, json};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -252,12 +252,13 @@ impl HarnessRuntime for NativeHarness {
         let reply: Vec<u8> = res
             .get("payload")
             .and_then(|p| p.as_array())
-            .map(|a| a.iter().filter_map(|v| v.as_u64().map(|n| n as u8)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_u64().map(|n| n as u8))
+                    .collect()
+            })
             .unwrap_or_default();
-        let doc_out = res
-            .get("_meta")
-            .and_then(|m| m.get(META_DOC))
-            .cloned();
+        let doc_out = res.get("_meta").and_then(|m| m.get(META_DOC)).cloned();
         Ok((reply, doc_out))
     }
 }

@@ -44,7 +44,11 @@ fn core_with_fake_engine(dir: &Path) -> (Core, Arc<Mutex<Vec<proto::Event>>>) {
     (core, events)
 }
 
-fn wait_until(core: &Core, what: &str, mut ok: impl FnMut(&proto::EngineState) -> bool) -> proto::EngineState {
+fn wait_until(
+    core: &Core,
+    what: &str,
+    mut ok: impl FnMut(&proto::EngineState) -> bool,
+) -> proto::EngineState {
     let start = Instant::now();
     loop {
         let state = core.environment().engine;
@@ -65,7 +69,10 @@ fn the_catalog_lists_the_model_as_installed_with_a_verdict() {
     let (mut core, _) = core_with_fake_engine(dir.path());
     match core.handle(proto::Request::ListModelCatalog) {
         proto::Response::ModelCatalog { entries } => {
-            let tiny = entries.iter().find(|e| e.id == "tiny").expect("the catalog model");
+            let tiny = entries
+                .iter()
+                .find(|e| e.id == "tiny")
+                .expect("the catalog model");
             assert!(tiny.installed, "its file is on disk");
             assert!(!tiny.loaded);
             assert_eq!(tiny.verdict, "resident", "{}", tiny.plan_summary);
@@ -106,19 +113,29 @@ fn loading_a_model_starts_the_sidecar_and_a_chat_turn_goes_through_it() {
             _ => None,
         })
         .collect();
-    assert!(heard.iter().any(|s| s.running), "an engine_changed with running=true: {heard:?}");
+    assert!(
+        heard.iter().any(|s| s.running),
+        "an engine_changed with running=true: {heard:?}"
+    );
 
     // The flags the planner chose went to the process: the fake logs its args.
     let log = std::fs::read_to_string(dir.path().join("engines").join("tiny.log")).unwrap();
     assert!(log.contains("--alias"), "{log}");
-    assert!(log.contains("-ngl"), "a resident plan puts layers on the GPU: {log}");
+    assert!(
+        log.contains("-ngl"),
+        "a resident plan puts layers on the GPU: {log}"
+    );
 
     // A turn through the sidecar.
     match core.handle(proto::Request::SendMessage {
         text: "hello".into(),
     }) {
         proto::Response::Transcript { messages } => {
-            let reply = messages.iter().rev().find(|m| m.role == proto::Role::Assistant).unwrap();
+            let reply = messages
+                .iter()
+                .rev()
+                .find(|m| m.role == proto::Role::Assistant)
+                .unwrap();
             assert!(
                 reply.content.contains("hello from the fake engine"),
                 "the reply came from the sidecar: {}",
@@ -140,10 +157,16 @@ fn loading_a_model_starts_the_sidecar_and_a_chat_turn_goes_through_it() {
         }
         other => panic!("{other:?}"),
     }
-    assert!(matches!(core.handle(proto::Request::UnloadModel), proto::Response::Ok));
+    assert!(matches!(
+        core.handle(proto::Request::UnloadModel),
+        proto::Response::Ok
+    ));
     let stopped = core.environment().engine;
     assert!(!stopped.running && stopped.model.is_none(), "{stopped:?}");
-    assert!(core.environment().model.is_none(), "the worker is gone with the process");
+    assert!(
+        core.environment().model.is_none(),
+        "the worker is gone with the process"
+    );
 }
 
 #[test]
@@ -165,9 +188,10 @@ fn a_crashed_sidecar_is_restarted() {
     let start = Instant::now();
     let mut saw_restart = false;
     while start.elapsed() < Duration::from_secs(15) {
-        let noticed = events.lock().unwrap().iter().any(|e| {
-            matches!(e, proto::Event::Notice { text, .. } if text.contains("restarting"))
-        });
+        let noticed =
+            events.lock().unwrap().iter().any(
+                |e| matches!(e, proto::Event::Notice { text, .. } if text.contains("restarting")),
+            );
         if noticed {
             saw_restart = true;
             break;

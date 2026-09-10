@@ -186,9 +186,9 @@ pub fn candidates(dirs: &[PathBuf], installed: &Registry) -> Vec<crate::deps::Ca
             let Ok(manifest) = Manifest::load(&path) else {
                 continue;
             };
-            let already = out.iter().any(|c| {
-                c.id == manifest.harness.id && c.version == manifest.harness.version
-            });
+            let already = out
+                .iter()
+                .any(|c| c.id == manifest.harness.id && c.version == manifest.harness.version);
             if already {
                 continue;
             }

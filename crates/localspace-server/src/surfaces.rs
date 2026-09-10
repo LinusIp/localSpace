@@ -18,12 +18,12 @@
 //! only itself, so the bridge to the shell is its one capability.
 
 use crate::Server;
+use axum::Json;
 use axum::body::Body;
 use axum::extract::{Query, State};
-use axum::http::{header, HeaderMap, HeaderValue, Method, Request, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use localspace_proto as proto;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -116,7 +116,7 @@ pub async fn open(
             return error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Core could not start: {e:#}"),
-            )
+            );
         }
     };
     // Core says whether the view exists and is a web surface: asking for its
@@ -131,7 +131,12 @@ pub async fn open(
     {
         Ok(proto::Response::SurfaceFile { .. }) => {}
         Ok(proto::Response::Error { message }) => return error(StatusCode::NOT_FOUND, message),
-        Ok(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "Core answered something else"),
+        Ok(_) => {
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Core answered something else",
+            );
+        }
         Err(e) => return error(StatusCode::SERVICE_UNAVAILABLE, e.to_string()),
     }
 
@@ -247,7 +252,10 @@ fn hardened_with(mut response: Response, shell_origin: &str, nonce: Option<&str>
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     headers.insert(
         "cross-origin-resource-policy",
@@ -310,7 +318,7 @@ async fn serve(server: &Server, slug: &str, request: Request<Body>) -> Response 
                 )
                     .into_response(),
                 "'none'",
-            )
+            );
         }
     };
     let grant = server
@@ -355,22 +363,47 @@ async fn serve(server: &Server, slug: &str, request: Request<Body>) -> Response 
     // named by nothing but letters, digits, dots, dashes and underscores.
     if let Some(name) = rest.strip_prefix("_localspace/") {
         let plain = !name.is_empty()
-            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
             && !name.starts_with('.');
-        let file = plain.then(|| server.cfg.web_root.as_ref().map(|root| root.join("_localspace").join(name))).flatten();
+        let file = plain
+            .then(|| {
+                server
+                    .cfg
+                    .web_root
+                    .as_ref()
+                    .map(|root| root.join("_localspace").join(name))
+            })
+            .flatten();
         return match file.filter(|f| f.is_file()) {
             Some(path) => match std::fs::read(&path) {
                 Ok(bytes) => hardened(
-                    ([(header::CONTENT_TYPE, localspace_core::registry::mime_for(name))], bytes).into_response(),
+                    (
+                        [(
+                            header::CONTENT_TYPE,
+                            localspace_core::registry::mime_for(name),
+                        )],
+                        bytes,
+                    )
+                        .into_response(),
                     &grant.shell_origin,
                 ),
                 Err(e) => hardened(
-                    (StatusCode::INTERNAL_SERVER_ERROR, format!("reading {name}: {e}")).into_response(),
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("reading {name}: {e}"),
+                    )
+                        .into_response(),
                     &grant.shell_origin,
                 ),
             },
             None => hardened(
-                (StatusCode::NOT_FOUND, format!("the shell does not provide `{name}`")).into_response(),
+                (
+                    StatusCode::NOT_FOUND,
+                    format!("the shell does not provide `{name}`"),
+                )
+                    .into_response(),
                 &grant.shell_origin,
             ),
         };
@@ -386,7 +419,7 @@ async fn serve(server: &Server, slug: &str, request: Request<Body>) -> Response 
                 )
                     .into_response(),
                 &grant.shell_origin,
-            )
+            );
         }
     };
     match session
@@ -454,7 +487,11 @@ mod tests {
             split_grant_path("/s/abc123/assets/a.css"),
             Some(("abc123", "assets/a.css"))
         );
-        assert_eq!(split_grant_path("/s/abc123"), None, "no trailing slash, no page");
+        assert_eq!(
+            split_grant_path("/s/abc123"),
+            None,
+            "no trailing slash, no page"
+        );
         assert_eq!(split_grant_path("/index.js"), None);
         assert_eq!(split_grant_path("/s//index.js"), None);
         assert_eq!(split_grant_path("/s/not-hex!/index.js"), None);
@@ -464,7 +501,10 @@ mod tests {
     fn the_policy_names_the_one_shell_that_opened_the_view() {
         let policy = csp("http://127.0.0.1:8443", None);
         assert!(policy.contains("frame-ancestors http://127.0.0.1:8443"));
-        assert!(policy.contains("script-src 'self' 'wasm-unsafe-eval';"), "{policy}");
+        assert!(
+            policy.contains("script-src 'self' 'wasm-unsafe-eval';"),
+            "{policy}"
+        );
         assert!(policy.starts_with("default-src 'none'"));
         // Automerge's WebAssembly comes from the frame's own origin: no host
         // is named anywhere but the one shell allowed to frame it.
@@ -473,20 +513,30 @@ mod tests {
         // The generated page's import map is inline, so that one response
         // admits it by nonce; every file response stays without one.
         let page = csp("http://127.0.0.1:8443", Some("abc"));
-        assert!(page.contains("script-src 'self' 'wasm-unsafe-eval' 'nonce-abc';"), "{page}");
+        assert!(
+            page.contains("script-src 'self' 'wasm-unsafe-eval' 'nonce-abc';"),
+            "{page}"
+        );
     }
 
     #[test]
     fn the_index_maps_the_sdk_and_loads_the_entry_module_relatively() {
         let html = index_html("index.js", "Board <web> & more", "n0nce");
-        assert!(html.contains(r#"<script type="importmap" nonce="n0nce">"#), "{html}");
+        assert!(
+            html.contains(r#"<script type="importmap" nonce="n0nce">"#),
+            "{html}"
+        );
         assert!(html.contains(r#""@localspace/harness-sdk":"./_localspace/sdk.js""#));
         assert!(html.contains(r#""@localspace/canvas":"./_localspace/canvas.js""#));
         assert!(html.contains(r#""react":"./_localspace/react.js""#));
-        assert!(html.contains(r#"<link rel="stylesheet" href="./_localspace/ui.css">"#), "the UI library's tokens and styles");
+        assert!(
+            html.contains(r#"<link rel="stylesheet" href="./_localspace/ui.css">"#),
+            "the UI library's tokens and styles"
+        );
         assert!(html.contains(r#"<script type="module" src="./index.js">"#));
         assert!(html.contains("<title>Board &lt;web> &amp; more</title>"));
-        let map: serde_json::Value = serde_json::from_str(IMPORT_MAP).expect("the import map is JSON");
+        let map: serde_json::Value =
+            serde_json::from_str(IMPORT_MAP).expect("the import map is JSON");
         assert_eq!(map["imports"].as_object().map(|m| m.len()), Some(7));
     }
 }

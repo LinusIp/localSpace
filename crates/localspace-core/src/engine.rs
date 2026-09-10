@@ -9,7 +9,7 @@
 
 use crate::model::{OpenAiWorker, Router};
 use crate::planner::{PlacementPlan, TensorMap, Verdict};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use localspace_proto as proto;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
@@ -63,7 +63,12 @@ pub fn find_binary(given: Option<&Path>, data_dir: Option<&Path>) -> Option<Path
 /// what sits on the GPU, what stays in RAM, the KV precision, the context —
 /// expressed in llama.cpp's own terms.
 pub fn flags(plan: &PlacementPlan, map: &TensorMap, context_len: u32) -> Vec<String> {
-    let mut f: Vec<String> = vec!["-c".into(), context_len.to_string(), "--flash-attn".into(), "on".into()];
+    let mut f: Vec<String> = vec![
+        "-c".into(),
+        context_len.to_string(),
+        "--flash-attn".into(),
+        "on".into(),
+    ];
     let layers = map.layers.max(1) as u64;
     match plan.verdict {
         Verdict::Resident => {
@@ -76,21 +81,33 @@ pub fn flags(plan: &PlacementPlan, map: &TensorMap, context_len: u32) -> Vec<Str
                 f.extend(["-ngl".into(), "999".into()]);
                 let off_gpu = plan.ram_expert_bytes + plan.nvme_expert_bytes;
                 let per_layer = map.routed_expert_bytes / layers;
-                let cpu_layers = if per_layer == 0 { 0 } else { off_gpu.div_ceil(per_layer).min(layers) };
+                let cpu_layers = if per_layer == 0 {
+                    0
+                } else {
+                    off_gpu.div_ceil(per_layer).min(layers)
+                };
                 if cpu_layers > 0 {
                     f.extend(["--n-cpu-moe".into(), cpu_layers.to_string()]);
                 }
             } else {
                 // Dense and not resident: as many layers on the GPU as fit.
                 let per_layer = map.core_bytes / layers;
-                let gpu_layers = plan.gpu_resident_bytes.checked_div(per_layer).map_or(layers, |n| n.min(layers));
+                let gpu_layers = plan
+                    .gpu_resident_bytes
+                    .checked_div(per_layer)
+                    .map_or(layers, |n| n.min(layers));
                 f.extend(["-ngl".into(), gpu_layers.to_string()]);
             }
         }
         Verdict::DoesNotFit => {}
     }
     if plan.kv_precision != "f16" {
-        f.extend(["--cache-type-k".into(), "q8_0".into(), "--cache-type-v".into(), "q8_0".into()]);
+        f.extend([
+            "--cache-type-k".into(),
+            "q8_0".into(),
+            "--cache-type-v".into(),
+            "q8_0".into(),
+        ]);
     }
     f
 }
@@ -191,13 +208,19 @@ impl Engine {
                 running: false,
                 loading: true,
                 model: Some(self.model_id.clone()),
-                detail: format!("llama-server loading {} for {since} s on 127.0.0.1:{}", self.model_id, self.port),
+                detail: format!(
+                    "llama-server loading {} for {since} s on 127.0.0.1:{}",
+                    self.model_id, self.port
+                ),
             },
             Status::Ready => proto::EngineState {
                 running: true,
                 loading: false,
                 model: Some(self.model_id.clone()),
-                detail: format!("llama-server serving {} on 127.0.0.1:{}", self.model_id, self.port),
+                detail: format!(
+                    "llama-server serving {} on 127.0.0.1:{}",
+                    self.model_id, self.port
+                ),
             },
             Status::Failed(why) => proto::EngineState {
                 running: false,
@@ -222,7 +245,11 @@ impl Engine {
             let _ = child.wait();
         }
         let mut router = self.router.write().unwrap();
-        if router.info().map(|m| m.id == self.model_id).unwrap_or(false) {
+        if router
+            .info()
+            .map(|m| m.id == self.model_id)
+            .unwrap_or(false)
+        {
             router.chat = None;
         }
     }
@@ -271,7 +298,12 @@ fn supervise(
     let mut restarts: Vec<Instant> = Vec::new();
 
     let emit_state = |shared: &Shared, sink: &EventSink| {
-        let state = state_of(&shared.status.lock().unwrap(), &model, port, shared.started.elapsed());
+        let state = state_of(
+            &shared.status.lock().unwrap(),
+            &model,
+            port,
+            shared.started.elapsed(),
+        );
         sink(proto::Event::EngineChanged(state));
     };
 
@@ -283,7 +315,10 @@ fn supervise(
                 return;
             }
             if let Some(exit) = exited(&shared) {
-                let why = format!("exited during load ({exit}); {}", last_log_line(&spec.log_path));
+                let why = format!(
+                    "exited during load ({exit}); {}",
+                    last_log_line(&spec.log_path)
+                );
                 *shared.status.lock().unwrap() = Status::Failed(why.clone());
                 sink(proto::Event::Notice {
                     level: proto::NoticeLevel::Error,
@@ -341,7 +376,10 @@ fn supervise(
         };
         restarts.retain(|t| t.elapsed() < RESTART_WINDOW);
         if restarts.len() as u32 >= RESTARTS {
-            let why = format!("crashed {RESTARTS} times in {} min; not restarting", RESTART_WINDOW.as_secs() / 60);
+            let why = format!(
+                "crashed {RESTARTS} times in {} min; not restarting",
+                RESTART_WINDOW.as_secs() / 60
+            );
             *shared.status.lock().unwrap() = Status::Failed(why.clone());
             router.write().unwrap().chat = None;
             sink(proto::Event::Notice {
@@ -376,7 +414,10 @@ fn state_of(status: &Status, model: &str, port: u16, since: Duration) -> proto::
             running: false,
             loading: true,
             model: Some(model.to_string()),
-            detail: format!("llama-server loading {model} for {} s on 127.0.0.1:{port}", since.as_secs()),
+            detail: format!(
+                "llama-server loading {model} for {} s on 127.0.0.1:{port}",
+                since.as_secs()
+            ),
         },
         Status::Ready => proto::EngineState {
             running: true,
@@ -425,12 +466,20 @@ fn free_port() -> Result<u16> {
 
 fn sanitize(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
 pub fn log_tail(path: &Path, n: usize) -> Vec<String> {
-    let Ok(mut file) = File::open(path) else { return Vec::new() };
+    let Ok(mut file) = File::open(path) else {
+        return Vec::new();
+    };
     // Read only the end of a log that may be large.
     let len = file.metadata().map(|m| m.len()).unwrap_or(0);
     let window = 64 * 1024;
@@ -443,13 +492,15 @@ pub fn log_tail(path: &Path, n: usize) -> Vec<String> {
 }
 
 fn last_log_line(path: &Path) -> String {
-    log_tail(path, 1).pop().unwrap_or_else(|| "no log output".into())
+    log_tail(path, 1)
+        .pop()
+        .unwrap_or_else(|| "no log output".into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::planner::{plan, reference_moe_100b_q4, PlanRequest};
+    use crate::planner::{PlanRequest, plan, reference_moe_100b_q4};
     use crate::profile::Machine;
 
     fn dense_map(bytes: u64, layers: u32) -> TensorMap {
@@ -488,7 +539,10 @@ mod tests {
         assert!(f.windows(2).any(|w| w == ["-ngl", "999"]), "{f:?}");
         assert!(f.windows(2).any(|w| w == ["-c", "8192"]), "{f:?}");
         assert!(!f.iter().any(|a| a == "--n-cpu-moe"), "{f:?}");
-        assert!(!f.iter().any(|a| a == "--cache-type-k"), "f16 KV needs no flag: {f:?}");
+        assert!(
+            !f.iter().any(|a| a == "--cache-type-k"),
+            "f16 KV needs no flag: {f:?}"
+        );
     }
 
     #[test]
@@ -498,7 +552,11 @@ mod tests {
         p.gpu_resident_bytes = 2_000_000_000;
         let f = flags(&p, &dense_map(8_000_000_000, 32), 4096);
         let ngl = f.iter().position(|a| a == "-ngl").map(|i| f[i + 1].clone());
-        assert_eq!(ngl.as_deref(), Some("8"), "a quarter of the layers fit: {f:?}");
+        assert_eq!(
+            ngl.as_deref(),
+            Some("8"),
+            "a quarter of the layers fit: {f:?}"
+        );
     }
 
     #[test]
@@ -519,20 +577,38 @@ mod tests {
         let p = plan(&map, &machine, &PlanRequest::default());
         assert_ne!(p.verdict, Verdict::DoesNotFit, "{}", p.summary());
         let f = flags(&p, &map, 16384);
-        let cpu_moe = f.iter().position(|a| a == "--n-cpu-moe").map(|i| f[i + 1].parse::<u64>().unwrap());
-        assert!(matches!(cpu_moe, Some(n) if n > 0 && n <= map.layers as u64), "{f:?}\n{}", p.summary());
+        let cpu_moe = f
+            .iter()
+            .position(|a| a == "--n-cpu-moe")
+            .map(|i| f[i + 1].parse::<u64>().unwrap());
+        assert!(
+            matches!(cpu_moe, Some(n) if n > 0 && n <= map.layers as u64),
+            "{f:?}\n{}",
+            p.summary()
+        );
         assert!(f.windows(2).any(|w| w == ["-ngl", "999"]), "{f:?}");
-        assert!(f.iter().any(|a| a == "--cache-type-k"), "quantised KV: {f:?}");
+        assert!(
+            f.iter().any(|a| a == "--cache-type-k"),
+            "quantised KV: {f:?}"
+        );
     }
 
     #[test]
     fn the_binary_is_found_beside_the_data_or_nowhere() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(find_binary(None, Some(dir.path())).is_none() || std::env::var("PATH").map(|p| p.contains("llama")).unwrap_or(false));
+        assert!(
+            find_binary(None, Some(dir.path())).is_none()
+                || std::env::var("PATH")
+                    .map(|p| p.contains("llama"))
+                    .unwrap_or(false)
+        );
         let engines = dir.path().join("engines");
         std::fs::create_dir_all(&engines).unwrap();
         std::fs::write(engines.join(binary_name()), b"").unwrap();
-        assert_eq!(find_binary(None, Some(dir.path())), Some(engines.join(binary_name())));
+        assert_eq!(
+            find_binary(None, Some(dir.path())),
+            Some(engines.join(binary_name()))
+        );
         assert_eq!(
             find_binary(Some(&engines.join(binary_name())), None),
             Some(engines.join(binary_name()))

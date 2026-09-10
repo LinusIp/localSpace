@@ -2,11 +2,11 @@
 //! (architecture v2 §5): JSON in, JSON out, a token to get in.
 
 use axum::body::Body;
-use axum::http::{header, Request, StatusCode};
+use axum::http::{Request, StatusCode, header};
 use futures::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
 use localspace_proto as proto;
-use localspace_server::{router, Server, ServerConfig};
+use localspace_server::{Server, ServerConfig, router};
 use std::path::PathBuf;
 use tower::ServiceExt;
 
@@ -38,7 +38,11 @@ async fn the_api_is_closed_without_the_token_and_open_with_it() {
 
     let anonymous = app
         .clone()
-        .oneshot(Request::get("/api/v1/environment").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/api/v1/environment")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
@@ -90,7 +94,10 @@ async fn the_api_is_closed_without_the_token_and_open_with_it() {
     assert_eq!(with_cookie.status(), StatusCode::OK);
     let env = body_json(with_cookie).await;
     let state = &env["environment"];
-    assert_eq!(state["user"], "tester", "personal mode: the configured user: {env}");
+    assert_eq!(
+        state["user"], "tester",
+        "personal mode: the configured user: {env}"
+    );
     assert_eq!(state["topology"], "personal");
     if harness_dir().is_some() {
         assert!(
@@ -168,7 +175,11 @@ async fn in_personal_mode_the_readiness_probe_and_the_user_share_one_core() {
             )
             .await
             .unwrap();
-        assert_eq!(env.status(), StatusCode::OK, "the user's Core after the probe's");
+        assert_eq!(
+            env.status(),
+            StatusCode::OK,
+            "the user's Core after the probe's"
+        );
     }
 }
 
@@ -176,15 +187,30 @@ async fn in_personal_mode_the_readiness_probe_and_the_user_share_one_core() {
 async fn the_openapi_document_is_generated_from_proto() {
     let app = router(Server::new(config("secret-3")));
     let response = app
-        .oneshot(Request::get("/api/v1/openapi.json").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/api/v1/openapi.json")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let doc = body_json(response).await;
     assert_eq!(doc["openapi"], "3.1.0");
     let schemas = doc["components"]["schemas"].as_object().unwrap();
-    for name in ["Request", "Response", "Event", "Envelope", "EnvironmentState", "HarnessSummary"] {
-        assert!(schemas.contains_key(name), "schema {name} missing; have {:?}", schemas.keys().collect::<Vec<_>>());
+    for name in [
+        "Request",
+        "Response",
+        "Event",
+        "Envelope",
+        "EnvironmentState",
+        "HarnessSummary",
+    ] {
+        assert!(
+            schemas.contains_key(name),
+            "schema {name} missing; have {:?}",
+            schemas.keys().collect::<Vec<_>>()
+        );
     }
     assert!(doc["paths"]["/api/v1/request"]["post"].is_object());
     // The schema carries serde's names, the same the wire and the TypeScript use.
@@ -194,14 +220,21 @@ async fn the_openapi_document_is_generated_from_proto() {
 
 #[tokio::test]
 async fn the_json_socket_streams_events_and_answers_requests_under_their_id() {
-    let running = localspace_server::start(config("secret-4")).await.expect("start");
+    let running = localspace_server::start(config("secret-4"))
+        .await
+        .expect("start");
     let url = format!("ws://{}/ws/json?token=secret-4", running.addr);
-    let (mut socket, _) = tokio_tungstenite::connect_async(url).await.expect("connect");
+    let (mut socket, _) = tokio_tungstenite::connect_async(url)
+        .await
+        .expect("connect");
 
     // The first frame is the welcome notice, an Event.
     let first = socket.next().await.unwrap().unwrap();
     let hello: proto::Envelope = serde_json::from_str(first.to_text().unwrap()).unwrap();
-    assert!(matches!(hello.body, proto::Body::Event(proto::Event::Notice { .. })));
+    assert!(matches!(
+        hello.body,
+        proto::Body::Event(proto::Event::Notice { .. })
+    ));
 
     let request = proto::Envelope {
         id: 7,
@@ -269,7 +302,12 @@ async fn a_web_surface_lives_on_its_own_origin_behind_a_grant() {
     );
     assert!(url.ends_with('/'), "the page is the grant directory: {url}");
     let host = "h-io-localspace-whiteboard.localhost:8443";
-    let token = url.trim_end_matches('/').rsplit('/').next().unwrap().to_string();
+    let token = url
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_string();
     let under = |p: &str| format!("/s/{token}/{p}");
 
     // A view that is not a web surface, or does not exist, gets no origin.
@@ -311,23 +349,38 @@ async fn a_web_surface_lives_on_its_own_origin_behind_a_grant() {
         .unwrap()
         .to_string();
     assert!(csp.starts_with("default-src 'none'"), "{csp}");
-    assert!(csp.contains("frame-ancestors http://127.0.0.1:8443"), "{csp}");
+    assert!(
+        csp.contains("frame-ancestors http://127.0.0.1:8443"),
+        "{csp}"
+    );
     assert!(
         !index.headers().contains_key(header::SET_COOKIE),
         "no cookie: a third-party frame would not send it back"
     );
     let html = String::from_utf8(
-        index.into_body().collect().await.unwrap().to_bytes().to_vec(),
+        index
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
     )
     .unwrap();
-    assert!(html.contains(r#""@localspace/harness-sdk":"./_localspace/sdk.js""#), "{html}");
+    assert!(
+        html.contains(r#""@localspace/harness-sdk":"./_localspace/sdk.js""#),
+        "{html}"
+    );
     assert!(html.contains(r#"src="./index.js""#), "{html}");
     let nonce = html
         .split(r#"nonce=""#)
         .nth(1)
         .and_then(|rest| rest.split('"').next())
         .expect("the import map carries a nonce");
-    assert!(csp.contains(&format!("'nonce-{nonce}'")), "the page's nonce is in its policy: {csp}");
+    assert!(
+        csp.contains(&format!("'nonce-{nonce}'")),
+        "the page's nonce is in its policy: {csp}"
+    );
 
     let fetch = |path: String, on_host: &str| {
         app.clone().oneshot(
@@ -345,26 +398,52 @@ async fn a_web_surface_lives_on_its_own_origin_behind_a_grant() {
         module.headers().get(header::CONTENT_TYPE).unwrap(),
         "text/javascript; charset=utf-8"
     );
-    assert!(module.headers().contains_key(header::CONTENT_SECURITY_POLICY));
+    assert!(
+        module
+            .headers()
+            .contains_key(header::CONTENT_SECURITY_POLICY)
+    );
     let sdk = fetch(under("_localspace/sdk.js"), host).await.unwrap();
     assert_eq!(sdk.status(), StatusCode::OK);
-    let sdk_text = String::from_utf8(sdk.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
-    assert!(sdk_text.contains("export function connect"), "the embedded SDK");
+    let sdk_text =
+        String::from_utf8(sdk.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+    assert!(
+        sdk_text.contains("export function connect"),
+        "the embedded SDK"
+    );
 
     // Nothing above the view's directory, nothing without the grant, and
     // nothing on another harness's origin with this grant.
-    for escape in ["../harness.toml", "../../logic.wasm", "%2e%2e/harness.toml", "assets"] {
+    for escape in [
+        "../harness.toml",
+        "../../logic.wasm",
+        "%2e%2e/harness.toml",
+        "assets",
+    ] {
         let refused = fetch(under(escape), host).await.unwrap();
-        assert_ne!(refused.status(), StatusCode::OK, "`{escape}` must not be served");
+        assert_ne!(
+            refused.status(),
+            StatusCode::OK,
+            "`{escape}` must not be served"
+        );
     }
-    assert_eq!(fetch("/index.js".into(), host).await.unwrap().status(), StatusCode::UNAUTHORIZED);
     assert_eq!(
-        fetch("/s/0123456789abcdef/index.js".into(), host).await.unwrap().status(),
+        fetch("/index.js".into(), host).await.unwrap().status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        fetch("/s/0123456789abcdef/index.js".into(), host)
+            .await
+            .unwrap()
+            .status(),
         StatusCode::UNAUTHORIZED,
         "a token nobody minted"
     );
     assert_eq!(
-        fetch(under("index.js"), "h-io-other.localhost:8443").await.unwrap().status(),
+        fetch(under("index.js"), "h-io-other.localhost:8443")
+            .await
+            .unwrap()
+            .status(),
         StatusCode::UNAUTHORIZED
     );
 
@@ -392,7 +471,11 @@ async fn a_harness_origin_serves_the_shell_s_libraries_and_nothing_beside_them()
     let Some(_) = harness_dir() else { return };
     let web = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(web.path().join("_localspace")).unwrap();
-    std::fs::write(web.path().join("_localspace/canvas.js"), b"export const canvas = 1;").unwrap();
+    std::fs::write(
+        web.path().join("_localspace/canvas.js"),
+        b"export const canvas = 1;",
+    )
+    .unwrap();
     std::fs::write(web.path().join("index.html"), b"<!doctype html>").unwrap();
     std::fs::write(web.path().join("secret.txt"), b"not for frames").unwrap();
     let mut cfg = config("secret-5");
@@ -406,42 +489,99 @@ async fn a_harness_origin_serves_the_shell_s_libraries_and_nothing_beside_them()
                 .header(header::COOKIE, "ls_session=secret-5")
                 .header(header::HOST, "127.0.0.1:8443")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"harness":"io.localspace.whiteboard","view":"web"}"#))
+                .body(Body::from(
+                    r#"{"harness":"io.localspace.whiteboard","view":"web"}"#,
+                ))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(opened.status(), StatusCode::OK);
     let url = body_json(opened).await["url"].as_str().unwrap().to_string();
-    let token = url.trim_end_matches('/').rsplit('/').next().unwrap().to_string();
+    let token = url
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_string();
     let host = "h-io-localspace-whiteboard.localhost:8443";
     let fetch = |path: String| {
-        app.clone().oneshot(Request::get(path).header(header::HOST, host).body(Body::empty()).unwrap())
+        app.clone().oneshot(
+            Request::get(path)
+                .header(header::HOST, host)
+                .body(Body::empty())
+                .unwrap(),
+        )
     };
 
-    let lib = fetch(format!("/s/{token}/_localspace/canvas.js")).await.unwrap();
+    let lib = fetch(format!("/s/{token}/_localspace/canvas.js"))
+        .await
+        .unwrap();
     assert_eq!(lib.status(), StatusCode::OK);
-    assert_eq!(lib.headers().get(header::CONTENT_TYPE).unwrap(), "text/javascript; charset=utf-8");
+    assert_eq!(
+        lib.headers().get(header::CONTENT_TYPE).unwrap(),
+        "text/javascript; charset=utf-8"
+    );
     assert!(lib.headers().contains_key(header::CONTENT_SECURITY_POLICY));
-    let text = String::from_utf8(lib.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+    let text =
+        String::from_utf8(lib.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
     assert_eq!(text, "export const canvas = 1;");
 
     // Automerge's WebAssembly, fetched by its module from beside it, comes
     // with the type a browser compiles as it streams in, under the same policy.
-    std::fs::write(web.path().join("_localspace/automerge_wasm_bg.wasm"), b"\0asm\x01\0\0\0").unwrap();
-    let wasm = fetch(format!("/s/{token}/_localspace/automerge_wasm_bg.wasm")).await.unwrap();
+    std::fs::write(
+        web.path().join("_localspace/automerge_wasm_bg.wasm"),
+        b"\0asm\x01\0\0\0",
+    )
+    .unwrap();
+    let wasm = fetch(format!("/s/{token}/_localspace/automerge_wasm_bg.wasm"))
+        .await
+        .unwrap();
     assert_eq!(wasm.status(), StatusCode::OK);
-    assert_eq!(wasm.headers().get(header::CONTENT_TYPE).unwrap(), "application/wasm");
+    assert_eq!(
+        wasm.headers().get(header::CONTENT_TYPE).unwrap(),
+        "application/wasm"
+    );
     assert!(wasm.headers().contains_key(header::CONTENT_SECURITY_POLICY));
 
-    for missing in ["_localspace/nothing.js", "_localspace/../secret.txt", "_localspace/..%2Fsecret.txt", "_localspace/.hidden", "_localspace/"] {
+    for missing in [
+        "_localspace/nothing.js",
+        "_localspace/../secret.txt",
+        "_localspace/..%2Fsecret.txt",
+        "_localspace/.hidden",
+        "_localspace/",
+    ] {
         let refused = fetch(format!("/s/{token}/{missing}")).await.unwrap();
-        assert_eq!(refused.status(), StatusCode::NOT_FOUND, "`{missing}` must not be served");
+        assert_eq!(
+            refused.status(),
+            StatusCode::NOT_FOUND,
+            "`{missing}` must not be served"
+        );
     }
     // The page's import map names every one of them by that path.
     let index = fetch(format!("/s/{token}/")).await.unwrap();
-    let html = String::from_utf8(index.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
-    for name in ["sdk.js", "canvas.js", "ui.js", "react.js", "react-jsx-runtime.js", "react-dom-client.js", "automerge.js"] {
-        assert!(html.contains(&format!("./_localspace/{name}")), "{name} in the import map: {html}");
+    let html = String::from_utf8(
+        index
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
+    for name in [
+        "sdk.js",
+        "canvas.js",
+        "ui.js",
+        "react.js",
+        "react-jsx-runtime.js",
+        "react-dom-client.js",
+        "automerge.js",
+    ] {
+        assert!(
+            html.contains(&format!("./_localspace/{name}")),
+            "{name} in the import map: {html}"
+        );
     }
 }

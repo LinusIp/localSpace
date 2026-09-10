@@ -8,7 +8,7 @@
 mod output;
 
 use anyhow::Result;
-use localspace_core::{planner, profile, transport, Config, Core};
+use localspace_core::{Config, Core, planner, profile, transport};
 use localspace_proto as proto;
 use output::{err, out};
 use std::path::PathBuf;
@@ -121,7 +121,10 @@ fn config(args: &Args) -> Config {
     cfg.data_dir = args.data.clone();
     cfg.catalog_dirs = if args.registry.is_empty() {
         // An offline bundle sitting next to the installed set is the common case.
-        vec![PathBuf::from("registry")].into_iter().filter(|p| p.exists()).collect()
+        vec![PathBuf::from("registry")]
+            .into_iter()
+            .filter(|p| p.exists())
+            .collect()
     } else {
         args.registry.clone()
     };
@@ -167,8 +170,8 @@ fn main() -> Result<()> {
 /// and an agent cannot diverge: permission check, schema validation, confirmation
 /// gate, DAG commit.
 fn call(args: &Args, tool: &str, params: &str) -> Result<()> {
-    let params: serde_json::Value = serde_json::from_str(params)
-        .map_err(|e| anyhow::anyhow!("params must be JSON: {e}"))?;
+    let params: serde_json::Value =
+        serde_json::from_str(params).map_err(|e| anyhow::anyhow!("params must be JSON: {e}"))?;
     let mut core = Core::new(config(args))?;
     match core.handle(proto::Request::CallTool {
         tool: tool.to_string(),
@@ -291,7 +294,10 @@ fn bench(args: &Args) -> Result<()> {
     let elapsed = started.elapsed();
 
     out!("machine                       {}", machine.describe());
-    out!("harnesses installed           {}", core.environment().harnesses.len());
+    out!(
+        "harnesses installed           {}",
+        core.environment().harnesses.len()
+    );
     out!(
         "active tool set               {} tools, ~{} of {} tokens",
         active.tools.len(),
@@ -304,7 +310,10 @@ fn bench(args: &Args) -> Result<()> {
         "provider cache hit rate       {:.0}%",
         core.provider_cache_hit_rate() * 100.0
     );
-    out!("turn assembly                 {:.2} ms", elapsed.as_secs_f32() * 1000.0);
+    out!(
+        "turn assembly                 {:.2} ms",
+        elapsed.as_secs_f32() * 1000.0
+    );
 
     // §1.2: the app itself is budgeted at 50 MB private RSS, Client and Core
     // each. This process is both, with the harnesses instantiated, so it is the
@@ -345,7 +354,10 @@ fn evals(args: &Args, harness: &str) -> Result<()> {
         proto::Response::Evals(report) => {
             out!(
                 "{}: {}/{} passed on {}",
-                report.harness, report.passed, report.total, report.model
+                report.harness,
+                report.passed,
+                report.total,
+                report.model
             );
             for case in &report.cases {
                 out!(
@@ -403,9 +415,11 @@ fn run_gui(args: Args) -> Result<()> {
     // example `basic` for the CPU rasterizer — instead of the most powerful one.
     if let Ok(want) = std::env::var("LOCALSPACE_GPU") {
         let needle = want.to_lowercase();
-        if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
+        if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup
+        {
             setup.native_adapter_selector = Some(std::sync::Arc::new(
-                move |adapters: &[eframe::wgpu::Adapter], _surface: Option<&eframe::wgpu::Surface<'_>>| {
+                move |adapters: &[eframe::wgpu::Adapter],
+                      _surface: Option<&eframe::wgpu::Surface<'_>>| {
                     adapters
                         .iter()
                         .find(|a| a.get_info().name.to_lowercase().contains(&needle))
@@ -416,7 +430,10 @@ fn run_gui(args: Args) -> Result<()> {
         }
         tracing::info!("gpu selector: {want}");
     }
-    if let Some(n) = std::env::var("LOCALSPACE_FRAME_LATENCY").ok().and_then(|s| s.parse::<u32>().ok()) {
+    if let Some(n) = std::env::var("LOCALSPACE_FRAME_LATENCY")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+    {
         options.wgpu_options.surface.desired_maximum_frame_latency = Some(n);
     }
 

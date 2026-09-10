@@ -22,8 +22,13 @@ fn main() {
         .find(|w| w[0] == "--alias")
         .map(|w| w[1].clone())
         .unwrap_or_else(|| "fake".into());
-    let load_ms: u64 = std::env::var("FAKE_LLAMA_LOAD_MS").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let crash_ms: Option<u64> = std::env::var("FAKE_LLAMA_CRASH_AFTER_MS").ok().and_then(|s| s.parse().ok());
+    let load_ms: u64 = std::env::var("FAKE_LLAMA_LOAD_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let crash_ms: Option<u64> = std::env::var("FAKE_LLAMA_CRASH_AFTER_MS")
+        .ok()
+        .and_then(|s| s.parse().ok());
 
     eprintln!("fake llama-server: args {:?}", &args[1..]);
     let started = Instant::now();
@@ -51,7 +56,8 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str) {
     let mut content_length = 0usize;
     loop {
         let mut line = String::new();
-        if reader.read_line(&mut line).is_err() || line == "\r\n" || line == "\n" || line.is_empty() {
+        if reader.read_line(&mut line).is_err() || line == "\r\n" || line == "\n" || line.is_empty()
+        {
             break;
         }
         if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
@@ -68,10 +74,17 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str) {
         if ready {
             (200, r#"{"status":"ok"}"#.to_string())
         } else {
-            (503, r#"{"error":{"code":503,"message":"Loading model","type":"unavailable_error"}}"#.to_string())
+            (
+                503,
+                r#"{"error":{"code":503,"message":"Loading model","type":"unavailable_error"}}"#
+                    .to_string(),
+            )
         }
     } else if path.starts_with("/v1/models") {
-        (200, format!(r#"{{"object":"list","data":[{{"id":"{alias}","object":"model"}}]}}"#))
+        (
+            200,
+            format!(r#"{{"object":"list","data":[{{"id":"{alias}","object":"model"}}]}}"#),
+        )
     } else if path.starts_with("/v1/chat/completions") {
         (
             200,

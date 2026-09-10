@@ -44,11 +44,12 @@ impl Exposure<'_> {
         // Rank 1 — the focused harness, in full.
         if let Some(focus) = self.focus
             && let Some(h) = self.registry.get(focus)
-                && h.enabled {
-                    for tool in &h.tools.tools {
-                        candidates.push((1, expose(h.id(), tool, ExposureReason::Focused)));
-                    }
-                }
+            && h.enabled
+        {
+            for tool in &h.tools.tools {
+                candidates.push((1, expose(h.id(), tool, ExposureReason::Focused)));
+            }
+        }
 
         // Rank 2 — pinned harnesses, front door only.
         // Rank 3 — harnesses this conversation has touched, front door only.
@@ -121,8 +122,7 @@ impl Exposure<'_> {
         }
 
         // Emission order: by harness id, then tool name. Stable across focus changes.
-        let mut tools: Vec<proto::ExposedTool> =
-            candidates.into_iter().map(|(_, t)| t).collect();
+        let mut tools: Vec<proto::ExposedTool> = candidates.into_iter().map(|(_, t)| t).collect();
         tools.sort_by(|a, b| a.harness.cmp(&b.harness).then(a.name.cmp(&b.name)));
 
         let token_estimate = tools.iter().map(token_cost).sum();
@@ -280,7 +280,12 @@ pub fn rank_capabilities(registry: &Registry, need: &str) -> Vec<proto::Capabili
             continue;
         }
         for t in &h.tools.tools {
-            let text = format!("{} {} {}", t.name.replace(['.', '_'], " "), t.summary, h.manifest.harness.title);
+            let text = format!(
+                "{} {} {}",
+                t.name.replace(['.', '_'], " "),
+                t.summary,
+                h.manifest.harness.title
+            );
             docs.push((
                 h.id().to_string(),
                 t.name.clone(),
@@ -306,11 +311,7 @@ pub fn rank_capabilities(registry: &Registry, need: &str) -> Vec<proto::Capabili
                 if tf == 0.0 {
                     continue;
                 }
-                let df = docs
-                    .iter()
-                    .filter(|d| d.3.contains(term))
-                    .count()
-                    .max(1) as f32;
+                let df = docs.iter().filter(|d| d.3.contains(term)).count().max(1) as f32;
                 let idf = (((n - df + 0.5) / (df + 0.5)) + 1.0).ln();
                 // BM25 with k1 = 1.2, b = 0.75.
                 score += idf * (tf * 2.2) / (tf + 1.2 * (0.25 + 0.75 * len / avg_len));
@@ -325,7 +326,11 @@ pub fn rank_capabilities(registry: &Registry, need: &str) -> Vec<proto::Capabili
         .filter(|h| h.score > 0.0)
         .collect();
 
-    hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    hits.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     hits.truncate(8);
     hits
 }
@@ -397,7 +402,11 @@ context_provider = true
             "io.localspace.whiteboard",
             serde_json::json!([
                 tool("canvas.list", "List frames and shapes on the board.", true),
-                tool("canvas.add_shape", "Add a rectangle, ellipse or arrow.", true),
+                tool(
+                    "canvas.add_shape",
+                    "Add a rectangle, ellipse or arrow.",
+                    true
+                ),
                 tool("canvas.move", "Move a shape to new coordinates.", false),
                 tool("canvas.delete", "Delete a shape from the board.", false),
             ]),
@@ -412,7 +421,11 @@ context_provider = true
         r.insert(harness(
             "io.localspace.physics",
             serde_json::json!([
-                tool("sim.run", "Run the rigid-body simulation and report results.", true),
+                tool(
+                    "sim.run",
+                    "Run the rigid-body simulation and report results.",
+                    true
+                ),
                 tool("sim.add_body", "Add a rigid body to the scene.", false),
             ]),
         ));
@@ -454,7 +467,10 @@ context_provider = true
         let set = exposure(&reg, &p, Some("io.localspace.whiteboard"), &pinned, &[]).active_set();
         let names: Vec<&str> = set.tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"board.columns"), "front door is present");
-        assert!(!names.contains(&"board.add_card"), "non-front-door must stay out");
+        assert!(
+            !names.contains(&"board.add_card"),
+            "non-front-door must stay out"
+        );
     }
 
     #[test]
@@ -486,7 +502,10 @@ context_provider = true
             v
         };
         assert_eq!(harness_order(&a), harness_order(&b));
-        assert!(harness_order(&a).windows(2).all(|w| w[0] <= w[1]), "sorted by id");
+        assert!(
+            harness_order(&a).windows(2).all(|w| w[0] <= w[1]),
+            "sorted by id"
+        );
     }
 
     #[test]
@@ -508,10 +527,15 @@ context_provider = true
     #[test]
     fn the_budget_drops_pinned_harnesses_before_the_focused_one() {
         let reg = registry();
-        let focused_only =
-            exposure(&reg, &ModelProfile::server(), Some("io.localspace.whiteboard"), &[], &[])
-                .active_set()
-                .token_estimate;
+        let focused_only = exposure(
+            &reg,
+            &ModelProfile::server(),
+            Some("io.localspace.whiteboard"),
+            &[],
+            &[],
+        )
+        .active_set()
+        .token_estimate;
         // Room for the builtins and the whole focused harness, but nothing more.
         let tight = ModelProfile {
             tool_budget_tokens: focused_only,
@@ -524,12 +548,18 @@ context_provider = true
         let set =
             exposure(&reg, &tight, Some("io.localspace.whiteboard"), &pinned, &[]).active_set();
 
-        assert!(!set.dropped.is_empty(), "the trace must say what was dropped");
+        assert!(
+            !set.dropped.is_empty(),
+            "the trace must say what was dropped"
+        );
         assert!(
             set.tools.iter().any(|t| t.name == "canvas.move"),
             "a pinned harness goes before any part of the focused one"
         );
-        assert!(!set.dropped.contains(&"io.localspace.whiteboard".to_string()));
+        assert!(
+            !set.dropped
+                .contains(&"io.localspace.whiteboard".to_string())
+        );
     }
 
     /// What Core's own always-present tools cost. Budgets in these tests are set
@@ -569,7 +599,9 @@ context_provider = true
         // Front doors are what the harness most wants reachable, so a non-front-door
         // tool goes before one of them.
         assert!(
-            set.dropped.iter().any(|d| d == "canvas.move" || d == "canvas.delete"),
+            set.dropped
+                .iter()
+                .any(|d| d == "canvas.move" || d == "canvas.delete"),
             "dropped {:?}",
             set.dropped
         );
@@ -578,11 +610,23 @@ context_provider = true
     #[test]
     fn the_budget_comes_from_the_profile() {
         let reg = registry();
-        let set = exposure(&reg, &ModelProfile::w32(), Some("io.localspace.whiteboard"), &[], &[])
-            .active_set();
+        let set = exposure(
+            &reg,
+            &ModelProfile::w32(),
+            Some("io.localspace.whiteboard"),
+            &[],
+            &[],
+        )
+        .active_set();
         assert_eq!(set.budget, 2500);
-        let set = exposure(&reg, &ModelProfile::server(), Some("io.localspace.whiteboard"), &[], &[])
-            .active_set();
+        let set = exposure(
+            &reg,
+            &ModelProfile::server(),
+            Some("io.localspace.whiteboard"),
+            &[],
+            &[],
+        )
+        .active_set();
         assert_eq!(set.budget, 4000);
     }
 

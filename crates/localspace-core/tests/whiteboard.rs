@@ -12,7 +12,7 @@ use anyhow::Result;
 use localspace_core::model::{ChatReply, ChatRequest, ModelWorker, ProposedCall};
 use localspace_core::{Config, Core};
 use localspace_proto as proto;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -169,7 +169,11 @@ fn a_bad_parameter_is_refused_before_the_harness_sees_it() {
 #[test]
 fn the_harness_reports_its_own_failures_without_corrupting_the_document() {
     let Some(mut core) = core() else { return };
-    match call(&mut core, "canvas.move", json!({"id": "nope", "x": 1, "y": 2})) {
+    match call(
+        &mut core,
+        "canvas.move",
+        json!({"id": "nope", "x": 1, "y": 2}),
+    ) {
         proto::ToolOutcome::Error { message } => assert!(message.contains("no shape"), "{message}"),
         other => panic!("expected the harness's own error, got {other:?}"),
     }
@@ -255,7 +259,11 @@ fn the_provider_is_not_re_run_when_the_document_has_not_changed() {
 #[test]
 fn the_widgets_view_renders_from_the_document() {
     let Some(mut core) = core() else { return };
-    call(&mut core, "canvas.set_title", json!({"title": "Q4 planning"}));
+    call(
+        &mut core,
+        "canvas.set_title",
+        json!({"title": "Q4 planning"}),
+    );
 
     match core.handle(proto::Request::GetWidgetView {
         harness: WHITEBOARD.into(),
@@ -451,14 +459,20 @@ fn the_packages_declare_what_they_produce_and_accept() {
     let Some(core) = core_with_both() else { return };
     let env = core.environment();
     let board = env.harnesses.iter().find(|h| h.id == WHITEBOARD).unwrap();
-    let planner = env.harnesses.iter().find(|h| h.id == "io.localspace.planner").unwrap();
+    let planner = env
+        .harnesses
+        .iter()
+        .find(|h| h.id == "io.localspace.planner")
+        .unwrap();
     assert_eq!(board.produces, vec!["outline.v1".to_string()]);
     assert_eq!(planner.accepts, vec!["outline.v1".to_string()]);
 }
 
 #[test]
 fn exporting_registers_an_artifact_pinned_to_a_commit() {
-    let Some(mut core) = core_with_both() else { return };
+    let Some(mut core) = core_with_both() else {
+        return;
+    };
     stickies(&mut core, 3);
 
     let outcome = call(&mut core, "canvas.export_outline", json!({}));
@@ -479,7 +493,11 @@ fn exporting_registers_an_artifact_pinned_to_a_commit() {
     assert_eq!(art.id, "art_1");
     assert_eq!(art.kind, "outline.v1");
     assert_eq!(art.produced_by, WHITEBOARD);
-    assert_eq!(Some(art.commit.clone()), commit, "pinned to the commit the export made");
+    assert_eq!(
+        Some(art.commit.clone()),
+        commit,
+        "pinned to the commit the export made"
+    );
     assert!(art.summary.contains("3 item(s)"), "{}", art.summary);
 
     // The artifact is a reference into the DAG, not a copy: the pinned version
@@ -495,13 +513,27 @@ fn exporting_registers_an_artifact_pinned_to_a_commit() {
 
 #[test]
 fn a_handoff_lands_the_outline_as_cards_on_the_planning_board() {
-    let Some(mut core) = core_with_both() else { return };
-    call(&mut core, "canvas.add_sticky", json!({"text": "Supply chain", "fill": "red"}));
-    call(&mut core, "canvas.add_sticky", json!({"text": "Hiring", "fill": "red"}));
+    let Some(mut core) = core_with_both() else {
+        return;
+    };
+    call(
+        &mut core,
+        "canvas.add_sticky",
+        json!({"text": "Supply chain", "fill": "red"}),
+    );
+    call(
+        &mut core,
+        "canvas.add_sticky",
+        json!({"text": "Hiring", "fill": "red"}),
+    );
     call(&mut core, "canvas.export_outline", json!({}));
 
     // The board moves on after the export; the artifact must not.
-    call(&mut core, "canvas.add_sticky", json!({"text": "Added later", "fill": "grey"}));
+    call(
+        &mut core,
+        "canvas.add_sticky",
+        json!({"text": "Added later", "fill": "grey"}),
+    );
 
     let outcome = call(
         &mut core,
@@ -510,7 +542,10 @@ fn a_handoff_lands_the_outline_as_cards_on_the_planning_board() {
     );
     match outcome {
         proto::ToolOutcome::Ok { diff_summary, .. } => {
-            assert!(diff_summary.contains("imported 2 card(s)"), "{diff_summary}");
+            assert!(
+                diff_summary.contains("imported 2 card(s)"),
+                "{diff_summary}"
+            );
             assert!(diff_summary.contains("art_1"), "{diff_summary}");
         }
         other => panic!("import failed: {other:?}"),
@@ -525,26 +560,49 @@ fn a_handoff_lands_the_outline_as_cards_on_the_planning_board() {
     let texts: Vec<&str> = cards.iter().map(|c| c["text"].as_str().unwrap()).collect();
     assert!(texts.contains(&"Supply chain"));
     assert!(texts.contains(&"Hiring"));
-    assert!(!texts.contains(&"Added later"), "the handoff must use the pinned version");
+    assert!(
+        !texts.contains(&"Added later"),
+        "the handoff must use the pinned version"
+    );
     assert!(cards.iter().all(|c| c["column"] == "In progress"));
-    assert_eq!(cards[0]["source"]["artifact"], "art_1", "each card cites where it came from");
+    assert_eq!(
+        cards[0]["source"]["artifact"], "art_1",
+        "each card cites where it came from"
+    );
 
     // Both legs are audited.
-    let events: Vec<String> = core.audit_log().records().iter().map(|r| r.event.clone()).collect();
-    assert!(events.contains(&"artifact.produced".to_string()), "{events:?}");
-    assert!(events.contains(&"artifact.handoff".to_string()), "{events:?}");
+    let events: Vec<String> = core
+        .audit_log()
+        .records()
+        .iter()
+        .map(|r| r.event.clone())
+        .collect();
+    assert!(
+        events.contains(&"artifact.produced".to_string()),
+        "{events:?}"
+    );
+    assert!(
+        events.contains(&"artifact.handoff".to_string()),
+        "{events:?}"
+    );
 }
 
 #[test]
 fn a_handoff_to_a_harness_that_does_not_accept_the_type_is_refused_with_a_suggestion() {
-    let Some(mut core) = core_with_both() else { return };
+    let Some(mut core) = core_with_both() else {
+        return;
+    };
     stickies(&mut core, 1);
     call(&mut core, "canvas.export_outline", json!({}));
 
     // The whiteboard produces outline.v1 but does not accept it. Handing the
     // artifact to one of its own tools must be refused before the harness runs,
     // and the refusal must say who would take it.
-    match call(&mut core, "canvas.set_title", json!({"title": "x", "artifact": "art_1"})) {
+    match call(
+        &mut core,
+        "canvas.set_title",
+        json!({"title": "x", "artifact": "art_1"}),
+    ) {
         proto::ToolOutcome::Denied { reason } => {
             assert!(reason.contains("does not accept outline.v1"), "{reason}");
             assert!(reason.contains("io.localspace.planner"), "{reason}");
@@ -553,7 +611,11 @@ fn a_handoff_to_a_harness_that_does_not_accept_the_type_is_refused_with_a_sugges
     }
 
     // An artifact that does not exist is refused by name, listing what does.
-    match call(&mut core, "board.import_outline", json!({"artifact": "art_9"})) {
+    match call(
+        &mut core,
+        "board.import_outline",
+        json!({"artifact": "art_9"}),
+    ) {
         proto::ToolOutcome::Denied { reason } => {
             assert!(reason.contains("art_9"), "{reason}");
             assert!(reason.contains("art_1"), "{reason}");
@@ -564,7 +626,9 @@ fn a_handoff_to_a_harness_that_does_not_accept_the_type_is_refused_with_a_sugges
 
 #[test]
 fn the_ledger_is_in_the_prompt_whichever_harness_is_focused() {
-    let Some(mut core) = core_with_both() else { return };
+    let Some(mut core) = core_with_both() else {
+        return;
+    };
     stickies(&mut core, 1);
     call(&mut core, "canvas.export_outline", json!({}));
     call(
@@ -582,7 +646,10 @@ fn the_ledger_is_in_the_prompt_whichever_harness_is_focused() {
         });
         match core.handle(proto::Request::PreviewContext { budget: 600 }) {
             proto::Response::Context { prompt_preview, .. } => {
-                assert!(prompt_preview.contains("[task "), "focused {focus}: no ledger");
+                assert!(
+                    prompt_preview.contains("[task "),
+                    "focused {focus}: no ledger"
+                );
                 assert!(prompt_preview.contains("art_1 outline.v1 from io.localspace.whiteboard"));
                 assert!(prompt_preview.contains("make them cards"));
                 // The ledger sits after the stable prefix, before the conversation.
@@ -598,7 +665,9 @@ fn the_ledger_is_in_the_prompt_whichever_harness_is_focused() {
 
 #[test]
 fn a_plan_may_only_name_installed_harnesses() {
-    let Some(mut core) = core_with_both() else { return };
+    let Some(mut core) = core_with_both() else {
+        return;
+    };
     match call(
         &mut core,
         "task.plan",
@@ -610,7 +679,10 @@ fn a_plan_may_only_name_installed_harnesses() {
         }
         other => panic!("expected an error, got {other:?}"),
     }
-    assert!(task_of(&mut core).plan.is_empty(), "a refused plan writes nothing");
+    assert!(
+        task_of(&mut core).plan.is_empty(),
+        "a refused plan writes nothing"
+    );
 }
 
 #[test]
@@ -618,7 +690,9 @@ fn an_artifact_of_an_undeclared_kind_is_not_registered() {
     // A harness may only register kinds it declares it produces. The planner
     // declares none, so even a well-formed `artifact` in a result is refused —
     // in the trace, not silently.
-    let Some(mut core) = core_with_both() else { return };
+    let Some(mut core) = core_with_both() else {
+        return;
+    };
     let planner_produces = core
         .environment()
         .harnesses
@@ -651,7 +725,10 @@ fn package_in(bundle: &std::path::Path, name: &str, id: &str, extra: &str) -> Op
     std::fs::copy(src.join("ui/board.wasm"), dst.join("ui/board.wasm")).unwrap();
     let manifest = std::fs::read_to_string(src.join("harness.toml"))
         .unwrap()
-        .replace("id = \"io.localspace.whiteboard\"", &format!("id = \"{id}\""));
+        .replace(
+            "id = \"io.localspace.whiteboard\"",
+            &format!("id = \"{id}\""),
+        );
     std::fs::write(dst.join("harness.toml"), format!("{manifest}\n{extra}\n")).unwrap();
     Some(())
 }
@@ -678,7 +755,13 @@ fn lock_of(core: &mut Core) -> Value {
 #[test]
 fn installing_a_harness_pulls_its_library_first_and_locks_both() {
     let bundle = tempfile::tempdir().unwrap();
-    library_in(bundle.path(), "geo", "io.test.geo", "1.4.0", "test.geometry.v1");
+    library_in(
+        bundle.path(),
+        "geo",
+        "io.test.geo",
+        "1.4.0",
+        "test.geometry.v1",
+    );
     if package_in(
         bundle.path(),
         "app",
@@ -693,7 +776,10 @@ fn installing_a_harness_pulls_its_library_first_and_locks_both() {
     let mut cfg = Config::personal("tester");
     cfg.catalog_dirs = vec![bundle.path().to_path_buf()];
     let mut core = Core::new(cfg).unwrap();
-    assert!(core.environment().harnesses.is_empty(), "nothing installed yet");
+    assert!(
+        core.environment().harnesses.is_empty(),
+        "nothing installed yet"
+    );
 
     let res = core.handle(proto::Request::InstallHarness {
         path: bundle.path().join("app").display().to_string(),
@@ -702,14 +788,25 @@ fn installing_a_harness_pulls_its_library_first_and_locks_both() {
 
     let env = core.environment();
     let ids: Vec<&str> = env.harnesses.iter().map(|h| h.id.as_str()).collect();
-    assert!(ids.contains(&"io.test.geo"), "the library came in first: {ids:?}");
+    assert!(
+        ids.contains(&"io.test.geo"),
+        "the library came in first: {ids:?}"
+    );
     assert!(ids.contains(&"io.test.app"));
 
-    let geo = env.harnesses.iter().find(|h| h.id == "io.test.geo").unwrap();
+    let geo = env
+        .harnesses
+        .iter()
+        .find(|h| h.id == "io.test.geo")
+        .unwrap();
     assert_eq!(geo.kind, "library");
     assert_eq!(geo.tool_count, 0, "a library has no tools");
     assert!(!geo.loaded, "a library has nothing to run");
-    assert_eq!(env.focus.as_deref(), Some("io.test.app"), "focus goes to a harness, never a library");
+    assert_eq!(
+        env.focus.as_deref(),
+        Some("io.test.app"),
+        "focus goes to a harness, never a library"
+    );
 
     // The lock: both packages, exact versions, real content hashes.
     let lock = lock_of(&mut core);
@@ -718,13 +815,20 @@ fn installing_a_harness_pulls_its_library_first_and_locks_both() {
     let locked_geo = packages.iter().find(|p| p["id"] == "io.test.geo").unwrap();
     assert_eq!(locked_geo["version"], "1.4.0");
     assert_eq!(locked_geo["kind"], "library");
-    assert_eq!(locked_geo["hash"].as_str().unwrap().len(), 64, "a blake3 hex digest");
+    assert_eq!(
+        locked_geo["hash"].as_str().unwrap().len(),
+        64,
+        "a blake3 hex digest"
+    );
     assert_eq!(locked_geo["interfaces"][0], "test.geometry.v1");
 
     // And it is a document in the DAG: the change to the environment is a commit.
     match core.handle(proto::Request::GetHistory { limit: 20 }) {
         proto::Response::History { commits } => {
-            assert!(commits.iter().any(|c| c.tool == "environment.lock"), "{commits:?}");
+            assert!(
+                commits.iter().any(|c| c.tool == "environment.lock"),
+                "{commits:?}"
+            );
         }
         other => panic!("{other:?}"),
     }
@@ -733,12 +837,37 @@ fn installing_a_harness_pulls_its_library_first_and_locks_both() {
 #[test]
 fn incompatible_requirements_are_refused_naming_both_dependents() {
     let bundle = tempfile::tempdir().unwrap();
-    library_in(bundle.path(), "geo1", "io.test.geo", "1.4.0", "test.geometry.v1");
-    library_in(bundle.path(), "geo2", "io.test.geo", "2.0.0", "test.geometry.v1");
-    if package_in(bundle.path(), "a", "io.test.a", "[dependencies]\n\"io.test.geo\" = \"^1.2\"").is_none() {
+    library_in(
+        bundle.path(),
+        "geo1",
+        "io.test.geo",
+        "1.4.0",
+        "test.geometry.v1",
+    );
+    library_in(
+        bundle.path(),
+        "geo2",
+        "io.test.geo",
+        "2.0.0",
+        "test.geometry.v1",
+    );
+    if package_in(
+        bundle.path(),
+        "a",
+        "io.test.a",
+        "[dependencies]\n\"io.test.geo\" = \"^1.2\"",
+    )
+    .is_none()
+    {
         return;
     }
-    package_in(bundle.path(), "b", "io.test.b", "[dependencies]\n\"io.test.geo\" = \"^2.0\"").unwrap();
+    package_in(
+        bundle.path(),
+        "b",
+        "io.test.b",
+        "[dependencies]\n\"io.test.geo\" = \"^2.0\"",
+    )
+    .unwrap();
 
     let mut cfg = Config::personal("tester");
     cfg.catalog_dirs = vec![bundle.path().to_path_buf()];
@@ -762,7 +891,11 @@ fn incompatible_requirements_are_refused_naming_both_dependents() {
         }
         other => panic!("expected a conflict, got {other:?}"),
     }
-    assert_eq!(lock_of(&mut core)["packages"].as_array().unwrap().len(), 2, "a and geo 1.4.0 only");
+    assert_eq!(
+        lock_of(&mut core)["packages"].as_array().unwrap().len(),
+        2,
+        "a and geo 1.4.0 only"
+    );
 }
 
 #[test]
@@ -794,7 +927,9 @@ fn a_missing_provider_for_an_interface_is_a_clear_refusal() {
 
 #[test]
 fn uninstalling_rewrites_the_lock() {
-    let Some(mut core) = core_with_both() else { return };
+    let Some(mut core) = core_with_both() else {
+        return;
+    };
     assert_eq!(lock_of(&mut core)["packages"].as_array().unwrap().len(), 2);
     core.handle(proto::Request::UninstallHarness {
         harness: "io.localspace.planner".into(),
@@ -856,7 +991,11 @@ fn aligning_puts_every_shape_on_one_edge() {
         );
     }
 
-    match call(&mut core, "canvas.align", json!({"ids": ids, "edge": "left"})) {
+    match call(
+        &mut core,
+        "canvas.align",
+        json!({"ids": ids, "edge": "left"}),
+    ) {
         proto::ToolOutcome::Ok { diff_summary, .. } => {
             assert!(diff_summary.contains("aligned 3"), "{diff_summary}");
         }
@@ -864,7 +1003,10 @@ fn aligning_puts_every_shape_on_one_edge() {
     }
 
     let shapes = full(&mut core);
-    let xs: Vec<f64> = ids.iter().map(|id| shape(&shapes, id)["x"].as_f64().unwrap()).collect();
+    let xs: Vec<f64> = ids
+        .iter()
+        .map(|id| shape(&shapes, id)["x"].as_f64().unwrap())
+        .collect();
     assert!(
         xs.windows(2).all(|w| (w[0] - w[1]).abs() < 0.001),
         "left edges did not line up: {xs:?}"
@@ -881,10 +1023,17 @@ fn distributing_spaces_shapes_evenly_between_the_outermost_two() {
         call(&mut core, "canvas.move", json!({"id": id, "x": x, "y": 0}));
     }
 
-    call(&mut core, "canvas.distribute", json!({"ids": ids, "axis": "x"}));
+    call(
+        &mut core,
+        "canvas.distribute",
+        json!({"ids": ids, "axis": "x"}),
+    );
 
     let shapes = full(&mut core);
-    let mut xs: Vec<f64> = ids.iter().map(|id| shape(&shapes, id)["x"].as_f64().unwrap()).collect();
+    let mut xs: Vec<f64> = ids
+        .iter()
+        .map(|id| shape(&shapes, id)["x"].as_f64().unwrap())
+        .collect();
     xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
     // The two outermost stay put; the gaps between all four become equal.
     assert_eq!(xs[0], 0.0);
@@ -913,7 +1062,12 @@ fn duplicate_copies_offset_and_selects_the_copies() {
     let original = shape(&shapes, &ids[0]).clone();
     let copy = shapes
         .iter()
-        .find(|s| s["id"].as_str().unwrap().starts_with(&format!("{}_", ids[0])))
+        .find(|s| {
+            s["id"]
+                .as_str()
+                .unwrap()
+                .starts_with(&format!("{}_", ids[0]))
+        })
         .expect("no copy of the first sticky");
     assert_eq!(copy["text"], original["text"]);
     assert_eq!(
@@ -937,18 +1091,25 @@ fn ordering_changes_which_shape_is_on_top() {
     let Some(mut core) = core() else { return };
     let ids = stickies(&mut core, 3);
 
-    let z_of = |core: &mut Core, id: &str| -> i64 {
-        shape(&full(core), id)["z"].as_i64().unwrap_or(0)
-    };
+    let z_of =
+        |core: &mut Core, id: &str| -> i64 { shape(&full(core), id)["z"].as_i64().unwrap_or(0) };
     assert!(z_of(&mut core, &ids[0]) < z_of(&mut core, &ids[2]));
 
-    call(&mut core, "canvas.order", json!({"ids": [ids[0].clone()], "to": "front"}));
+    call(
+        &mut core,
+        "canvas.order",
+        json!({"ids": [ids[0].clone()], "to": "front"}),
+    );
     assert!(
         z_of(&mut core, &ids[0]) > z_of(&mut core, &ids[2]),
         "front did not put it on top"
     );
 
-    call(&mut core, "canvas.order", json!({"ids": [ids[0].clone()], "to": "back"}));
+    call(
+        &mut core,
+        "canvas.order",
+        json!({"ids": [ids[0].clone()], "to": "back"}),
+    );
     assert!(
         z_of(&mut core, &ids[0]) < z_of(&mut core, &ids[1]),
         "back did not put it underneath"
@@ -961,7 +1122,11 @@ fn a_locked_shape_refuses_every_edit_except_unlocking() {
     let ids = stickies(&mut core, 1);
     let id = ids[0].clone();
 
-    call(&mut core, "canvas.lock", json!({"ids": [id.clone()], "locked": true}));
+    call(
+        &mut core,
+        "canvas.lock",
+        json!({"ids": [id.clone()], "locked": true}),
+    );
 
     for (tool, params) in [
         ("canvas.move", json!({"id": id, "x": 500, "y": 500})),
@@ -981,9 +1146,17 @@ fn a_locked_shape_refuses_every_edit_except_unlocking() {
     assert_eq!(shapes.len(), 1);
     assert_eq!(shape(&shapes, &id)["locked"], true);
 
-    call(&mut core, "canvas.lock", json!({"ids": [id.clone()], "locked": false}));
+    call(
+        &mut core,
+        "canvas.lock",
+        json!({"ids": [id.clone()], "locked": false}),
+    );
     assert!(matches!(
-        call(&mut core, "canvas.move", json!({"id": id, "x": 500, "y": 500})),
+        call(
+            &mut core,
+            "canvas.move",
+            json!({"id": id, "x": 500, "y": 500})
+        ),
         proto::ToolOutcome::Ok { .. }
     ));
 }
@@ -1015,14 +1188,25 @@ fn the_declared_schema_is_the_only_contract() {
     // the grammar would never have produced.
     let Some(mut core) = core() else { return };
     let ids = stickies(&mut core, 1);
-    match call(&mut core, "canvas.order", json!({"id": ids[0], "to": "front"})) {
+    match call(
+        &mut core,
+        "canvas.order",
+        json!({"id": ids[0], "to": "front"}),
+    ) {
         proto::ToolOutcome::Error { message } => {
             assert!(message.contains("required"), "{message}");
-            assert!(message.contains("ids"), "the message must name it: {message}");
+            assert!(
+                message.contains("ids"),
+                "the message must name it: {message}"
+            );
         }
         other => panic!("expected a schema refusal, got {other:?}"),
     }
-    match call(&mut core, "canvas.order", json!({"ids": [ids[0]], "to": "front"})) {
+    match call(
+        &mut core,
+        "canvas.order",
+        json!({"ids": [ids[0]], "to": "front"}),
+    ) {
         proto::ToolOutcome::Ok { .. } => {}
         other => panic!("the declared form must work: {other:?}"),
     }
@@ -1079,7 +1263,10 @@ fn the_catalog_lists_the_bundle_and_marks_what_is_installed() {
         .iter()
         .find(|e| e.id == "io.localspace.planner")
         .expect("the planner is missing from the catalog");
-    assert!(!planner.installed, "it is only in the bundle, not installed");
+    assert!(
+        !planner.installed,
+        "it is only in the bundle, not installed"
+    );
     assert!(planner.blocked.is_none());
     assert_eq!(planner.tier, proto::Tier::Wasm);
     assert!(planner.tool_count >= 8);
@@ -1154,7 +1341,11 @@ fn installing_from_the_catalog_makes_the_harness_usable() {
 
     // After: it installs, exposes its tools, and writes to its own document.
     let env = core.environment();
-    assert!(env.harnesses.iter().any(|h| h.id == "io.localspace.planner"));
+    assert!(
+        env.harnesses
+            .iter()
+            .any(|h| h.id == "io.localspace.planner")
+    );
 
     let outcome = core.call_tool(
         "board.add_card",
@@ -1228,7 +1419,10 @@ fn an_update_that_widens_capabilities_waits_for_the_user() {
         path: staged.display().to_string(),
     }) {
         proto::Response::InstallPrompt { diff, token, .. } => {
-            assert!(diff.iter().any(|l| l.contains("model.complete")), "{diff:?}");
+            assert!(
+                diff.iter().any(|l| l.contains("model.complete")),
+                "{diff:?}"
+            );
             assert!(diff.iter().any(|l| l.contains("documents")), "{diff:?}");
             token
         }
@@ -1262,9 +1456,11 @@ fn an_update_that_widens_capabilities_waits_for_the_user() {
     assert_eq!(installed_version(&core).as_deref(), Some("1.1.0"));
 
     let records = core.audit_log().records();
-    assert!(records
-        .iter()
-        .any(|r| r.event == "harness.capabilities_approved"));
+    assert!(
+        records
+            .iter()
+            .any(|r| r.event == "harness.capabilities_approved")
+    );
 }
 
 #[test]
@@ -1353,7 +1549,10 @@ fn find_capability_picks_the_right_harness_out_of_two() {
     core.handle(proto::Request::SetFocus { harness: None });
 
     for (need, expected) in [
-        ("move a card to another column on the board", "io.localspace.planner"),
+        (
+            "move a card to another column on the board",
+            "io.localspace.planner",
+        ),
         ("draw a red sticky note on a canvas", WHITEBOARD),
     ] {
         match core.handle(proto::Request::FindCapability { need: need.into() }) {
@@ -1399,8 +1598,7 @@ fn done() -> ChatReply {
 
 impl Script {
     fn calls(calls: Vec<(&str, Value)>) -> Arc<Script> {
-        let mut replies: Vec<ChatReply> =
-            calls.into_iter().map(|(t, p)| reply(t, p)).collect();
+        let mut replies: Vec<ChatReply> = calls.into_iter().map(|(t, p)| reply(t, p)).collect();
         replies.push(done());
         Arc::new(Script(Mutex::new(replies)))
     }
@@ -1474,7 +1672,10 @@ fn an_agent_turn_puts_three_red_stickies_on_the_board() {
             "canvas.add_sticky",
             json!({"text": "supply chain", "fill": "red"}),
         ),
-        ("canvas.add_sticky", json!({"text": "hiring", "fill": "red"})),
+        (
+            "canvas.add_sticky",
+            json!({"text": "hiring", "fill": "red"}),
+        ),
         (
             "canvas.add_sticky",
             json!({"text": "FX exposure", "fill": "red"}),
@@ -1500,8 +1701,15 @@ fn an_agent_turn_puts_three_red_stickies_on_the_board() {
         other => panic!("history failed: {other:?}"),
     };
     assert_eq!(commits.len(), 3);
-    let run = commits[0].run.clone().expect("agent commits carry a run id");
-    assert!(commits.iter().all(|c| c.run.as_deref() == Some(run.as_str())));
+    let run = commits[0]
+        .run
+        .clone()
+        .expect("agent commits carry a run id");
+    assert!(
+        commits
+            .iter()
+            .all(|c| c.run.as_deref() == Some(run.as_str()))
+    );
     assert!(commits.iter().all(|c| c.author == proto::Author::Agent));
 
     core.handle(proto::Request::DropRun { run });
@@ -1565,10 +1773,12 @@ fn the_eval_suite_runs_against_the_installed_package() {
 
             // And it reports honestly on the ones this worker does not drive.
             assert!(report.passed < report.total);
-            assert!(report
-                .cases
-                .iter()
-                .any(|c| !c.passed && !c.detail.is_empty()));
+            assert!(
+                report
+                    .cases
+                    .iter()
+                    .any(|c| !c.passed && !c.detail.is_empty())
+            );
         }
         other => panic!("RunEvals failed: {other:?}"),
     }

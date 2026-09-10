@@ -173,9 +173,9 @@ impl HarnessHost for HostState {
         let host = url_host(&url).ok_or_else(|| format!("`{url}` is not a fetchable URL"))?;
         let allowed = match &self.caps.net {
             NetCap::Simple(_) => false,
-            NetCap::Allowlist { allowlist, .. } => {
-                allowlist.iter().any(|h| host == *h || host.ends_with(&format!(".{h}")))
-            }
+            NetCap::Allowlist { allowlist, .. } => allowlist
+                .iter()
+                .any(|h| host == *h || host.ends_with(&format!(".{h}"))),
         };
         if !allowed {
             return Err(format!(
@@ -251,10 +251,10 @@ impl WasmHarness {
 
         let mut linker: Linker<HostState> = Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker).wt("linking WASI p2")?;
-        localspace::harness::host::add_to_linker::<HostState, wasmtime::component::HasSelf<HostState>>(
-            &mut linker,
-            |s| s,
-        )
+        localspace::harness::host::add_to_linker::<
+            HostState,
+            wasmtime::component::HasSelf<HostState>,
+        >(&mut linker, |s| s)
         .wt("linking the localspace host interface")?;
 
         let bindings = match Harness::instantiate(&mut store, &component, &linker) {
@@ -391,9 +391,15 @@ mod tests {
 
     #[test]
     fn url_hosts_are_extracted_for_the_allowlist_check() {
-        assert_eq!(url_host("https://tiles.example.com/1/2/3.png").as_deref(), Some("tiles.example.com"));
+        assert_eq!(
+            url_host("https://tiles.example.com/1/2/3.png").as_deref(),
+            Some("tiles.example.com")
+        );
         assert_eq!(url_host("http://a.b.c:8080/x").as_deref(), Some("a.b.c"));
-        assert_eq!(url_host("https://user@Host.EXAMPLE.com/p").as_deref(), Some("host.example.com"));
+        assert_eq!(
+            url_host("https://user@Host.EXAMPLE.com/p").as_deref(),
+            Some("host.example.com")
+        );
         assert_eq!(url_host("not a url"), None);
     }
 }
