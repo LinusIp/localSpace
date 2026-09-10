@@ -219,10 +219,12 @@ pub async fn route(
 /// the one shell that opened the view.
 pub fn csp(shell_origin: &str, nonce: Option<&str>) -> String {
     let inline = nonce.map(|n| format!(" 'nonce-{n}'")).unwrap_or_default();
+    // `data:` in connect-src is not a network: a bundler inlines small files
+    // (a translation table) as data URLs that the surface then fetches.
     format!(
         "default-src 'none'; script-src 'self'{inline}; style-src 'self' 'unsafe-inline'; \
          img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; \
-         connect-src 'self'; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; \
+         connect-src 'self' data:; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; \
          frame-ancestors {shell_origin}"
     )
 }
