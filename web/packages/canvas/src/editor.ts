@@ -449,7 +449,11 @@ export class Editor {
     if (this.textarea && e.target === this.textarea) return;
     this.host.focus();
     if (this.editing) this.stopEditing(true);
-    this.host.setPointerCapture(e.pointerId);
+    try {
+      this.host.setPointerCapture(e.pointerId);
+    } catch {
+      // A synthetic event has no pointer to capture; the gesture still works.
+    }
     const s = this.local(e);
     const p = toBoard(this.camera, s);
     if (e.button === 1 || this.tool === "hand" || this.space) {

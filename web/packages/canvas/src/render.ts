@@ -1,5 +1,6 @@
 // Drawing the scene on a 2D canvas: only what the camera shows, less at a
-// distance, with the selection on top in screen space.
+// distance, batched where the eye cannot tell the order, with the
+// selection on top in screen space.
 
 import { visible, type Camera } from "./camera.ts";
 import { expand, type Box, type Point } from "./geometry.ts";
@@ -64,8 +65,10 @@ export interface Overlay {
 const GRID = 24;
 /** Below this many screen pixels per line of text, text is not drawn. */
 const TEXT_MIN_PX = 3;
-/** Below this many screen pixels of height, a shape is a flat rectangle. */
-const DETAIL_MIN_PX = 6;
+/** Below this many screen pixels of height, a shape is a flat fill in a batch. */
+const DETAIL_MIN_PX = 14;
+/** Below this zoom, arrows are lines without heads and strokes are batched. */
+const HEAD_MIN_DETAIL = 0.35;
 
 export class Renderer {
   private readonly ctx: CanvasRenderingContext2D;
@@ -123,38 +126,164 @@ export class Renderer {
     // Board space: shapes in their own units, the camera in the transform.
     ctx.setTransform(dpr * z, 0, 0, dpr * z, -camera.x * z * dpr, -camera.y * z * dpr);
     const nodes = scene.query(expand(view, 40));
-    const detail = z * dpr;
-    let drawn = 0;
+    this.lastDrawn = this.nodes(scene, nodes, z * dpr, overlay.editing ?? null);
+
+    if (overlay.ink && overlay.ink.length > 1) this.polyline(overlay.ink, theme.palette.blue.stroke, 2 / z);
+    if (overlay.arrow) this.arrowLine(overlay.arrow[0], overlay.arrow[1], theme.muted, 1.5 / z, true);
+
+    // Screen space: the selection, one pixel wide whatever the zoom.
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.selection(scene, camera, selection);
+    if (overlay.marquee) {
+      const m = overlay.marquee;
+      ctx.strokeStyle = theme.selection;
+      ctx.fillStyle = "rgba(31, 157, 91, 0.08)";
+      ctx.lineWidth = 1;
+      const sx = (m.x - camera.x) * z;
+      const sy = (m.y - camera.y) * z;
+      ctx.fillRect(sx, sy, m.w * z, m.h * z);
+      ctx.strokeRect(sx, sy, m.w * z, m.h * z);
+    }
+  }
+
+  /**
+   * Draw a set of nodes in board space (the transform is already set).
+   * Small shapes are batched by colour into one path each; large ones are
+   * drawn one by one in z order with their text. Returns how many.
+   */
+  nodes(scene: Scene, nodes: readonly Node[], detail: number, editing: string | null): number {
+    const { ctx, theme } = this;
+    const frames = new Path2D();
+    let anyFrame = false;
+    const flatFills = new Map<string, Path2D>();
+    const flatStrokes = new Map<string, Path2D>();
+    const lines = new Map<string, Path2D>();
+    const strokes = new Map<string, Path2D>();
+    const detailed: Node[] = [];
+    const heads = detail >= HEAD_MIN_DETAIL;
+    const into = (map: Map<string, Path2D>, colour: string): Path2D => {
+      let p = map.get(colour);
+      if (!p) {
+        p = new Path2D();
+        map.set(colour, p);
+      }
+      return p;
+    };
+
     for (const n of nodes) {
-      drawn += 1;
-      const quiet = n.id === overlay.editing;
       switch (n.kind) {
         case "frame":
-          this.frame(n, detail);
+          frames.rect(n.x, n.y, n.w, n.h);
+          anyFrame = true;
           break;
         case "sticky":
         case "rect":
+        case "ellipse": {
+          if (n.h * detail >= DETAIL_MIN_PX) {
+            detailed.push(n);
+            break;
+          }
+          const p = theme.palette[n.fill] ?? theme.palette.grey;
+          if (n.kind === "sticky") {
+            into(flatFills, p.fill).rect(n.x, n.y, n.w, n.h);
+          } else {
+            into(flatFills, "#ffffff").rect(n.x, n.y, n.w, n.h);
+            const s = into(flatStrokes, p.stroke);
+            if (n.kind === "ellipse") s.ellipse(n.x + n.w / 2, n.y + n.h / 2, n.w / 2, n.h / 2, 0, 0, Math.PI * 2);
+            else s.rect(n.x, n.y, n.w, n.h);
+          }
+          break;
+        }
+        case "text":
+          if (n.id !== editing) detailed.push(n);
+          break;
+        case "arrow": {
+          if (heads) {
+            detailed.push(n);
+            break;
+          }
+          const [a, b] = scene.endpoints(n);
+          const p = theme.palette[n.fill] ?? theme.palette.grey;
+          const path = into(lines, p.stroke);
+          path.moveTo(a.x, a.y);
+          path.lineTo(b.x, b.y);
+          break;
+        }
+        case "ink": {
+          const pts = n.points ?? [];
+          if (pts.length < 2) break;
+          const p = theme.palette[n.fill] ?? theme.palette.blue;
+          const path = into(strokes, p.stroke);
+          path.moveTo(pts[0][0], pts[0][1]);
+          for (let i = 1; i < pts.length; i++) path.lineTo(pts[i][0], pts[i][1]);
+          break;
+        }
+      }
+    }
+
+    if (anyFrame) {
+      ctx.strokeStyle = theme.frame;
+      ctx.lineWidth = 1 / detail;
+      ctx.stroke(frames);
+      if (12 * detail >= TEXT_MIN_PX) {
+        ctx.fillStyle = theme.muted;
+        ctx.font = fontFor(12, theme.fontFamily, 500);
+        ctx.textBaseline = "alphabetic";
+        for (const n of nodes) if (n.kind === "frame") ctx.fillText(n.name ?? "Frame", n.x + 8, n.y - 6);
+      }
+    }
+    for (const [colour, path] of flatFills) {
+      ctx.fillStyle = colour;
+      ctx.fill(path);
+    }
+    if (flatStrokes.size) {
+      ctx.lineWidth = 1 / detail;
+      for (const [colour, path] of flatStrokes) {
+        ctx.strokeStyle = colour;
+        ctx.stroke(path);
+      }
+    }
+    for (const n of detailed) {
+      switch (n.kind) {
+        case "sticky":
+        case "rect":
         case "ellipse":
-          this.shape(scene, n, detail, quiet);
+          this.shape(scene, n, detail, n.id === editing);
           break;
         case "text":
-          if (!quiet) this.label(scene, n, detail);
+          this.label(scene, n, detail);
           break;
         case "arrow":
           this.arrow(scene, n, detail);
           break;
-        case "ink":
-          this.ink(n, detail);
+        default:
           break;
       }
     }
-    this.lastDrawn = drawn;
+    if (lines.size) {
+      ctx.lineWidth = Math.max(1 / detail, 1.6);
+      ctx.lineCap = "round";
+      for (const [colour, path] of lines) {
+        ctx.strokeStyle = colour;
+        ctx.stroke(path);
+      }
+    }
+    if (strokes.size) {
+      ctx.lineWidth = detail < 0.3 ? 2 / detail : 2.2;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      for (const [colour, path] of strokes) {
+        ctx.strokeStyle = colour;
+        ctx.stroke(path);
+      }
+    }
+    return nodes.length;
+  }
 
-    if (overlay.ink && overlay.ink.length > 1) this.polyline(overlay.ink, theme.palette.blue.stroke, 2 / z);
-    if (overlay.arrow) this.arrowLine(overlay.arrow[0], overlay.arrow[1], theme.muted, 1.5 / z);
-
-    // Screen space: the selection, one pixel wide whatever the zoom.
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  /** The selection outlines and handles, in screen space (transform already set). */
+  private selection(scene: Scene, camera: Camera, selection: ReadonlySet<string>): void {
+    const { ctx, theme } = this;
+    const z = camera.z;
     for (const id of selection) {
       const b = scene.bounds(id);
       const n = scene.get(id);
@@ -177,16 +306,6 @@ export class Renderer {
         }
       }
     }
-    if (overlay.marquee) {
-      const m = overlay.marquee;
-      ctx.strokeStyle = theme.selection;
-      ctx.fillStyle = "rgba(31, 157, 91, 0.08)";
-      ctx.lineWidth = 1;
-      const sx = (m.x - camera.x) * z;
-      const sy = (m.y - camera.y) * z;
-      ctx.fillRect(sx, sy, m.w * z, m.h * z);
-      ctx.strokeRect(sx, sy, m.w * z, m.h * z);
-    }
   }
 
   private grid(view: Box, camera: Camera, w: number, h: number): void {
@@ -199,34 +318,21 @@ export class Renderer {
     const cols = Math.ceil(w / step) + 1;
     const rows = Math.ceil(h / step) + 1;
     if (cols * rows > 6000) return;
-    ctx.fillStyle = theme.grid;
+    const dots = new Path2D();
     for (let i = 0; i < cols; i++) {
       const sx = (x0 + i * GRID - camera.x) * z;
       for (let j = 0; j < rows; j++) {
         const sy = (y0 + j * GRID - camera.y) * z;
-        ctx.fillRect(sx - 0.75, sy - 0.75, 1.5, 1.5);
+        dots.rect(sx - 0.75, sy - 0.75, 1.5, 1.5);
       }
     }
+    ctx.fillStyle = theme.grid;
+    ctx.fill(dots);
   }
 
-  private frame(n: Node, detail: number): void {
-    const { ctx, theme } = this;
-    ctx.strokeStyle = theme.frame;
-    ctx.lineWidth = 1 / detail;
-    this.roundRect(n.x, n.y, n.w, n.h, 10);
-    ctx.stroke();
-    if (12 * detail >= TEXT_MIN_PX) {
-      ctx.fillStyle = theme.muted;
-      ctx.font = fontFor(12, theme.fontFamily, 500);
-      ctx.textBaseline = "alphabetic";
-      ctx.fillText(n.name ?? "Frame", n.x + 8, n.y - 6);
-    }
-  }
-
-  private shape(scene: Scene, n: Node, detail: number, quiet = false): void {
+  private shape(scene: Scene, n: Node, detail: number, quiet: boolean): void {
     const { ctx, theme } = this;
     const p = theme.palette[n.fill] ?? theme.palette.grey;
-    const flat = n.h * detail < DETAIL_MIN_PX;
     ctx.fillStyle = n.kind === "sticky" ? p.fill : "#ffffff";
     if (n.kind === "ellipse") {
       ctx.beginPath();
@@ -235,7 +341,6 @@ export class Renderer {
       this.roundRect(n.x, n.y, n.w, n.h, n.kind === "sticky" ? 6 : 10);
     }
     ctx.fill();
-    if (flat) return;
     ctx.strokeStyle = p.stroke;
     ctx.lineWidth = 1.4;
     ctx.stroke();
@@ -256,7 +361,7 @@ export class Renderer {
       ctx.fillStyle = theme.ink;
       ctx.font = fontFor(13, theme.fontFamily);
       ctx.textBaseline = "top";
-      const top = n.y + (n.kind === "sticky" ? 30 : 30);
+      const top = n.y + 30;
       for (let i = 0; i < l.lines.length; i++) {
         ctx.fillText(l.lines[i], n.x + TEXT_PADDING, top + i * l.lineHeight);
       }
@@ -281,7 +386,7 @@ export class Renderer {
     const { ctx, theme } = this;
     const [a, b] = scene.endpoints(n);
     const p = theme.palette[n.fill] ?? theme.palette.grey;
-    this.arrowLine(a, b, p.stroke, 1.6);
+    this.arrowLine(a, b, p.stroke, 1.6, true);
     if (n.text && 12 * detail >= TEXT_MIN_PX) {
       const mx = (a.x + b.x) / 2;
       const my = (a.y + b.y) / 2;
@@ -297,7 +402,7 @@ export class Renderer {
     }
   }
 
-  private arrowLine(a: Point, b: Point, colour: string, width: number): void {
+  private arrowLine(a: Point, b: Point, colour: string, width: number, head: boolean): void {
     const { ctx } = this;
     ctx.strokeStyle = colour;
     ctx.fillStyle = colour;
@@ -307,26 +412,15 @@ export class Renderer {
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
     ctx.stroke();
+    if (!head) return;
     const angle = Math.atan2(b.y - a.y, b.x - a.x);
-    const head = 10;
+    const size = 10;
     ctx.beginPath();
     ctx.moveTo(b.x, b.y);
-    ctx.lineTo(b.x - head * Math.cos(angle - 0.45), b.y - head * Math.sin(angle - 0.45));
-    ctx.lineTo(b.x - head * Math.cos(angle + 0.45), b.y - head * Math.sin(angle + 0.45));
+    ctx.lineTo(b.x - size * Math.cos(angle - 0.45), b.y - size * Math.sin(angle - 0.45));
+    ctx.lineTo(b.x - size * Math.cos(angle + 0.45), b.y - size * Math.sin(angle + 0.45));
     ctx.closePath();
     ctx.fill();
-  }
-
-  private ink(n: Node, detail: number): void {
-    const pts = n.points ?? [];
-    if (pts.length < 2) return;
-    const p = this.theme.palette[n.fill] ?? this.theme.palette.blue;
-    const width = detail < 0.3 ? 2 / detail : 2.2;
-    this.polyline(
-      pts.map(([x, y]) => ({ x, y })),
-      p.stroke,
-      width,
-    );
   }
 
   private polyline(pts: readonly Point[], colour: string, width: number): void {

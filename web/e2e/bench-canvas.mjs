@@ -9,7 +9,7 @@
 //
 // Serves the page with Vite's own dev server on a free port and drives Edge
 // or Chrome already on the machine through playwright-core; nothing is
-// downloaded. A run is a regression when its p95 frame time exceeds the
+// downloaded. A run is a regression when any p95 frame time exceeds the
 // baseline's by more than the tolerance (25 %), and the exit code says so.
 
 import { createServer } from "vite";
@@ -47,28 +47,47 @@ if (!browser) {
   throw new Error("neither Edge nor Chrome could be launched");
 }
 
+const line = (label, s) => `${label}  mean ${s.mean.toFixed(2)} ms  p95 ${s.p95.toFixed(2)} ms  max ${s.max.toFixed(2)} ms`;
+
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
   page.on("pageerror", (e) => console.error(`[page] ${e.message}`));
   await page.goto(`${origin}/packages/canvas/bench/index.html?shapes=${shapes}&frames=${frames}`);
-  await page.waitForFunction(() => Boolean(window.__bench), null, { timeout: 120000 });
-  const result = await page.evaluate(() => window.__bench);
-  const line = (label, s) => `${label}  mean ${s.mean.toFixed(2)} ms  p95 ${s.p95.toFixed(2)} ms  max ${s.max.toFixed(2)} ms`;
-  console.log(`${result.shapes} shapes, ${result.drawnPerFrame} drawn per frame, ${result.viewport.w}×${result.viewport.h} @${result.dpr}x, ${result.frames} frames`);
-  console.log(line("pan ", result.panMs));
-  console.log(line("drag", result.dragMs));
-  console.log(`frame rate at p95: ${result.fpsAtP95.toFixed(1)} fps`);
+  await page.waitForFunction(() => Boolean(window.__bench), null, { timeout: 180000 });
+  const r = await page.evaluate(() => window.__bench);
+  console.log(`${r.shapes} shapes, ${r.viewport.w}×${r.viewport.h} @${r.dpr}x, ${r.frames} frames per measurement`);
+  for (const name of ["overview", "reading"]) {
+    const s = r[name];
+    console.log(`${name} (${(s.zoom * 100).toFixed(0)}%, ${s.drawnPerFrame} drawn per frame)`);
+    console.log(`  ${line("pan  ", s.panMs)}`);
+    console.log(`  ${line("drag ", s.dragMs)}`);
+    console.log(`  ${line("paint", s.paintMs)}`);
+  }
+  console.log(`frame rate at the worst p95: ${r.fpsAtP95.toFixed(1)} fps`);
 
-  const summary = { profile, shapes: result.shapes, drawnPerFrame: result.drawnPerFrame, panP95: result.panMs.p95, dragP95: result.dragMs.p95, fpsAtP95: result.fpsAtP95, recorded: new Date().toISOString().slice(0, 10) };
+  const summary = {
+    profile,
+    shapes: r.shapes,
+    overview: { drawnPerFrame: r.overview.drawnPerFrame, panP95: r.overview.panMs.p95, dragP95: r.overview.dragMs.p95 },
+    reading: { drawnPerFrame: r.reading.drawnPerFrame, panP95: r.reading.panMs.p95, dragP95: r.reading.dragMs.p95 },
+    fpsAtP95: r.fpsAtP95,
+    recorded: new Date().toISOString().slice(0, 10),
+  };
   if (record || !existsSync(baselinePath)) {
     writeFileSync(baselinePath, JSON.stringify(summary, null, 2) + "\n");
     console.log(`baseline ${record ? "written" : "created"}: ${baselinePath}`);
   } else {
     const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
-    const worse = (now, then) => now > then * (1 + tolerance);
     const regressions = [];
-    if (worse(summary.panP95, baseline.panP95)) regressions.push(`pan p95 ${summary.panP95.toFixed(2)} ms against ${baseline.panP95.toFixed(2)} ms`);
-    if (worse(summary.dragP95, baseline.dragP95)) regressions.push(`drag p95 ${summary.dragP95.toFixed(2)} ms against ${baseline.dragP95.toFixed(2)} ms`);
+    for (const name of ["overview", "reading"]) {
+      for (const key of ["panP95", "dragP95"]) {
+        const now = summary[name][key];
+        const then = baseline[name]?.[key];
+        if (typeof then === "number" && now > then * (1 + tolerance)) {
+          regressions.push(`${name} ${key} ${now.toFixed(2)} ms against ${then.toFixed(2)} ms`);
+        }
+      }
+    }
     if (regressions.length) {
       console.error(`REGRESSION against ${baselinePath} (${baseline.recorded}): ${regressions.join("; ")}`);
       process.exitCode = 1;

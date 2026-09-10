@@ -1,9 +1,16 @@
 {
   "profile": "laptop",
   "shapes": 5120,
-  "drawnPerFrame": 5120,
-  "panP95": 41.80000000000018,
-  "dragP95": 41.70000000000073,
-  "fpsAtP95": 23.92344497607645,
+  "overview": {
+    "drawnPerFrame": 5120,
+    "panP95": 7.099999999999909,
+    "dragP95": 7
+  },
+  "reading": {
+    "drawnPerFrame": 357,
+    "panP95": 7,
+    "dragP95": 7
+  },
+  "fpsAtP95": 140.84507042253702,
   "recorded": "2026-09-10"
 }
