@@ -242,6 +242,27 @@ try {
   const label = await page.locator("button", { hasText: /^\d+%$/ }).first().innerText();
   step(`zoom from the top bar: ${label} in the shell, ${((await state()).zoom * 100).toFixed(0)}% in the frame`);
 
+  // 9. The same board in a second window: two replicas of one document, each
+  // with its own sync state in Core; an edit in either window reaches the other.
+  const page2 = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  try {
+    await page2.goto(`${origin}/?token=${token}`);
+    await page2.getByRole("button", { name: "Tools", exact: true }).click();
+    await page2.getByTitle(/Open the web view "web"/).click();
+    const frameEl2 = page2.locator("iframe[title='Board']");
+    await frameEl2.waitFor({ state: "visible", timeout: 15000 });
+    const frame2 = await (await frameEl2.elementHandle()).contentFrame();
+    await frame2.waitForFunction(() => Boolean(window.__localspace), null, { timeout: 30000 });
+    const textIn = (f) => f.evaluate((id) => window.__localspace.editor.scene.get(id)?.text ?? null, noteId);
+    await frame.evaluate((id) => window.__localspace.editor.setText(id, "from the first window"), noteId);
+    await until("the second window to show the first window's edit", async () => (await textIn(frame2)) === "from the first window", 15000);
+    await frame2.evaluate((id) => window.__localspace.editor.setText(id, "from the second window"), noteId);
+    await until("the first window to show the second window's edit", async () => (await textIn(frame)) === "from the second window", 15000);
+    step("the same board in a second window: an edit in either window reached the other");
+  } finally {
+    await page2.close();
+  }
+
   console.log(`PASS${agentAdded ? ` (agent added ${agentAdded})` : ""}`);
 } catch (err) {
   // What the shell and Core say at the moment of a failure, so a run that

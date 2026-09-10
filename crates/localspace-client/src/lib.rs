@@ -348,7 +348,9 @@ It runs as a native process. Its stated reason: {reason}"));
                 self.send(proto::Request::GetActiveSet);
             }
             E::TaskChanged(task) => self.task = Some(task),
-            E::DocPatch { doc, .. } => {
+            // The egui client holds no replica: a sync message is for a frame's.
+            E::DocPatch { .. } => {}
+            E::DocChanged { doc } => {
                 // Core is authoritative. Ask it for the projection every open
                 // surface reads, rather than trying to keep a second copy in step.
                 self.docs.entry(doc).or_default();

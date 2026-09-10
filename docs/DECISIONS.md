@@ -25,6 +25,22 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   when the text editor closes (Escape, Ctrl+Enter, or focus leaving it),
   not per keystroke. The gate walk asserts exactly two commits for a
   29-character note (`web/e2e/whiteboard.mjs`, step 4).
+- **A sync state per replica** (answer 7; architecture §6.1). Core keeps an
+  Automerge sync state per document per replica, not one per document. The
+  shell names each frame's replica (`peer`: random, one per frame and per
+  reload) and sends the name with every `DocSync`; Core answers each
+  replica under its own state with `DocPatch { doc, peer, message }`, and
+  the shell hands a patch only to the frame of that name. A frame that
+  closes or reloads sends `DocSyncEnd`. Past 32 replicas of one document,
+  the one heard from longest ago is dropped: a live replica answers every
+  change it is sent, so that is one that has gone. Readers of the JSON
+  projection (a surface that takes JSON, the egui client) follow the new
+  `DocChanged { doc }`, which Core emits on every change; `DocPatch` is for
+  replicas only. Tests: `crates/localspace-core/tests/sync.rs` (two windows
+  in step, a closed frame sent nothing more, readers of the JSON told of
+  every change); the gate walk edits one board from two browser windows
+  (`web/e2e/whiteboard.mjs`, step 9). Identities at step 7 add attribution
+  on top.
 
 ## 2026-09-10, during the step-5 build
 

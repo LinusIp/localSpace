@@ -171,7 +171,9 @@ function flush() { for (;;) { let m; [state, m] = Automerge.generateSyncMessage(
 
 Every message that changes Core's document is a commit in the history,
 `surface:sync` by the user; the agent's edits and an undo come back to you
-the same way. The shell also provides React, its JSX runtime and DOM client,
+the same way, and so do edits made to the same board in another window:
+each frame's replica has its own sync state in Core, under a name the shell
+gives it. The shell also provides React, its JSX runtime and DOM client,
 `@localspace/canvas` and `@localspace/ui` by those names, so a surface built
 on them ships only its own code.
 

@@ -125,6 +125,19 @@ pub struct Proposal {
     pub by: String,
 }
 
+/// How many replicas of one document Core keeps a sync state for. A frame
+/// that closes says so; one that vanishes without a word is dropped once
+/// newer ones need the room. A live replica answers every change it is sent,
+/// so the one heard from longest ago is the one that has gone.
+const MAX_REPLICAS_PER_DOC: usize = 32;
+
+/// One replica's sync state, and when Core last heard from it.
+#[derive(Default)]
+struct ReplicaSync {
+    state: automerge::sync::State,
+    seen: u64,
+}
+
 pub struct Core {
     cfg: Config,
     registry: Registry,
@@ -150,7 +163,11 @@ pub struct Core {
     /// The current run's ledger (spec §18.1). Artifacts carry across runs.
     task: proto::Task,
     workspace: String,
-    sync_states: HashMap<String, automerge::sync::State>,
+    /// Sync state per document, per replica (v2.1 §6.1): two frames on one
+    /// board sync independently.
+    sync_states: HashMap<String, HashMap<String, ReplicaSync>>,
+    /// Bumped on every sync message; a replica's `seen` is its value then.
+    sync_clock: u64,
 
     events: Option<engine::EventSink>,
     /// Every conversation; `transcript` is the current one's messages.
@@ -223,6 +240,7 @@ impl Core {
             task: proto::Task::default(),
             workspace,
             sync_states: HashMap::new(),
+            sync_clock: 0,
             events: None,
             next_approval: 1,
             cfg,
@@ -946,7 +964,7 @@ impl Core {
                         ) {
                             Ok(c) => {
                                 commit_id = Some(c.id.clone());
-                                self.push_doc_patch(doc_id);
+                                self.doc_changed(doc_id);
                             }
                             Err(e) => {
                                 return proto::ToolOutcome::Error {
@@ -1003,17 +1021,64 @@ impl Core {
         }
     }
 
-    fn push_doc_patch(&mut self, doc_id: &str) {
-        let state = self
+    /// A document changed: tell whatever reads its JSON, and send every
+    /// replica of it what that replica lacks.
+    fn doc_changed(&mut self, doc_id: &str) {
+        self.emit(proto::Event::DocChanged {
+            doc: doc_id.to_string(),
+        });
+        let peers: Vec<String> = self
             .sync_states
-            .entry(doc_id.to_string())
-            .or_default();
-        if let Some(message) = self.docs.sync_message(doc_id, state) {
+            .get(doc_id)
+            .map(|replicas| replicas.keys().cloned().collect())
+            .unwrap_or_default();
+        for peer in peers {
+            self.sync_replica(doc_id, &peer);
+        }
+    }
+
+    /// Send one replica what it lacks, if anything.
+    fn sync_replica(&mut self, doc_id: &str, peer: &str) {
+        let Some(replica) = self
+            .sync_states
+            .get_mut(doc_id)
+            .and_then(|replicas| replicas.get_mut(peer))
+        else {
+            return;
+        };
+        if let Some(message) = self.docs.sync_message(doc_id, &mut replica.state) {
             self.emit(proto::Event::DocPatch {
                 doc: doc_id.to_string(),
+                peer: peer.to_string(),
                 message,
             });
         }
+    }
+
+    /// A replica's sync state, taken out while a message is applied; a
+    /// replica Core has not heard from starts afresh.
+    fn take_replica(&mut self, doc_id: &str, peer: &str) -> ReplicaSync {
+        self.sync_states
+            .get_mut(doc_id)
+            .and_then(|replicas| replicas.remove(peer))
+            .unwrap_or_default()
+    }
+
+    /// Put a replica's state back, marked as just heard from. Past
+    /// `MAX_REPLICAS_PER_DOC`, the one heard from longest ago makes room.
+    fn put_replica(&mut self, doc_id: &str, peer: &str, mut replica: ReplicaSync) {
+        self.sync_clock += 1;
+        replica.seen = self.sync_clock;
+        let replicas = self.sync_states.entry(doc_id.to_string()).or_default();
+        if replicas.len() >= MAX_REPLICAS_PER_DOC
+            && let Some(oldest) = replicas
+                .iter()
+                .min_by_key(|(_, r)| r.seen)
+                .map(|(name, _)| name.clone())
+        {
+            replicas.remove(&oldest);
+        }
+        replicas.insert(peer.to_string(), replica);
     }
 
     // -- Core's own tools ---------------------------------------------------
@@ -1190,7 +1255,7 @@ impl Core {
             };
         }
         self.providers = ProviderCache::new();
-        self.push_doc_patch(&revert.doc);
+        self.doc_changed(&revert.doc);
         self.notice(proto::NoticeLevel::Info, revert.summary);
         proto::Response::Ok
     }
@@ -1781,7 +1846,7 @@ impl Core {
                                         proto::Author::User,
                                         None,
                                     );
-                                    self.push_doc_patch(&doc_id);
+                                    self.doc_changed(&doc_id);
                                 }
                         if !reply.is_empty() {
                             self.emit(proto::Event::HarnessMessage {
@@ -1885,12 +1950,12 @@ impl Core {
                             None,
                         );
                     }
-                    self.push_doc_patch(&doc_id);
+                    self.doc_changed(&doc_id);
                 }
                 proto::Response::Ok
             }
 
-            R::DocSync { doc, message } => {
+            R::DocSync { doc, peer, message } => {
                 // A `view` member receives sync messages but their outgoing
                 // changes are rejected here, server-side.
                 if let Err(denied) = self.access.check(&self.identity(), &doc, Level::Edit) {
@@ -1898,13 +1963,12 @@ impl Core {
                         message: denied.to_string(),
                     };
                 }
-                let mut state = self
-                    .sync_states
-                    .remove(&doc)
-                    .unwrap_or_default();
+                // Each replica has its own sync state: two frames on one
+                // board must not answer for each other.
+                let mut replica = self.take_replica(&doc, &peer);
                 let before = self.docs.json(&doc).unwrap_or(J::Null);
-                let res = self.docs.receive_sync(&doc, &mut state, &message);
-                self.sync_states.insert(doc.clone(), state);
+                let res = self.docs.receive_sync(&doc, &mut replica.state, &message);
+                self.put_replica(&doc, &peer, replica);
                 match res {
                     Ok(changed) => {
                         if changed {
@@ -1929,14 +1993,30 @@ impl Core {
                                 proto::Author::User,
                                 None,
                             );
+                            // Every reader and every replica, this one included.
+                            self.doc_changed(&doc);
+                        } else {
+                            // Nothing new for anyone else; this replica may be owed an answer.
+                            self.sync_replica(&doc, &peer);
                         }
-                        self.push_doc_patch(&doc);
                         proto::Response::Ok
                     }
                     Err(e) => proto::Response::Error {
                         message: format!("{e:#}"),
                     },
                 }
+            }
+
+            R::DocSyncEnd { doc, peer } => {
+                // Ending a sync state only ever costs that replica a fresh
+                // start, so it asks for no more than having one did.
+                if let Some(replicas) = self.sync_states.get_mut(&doc) {
+                    replicas.remove(&peer);
+                    if replicas.is_empty() {
+                        self.sync_states.remove(&doc);
+                    }
+                }
+                proto::Response::Ok
             }
 
             R::GetHistory { limit } => match self.dag.history(limit) {

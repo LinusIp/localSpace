@@ -739,10 +739,19 @@ pub enum Request {
         #[serde(default = "default_true")]
         commit: bool,
     },
-    /// Automerge sync message from the surface replica.
+    /// An Automerge sync message from one surface replica. `peer` names the
+    /// replica, one per surface connection, chosen by the shell: two frames
+    /// on one document keep separate sync states in Core (v2.1 §6.1).
     DocSync {
         doc: DocId,
+        peer: String,
         message: Vec<u8>,
+    },
+    /// The replica `peer` is gone (its frame closed or reloaded): Core drops
+    /// its sync state for `doc`.
+    DocSyncEnd {
+        doc: DocId,
+        peer: String,
     },
 
     // --- DAG ---
@@ -980,10 +989,17 @@ pub enum Event {
         tool: String,
         outcome: ToolOutcome,
     },
-    /// Automerge sync message for a surface replica.
+    /// An Automerge sync message for one surface replica, `peer`.
     DocPatch {
         doc: DocId,
+        peer: String,
         message: Vec<u8>,
+    },
+    /// A document changed in Core: the cue for whatever reads its JSON
+    /// projection (a surface that takes JSON, the egui client) to read it
+    /// again. Replicas get their changes in `DocPatch` instead.
+    DocChanged {
+        doc: DocId,
     },
     /// Opaque message from harness logic to its surface.
     HarnessMessage {

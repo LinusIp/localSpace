@@ -1,8 +1,9 @@
 // The iframe host for a `web` view (v2 §6.3). The frame is on the harness's
 // own origin with a sandbox; this component is the shell's end of the bridge:
 // it answers the surface's hello with the document, forwards the document
-// again whenever Core changes it, carries the surface's writes and messages
-// to Core, and passes the shell's commands in.
+// again whenever Core changes it (to a surface holding a replica, Core's sync
+// messages for that replica, under the name this frame gave it), carries the
+// surface's writes and messages to Core, and passes the shell's commands in.
 
 import { useEffect, useRef, useState } from "react";
 import { ApiError, call, openSurface, pick } from "../api/client";
@@ -11,6 +12,11 @@ import { useSession } from "../store";
 import type { Panel } from "../store";
 
 const PROTOCOL = 1;
+
+/** A name for one replica in Core, unique across frames, tabs and reloads. `getRandomValues` needs no secure context. */
+function replicaName(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 type FromSurface =
   | { ls: number; type: "hello"; protocol: number; wants?: "json" | "sync" }
@@ -31,6 +37,8 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
   const written = useRef(0);
   /** Whether the surface holds a replica (sync messages) or takes JSON documents. */
   const wants = useRef<"json" | "sync">("json");
+  /** The replica's name in Core while the frame holds one: its sync state there is its own. */
+  const peer = useRef<string | null>(null);
   const notify = useSession((s) => s.notify);
   const trace = useSession((s) => s.traceLine);
   const undo = useSession((s) => s.undo);
@@ -56,6 +64,18 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
     };
   }, [harness, view]);
 
+  // The replica's sync state in Core lasts as long as the frame: it ends when
+  // the panel closes or the frame is given a new grant.
+  useEffect(() => {
+    if (!target) return;
+    return () => {
+      const doc = docId.current;
+      const name = peer.current;
+      peer.current = null;
+      if (doc && name) void call({ doc_sync_end: { doc, peer: name } }).catch(() => undefined);
+    };
+  }, [target]);
+
   // The bridge itself.
   useEffect(() => {
     if (!target) return;
@@ -79,6 +99,10 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
       switch (message.type) {
         case "hello": {
           wants.current = message.wants === "sync" ? "sync" : "json";
+          // A hello after the first is a reloaded frame: its old replica is gone.
+          const old = peer.current;
+          if (old && docId.current) void call({ doc_sync_end: { doc: docId.current, peer: old } }).catch(() => undefined);
+          peer.current = wants.current === "sync" ? replicaName() : null;
           // A replica gets Core's Automerge snapshot as well as the JSON; the
           // sync messages that follow keep it current.
           const opening =
@@ -99,9 +123,10 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
         }
         case "sync": {
           const id = docId.current;
-          if (!id) break;
+          const name = peer.current;
+          if (!id || !name) break;
           const bytes = message.message instanceof Uint8Array ? Array.from(message.message) : message.message;
-          void call({ doc_sync: { doc: id, message: bytes } }).catch((err: unknown) => failed(`${panel.title} could not sync its document`, err));
+          void call({ doc_sync: { doc: id, peer: name, message: bytes } }).catch((err: unknown) => failed(`${panel.title} could not sync its document`, err));
           break;
         }
         case "write": {
@@ -144,12 +169,11 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
     };
     window.addEventListener("message", onMessage);
     const off = [
-      bus.on("doc_patch", ({ doc, message }) => {
-        if (!ready.current || doc !== docId.current) return;
-        if (wants.current === "sync") {
-          post({ type: "sync", message });
-          return;
-        }
+      bus.on("doc_patch", ({ doc, peer: to, message }) => {
+        if (ready.current && doc === docId.current && to === peer.current) post({ type: "sync", message });
+      }),
+      bus.on("doc_changed", ({ doc }) => {
+        if (!ready.current || doc !== docId.current || wants.current === "sync") return;
         const stamp = written.current;
         void fetchDoc()
           .then((next) => post({ type: "doc", doc: next, written: stamp }))
