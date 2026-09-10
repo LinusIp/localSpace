@@ -63,7 +63,7 @@ pub const STATUS_BAR_HEIGHT: f32 = 30.0;
 pub fn apply(ctx: &egui::Context) {
     ctx.options_mut(|o| o.theme_preference = egui::ThemePreference::Light);
 
-    ctx.all_styles_mut(|style| tune(style));
+    ctx.all_styles_mut(tune);
 }
 
 fn tune(style: &mut egui::Style) {

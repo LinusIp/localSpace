@@ -57,17 +57,14 @@ impl App {
                         .as_ref()
                         .map(|e| e.workspace.clone())
                         .unwrap_or_else(|| "Workspace".into());
-                    ui.menu_button(
-                        egui::RichText::new(format!("{workspace}")).size(12.0),
-                        |ui| {
-                            ui.label(theme::muted(
-                                "A workspace is the unit of access control, quota and audit.",
-                            ));
-                            if let Some(env) = &self.env {
-                                ui.label(theme::muted(format!("signed in as {}", env.user)));
-                            }
-                        },
-                    );
+                    ui.menu_button(egui::RichText::new(workspace.clone()).size(12.0), |ui| {
+                        ui.label(theme::muted(
+                            "A workspace is the unit of access control, quota and audit.",
+                        ));
+                        if let Some(env) = &self.env {
+                            ui.label(theme::muted(format!("signed in as {}", env.user)));
+                        }
+                    });
 
                     ui.add_space(16.0);
                     if theme::ghost_button(ui, "Undo", true).clicked() {
@@ -848,7 +845,7 @@ impl App {
                                     .and_then(|e| e.model.as_ref().map(|m| m.id.clone()))
                                     .unwrap_or_else(|| "no model".into());
                                 if ui
-                                    .button(egui::RichText::new(format!("{model}")).size(11.5))
+                                    .button(egui::RichText::new(model.clone()).size(11.5))
                                     .clicked()
                                 {
                                     self.rail = RailTab::Models;
@@ -1209,10 +1206,10 @@ impl App {
                             ui.label(theme::body(c.diff_summary.clone()));
                         });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if let Some(run) = &c.run {
-                                if theme::ghost_button(ui, "Discard run", true).clicked() {
-                                    drop_run = Some(run.clone());
-                                }
+                            if let Some(run) = &c.run
+                                && theme::ghost_button(ui, "Discard run", true).clicked()
+                            {
+                                drop_run = Some(run.clone());
                             }
                         });
                     });
@@ -1235,7 +1232,7 @@ impl App {
             }
             for h in &env.harnesses {
                 let focused = env.focus.as_deref() == Some(h.id.as_str());
-                let pinned = env.pinned.iter().any(|p| *p == h.id);
+                let pinned = env.pinned.contains(&h.id);
                 let (fg, bg) = match h.tier {
                     proto::Tier::Wasm => (P.purple, P.purple_soft),
                     proto::Tier::Native => (P.amber, P.amber_soft),

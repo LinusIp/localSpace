@@ -101,10 +101,10 @@ async fn serve_json(server: Arc<Server>, user: String, mut socket: WebSocket) {
                 }
             }
             answer = answers_rx.recv() => {
-                if let Some(env) = answer {
-                    if send_json(&mut socket, &env).await.is_err() {
-                        break;
-                    }
+                if let Some(env) = answer
+                    && send_json(&mut socket, &env).await.is_err()
+                {
+                    break;
                 }
             }
             event = events.recv() => {

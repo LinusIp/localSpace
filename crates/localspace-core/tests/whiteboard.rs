@@ -1077,13 +1077,11 @@ fn duplicate_copies_offset_and_selects_the_copies() {
     );
 
     // The copies are what you now have hold of, which is what you want next.
-    let selection = board(&mut core);
-    let _ = selection;
-    let doc_selection = match call(&mut core, "canvas.zoom", json!({})) {
-        proto::ToolOutcome::Ok { .. } => (),
+    let _ = board(&mut core);
+    match call(&mut core, "canvas.zoom", json!({})) {
+        proto::ToolOutcome::Ok { .. } => {}
         other => panic!("{other:?}"),
-    };
-    let _ = doc_selection;
+    }
 }
 
 #[test]

@@ -256,10 +256,10 @@ impl<S: Surface> SurfaceHost<S> {
             }
         };
 
-        if let Some(doc) = &input.doc {
-            if let Ok(parsed) = serde_json::from_str(doc) {
-                self.state.doc = parsed;
-            }
+        if let Some(doc) = &input.doc
+            && let Ok(parsed) = serde_json::from_str(doc)
+        {
+            self.state.doc = parsed;
         }
         self.state.inbox = input.messages;
         self.state.doc_dirty = false;
@@ -328,9 +328,7 @@ impl<S: Surface> SurfaceHost<S> {
         self.held.clear();
         for (id, deltas) in delta.set.drain() {
             for d in deltas {
-                let image = match &d.image {
-                    epaint::ImageData::Color(image) => image,
-                };
+                let epaint::ImageData::Color(image) = &d.image;
                 let bytes = image.pixels.len() * std::mem::size_of::<epaint::Color32>();
                 wire.set.push(WireTexture {
                     id,

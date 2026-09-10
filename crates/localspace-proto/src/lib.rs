@@ -1137,6 +1137,10 @@ pub fn estimate_tokens(s: &str) -> usize {
     if s.is_empty() { 0 } else { s.len().div_ceil(4) }
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1208,8 +1212,4 @@ mod tests {
         assert!(NetworkMode::Airgapped.rank() < NetworkMode::Ask.rank());
         assert!(NetworkMode::Ask.rank() < NetworkMode::Online.rank());
     }
-}
-
-fn default_true() -> bool {
-    true
 }

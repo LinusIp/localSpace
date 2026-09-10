@@ -21,10 +21,9 @@ pub fn presented(headers: &HeaderMap, query_token: Option<&str>) -> Option<Strin
     if let Some(value) = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
+        && let Some(token) = value.strip_prefix("Bearer ")
     {
-        if let Some(token) = value.strip_prefix("Bearer ") {
-            return Some(token.trim().to_string());
-        }
+        return Some(token.trim().to_string());
     }
     for cookie in headers.get_all(header::COOKIE) {
         let Ok(text) = cookie.to_str() else { continue };

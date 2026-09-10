@@ -88,10 +88,7 @@ pub struct App {
     /// Surfaces compiling on their own thread: a cold JIT of a 4 MB module
     /// takes seconds, and the window keeps drawing meanwhile.
     #[cfg(not(target_arch = "wasm32"))]
-    surface_loads: Vec<(
-        (String, String),
-        std::sync::mpsc::Receiver<Result<surface::SurfaceRunner, String>>,
-    )>,
+    surface_loads: Vec<SurfaceLoad>,
     /// To ask for a repaint from a loader thread when its surface is ready.
     ctx: egui::Context,
     docs: HashMap<String, String>,
@@ -110,6 +107,13 @@ pub struct App {
     last_widget_request: Option<(String, String)>,
     last_surface_request: Option<(String, String)>,
 }
+
+/// A surface compiling on its own thread, and where its runner will arrive.
+#[cfg(not(target_arch = "wasm32"))]
+type SurfaceLoad = (
+    (String, String),
+    std::sync::mpsc::Receiver<Result<surface::SurfaceRunner, String>>,
+);
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, backend: Arc<dyn Backend>) -> App {
@@ -265,10 +269,10 @@ impl App {
                 // by the runner, which is what keeps an idle canvas at zero cost.
                 let text = json.to_string();
                 for ((h, _), surface) in self.surfaces.iter_mut() {
-                    if *h == harness {
-                        if let Some(r) = surface.runner.as_mut() {
-                            r.set_doc(text.clone());
-                        }
+                    if *h == harness
+                        && let Some(r) = surface.runner.as_mut()
+                    {
+                        r.set_doc(text.clone());
                     }
                 }
             }
