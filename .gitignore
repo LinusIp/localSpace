@@ -17,3 +17,5 @@ web/node_modules/
 web/dist/
 # tauri build output
 crates/localspace-shell/gen/
+
+web/packages/libs/*.generated.ts
