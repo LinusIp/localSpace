@@ -255,6 +255,21 @@ fn hardened_with(mut response: Response, shell_origin: &str, nonce: Option<&str>
 
 /// The page on the harness origin. Everything in it is relative, so it and
 /// the entry module's own imports resolve under the grant's path.
+/// What a surface may import by name (v2.1 §6.3): the SDK, React and its
+/// JSX runtime and DOM client, the in-house canvas and UI libraries, and
+/// Automerge, each one file the shell provides under `_localspace/`.
+pub const IMPORT_MAP: &str = concat!(
+    r#"{"imports":{"#,
+    r#""@localspace/harness-sdk":"./_localspace/sdk.js","#,
+    r#""@localspace/canvas":"./_localspace/canvas.js","#,
+    r#""@localspace/ui":"./_localspace/ui.js","#,
+    r#""react":"./_localspace/react.js","#,
+    r#""react/jsx-runtime":"./_localspace/react-jsx-runtime.js","#,
+    r#""react-dom/client":"./_localspace/react-dom-client.js","#,
+    r#""@automerge/automerge":"./_localspace/automerge.js""#,
+    r#"}}"#
+);
+
 fn index_html(entry: &str, title: &str, nonce: &str) -> String {
     let title = title.replace('&', "&amp;").replace('<', "&lt;");
     format!(
@@ -264,7 +279,7 @@ fn index_html(entry: &str, title: &str, nonce: &str) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
-<script type="importmap" nonce="{nonce}">{{"imports":{{"@localspace/harness-sdk":"./_localspace/sdk.js"}}}}</script>
+<script type="importmap" nonce="{nonce}">{IMPORT_MAP}</script>
 <style>html,body{{margin:0;height:100%;overflow:hidden}}#root{{height:100%}}</style>
 </head>
 <body>
@@ -330,6 +345,31 @@ async fn serve(server: &Server, slug: &str, request: Request<Body>) -> Response 
         )
             .into_response();
         return hardened(response, &grant.shell_origin);
+    }
+    // The libraries the shell provides through the import map (v2.1 §6.3):
+    // built into the web bundle's `_localspace/` directory, one file each,
+    // named by nothing but letters, digits, dots, dashes and underscores.
+    if let Some(name) = rest.strip_prefix("_localspace/") {
+        let plain = !name.is_empty()
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+            && !name.starts_with('.');
+        let file = plain.then(|| server.cfg.web_root.as_ref().map(|root| root.join("_localspace").join(name))).flatten();
+        return match file.filter(|f| f.is_file()) {
+            Some(path) => match std::fs::read(&path) {
+                Ok(bytes) => hardened(
+                    ([(header::CONTENT_TYPE, localspace_core::registry::mime_for(name))], bytes).into_response(),
+                    &grant.shell_origin,
+                ),
+                Err(e) => hardened(
+                    (StatusCode::INTERNAL_SERVER_ERROR, format!("reading {name}: {e}")).into_response(),
+                    &grant.shell_origin,
+                ),
+            },
+            None => hardened(
+                (StatusCode::NOT_FOUND, format!("the shell does not provide `{name}`")).into_response(),
+                &grant.shell_origin,
+            ),
+        };
     }
 
     let session = match server.session(&grant.user).await {
@@ -433,7 +473,11 @@ mod tests {
         let html = index_html("index.js", "Board <web> & more", "n0nce");
         assert!(html.contains(r#"<script type="importmap" nonce="n0nce">"#), "{html}");
         assert!(html.contains(r#""@localspace/harness-sdk":"./_localspace/sdk.js""#));
+        assert!(html.contains(r#""@localspace/canvas":"./_localspace/canvas.js""#));
+        assert!(html.contains(r#""react":"./_localspace/react.js""#));
         assert!(html.contains(r#"<script type="module" src="./index.js">"#));
         assert!(html.contains("<title>Board &lt;web> &amp; more</title>"));
+        let map: serde_json::Value = serde_json::from_str(IMPORT_MAP).expect("the import map is JSON");
+        assert_eq!(map["imports"].as_object().map(|m| m.len()), Some(7));
     }
 }

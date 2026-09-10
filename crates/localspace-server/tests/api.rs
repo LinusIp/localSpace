@@ -383,3 +383,57 @@ async fn a_web_surface_lives_on_its_own_origin_behind_a_grant() {
         .unwrap();
     assert_eq!(api_through_surface.status(), StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn a_harness_origin_serves_the_shell_s_libraries_and_nothing_beside_them() {
+    // v2.1 §6.3: the shell provides React, the canvas, the UI library and
+    // Automerge to frames through the import map, from `_localspace/` in
+    // the web bundle; a name that is not a plain file name is not a file.
+    let Some(_) = harness_dir() else { return };
+    let web = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(web.path().join("_localspace")).unwrap();
+    std::fs::write(web.path().join("_localspace/canvas.js"), b"export const canvas = 1;").unwrap();
+    std::fs::write(web.path().join("index.html"), b"<!doctype html>").unwrap();
+    std::fs::write(web.path().join("secret.txt"), b"not for frames").unwrap();
+    let mut cfg = config("secret-5");
+    cfg.web_root = Some(web.path().to_path_buf());
+    let app = router(Server::new(cfg));
+
+    let opened = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/surfaces")
+                .header(header::COOKIE, "ls_session=secret-5")
+                .header(header::HOST, "127.0.0.1:8443")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"harness":"io.localspace.whiteboard","view":"web"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(opened.status(), StatusCode::OK);
+    let url = body_json(opened).await["url"].as_str().unwrap().to_string();
+    let token = url.trim_end_matches('/').rsplit('/').next().unwrap().to_string();
+    let host = "h-io-localspace-whiteboard.localhost:8443";
+    let fetch = |path: String| {
+        app.clone().oneshot(Request::get(path).header(header::HOST, host).body(Body::empty()).unwrap())
+    };
+
+    let lib = fetch(format!("/s/{token}/_localspace/canvas.js")).await.unwrap();
+    assert_eq!(lib.status(), StatusCode::OK);
+    assert_eq!(lib.headers().get(header::CONTENT_TYPE).unwrap(), "text/javascript; charset=utf-8");
+    assert!(lib.headers().contains_key(header::CONTENT_SECURITY_POLICY));
+    let text = String::from_utf8(lib.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+    assert_eq!(text, "export const canvas = 1;");
+
+    for missing in ["_localspace/nothing.js", "_localspace/../secret.txt", "_localspace/..%2Fsecret.txt", "_localspace/.hidden", "_localspace/"] {
+        let refused = fetch(format!("/s/{token}/{missing}")).await.unwrap();
+        assert_eq!(refused.status(), StatusCode::NOT_FOUND, "`{missing}` must not be served");
+    }
+    // The page's import map names every one of them by that path.
+    let index = fetch(format!("/s/{token}/")).await.unwrap();
+    let html = String::from_utf8(index.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+    for name in ["sdk.js", "canvas.js", "ui.js", "react.js", "react-jsx-runtime.js", "react-dom-client.js", "automerge.js"] {
+        assert!(html.contains(&format!("./_localspace/{name}")), "{name} in the import map: {html}");
+    }
+}
