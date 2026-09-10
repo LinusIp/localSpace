@@ -221,8 +221,11 @@ pub fn csp(shell_origin: &str, nonce: Option<&str>) -> String {
     let inline = nonce.map(|n| format!(" 'nonce-{n}'")).unwrap_or_default();
     // `data:` in connect-src is not a network: a bundler inlines small files
     // (a translation table) as data URLs that the surface then fetches.
+    // `wasm-unsafe-eval` lets a surface compile WebAssembly it fetched from
+    // its own origin (Automerge, a logic component's viewer); it admits no
+    // script.
     format!(
-        "default-src 'none'; script-src 'self'{inline}; style-src 'self' 'unsafe-inline'; \
+        "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'{inline}; style-src 'self' 'unsafe-inline'; \
          img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; \
          connect-src 'self' data:; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; \
          frame-ancestors {shell_origin}"
@@ -461,12 +464,12 @@ mod tests {
     fn the_policy_names_the_one_shell_that_opened_the_view() {
         let policy = csp("http://127.0.0.1:8443", None);
         assert!(policy.contains("frame-ancestors http://127.0.0.1:8443"));
-        assert!(policy.contains("script-src 'self';"), "{policy}");
+        assert!(policy.contains("script-src 'self' 'wasm-unsafe-eval';"), "{policy}");
         assert!(policy.starts_with("default-src 'none'"));
         // The generated page's import map is inline, so that one response
         // admits it by nonce; every file response stays without one.
         let page = csp("http://127.0.0.1:8443", Some("abc"));
-        assert!(page.contains("script-src 'self' 'nonce-abc';"), "{page}");
+        assert!(page.contains("script-src 'self' 'wasm-unsafe-eval' 'nonce-abc';"), "{page}");
     }
 
     #[test]
