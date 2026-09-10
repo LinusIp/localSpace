@@ -1,6 +1,7 @@
 //! A stand-in for `llama-server`, for tests of the sidecar supervisor: it
 //! takes the same flags, answers `/health` once it has "loaded", and answers
-//! `/v1/chat/completions` with one fixed reply. It knows nothing about models
+//! `/v1/chat/completions` with one fixed reply, streamed as server-sent events
+//! when the request asks, as chat turns in Core do. It knows nothing about models
 //! and is not shipped as anything but a test double.
 //!
 //! `FAKE_LLAMA_LOAD_MS` delays readiness; `FAKE_LLAMA_CRASH_AFTER_MS` makes
@@ -69,6 +70,38 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str) {
         let _ = reader.read_exact(&mut body);
     }
     let path = request_line.split_whitespace().nth(1).unwrap_or("/");
+
+    // Core's chat turns ask to stream: answer as llama-server does, in
+    // server-sent events, the reply in two pieces, then the usage, then the end.
+    let streamed = serde_json::from_slice::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|v| v.get("stream").and_then(|s| s.as_bool()))
+        .unwrap_or(false);
+    if streamed && path.starts_with("/v1/chat/completions") {
+        let chunk = |delta: &str, finish: &str| {
+            format!(
+                r#"data: {{"id":"chatcmpl-fake","object":"chat.completion.chunk","model":"{alias}","choices":[{{"index":0,"delta":{delta},"finish_reason":{finish}}}]}}"#
+            )
+        };
+        let events = [
+            chunk(r#"{"role":"assistant","content":"hello "}"#, "null"),
+            chunk(r#"{"content":"from the fake engine"}"#, "null"),
+            chunk("{}", r#""stop""#),
+            format!(
+                r#"data: {{"id":"chatcmpl-fake","object":"chat.completion.chunk","model":"{alias}","choices":[],"usage":{{"prompt_tokens":12,"completion_tokens":6,"total_tokens":18}}}}"#
+            ),
+            "data: [DONE]".to_string(),
+        ];
+        let _ = write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+        );
+        for event in events {
+            let _ = write!(stream, "{event}\n\n");
+        }
+        let _ = stream.flush();
+        return;
+    }
 
     let (status, json) = if path.starts_with("/health") {
         if ready {
