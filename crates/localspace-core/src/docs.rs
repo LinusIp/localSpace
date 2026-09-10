@@ -181,19 +181,50 @@ impl DocStore {
         }
     }
 
-    /// Restore from a DAG snapshot (undo, redo, run drop).
-    pub fn restore(&mut self, doc: &str, bytes: Option<&[u8]>) -> Result<()> {
+    /// Restore from a DAG snapshot: undo, redo, a run drop, or a document read
+    /// back from its history at start.
+    ///
+    /// A crdt document that already has changes is not replaced by the
+    /// snapshot; the snapshot's content is reconciled into it as one more
+    /// change. A replica that still holds the undone change then receives the
+    /// revert through sync, instead of sending its change back to a Core that
+    /// would no longer have it, which would undo the undo. A document with no
+    /// changes yet takes the snapshot as it is, history and all.
+    pub fn restore(&mut self, doc: &str, bytes: Option<&[u8]>) -> Result<Changes> {
         let kind = self.kind(doc).unwrap_or(proto::DocKind::Crdt);
-        let restored = match (kind, bytes) {
-            (proto::DocKind::Crdt, Some(b)) if !b.is_empty() => {
-                Doc::Crdt(Box::new(AutoCommit::load(b).context("loading crdt snapshot")?))
-            }
-            (proto::DocKind::Crdt, _) => Doc::Crdt(Box::new(AutoCommit::new())),
-            (proto::DocKind::Blob, Some(b)) => Doc::Blob(b.to_vec()),
-            (proto::DocKind::Blob, None) => Doc::Blob(Vec::new()),
+        let untouched = match self.docs.get_mut(doc) {
+            None => true,
+            Some(Doc::Crdt(am)) => am.get_heads().is_empty(),
+            Some(Doc::Blob(_)) => false,
         };
-        self.docs.insert(doc.to_string(), restored);
-        Ok(())
+        match kind {
+            proto::DocKind::Crdt if untouched => {
+                let restored = match bytes {
+                    Some(b) if !b.is_empty() => AutoCommit::load(b).context("loading crdt snapshot")?,
+                    _ => AutoCommit::new(),
+                };
+                self.docs.insert(doc.to_string(), Doc::Crdt(Box::new(restored)));
+                self.kinds.insert(doc.to_string(), kind);
+                Ok(Changes::default())
+            }
+            proto::DocKind::Crdt => {
+                let target = match bytes {
+                    Some(b) if !b.is_empty() => Self::json_of_snapshot(kind, b)?,
+                    _ => J::Object(Map::new()),
+                };
+                self.apply_json(doc, &target)
+            }
+            proto::DocKind::Blob => {
+                let next = bytes.map(<[u8]>::to_vec).unwrap_or_default();
+                let changed = !matches!(self.docs.get(doc), Some(Doc::Blob(b)) if *b == next);
+                self.docs.insert(doc.to_string(), Doc::Blob(next));
+                self.kinds.insert(doc.to_string(), kind);
+                Ok(Changes {
+                    changed: usize::from(changed),
+                    ..Default::default()
+                })
+            }
+        }
     }
 
     // -- replica sync -------------------------------------------------------
@@ -530,6 +561,43 @@ mod tests {
         let mut s = store_with("board", json!({"a": 1}));
         s.restore("board", None).unwrap();
         assert_eq!(s.json("board").unwrap(), json!({}));
+    }
+
+    fn crdt<'a>(s: &'a mut DocStore, doc: &str) -> &'a mut AutoCommit {
+        match s.docs.get_mut(doc) {
+            Some(Doc::Crdt(am)) => am,
+            _ => panic!("`{doc}` is not a crdt document"),
+        }
+    }
+
+    #[test]
+    fn restoring_into_a_document_with_changes_is_one_more_change_not_a_replacement() {
+        let mut s = store_with("board", json!({"title": "a", "shapes": [{"id": "s1"}]}));
+        let snap = s.snapshot("board").unwrap();
+        s.apply_json("board", &json!({"title": "b", "shapes": [{"id": "s1"}, {"id": "s2"}]}))
+            .unwrap();
+        let heads_before = crdt(&mut s, "board").get_heads();
+
+        let changes = s.restore("board", Some(&snap)).unwrap();
+        assert_eq!(s.json("board").unwrap(), json!({"title": "a", "shapes": [{"id": "s1"}]}));
+        assert_eq!((changes.changed, changes.removed, changes.added), (1, 1, 0));
+        // The history went forward by one change, which is what a replica at
+        // `heads_before` receives over sync. The snapshot's own history was
+        // not swapped in.
+        let doc = crdt(&mut s, "board");
+        assert_eq!(doc.get_changes(&heads_before).len(), 1);
+        assert_ne!(doc.get_heads(), AutoCommit::load(&snap).unwrap().get_heads());
+    }
+
+    #[test]
+    fn a_document_without_changes_takes_the_snapshot_history_and_all() {
+        let mut s = store_with("board", json!({"title": "a"}));
+        let snap = s.snapshot("board").unwrap();
+        let mut fresh = DocStore::new();
+        fresh.ensure("board", proto::DocKind::Crdt);
+        fresh.restore("board", Some(&snap)).unwrap();
+        assert_eq!(fresh.json("board").unwrap(), json!({"title": "a"}));
+        assert_eq!(crdt(&mut fresh, "board").get_heads(), crdt(&mut s, "board").get_heads());
     }
 
     #[test]

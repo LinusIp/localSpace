@@ -2,6 +2,7 @@
 //! Core's snapshot, changes its own copy, and sends sync messages; what
 //! arrives at Core is the user's edit, committed in the history like any
 //! other write, and Core's answer keeps the replica current.
+//! An undo in Core reaches the replica the same way and stays undone.
 
 use automerge::sync::SyncDoc;
 use automerge::transaction::Transactable;
@@ -116,4 +117,75 @@ fn a_replica_s_edit_lands_as_the_user_s_commit_and_core_s_edit_reaches_the_repli
     settle(&mut core, &events, &doc_id, &mut replica, &mut state);
     let title = replica.get(automerge::ROOT, "title").expect("reading").map(|(v, _)| v.to_string());
     assert_eq!(title.as_deref(), Some("\"Shipping plan\""));
+}
+
+fn title_of(replica: &mut AutoCommit) -> Option<String> {
+    replica
+        .get(automerge::ROOT, "title")
+        .expect("reading the title")
+        .map(|(v, _)| v.to_string())
+}
+
+#[test]
+fn an_undo_in_core_reaches_the_replica_as_a_change_and_stays_undone() {
+    let Some(harnesses) = harnesses() else { return };
+    let mut cfg = Config::personal("tester");
+    cfg.harness_dir = Some(harnesses);
+    let mut core = Core::new(cfg).expect("creating Core");
+    let events: Events = Arc::new(Mutex::new(Vec::new()));
+    let sink = events.clone();
+    core.set_event_sink(Box::new(move |e| sink.lock().unwrap().push(e)));
+    core.handle(proto::Request::CallTool {
+        tool: "canvas.add_sticky".into(),
+        params: proto::Json(serde_json::json!({"text": "first"})),
+    });
+    drain(&events);
+
+    let (doc_id, snapshot) = match core.handle(proto::Request::OpenDoc {
+        harness: "io.localspace.whiteboard".into(),
+    }) {
+        proto::Response::DocOpened { doc, snapshot, .. } => (doc, snapshot),
+        other => panic!("open: {other:?}"),
+    };
+    let mut replica = AutoCommit::load(&snapshot).expect("loading the snapshot");
+    let mut state = automerge::sync::State::new();
+    settle(&mut core, &events, &doc_id, &mut replica, &mut state);
+
+    // The user's edit on the board, committed.
+    replica.put(automerge::ROOT, "title", "Launch plan").expect("a change");
+    settle(&mut core, &events, &doc_id, &mut replica, &mut state);
+    let committed = history(&mut core);
+    assert_eq!(committed[0].tool, "surface:sync");
+
+    // Ctrl+Z in the frame: the environment's undo. The replica holds the
+    // undone change; it must receive the revert, not send the change back.
+    assert!(matches!(core.handle(proto::Request::Undo), proto::Response::Ok));
+    settle(&mut core, &events, &doc_id, &mut replica, &mut state);
+    let json = match core.handle(proto::Request::GetDocJson {
+        harness: "io.localspace.whiteboard".into(),
+    }) {
+        proto::Response::DocJson { json, .. } => json.0,
+        other => panic!("{other:?}"),
+    };
+    // The logic names a new board "Board"; the undo goes back to that.
+    assert_eq!(json["title"], "Board", "Core's document is back to its title from before the edit: {json}");
+    assert_eq!(title_of(&mut replica).as_deref(), Some("\"Board\""), "the replica followed the undo");
+    assert_eq!(json["shapes"].as_array().map(Vec::len), Some(1), "the sticky from before the edit stays");
+    let after_undo = history(&mut core);
+    assert_eq!(after_undo.len(), committed.len(), "an undo moves the head; nothing was committed again");
+    settle(&mut core, &events, &doc_id, &mut replica, &mut state);
+    assert_eq!(history(&mut core).len(), committed.len(), "and the replica stays quiet");
+
+    // Redo brings the edit back to both.
+    assert!(matches!(core.handle(proto::Request::Redo), proto::Response::Ok));
+    settle(&mut core, &events, &doc_id, &mut replica, &mut state);
+    let json = match core.handle(proto::Request::GetDocJson {
+        harness: "io.localspace.whiteboard".into(),
+    }) {
+        proto::Response::DocJson { json, .. } => json.0,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(json["title"], "Launch plan");
+    assert_eq!(title_of(&mut replica).as_deref(), Some("\"Launch plan\""));
+    assert_eq!(history(&mut core).len(), committed.len());
 }

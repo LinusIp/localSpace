@@ -4,6 +4,20 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-10, during the step-5 build
+
+- **Undo, redo and a run drop are forward changes on a crdt document.**
+  (architecture §6.1, §6.3; the DAG of plugin spec §7.) The DAG moves the
+  document's head to the parent commit as before; the live Automerge
+  document is no longer swapped for the parent's snapshot but reconciled to
+  the parent's content, field by field, as one more change. Swapping the
+  bytes undid nothing while a surface held a replica: the replica still had
+  the undone change, the sync protocol sent it straight back and Core
+  committed it again. A document with no changes yet still takes a snapshot
+  as it is, history and all, which install and start rely on. Tests:
+  `docs::tests::restoring_into_a_document_with_changes_is_one_more_change_not_a_replacement`,
+  `crates/localspace-core/tests/sync.rs`.
+
 ## 2026-09-10, answers to the step-5 questions
 
 - **The tldraw surface is parked** on the branch `spike/tldraw`, a reference
