@@ -1,8 +1,7 @@
 // The top bar: workspace, model, canvas zoom, readiness, settings, the user.
 
-import { ChevronDown, Minus, Plus, Settings, Sparkles } from "lucide-react";
+import { Dot, IconButton, MinusIcon, PlusIcon, Select, SettingsIcon, SparkIcon } from "@localspace/ui";
 import { useSession } from "../store";
-import { Dot } from "./ui";
 
 export function TopBar() {
   const { environment, models, live, me, go, selectModel, panels, activePanel, setZoom } = useSession();
@@ -25,30 +24,22 @@ export function TopBar() {
     .join("");
 
   return (
-    <header className="flex items-center gap-3 px-6 py-3">
-      <label className="flex items-center gap-2 rounded-lg border border-line bg-white px-3 py-1.5 text-sm">
-        <select
-          className="appearance-none bg-white pr-1 outline-none"
-          value={environment?.workspace ?? ""}
-          onChange={() => undefined}
-          aria-label="Workspace"
-        >
-          <option value={environment?.workspace ?? ""}>{environment?.workspace ?? "Workspace"}</option>
-        </select>
-        <ChevronDown size={14} className="text-muted" />
-      </label>
+    <header className="ls-topbar">
+      <Select aria-label="Workspace" value={environment?.workspace ?? ""} onChange={() => undefined} style={{ width: "auto" }}>
+        <option value={environment?.workspace ?? ""}>{environment?.workspace ?? "Workspace"}</option>
+      </Select>
 
-      <div className="ml-auto flex items-center gap-3">
-        <label className="flex items-center gap-2 rounded-lg border border-line bg-white px-3 py-1.5 text-sm">
-          <Sparkles size={15} className="text-muted" />
-          <select
-            className="appearance-none bg-white pr-1 outline-none"
+      <div className="ls-ml-auto ls-row ls-gap-3">
+        <span className="ls-row ls-gap-2">
+          <SparkIcon size={15} className="ls-muted" />
+          <Select
+            aria-label="Model"
             value={model?.id ?? ""}
+            style={{ width: "auto" }}
             onChange={(e) => {
               if (e.target.value) void selectModel(e.target.value);
               else go("models");
             }}
-            aria-label="Model"
           >
             {!model && <option value="">No model</option>}
             {models.length === 0 && model && <option value={model.id}>{model.id}</option>}
@@ -58,66 +49,41 @@ export function TopBar() {
               </option>
             ))}
             {models.length === 0 && <option value="">Choose in Models…</option>}
-          </select>
-          <ChevronDown size={14} className="text-muted" />
-        </label>
+          </Select>
+        </span>
 
-        <div
-          className={`flex items-center rounded-lg border border-line bg-white text-sm ${canvas ? "text-ink" : "text-faint"}`}
+        <span
+          className={`ls-row ls-card ${canvas ? "" : "ls-faint"}`}
+          style={{ borderRadius: "var(--ls-radius)" }}
           title={canvas ? `Zoom ${canvas.title}` : "Zoom acts on an open canvas; no canvas panel is open"}
         >
+          <IconButton label="Zoom out" quiet disabled={!canvas} onClick={() => canvas && setZoom(canvas.key, canvas.zoom - 0.1)}>
+            <MinusIcon size={14} />
+          </IconButton>
           <button
-            className="px-2 py-1.5 disabled:cursor-not-allowed"
-            disabled={!canvas}
-            onClick={() => canvas && setZoom(canvas.key, canvas.zoom - 0.1)}
-            aria-label="Zoom out"
-          >
-            <Minus size={14} />
-          </button>
-          <button
-            className="px-1 tabular-nums disabled:cursor-not-allowed"
+            type="button"
+            className="ls-link-button ls-tabular"
+            style={{ fontSize: 14, color: "inherit", padding: "0 4px" }}
             disabled={!canvas}
             onClick={() => canvas && setZoom(canvas.key, 1)}
             title={canvas ? "Back to 100%" : undefined}
           >
             {Math.round((canvas?.zoom ?? 1) * 100)}%
           </button>
-          <button
-            className="px-2 py-1.5 disabled:cursor-not-allowed"
-            disabled={!canvas}
-            onClick={() => canvas && setZoom(canvas.key, canvas.zoom + 0.1)}
-            aria-label="Zoom in"
-          >
-            <Plus size={14} />
-          </button>
-        </div>
+          <IconButton label="Zoom in" quiet disabled={!canvas} onClick={() => canvas && setZoom(canvas.key, canvas.zoom + 0.1)}>
+            <PlusIcon size={14} />
+          </IconButton>
+        </span>
 
-        <span
-          className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium ${
-            readiness.tone === "ok"
-              ? "border-accent/20 bg-accent-soft text-accent"
-              : readiness.tone === "warn"
-                ? "border-warn/20 bg-warn-soft text-warn"
-                : "border-line bg-white text-muted"
-          }`}
-        >
+        <span className={`ls-pill ${readiness.tone === "ok" ? "ls-ok" : readiness.tone === "warn" ? "ls-warn-pill" : ""}`} style={{ fontSize: 14, padding: "6px 12px" }}>
           <Dot tone={readiness.tone} />
           {readiness.label}
         </span>
 
-        <button
-          className="rounded-lg border border-line bg-white p-2 text-muted hover:text-ink"
-          onClick={() => go("settings")}
-          aria-label="Settings"
-        >
-          <Settings size={16} />
-        </button>
-        <button
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent"
-          onClick={() => go("settings")}
-          aria-label="Account"
-          title={me?.user}
-        >
+        <IconButton label="Settings" onClick={() => go("settings")}>
+          <SettingsIcon size={16} />
+        </IconButton>
+        <button type="button" className="ls-avatar" onClick={() => go("settings")} aria-label="Account" title={me?.user}>
           {initials || "?"}
         </button>
       </div>

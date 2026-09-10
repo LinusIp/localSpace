@@ -4,11 +4,11 @@
 // again. Nothing here is the harness's code.
 
 import { useEffect, useState } from "react";
+import { Button, Field, Input, Pill, Select, Textarea } from "@localspace/ui";
 import { ApiError, call, pick } from "../api/client";
 import type { Widget, WidgetValue } from "../api/generated";
 import { bus } from "../surfaces/bus";
 import { useSession } from "../store";
-import { Button, Pill } from "./ui";
 
 export function WidgetView({ harness, view }: { harness: string; view: string }) {
   const [root, setRoot] = useState<Widget | null>(null);
@@ -44,20 +44,20 @@ export function WidgetView({ harness, view }: { harness: string; view: string })
     }
   };
 
-  if (error) return <p className="p-6 text-sm text-danger">{error}</p>;
-  if (!root) return <p className="p-6 text-sm text-muted">Loading…</p>;
+  if (error) return <p className="ls-pad-6 ls-danger">{error}</p>;
+  if (!root) return <p className="ls-pad-6 ls-muted">Loading…</p>;
   return (
-    <div className="h-full overflow-auto p-5">
+    <div className="ls-fill ls-scroll ls-pad-4" style={{ boxSizing: "border-box" }}>
       <Node widget={root} fire={fire} />
     </div>
   );
 }
 
 function Node({ widget, fire }: { widget: Widget; fire: (id: string, value: WidgetValue) => void }) {
-  if (widget === "separator") return <hr className="my-2 border-line" />;
+  if (widget === "separator") return <hr className="ls-hr" />;
   if ("column" in widget)
     return (
-      <div className="flex flex-col gap-2">
+      <div className="ls-col ls-gap-2">
         {widget.column.children.map((c, i) => (
           <Node key={i} widget={c} fire={fire} />
         ))}
@@ -65,19 +65,15 @@ function Node({ widget, fire }: { widget: Widget; fire: (id: string, value: Widg
     );
   if ("row" in widget)
     return (
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="ls-row ls-wrap ls-gap-2">
         {widget.row.children.map((c, i) => (
           <Node key={i} widget={c} fire={fire} />
         ))}
       </div>
     );
   if ("text" in widget)
-    return (
-      <p className={`text-sm ${widget.text.strong ? "font-semibold" : ""} ${widget.text.muted ? "text-muted" : ""}`}>
-        {widget.text.text}
-      </p>
-    );
-  if ("heading" in widget) return <h3 className="text-[15px] font-semibold">{widget.heading.text}</h3>;
+    return <p style={{ margin: 0 }} className={`${widget.text.strong ? "ls-strong" : ""} ${widget.text.muted ? "ls-muted" : ""}`}>{widget.text.text}</p>;
+  if ("heading" in widget) return <h3 className="ls-section-title">{widget.heading.text}</h3>;
   if ("space" in widget) return <div style={{ height: widget.space.size }} />;
   if ("button" in widget)
     return (
@@ -87,76 +83,50 @@ function Node({ widget, fire }: { widget: Widget; fire: (id: string, value: Widg
     );
   if ("input" in widget) {
     const { id, label, value, multiline } = widget.input;
-    const cls = "w-full rounded-lg border border-line px-3 py-1.5 text-sm outline-none focus:border-accent";
     return (
-      <label className="block text-xs text-muted">
-        {label}
+      <Field label={label}>
         {multiline ? (
-          <textarea
-            className={`mt-1 ${cls}`}
-            rows={3}
-            defaultValue={value}
-            onBlur={(e) => e.target.value !== value && fire(id, { text: e.target.value })}
-          />
+          <Textarea rows={3} defaultValue={value} onBlur={(e) => e.target.value !== value && fire(id, { text: e.target.value })} />
         ) : (
-          <input
-            className={`mt-1 ${cls}`}
+          <Input
             defaultValue={value}
             onBlur={(e) => e.target.value !== value && fire(id, { text: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && fire(id, { text: (e.target as HTMLInputElement).value })}
           />
         )}
-      </label>
+      </Field>
     );
   }
   if ("checkbox" in widget)
     return (
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={widget.checkbox.value}
-          onChange={(e) => fire(widget.checkbox.id, { bool: e.target.checked })}
-        />
+      <label className="ls-row ls-gap-2">
+        <input type="checkbox" checked={widget.checkbox.value} onChange={(e) => fire(widget.checkbox.id, { bool: e.target.checked })} />
         {widget.checkbox.label}
       </label>
     );
   if ("select" in widget)
     return (
-      <label className="block text-xs text-muted">
-        {widget.select.label}
-        <select
-          className="mt-1 block rounded-lg border border-line bg-white px-2 py-1.5 text-sm"
-          value={widget.select.value}
-          onChange={(e) => fire(widget.select.id, { text: e.target.value })}
-        >
+      <Field label={widget.select.label}>
+        <Select value={widget.select.value} onChange={(e) => fire(widget.select.id, { text: e.target.value })} style={{ width: "auto" }}>
           {widget.select.options.map((o) => (
             <option key={o} value={o}>
               {o}
             </option>
           ))}
-        </select>
-      </label>
+        </Select>
+      </Field>
     );
   if ("slider" in widget) {
     const { id, label, value, min, max } = widget.slider;
     return (
-      <label className="block text-xs text-muted">
-        {label}: {value}
-        <input
-          type="range"
-          className="mt-1 block w-full"
-          min={min}
-          max={max}
-          step={(max - min) / 100}
-          defaultValue={value}
-          onChange={(e) => fire(id, { number: Number(e.target.value) })}
-        />
-      </label>
+      <Field label={`${label}: ${value}`}>
+        <input type="range" style={{ width: "100%" }} min={min} max={max} step={(max - min) / 100} defaultValue={value} onChange={(e) => fire(id, { number: Number(e.target.value) })} />
+      </Field>
     );
   }
   if ("list" in widget)
     return (
-      <ul className="list-disc pl-5 text-sm">
+      <ul style={{ margin: 0, paddingLeft: 20 }}>
         {widget.list.items.map((it, i) => (
           <li key={i}>{it}</li>
         ))}
@@ -164,23 +134,19 @@ function Node({ widget, fire }: { widget: Widget; fire: (id: string, value: Widg
     );
   if ("table" in widget)
     return (
-      <table className="text-sm">
-        <thead className="text-left text-xs text-faint">
+      <table className="ls-table">
+        <thead>
           <tr>
             {widget.table.headers.map((h) => (
-              <th key={h} className="pb-1 pr-4 font-medium">
-                {h}
-              </th>
+              <th key={h}>{h}</th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-line">
+        <tbody>
           {widget.table.rows.map((row, i) => (
             <tr key={i}>
               {row.map((cell, j) => (
-                <td key={j} className="py-1 pr-4">
-                  {cell}
-                </td>
+                <td key={j}>{cell}</td>
               ))}
             </tr>
           ))}

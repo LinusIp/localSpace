@@ -1,8 +1,8 @@
-// Application state (v2 §6.1: Zustand for the app, Automerge for content).
+// Application state (v2.1 §6.1: the own store for the app, Automerge for content).
 // Everything here is what Core last said, kept current by its events; every
 // action is one request to Core, which decides.
 
-import { create } from "zustand";
+import { createStore } from "@localspace/ui";
 import { ApiError, call, pick } from "./api/client";
 import type { Me } from "./api/client";
 import type {
@@ -147,7 +147,7 @@ export type Session = {
 const KEEP_NOTICES = 50;
 const KEEP_TRACE = 300;
 
-export const useSession = create<Session>((set, get) => {
+export const useSession = createStore<Session>((set, get) => {
   /** Run a request; a failure becomes a notice rather than an unhandled rejection. */
   const attempt = async <T>(work: () => Promise<T>): Promise<T | undefined> => {
     try {

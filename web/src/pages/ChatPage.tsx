@@ -2,7 +2,7 @@
 // calls as they happen, approvals it asks for, and the composer.
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, MessageSquare, Paperclip, SendHorizontal, SlidersHorizontal, Square, Check, X } from "lucide-react";
+import { Button, Card, ChatIcon, CheckIcon, ClipIcon, CloseIcon, IconButton, SendIcon, SlidersIcon, SpinnerIcon, StopIcon } from "@localspace/ui";
 import type { ChatMessage, ToolCallRecord } from "../api/generated";
 import { outcomeLine, useSession } from "../store";
 import type { LiveToolCall } from "../store";
@@ -11,7 +11,6 @@ import { Mark } from "../components/Mark";
 import { RightPanel } from "../components/RightPanel";
 import { Conversations } from "../components/Conversations";
 import { Panels } from "../components/Panels";
-import { Button, Card } from "../components/ui";
 
 export function ChatPage() {
   const { transcript, streaming, busy, liveCalls, approvals, environment, panels, details } = useSession();
@@ -27,60 +26,58 @@ export function ChatPage() {
   }, [shown.length, streaming, liveCalls.length]);
 
   return (
-    <div className="flex min-h-0 flex-1 gap-4 px-6 pb-6">
-      <Card className={`flex min-w-0 flex-row ${withPanels ? "w-[420px] shrink-0" : "flex-1"}`}>
+    <div className="page-flex">
+      <Card className={`chat-column ${withPanels ? "chat-beside" : "chat-alone"}`}>
         {!withPanels && <Conversations />}
-        <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-3 border-b border-line px-6 py-4">
-          <span className="text-muted">
-            <MessageSquare size={18} />
-          </span>
-          <h1 className="truncate text-[15px] font-medium">{title}</h1>
-          {environment?.focus && (
-            <span className="ml-auto text-xs text-faint">focus: {environment.focus}</span>
-          )}
-        </div>
+        <div className="ls-col ls-grow">
+          <div className="chat-head">
+            <span className="ls-muted">
+              <ChatIcon size={18} />
+            </span>
+            <h1 className="ls-truncate">{title}</h1>
+            {environment?.focus && <span className="ls-ml-auto ls-small ls-faint">focus: {environment.focus}</span>}
+          </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          {shown.length === 0 && !streaming && (
-            <div className="flex h-full flex-col items-center justify-center text-center">
-              <Mark size={40} />
-              <p className="mt-4 text-sm text-muted">
-                {environment?.model
-                  ? "Ask for something. The agent works through the harnesses installed here."
-                  : "No model is loaded yet. Choose one in Models, then ask for something."}
-              </p>
-            </div>
-          )}
-          <div className="mx-auto flex max-w-3xl flex-col gap-5">
-            {shown.map((m, i) => (
-              <Message key={i} message={m} />
-            ))}
-            {(streaming || (busy && liveCalls.length > 0)) && (
-              <div className="flex gap-3">
-                <Avatar />
-                <div className="min-w-0 flex-1 rounded-xl border border-line bg-white px-5 py-4">
-                  {liveCalls.map((c) => (
-                    <LiveCall key={c.id} call={c} />
-                  ))}
-                  {streaming ? (
-                    <Markdown text={streaming} />
-                  ) : (
-                    <span className="flex items-center gap-2 text-sm text-muted">
-                      <Loader2 size={14} className="animate-spin" /> working…
-                    </span>
-                  )}
-                </div>
+          <div className="chat-scroll">
+            {shown.length === 0 && !streaming && (
+              <div className="ls-empty">
+                <Mark size={40} />
+                <p className="ls-mt-4 ls-muted">
+                  {environment?.model
+                    ? "Ask for something. The agent works through the harnesses installed here."
+                    : "No model is loaded yet. Choose one in Models, then ask for something."}
+                </p>
               </div>
             )}
-            {approvals.map((a) => (
-              <ApprovalCard key={a.id} id={a.id} kind={a.kind} prompt={a.prompt} />
-            ))}
-            <div ref={bottom} />
+            <div className="chat-thread">
+              {shown.map((m, i) => (
+                <Message key={i} message={m} />
+              ))}
+              {(streaming || (busy && liveCalls.length > 0)) && (
+                <div className="chat-message">
+                  <Avatar />
+                  <div className="ls-bubble">
+                    {liveCalls.map((c) => (
+                      <LiveCall key={c.id} call={c} />
+                    ))}
+                    {streaming ? (
+                      <Markdown text={streaming} />
+                    ) : (
+                      <span className="ls-row ls-gap-2 ls-muted">
+                        <SpinnerIcon size={14} className="ls-spin" /> working…
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+              {approvals.map((a) => (
+                <ApprovalCard key={a.id} id={a.id} kind={a.kind} prompt={a.prompt} />
+              ))}
+              <div ref={bottom} />
+            </div>
           </div>
-        </div>
 
-        <Composer />
+          <Composer />
         </div>
       </Card>
       {withPanels && <Panels />}
@@ -91,7 +88,7 @@ export function ChatPage() {
 
 function Avatar() {
   return (
-    <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm">
+    <span className="chat-avatar">
       <Mark size={24} />
     </span>
   );
@@ -100,17 +97,15 @@ function Avatar() {
 function Message({ message }: { message: ChatMessage }) {
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[80%] rounded-xl bg-accent-soft px-5 py-3 text-[14px] leading-relaxed text-ink">
-          {message.content}
-        </div>
+      <div className="ls-row ls-end">
+        <div className="ls-bubble-user">{message.content}</div>
       </div>
     );
   }
   return (
-    <div className="flex gap-3">
+    <div className="chat-message">
       <Avatar />
-      <div className="min-w-0 flex-1 rounded-xl border border-line bg-white px-5 py-4">
+      <div className="ls-bubble">
         {message.tool_calls.map((c) => (
           <ToolCall key={c.id} call={c} />
         ))}
@@ -123,26 +118,24 @@ function Message({ message }: { message: ChatMessage }) {
 function ToolCall({ call }: { call: ToolCallRecord }) {
   const ok = "ok" in call.outcome;
   return (
-    <div className="mb-2 flex items-start gap-2 rounded-lg bg-page px-3 py-2 text-xs">
-      <span className={ok ? "text-accent" : "text-danger"}>{ok ? <Check size={14} /> : <X size={14} />}</span>
-      <span className="font-mono text-ink">{call.tool}</span>
-      <span className="text-muted">{outcomeLine(call.outcome)}</span>
+    <div className="chat-call">
+      <span className={ok ? "ls-accent" : "ls-danger"}>{ok ? <CheckIcon size={14} /> : <CloseIcon size={14} />}</span>
+      <span className="ls-mono">{call.tool}</span>
+      <span className="ls-muted">{outcomeLine(call.outcome)}</span>
     </div>
   );
 }
 
 function LiveCall({ call }: { call: LiveToolCall }) {
   return (
-    <div className="mb-2 flex items-start gap-2 rounded-lg bg-page px-3 py-2 text-xs">
+    <div className="chat-call">
       {call.outcome ? (
-        <span className={"ok" in call.outcome ? "text-accent" : "text-danger"}>
-          {"ok" in call.outcome ? <Check size={14} /> : <X size={14} />}
-        </span>
+        <span className={"ok" in call.outcome ? "ls-accent" : "ls-danger"}>{"ok" in call.outcome ? <CheckIcon size={14} /> : <CloseIcon size={14} />}</span>
       ) : (
-        <Loader2 size={14} className="animate-spin text-muted" />
+        <SpinnerIcon size={14} className="ls-spin ls-muted" />
       )}
-      <span className="font-mono text-ink">{call.tool}</span>
-      <span className="text-muted">{call.outcome ? outcomeLine(call.outcome) : "running"}</span>
+      <span className="ls-mono">{call.tool}</span>
+      <span className="ls-muted">{call.outcome ? outcomeLine(call.outcome) : "running"}</span>
     </div>
   );
 }
@@ -150,10 +143,12 @@ function LiveCall({ call }: { call: LiveToolCall }) {
 function ApprovalCard({ id, kind, prompt }: { id: string; kind: string; prompt: string }) {
   const approve = useSession((s) => s.approve);
   return (
-    <div className="rounded-xl border border-warn/30 bg-warn-soft px-5 py-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-warn">{kind.replace("_", " ")}</div>
-      <p className="mt-1 text-sm">{prompt}</p>
-      <div className="mt-3 flex gap-2">
+    <div className="chat-approval">
+      <div className="chat-approval-kind">{kind.replace("_", " ")}</div>
+      <p className="ls-mt-1" style={{ marginBottom: 0 }}>
+        {prompt}
+      </p>
+      <div className="ls-row ls-gap-2 ls-mt-3">
         <Button kind="primary" onClick={() => void approve(id, true)}>
           Allow
         </Button>
@@ -176,16 +171,11 @@ function Composer() {
   };
 
   return (
-    <div className="border-t border-line p-4">
-      <div className="flex items-end gap-2 rounded-xl border border-line bg-white px-3 py-2 focus-within:border-accent">
-        <button
-          className="rounded-lg p-2 text-faint"
-          disabled
-          title="Attaching files arrives with retrieval and upload, build step 6"
-          aria-label="Attach"
-        >
-          <Paperclip size={18} />
-        </button>
+    <div className="composer-wrap">
+      <div className="ls-composer">
+        <IconButton label="Attach" quiet disabled title="Attaching files arrives with retrieval and upload, build step 6">
+          <ClipIcon size={18} />
+        </IconButton>
         <textarea
           ref={box}
           rows={1}
@@ -198,37 +188,24 @@ function Composer() {
             }
           }}
           placeholder={environment?.model ? "Type your message…" : "Choose a model in Models first, then type here"}
-          className="max-h-40 min-h-[36px] flex-1 resize-none bg-transparent py-2 text-[14px] outline-none"
+          style={{ minHeight: 36, padding: "8px 0" }}
         />
-        <button
-          className="rounded-lg p-2 text-muted hover:text-ink"
-          onClick={() => go("models")}
-          title="Model settings"
-          aria-label="Model settings"
-        >
-          <SlidersHorizontal size={18} />
-        </button>
+        <IconButton label="Model settings" quiet onClick={() => go("models")}>
+          <SlidersIcon size={18} />
+        </IconButton>
         {busy ? (
-          <button
-            className="rounded-lg bg-danger p-2.5 text-white"
-            onClick={() => void cancel()}
-            title="Stop this turn"
-            aria-label="Stop"
-          >
-            <Square size={16} />
+          <button type="button" className="send-button stop" onClick={() => void cancel()} title="Stop this turn" aria-label="Stop">
+            <StopIcon size={16} />
           </button>
         ) : (
-          <button
-            className="rounded-lg bg-accent p-2.5 text-white disabled:opacity-40"
-            onClick={submit}
-            disabled={!text.trim()}
-            aria-label="Send"
-          >
-            <SendHorizontal size={16} />
+          <button type="button" className="send-button" onClick={submit} disabled={!text.trim()} aria-label="Send">
+            <SendIcon size={16} />
           </button>
         )}
       </div>
-      <div className="mt-1.5 px-1 text-[11px] text-faint">Enter sends, Shift+Enter adds a line.</div>
+      <div className="ls-mt-1 ls-tiny ls-faint" style={{ padding: "0 4px" }}>
+        Enter sends, Shift+Enter adds a line.
+      </div>
     </div>
   );
 }

@@ -150,16 +150,16 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
 
   if (error) {
     return (
-      <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-        <p className="text-sm text-danger">{error}</p>
-        <p className="mt-1 max-w-md text-xs text-faint">
+      <div className="ls-empty">
+        <p className="ls-danger">{error}</p>
+        <p className="ls-mt-1 ls-small ls-faint" style={{ maxWidth: "28rem" }}>
           The view {view} of {harness} could not be opened on its own origin.
         </p>
       </div>
     );
   }
   if (!target) {
-    return <div className="flex h-full items-center justify-center text-sm text-muted">Opening…</div>;
+    return <div className="ls-empty ls-muted">Opening…</div>;
   }
   return (
     <iframe
@@ -170,7 +170,7 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
       // and storage on that origin and away from the shell's. Nothing else.
       sandbox="allow-scripts allow-same-origin"
       referrerPolicy="no-referrer"
-      className="h-full w-full border-0 bg-page"
+      style={{ width: "100%", height: "100%", border: 0, background: "var(--ls-page)", display: "block" }}
     />
   );
 }

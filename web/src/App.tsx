@@ -2,6 +2,7 @@
 // is the home page; the rest are the environment's own views.
 
 import { useEffect, useState } from "react";
+import { Button, Card, Input, Toast } from "@localspace/ui";
 import { ApiError, events, login, me } from "./api/client";
 import { useSession } from "./store";
 import { Rail } from "./components/Rail";
@@ -45,7 +46,9 @@ export default function App() {
   }, []);
 
   if (!checked) {
-    return <div className="flex h-screen items-center justify-center text-sm text-muted">Connecting…</div>;
+    return (
+      <div className="ls-root ls-screen ls-row ls-middle ls-muted">Connecting…</div>
+    );
   }
   if (!session.me) return <Login />;
   return <Shell />;
@@ -72,43 +75,33 @@ function Login() {
   };
 
   return (
-    <div className="flex h-screen items-center justify-center bg-page">
-      <form onSubmit={submit} className="w-96 rounded-xl border border-line bg-white p-8 shadow-sm">
-        <div className="mb-6 flex items-center gap-3">
-          <Mark />
-          <h1 className="text-lg font-semibold text-ink">localSpace</h1>
-        </div>
-        <label className="block text-sm text-muted" htmlFor="token">
-          Access token
-        </label>
-        <input
-          id="token"
-          className="mt-1 w-full rounded-md border border-line px-3 py-2 font-mono text-sm outline-none focus:border-accent"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          autoComplete="off"
-          autoFocus
-        />
-        <p className="mt-2 text-xs text-faint">
-          The server prints its token at start and writes it to <code>token</code> in its data directory.
-          In an organisation your administrator gives it to you.
-        </p>
-        {error && <p className="mt-3 text-sm text-danger">{error}</p>}
-        <button
-          type="submit"
-          disabled={busy || token.trim() === ""}
-          className="mt-5 w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+    <div className="ls-root ls-screen ls-row ls-middle">
+      <Card className="ls-w-96 ls-pad-6" style={{ boxShadow: "var(--ls-shadow)" }}>
+        <form onSubmit={submit}>
+          <div className="ls-row ls-gap-3 ls-mb-3" style={{ marginBottom: 24 }}>
+            <Mark />
+            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>localSpace</h1>
+          </div>
+          <label className="ls-small ls-muted" htmlFor="token">
+            Access token
+          </label>
+          <Input id="token" mono className="ls-mt-1" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" autoFocus />
+          <p className="ls-mt-2 ls-small ls-faint">
+            The server prints its token at start and writes it to <code>token</code> in its data directory. In an organisation your administrator gives
+            it to you.
+          </p>
+          {error && <p className="ls-mt-3 ls-danger">{error}</p>}
+          <Button type="submit" kind="primary" block className="ls-mt-4" disabled={busy || token.trim() === ""} busy={busy}>
+            {busy ? "Signing in…" : "Sign in"}
+          </Button>
+        </form>
+      </Card>
     </div>
   );
 }
 
 function Shell() {
-  const { page, onEvent, setLive, refreshEnvironment, refreshTranscript, refreshModels, refreshTask, notices } =
-    useSession();
+  const { page, onEvent, setLive, refreshEnvironment, refreshTranscript, refreshModels, refreshTask, notices } = useSession();
 
   // The event stream keeps everything current while the shell is open; the
   // first state is fetched outright.
@@ -125,9 +118,9 @@ function Shell() {
   const latest = notices[notices.length - 1];
 
   return (
-    <div className="flex h-screen bg-page text-ink">
+    <div className="ls-root ls-screen ls-row ls-start" style={{ alignItems: "stretch" }}>
       <Rail />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="ls-col ls-grow">
         <TopBar />
         {page === "chat" && <ChatPage />}
         {page === "agents" && <AgentsPage />}
@@ -139,17 +132,7 @@ function Shell() {
         {page === "settings" && <SettingsPage />}
         {page === "help" && <HelpPage />}
         {latest && Date.now() - latest.at < 8000 && (
-          <div
-            className={`pointer-events-none fixed bottom-4 left-1/2 -translate-x-1/2 rounded-lg px-4 py-2 text-xs shadow ${
-              latest.level === "error"
-                ? "bg-danger text-white"
-                : latest.level === "warn"
-                  ? "bg-warn text-white"
-                  : "bg-ink text-white"
-            }`}
-          >
-            {latest.text}
-          </div>
+          <Toast level={latest.level === "error" ? "error" : latest.level === "warn" ? "warn" : "info"}>{latest.text}</Toast>
         )}
       </div>
     </div>
