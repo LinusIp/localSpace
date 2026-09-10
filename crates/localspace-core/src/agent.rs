@@ -105,11 +105,10 @@ fn run_loop(core: &mut Core, mut steps: usize) {
             let router = core.router.read().unwrap();
             router.chat_streaming(model::WorkerRole::Chat, &request, &mut |delta: &str| {
                 seen.push_str(delta);
-                if calling.is_none() {
-                    if let Some(first) = seen.trim_start().chars().next() {
+                if calling.is_none()
+                    && let Some(first) = seen.trim_start().chars().next() {
                         calling = Some(first == '{');
                     }
-                }
                 if calling == Some(false) {
                     streamed += delta.len();
                     core.emit(proto::Event::AssistantDelta {

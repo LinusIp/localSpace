@@ -66,14 +66,13 @@ impl Assertion {
             return Err(format!("`{}` is not in the document", display_path(&self.path)));
         };
 
-        if let Some(want) = &self.equals {
-            if value != want {
+        if let Some(want) = &self.equals
+            && value != want {
                 return Err(format!(
                     "`{}` is {value}, expected {want}",
                     display_path(&self.path)
                 ));
             }
-        }
         if let Some(needle) = &self.contains {
             let hay = match value {
                 J::String(s) => s.clone(),

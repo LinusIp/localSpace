@@ -95,11 +95,10 @@ impl Store {
             c.updated_ms = now_ms;
         }
         c.messages = messages.to_vec();
-        if c.title == "New chat" {
-            if let Some(first) = c.messages.iter().find(|m| m.role == proto::Role::User) {
+        if c.title == "New chat"
+            && let Some(first) = c.messages.iter().find(|m| m.role == proto::Role::User) {
                 c.title = title_from(&first.content);
             }
-        }
     }
 
     pub fn select(&mut self, id: &str) -> Option<&Conversation> {

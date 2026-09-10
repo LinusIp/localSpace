@@ -233,11 +233,10 @@ impl Core {
         }
         // What the user installed from a catalog, kept under the data
         // directory (v2 §1: only chat ships in the box; the rest is installed).
-        if let Some(root) = core.installed_root() {
-            if root.is_dir() {
+        if let Some(root) = core.installed_root()
+            && root.is_dir() {
                 core.load_harnesses(&root);
             }
-        }
         Ok(core)
     }
 
@@ -466,8 +465,8 @@ impl Core {
 
         // An update that widens capabilities does not auto-install: it re-prompts
         // with a diff, and only proceeds once the user has answered.
-        if !capabilities_approved {
-            if let Some(existing) = self.registry.get(staged.id()) {
+        if !capabilities_approved
+            && let Some(existing) = self.registry.get(staged.id()) {
                 let diff = staged
                     .manifest
                     .capabilities
@@ -484,7 +483,6 @@ impl Core {
                     });
                 }
             }
-        }
         // A Tier B package must show its reason before anything runs.
         if staged.manifest.harness.tier == manifest::Tier::Native {
             let reason = staged
@@ -729,13 +727,11 @@ impl Core {
         let mut wanted: Vec<String> = focus.iter().cloned().collect();
         wanted.extend(also.iter().cloned());
         for id in wanted {
-            if let Some(h) = self.registry.get_mut(&id) {
-                if h.enabled && h.manifest.contributes.context_provider {
-                    if let Err(e) = Registry::ensure_runtime(h, services.clone()) {
+            if let Some(h) = self.registry.get_mut(&id)
+                && h.enabled && h.manifest.contributes.context_provider
+                    && let Err(e) = Registry::ensure_runtime(h, services.clone()) {
                         self.trace(format!("`{id}` could not start for its context provider: {e:#}"));
                     }
-                }
-            }
         }
 
         context::assemble(
@@ -990,7 +986,6 @@ impl Core {
         // A result may register an artifact (spec §18.3): a typed, pinned
         // reference other harnesses can import. Only of a kind this harness
         // declared it `produces`; otherwise it is refused, out loud.
-        let mut diff_summary = diff_summary;
         if let Some(spec) = out.result.get("artifact").cloned() {
             match self.register_artifact(owner, doc_id, commit_id.clone(), &spec, &diff_summary) {
                 Ok(id) => {
@@ -1012,7 +1007,7 @@ impl Core {
         let state = self
             .sync_states
             .entry(doc_id.to_string())
-            .or_insert_with(automerge::sync::State::new);
+            .or_default();
         if let Some(message) = self.docs.sync_message(doc_id, state) {
             self.emit(proto::Event::DocPatch {
                 doc: doc_id.to_string(),
@@ -1210,11 +1205,10 @@ impl Core {
     /// catalog dirs, plus the installed set's own directory.
     fn catalog_dirs_all(&self) -> Vec<PathBuf> {
         let mut dirs = self.cfg.catalog_dirs.clone();
-        if let Some(installed) = &self.cfg.harness_dir {
-            if !dirs.contains(installed) {
+        if let Some(installed) = &self.cfg.harness_dir
+            && !dirs.contains(installed) {
                 dirs.push(installed.clone());
             }
-        }
         dirs
     }
 
@@ -1302,7 +1296,7 @@ impl Core {
             .get(owner)
             .map(|h| h.manifest.contributes.accepts.clone())
             .unwrap_or_default();
-        if !accepts.iter().any(|k| *k == art.kind) {
+        if !accepts.contains(&art.kind) {
             let takers = task::who_accepts(&self.registry, &art.kind);
             return Err(if takers.is_empty() {
                 format!("`{owner}` does not accept {}, and nothing installed does", art.kind)
@@ -1368,7 +1362,7 @@ impl Core {
             .get(owner)
             .map(|h| h.manifest.contributes.produces.clone())
             .unwrap_or_default();
-        if !produces.iter().any(|k| *k == kind) {
+        if !produces.contains(&kind) {
             return Err(format!(
                 "`{owner}` does not declare that it produces {kind}; add it to [contributes] produces"
             ));
@@ -1537,12 +1531,11 @@ impl Core {
                 let removed = self.registry.remove(&harness);
                 // The environment's own copy goes with it; a package used
                 // where it lies (`--harnesses`) is left alone.
-                if let (Some(removed), Some(root)) = (removed, self.installed_root()) {
-                    if removed.dir.starts_with(&root) {
+                if let (Some(removed), Some(root)) = (removed, self.installed_root())
+                    && removed.dir.starts_with(&root) {
                         drop(removed);
                         let _ = std::fs::remove_dir_all(root.join(&harness));
                     }
-                }
                 if self.focus.as_deref() == Some(harness.as_str()) {
                     self.focus = None;
                 }
@@ -1635,13 +1628,11 @@ impl Core {
                     self.notice(proto::NoticeLevel::Info, "declined");
                     return proto::Response::Ok;
                 }
-                if id.starts_with("egress:") {
-                    if let Some(url) = p.params.get("url").and_then(|u| u.as_str()) {
-                        if let Some(domain) = gateway::host_of(url) {
+                if id.starts_with("egress:")
+                    && let Some(url) = p.params.get("url").and_then(|u| u.as_str())
+                        && let Some(domain) = gateway::host_of(url) {
                             self.gateway.lock().unwrap().approve_domain(&domain);
                         }
-                    }
-                }
                 // Run it as the user: they just authorised this exact call.
                 let outcome = self.call_tool(&p.tool, &p.params.clone(), proto::Author::User);
                 self.emit(proto::Event::ToolCallFinished {
@@ -1775,9 +1766,9 @@ impl Core {
                 }
                 match result {
                     Ok((reply, doc_out)) => {
-                        if let Some(next) = doc_out {
-                            if let Ok(changes) = self.docs.apply_json(&doc_id, &next) {
-                                if !changes.is_empty() {
+                        if let Some(next) = doc_out
+                            && let Ok(changes) = self.docs.apply_json(&doc_id, &next)
+                                && !changes.is_empty() {
                                     let snapshot =
                                         self.docs.snapshot(&doc_id).unwrap_or_default();
                                     let _ = self.dag.commit(
@@ -1792,8 +1783,6 @@ impl Core {
                                     );
                                     self.push_doc_patch(&doc_id);
                                 }
-                            }
-                        }
                         if !reply.is_empty() {
                             self.emit(proto::Event::HarnessMessage {
                                 harness,
@@ -1912,7 +1901,7 @@ impl Core {
                 let mut state = self
                     .sync_states
                     .remove(&doc)
-                    .unwrap_or_else(automerge::sync::State::new);
+                    .unwrap_or_default();
                 let before = self.docs.json(&doc).unwrap_or(J::Null);
                 let res = self.docs.receive_sync(&doc, &mut state, &message);
                 self.sync_states.insert(doc.clone(), state);
@@ -2008,11 +1997,10 @@ impl Core {
                 // The installed directory is scanned too, so a package already
                 // here is marked rather than offered again.
                 let mut dirs = self.cfg.catalog_dirs.clone();
-                if let Some(installed) = &self.cfg.harness_dir {
-                    if !dirs.contains(installed) {
+                if let Some(installed) = &self.cfg.harness_dir
+                    && !dirs.contains(installed) {
                         dirs.push(installed.clone());
                     }
-                }
                 proto::Response::Catalog {
                     entries: catalog::scan(&dirs, &self.registry, &self.cfg.policy),
                 }

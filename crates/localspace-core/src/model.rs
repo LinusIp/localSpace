@@ -298,11 +298,10 @@ pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {
     }
 
     // Backends without native tool calling emit the grammar's shape as content.
-    if calls.is_empty() {
-        if let Some(c) = parse_grammar_call(&text) {
+    if calls.is_empty()
+        && let Some(c) = parse_grammar_call(&text) {
             calls.push(c);
         }
-    }
 
     Ok(ChatReply {
         text,
@@ -341,12 +340,11 @@ pub fn read_sse<R: std::io::BufRead>(reader: R, on_delta: &mut dyn FnMut(&str)) 
         }
         let Some(choice) = event["choices"].get(0) else { continue };
         let delta = &choice["delta"];
-        if let Some(piece) = delta["content"].as_str() {
-            if !piece.is_empty() {
+        if let Some(piece) = delta["content"].as_str()
+            && !piece.is_empty() {
                 text.push_str(piece);
                 on_delta(piece);
             }
-        }
         if let Some(pieces) = delta["tool_calls"].as_array() {
             for tc in pieces {
                 let index = tc["index"].as_u64().unwrap_or(0) as usize;
@@ -378,11 +376,10 @@ pub fn read_sse<R: std::io::BufRead>(reader: R, on_delta: &mut dyn FnMut(&str)) 
             params,
         });
     }
-    if proposed.is_empty() {
-        if let Some(c) = parse_grammar_call(&text) {
+    if proposed.is_empty()
+        && let Some(c) = parse_grammar_call(&text) {
             proposed.push(c);
         }
-    }
     Ok(ChatReply {
         text,
         calls: proposed,

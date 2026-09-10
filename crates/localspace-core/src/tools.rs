@@ -231,11 +231,10 @@ pub fn validate_params(schema: &serde_json::Value, params: &serde_json::Value) -
     };
     if let Some(req) = schema.get("required").and_then(|r| r.as_array()) {
         for r in req {
-            if let Some(key) = r.as_str() {
-                if !obj.contains_key(key) {
+            if let Some(key) = r.as_str()
+                && !obj.contains_key(key) {
                     bail!("missing required parameter `{key}`");
                 }
-            }
         }
     }
     let props = match schema.get("properties").and_then(|p| p.as_object()) {
@@ -264,12 +263,11 @@ pub fn validate_params(schema: &serde_json::Value, params: &serde_json::Value) -
                 bail!("parameter `{key}` should be {ty}");
             }
         }
-        if let Some(allowed) = spec.get("enum").and_then(|e| e.as_array()) {
-            if !allowed.contains(value) {
+        if let Some(allowed) = spec.get("enum").and_then(|e| e.as_array())
+            && !allowed.contains(value) {
                 let names: Vec<String> = allowed.iter().map(|v| v.to_string()).collect();
                 bail!("parameter `{key}` must be one of {}", names.join(", "));
             }
-        }
     }
     Ok(())
 }

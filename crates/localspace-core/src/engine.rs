@@ -83,7 +83,7 @@ pub fn flags(plan: &PlacementPlan, map: &TensorMap, context_len: u32) -> Vec<Str
             } else {
                 // Dense and not resident: as many layers on the GPU as fit.
                 let per_layer = map.core_bytes / layers;
-                let gpu_layers = if per_layer == 0 { layers } else { (plan.gpu_resident_bytes / per_layer).min(layers) };
+                let gpu_layers = plan.gpu_resident_bytes.checked_div(per_layer).map_or(layers, |n| n.min(layers));
                 f.extend(["-ngl".into(), gpu_layers.to_string()]);
             }
         }

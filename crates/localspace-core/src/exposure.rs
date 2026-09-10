@@ -42,15 +42,13 @@ impl Exposure<'_> {
         }
 
         // Rank 1 — the focused harness, in full.
-        if let Some(focus) = self.focus {
-            if let Some(h) = self.registry.get(focus) {
-                if h.enabled {
+        if let Some(focus) = self.focus
+            && let Some(h) = self.registry.get(focus)
+                && h.enabled {
                     for tool in &h.tools.tools {
                         candidates.push((1, expose(h.id(), tool, ExposureReason::Focused)));
                     }
                 }
-            }
-        }
 
         // Rank 2 — pinned harnesses, front door only.
         // Rank 3 — harnesses this conversation has touched, front door only.

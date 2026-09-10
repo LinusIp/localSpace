@@ -134,7 +134,7 @@ pub fn resolve(root: &str, candidates: &[Candidate]) -> Result<Resolution, Resol
                 // Any provider will do; prefer what is already installed.
                 let provider = candidates
                     .iter()
-                    .filter(|c| c.provides.iter().any(|i| *i == dep.id))
+                    .filter(|c| c.provides.contains(&dep.id))
                     .max_by_key(|c| (c.installed, parse_version(&c.version)));
                 match provider {
                     Some(p) => {

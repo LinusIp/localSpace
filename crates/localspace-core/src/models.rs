@@ -111,8 +111,8 @@ impl Catalog {
     /// exists (an organisation's own list), plus the user's imports.
     pub fn load(catalog_dir: Option<&Path>, models_dir: &Path) -> Catalog {
         let mut models = parse(BUILT_IN).map(|c| c.models).unwrap_or_default();
-        if let Some(dir) = catalog_dir {
-            if let Ok(text) = std::fs::read_to_string(dir.join("catalog.json")) {
+        if let Some(dir) = catalog_dir
+            && let Ok(text) = std::fs::read_to_string(dir.join("catalog.json")) {
                 match parse(&text) {
                     Ok(extra) => {
                         for m in extra.models {
@@ -123,7 +123,6 @@ impl Catalog {
                     Err(e) => tracing::warn!("ignoring {}: {e}", dir.join("catalog.json").display()),
                 }
             }
-        }
         let catalog = Catalog {
             models,
             dir: models_dir.to_path_buf(),
@@ -433,11 +432,10 @@ fn fetch_all(
         }
         out.flush()?;
         drop(out);
-        if let Some(len) = length {
-            if written != len {
+        if let Some(len) = length
+            && written != len {
                 bail!("{file}: got {written} of {len} bytes");
             }
-        }
         std::fs::rename(&part, &dest).with_context(|| format!("finishing {}", dest.display()))?;
         done_before += written;
     }
