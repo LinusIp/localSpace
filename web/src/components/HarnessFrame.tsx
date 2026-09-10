@@ -14,8 +14,10 @@ const PROTOCOL = 1;
 
 type FromSurface =
   | { ls: number; type: "hello"; protocol: number }
-  | { ls: number; type: "write"; doc: unknown }
+  | { ls: number; type: "write"; doc: unknown; commit?: boolean; seq?: number }
   | { ls: number; type: "send"; payload: number[] }
+  | { ls: number; type: "action"; name: string }
+  | { ls: number; type: "status"; zoom?: number }
   | { ls: number; type: "log"; level: string; text: string };
 
 export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean }) {
@@ -24,8 +26,13 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
   const [error, setError] = useState<string | null>(null);
   const docId = useRef<string | null>(null);
   const ready = useRef(false);
+  /** The highest write number Core has answered, stamped on every document sent in. */
+  const written = useRef(0);
   const notify = useSession((s) => s.notify);
   const trace = useSession((s) => s.traceLine);
+  const undo = useSession((s) => s.undo);
+  const redo = useSession((s) => s.redo);
+  const reportZoom = useSession((s) => s.reportZoom);
   const { harness, view } = panel;
 
   // A grant for this view, from the server: the URL on the harness origin.
@@ -75,11 +82,22 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
             })
             .catch((err: unknown) => failed(`${panel.title} could not open its document`, err));
           break;
-        case "write":
-          void call({ write_doc: { harness, view, doc: message.doc as never } }).catch((err: unknown) =>
-            failed(`${panel.title} could not write its document`, err),
-          );
+        case "write": {
+          // After Core has taken the write, the surface gets the document
+          // back stamped with this write's number, so it can tell a document
+          // read before the write from one that reflects it.
+          const seq = typeof message.seq === "number" ? message.seq : 0;
+          void call({
+            write_doc: { harness, view, doc: message.doc as never, commit: message.commit !== false },
+          })
+            .then(async () => {
+              written.current = Math.max(written.current, seq);
+              const doc = await fetchDoc();
+              post({ type: "doc", doc, written: written.current });
+            })
+            .catch((err: unknown) => failed(`${panel.title} could not write its document`, err));
           break;
+        }
         case "send": {
           const payload = Array.isArray(message.payload) ? message.payload : [];
           void call({ harness_event: { harness, view, payload } }).catch((err: unknown) =>
@@ -87,6 +105,14 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
           );
           break;
         }
+        case "action":
+          // Undo and redo are the environment's: the history, not the surface.
+          if (message.name === "undo") void undo();
+          else if (message.name === "redo") void redo();
+          break;
+        case "status":
+          if (typeof message.zoom === "number") reportZoom(panel.key, message.zoom);
+          break;
         case "log":
           trace(`[${harness}/${view}] ${message.text}`);
           break;
@@ -98,8 +124,9 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
     const off = [
       bus.on("doc_patch", ({ doc }) => {
         if (!ready.current || doc !== docId.current) return;
+        const stamp = written.current;
         void fetchDoc()
-          .then((next) => post({ type: "doc", doc: next }))
+          .then((next) => post({ type: "doc", doc: next, written: stamp }))
           .catch(() => undefined);
       }),
       bus.on("harness_message", (m) => {
@@ -113,7 +140,7 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
       window.removeEventListener("message", onMessage);
       for (const f of off) f();
     };
-  }, [target, harness, view, panel.title, active, notify, trace]);
+  }, [target, harness, view, panel.key, panel.title, active, notify, trace, undo, redo, reportZoom]);
 
   // Focus follows the active tab.
   useEffect(() => {

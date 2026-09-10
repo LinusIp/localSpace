@@ -1846,7 +1846,12 @@ impl Core {
                 }
             }
 
-            R::WriteDoc { harness, view, doc } => {
+            R::WriteDoc {
+                harness,
+                view,
+                doc,
+                commit,
+            } => {
                 let Some(h) = self.registry.get(&harness) else {
                     return proto::Response::Error {
                         message: format!("no harness `{harness}`"),
@@ -1874,17 +1879,19 @@ impl Core {
                     }
                 };
                 if !changes.is_empty() {
-                    let snapshot = self.docs.snapshot(&doc_id).unwrap_or_default();
-                    let _ = self.dag.commit(
-                        &doc_id,
-                        &harness,
-                        &format!("surface:{view}"),
-                        Json(J::Null),
-                        &snapshot,
-                        &changes.summary(),
-                        proto::Author::User,
-                        None,
-                    );
+                    if commit {
+                        let snapshot = self.docs.snapshot(&doc_id).unwrap_or_default();
+                        let _ = self.dag.commit(
+                            &doc_id,
+                            &harness,
+                            &format!("surface:{view}"),
+                            Json(J::Null),
+                            &snapshot,
+                            &changes.summary(),
+                            proto::Author::User,
+                            None,
+                        );
+                    }
                     self.push_doc_patch(&doc_id);
                 }
                 proto::Response::Ok

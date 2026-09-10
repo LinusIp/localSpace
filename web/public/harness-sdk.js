@@ -7,9 +7,14 @@
 // document asks its logic, which asks Core, which checks the manifest.
 //
 // Protocol, over postMessage, every message `{ ls: 1, type, ... }`:
-//   surface → shell   hello · send {payload} · write {doc} · log {level, text}
-//   shell → surface   init {harness, view, doc, theme, focused} · doc {doc}
+//   surface → shell   hello · send {payload} · write {doc, commit, seq} · action {name}
+//                     status {zoom} · log {level, text}
+//   shell → surface   init {harness, view, doc, theme, focused} · doc {doc, written}
 //                     message {payload} · focus {focused} · command {name, args}
+//
+// `seq` numbers the surface's writes; `written` on a document says which of
+// them Core had taken in before that document was read, so a surface can
+// tell a document that predates its latest write from one that reflects it.
 
 const PROTOCOL = 1;
 
@@ -29,17 +34,18 @@ export function connect() {
     let theme = {};
     let harness = "";
     let view = "";
+    let seq = 0;
 
-    const emit = (event, value) => {
+    const post = (msg) => window.parent.postMessage({ ls: PROTOCOL, ...msg }, "*");
+    const emit = (event, value, meta) => {
       for (const fn of listeners.get(event) ?? []) {
         try {
-          fn(value);
+          fn(value, meta);
         } catch (err) {
           post({ type: "log", level: "error", text: String(err) });
         }
       }
     };
-    const post = (msg) => window.parent.postMessage({ ls: PROTOCOL, ...msg }, "*");
 
     const handle = {
       get harness() {
@@ -54,22 +60,49 @@ export function connect() {
       get focused() {
         return focused;
       },
+      /** The number of the last write sent. */
+      get lastWrite() {
+        return seq;
+      },
       /** The harness document as Core holds it, as JSON. */
       doc() {
         return doc;
       },
-      /** Replace the document. Core reconciles it field by field and commits. */
-      write(next) {
+      /**
+       * Replace the document. Core reconciles it field by field and commits
+       * the difference as the user's edit. `{ commit: false }` moves the
+       * document without a commit: for state that is the user's but not an
+       * edit, such as the selection, so undo steps over it. Returns the
+       * write's number; documents that arrive with `written` below it were
+       * read before this write landed.
+       */
+      write(next, options) {
         doc = next;
-        post({ type: "write", doc: next });
+        seq += 1;
+        post({ type: "write", doc: next, commit: !(options && options.commit === false), seq });
+        return seq;
       },
       /** A message to this harness's logic in Core, at most 64 KB. */
       send(payload) {
-        const bytes = payload instanceof Uint8Array ? Array.from(payload) : Array.from(new TextEncoder().encode(typeof payload === "string" ? payload : JSON.stringify(payload)));
+        const bytes =
+          payload instanceof Uint8Array
+            ? Array.from(payload)
+            : Array.from(new TextEncoder().encode(typeof payload === "string" ? payload : JSON.stringify(payload)));
         if (bytes.length > 64 * 1024) throw new Error("a surface message may not exceed 64 KB");
         post({ type: "send", payload: bytes });
       },
-      /** "doc", "message", "focus", "command" */
+      /** Undo and redo are the environment's, through the history, not the surface's. */
+      undo() {
+        post({ type: "action", name: "undo" });
+      },
+      redo() {
+        post({ type: "action", name: "redo" });
+      },
+      /** Tell the shell what the surface shows, so its controls stay true: `{ zoom }`. */
+      report(status) {
+        post({ type: "status", ...status });
+      },
+      /** "doc" (with `{ written }`), "message", "focus", "command" */
       on(event, fn) {
         if (!listeners.has(event)) listeners.set(event, new Set());
         listeners.get(event).add(fn);
@@ -93,10 +126,12 @@ export function connect() {
           applyTheme(theme);
           resolve(handle);
           break;
-        case "doc":
-          doc = msg.doc;
-          emit("doc", doc);
+        case "doc": {
+          const written = typeof msg.written === "number" ? msg.written : Number.POSITIVE_INFINITY;
+          if (written >= seq) doc = msg.doc;
+          emit("doc", msg.doc, { written });
           break;
+        }
         case "message": {
           const bytes = new Uint8Array(msg.payload ?? []);
           emit("message", bytes);

@@ -103,6 +103,8 @@ export type Session = {
   closePanel: (key: string) => void;
   activatePanel: (key: string) => void;
   setZoom: (key: string, zoom: number) => void;
+  /** A surface saying what it shows, so the top bar stays true. */
+  reportZoom: (key: string, zoom: number) => void;
   toggleDetails: () => void;
 
   refreshEnvironment: () => Promise<void>;
@@ -256,6 +258,10 @@ export const useSession = create<Session>((set, get) => {
       const panel = get().panels.find((p) => p.key === key);
       if (panel) bus.emit("command", { harness: panel.harness, view: panel.view, name: "zoom", args: { value } });
     },
+    reportZoom: (key, zoom) =>
+      set((s) => ({
+        panels: s.panels.map((p) => (p.key === key && Math.abs(p.zoom - zoom) > 0.001 ? { ...p, zoom } : p)),
+      })),
     toggleDetails: () => set((s) => ({ details: !s.details })),
 
     onEvent: (event) => {

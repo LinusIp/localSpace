@@ -728,6 +728,12 @@ pub enum Request {
         harness: HarnessId,
         view: ViewId,
         doc: Json,
+        /// Whether the write is a commit in the history. A surface sends
+        /// `false` for state that is the user's but not an edit, such as the
+        /// selection: the document moves and every client sees it, and undo
+        /// steps over it.
+        #[serde(default = "default_true")]
+        commit: bool,
     },
     /// Automerge sync message from the surface replica.
     DocSync {
@@ -1152,4 +1158,8 @@ mod tests {
         assert!(NetworkMode::Airgapped.rank() < NetworkMode::Ask.rank());
         assert!(NetworkMode::Ask.rank() < NetworkMode::Online.rank());
     }
+}
+
+fn default_true() -> bool {
+    true
 }

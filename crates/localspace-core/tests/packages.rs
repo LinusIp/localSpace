@@ -77,3 +77,84 @@ fn an_install_from_the_catalog_is_copied_and_survives_a_restart() {
     // The catalog's own package was never touched.
     assert!(harnesses.join("whiteboard/harness.toml").exists());
 }
+
+fn doc_json(core: &mut Core) -> serde_json::Value {
+    match core.handle(proto::Request::GetDocJson {
+        harness: "io.localspace.whiteboard".into(),
+    }) {
+        proto::Response::DocJson { json, .. } => json.0,
+        other => panic!("expected the document, got {other:?}"),
+    }
+}
+
+fn history_len(core: &mut Core) -> usize {
+    match core.handle(proto::Request::GetHistory { limit: 1000 }) {
+        proto::Response::History { commits } => commits.len(),
+        other => panic!("expected the history, got {other:?}"),
+    }
+}
+
+/// Architecture v2 §6.3: a surface's write without a commit moves the
+/// document for every client but leaves the history alone; an edit is a
+/// commit named after the view, by the user; the same document again is
+/// no change.
+#[test]
+fn a_write_without_a_commit_moves_the_document_but_not_the_history() {
+    let Some(harnesses) = harnesses() else { return };
+    let data = tempfile::tempdir().unwrap();
+    let mut cfg = Config::personal("tester");
+    cfg.data_dir = Some(data.path().to_path_buf());
+    cfg.harness_dir = Some(harnesses);
+    let mut core = Core::new(cfg).expect("creating Core");
+
+    let mut doc = doc_json(&mut core);
+    // A fresh document is whatever the logic last wrote, which may be nothing yet.
+    for key in ["shapes", "frames", "selection"] {
+        if !doc[key].is_array() {
+            doc[key] = serde_json::json!([]);
+        }
+    }
+    let before = history_len(&mut core);
+
+    doc["selection"] = serde_json::json!(["nothing-yet"]);
+    match core.handle(proto::Request::WriteDoc {
+        harness: "io.localspace.whiteboard".into(),
+        view: "web".into(),
+        doc: proto::Json(doc.clone()),
+        commit: false,
+    }) {
+        proto::Response::Ok => {}
+        other => panic!("write: {other:?}"),
+    }
+    assert_eq!(doc_json(&mut core)["selection"], serde_json::json!(["nothing-yet"]));
+    assert_eq!(history_len(&mut core), before, "no commit for a selection");
+
+    doc["shapes"].as_array_mut().unwrap().push(serde_json::json!({
+        "id": "s_test", "kind": "sticky", "x": 10.0, "y": 10.0, "w": 130.0, "h": 110.0,
+        "fill": "yellow", "text": "from the surface", "frame": null, "z": 1, "locked": false
+    }));
+    match core.handle(proto::Request::WriteDoc {
+        harness: "io.localspace.whiteboard".into(),
+        view: "web".into(),
+        doc: proto::Json(doc.clone()),
+        commit: true,
+    }) {
+        proto::Response::Ok => {}
+        other => panic!("write: {other:?}"),
+    }
+    assert_eq!(history_len(&mut core), before + 1);
+    let commits = match core.handle(proto::Request::GetHistory { limit: 1 }) {
+        proto::Response::History { commits } => commits,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(commits[0].tool, "surface:web");
+    assert_eq!(commits[0].author, proto::Author::User);
+
+    core.handle(proto::Request::WriteDoc {
+        harness: "io.localspace.whiteboard".into(),
+        view: "web".into(),
+        doc: proto::Json(doc),
+        commit: true,
+    });
+    assert_eq!(history_len(&mut core), before + 1, "the same document again is no change");
+}
