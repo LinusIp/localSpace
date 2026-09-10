@@ -52,10 +52,10 @@ export function Panels() {
             <div key={p.key} className="absolute inset-0" hidden={!active}>
               {p.kind === "web" && <HarnessFrame panel={p} active={active} />}
               {p.kind === "widgets" && <WidgetView harness={p.harness} view={p.view} />}
-              {(p.kind === "egui" || p.kind === "stream") && (
+              {(p.kind === "egui" || p.kind === "stream" || p.kind === "native") && (
                 <div className="flex h-full flex-col items-center justify-center p-8 text-center">
                   <p className="text-sm text-muted">
-                    {p.title} is {p.kind === "egui" ? "an egui surface" : "a streamed surface"}.
+                    {p.title} is {p.kind === "egui" ? "an egui surface" : p.kind === "stream" ? "a streamed surface" : "a native surface, reserved for the Tier B runtime"}.
                   </p>
                   <p className="mt-1 max-w-md text-xs text-faint">
                     The web shell runs <code>web</code> and <code>widgets</code> views. This one still runs in the

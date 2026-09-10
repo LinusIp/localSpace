@@ -655,6 +655,8 @@ pub enum SurfaceKind {
     Egui,
     Web,
     Stream,
+    /// Reserved (v2 §6.3): parses, refused at validation until step 8.
+    Native,
 }
 
 impl From<SurfaceKind> for proto::SurfaceKind {
@@ -664,6 +666,7 @@ impl From<SurfaceKind> for proto::SurfaceKind {
             SurfaceKind::Egui => proto::SurfaceKind::Egui,
             SurfaceKind::Web => proto::SurfaceKind::Web,
             SurfaceKind::Stream => proto::SurfaceKind::Stream,
+            SurfaceKind::Native => proto::SurfaceKind::Native,
         }
     }
 }
@@ -755,6 +758,13 @@ impl Manifest {
                     ),
                     _ => {}
                 }
+            }
+            if v.kind == SurfaceKind::Native {
+                bail!(
+                    "view `{}` is kind = \"native\": reserved for the Tier B runtime (architecture v2 §13 step 8) and not supported by this host, harness-api {}",
+                    v.id,
+                    proto::HARNESS_API
+                );
             }
             if v.kind == SurfaceKind::Stream && self.harness.tier != Tier::Native {
                 bail!(
@@ -1112,5 +1122,37 @@ views = [{view}]
         ] {
             assert!(with_view(bad).is_err(), "{bad} must be refused");
         }
+    }
+}
+
+#[cfg(test)]
+mod native_view_tests {
+    use super::*;
+
+    #[test]
+    fn a_native_view_parses_and_is_refused_with_a_reason() {
+        let text = r#"
+[harness]
+id = "io.t.native"
+version = "1.0.0"
+api = "^1.0"
+title = "T"
+publisher = "p"
+tier = "native"
+native_reason = "a GPU solver"
+
+[contributes]
+tools = "tools.json"
+views = [{ id = "scene", kind = "native", placement = "main", title = "Scene" }]
+"#;
+        // The kind is known to the parser: no "unknown variant" at the TOML level.
+        let parsed: Manifest = toml::from_str(text).expect("a reserved kind must parse");
+        assert_eq!(parsed.contributes.views[0].kind, SurfaceKind::Native);
+        // What installation sees is the reason, from validation.
+        let err = Manifest::parse(text).expect_err("and must be refused at validation");
+        let message = format!("{err:#}");
+        assert!(message.contains("reserved for the Tier B runtime"), "{message}");
+        assert!(message.contains(proto::HARNESS_API), "names the host's harness-api: {message}");
+        assert!(!message.contains("unknown variant"), "{message}");
     }
 }

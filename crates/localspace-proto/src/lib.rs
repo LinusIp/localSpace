@@ -220,6 +220,9 @@ pub enum SurfaceKind {
     /// An ES module bundle in a sandboxed iframe on its own origin (v2 §6.3).
     Web,
     Stream,
+    /// Reserved for the Tier B runtime (v2 §6.3, §13 step 8): a manifest
+    /// declaring it parses, and installation refuses it until then.
+    Native,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]

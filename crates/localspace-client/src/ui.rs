@@ -767,11 +767,11 @@ impl App {
                 "This view runs in the web client",
                 "A web view is an iframe on its own origin (architecture v2 §6.3); open it in the browser or the desktop app.",
             ),
-            proto::SurfaceKind::Stream => self.empty_state(
+            proto::SurfaceKind::Stream | proto::SurfaceKind::Native => self.empty_state(
                 ui,
                 sheet,
-                "Stream surfaces need a Tier B process",
-                "Not built in this configuration — see docs/STATUS.md.",
+                "This view needs the Tier B runtime",
+                "Not built in this configuration — architecture v2 §13 step 8; see docs/STATUS.md.",
             ),
         }
     }
