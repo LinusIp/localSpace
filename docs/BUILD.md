@@ -39,6 +39,21 @@ cargo build --release --target wasm32-unknown-unknown
 cp target/wasm32-unknown-unknown/release/whiteboard_surface.wasm ../whiteboard/ui/board.wasm
 ```
 
+**Web surface** — the board the web client and the desktop app show (v2.1
+§6.3, step 5): `@localspace/canvas` against the same document, held in the
+frame as an Automerge replica, built with Vite into the package's `ui/web/`
+directory. It is a few kilobytes: the canvas engine, the UI library, React
+and Automerge come from the shell through the import map.
+
+```bash
+cd web && npm install
+npm run build              # the shell, and the libraries under dist/_localspace/
+npm run build:whiteboard   # -> harnesses/whiteboard/ui/web/
+```
+
+The build output is not committed, like the wasm artefacts. Without it the
+package's `web` view is refused at install, which is the honest failure.
+
 Then:
 
 ```bash

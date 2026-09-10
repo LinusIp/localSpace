@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "strict": true,
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "types": ["vite/client"],
+    "paths": {
+      "@localspace/harness-sdk": ["../../public/harness-sdk.d.ts"],
+      "@localspace/canvas": ["../../packages/canvas/src/index.ts"],
+      "@localspace/ui": ["../../packages/ui/src/index.ts"]
+    }
+  },
+  "include": ["src", "../../packages/canvas/src", "../../packages/ui/src"],
+  "exclude": ["../../packages/**/*.test.ts"]
+}

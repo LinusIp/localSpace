@@ -10,7 +10,9 @@
     "typecheck:packages": "tsc --noEmit -p packages/canvas/tsconfig.json",
     "lint": "oxlint",
     "preview": "vite preview",
-    "build:libs": "node scripts/build-libs.mjs"
+    "build:libs": "node scripts/build-libs.mjs",
+    "build:whiteboard": "tsc --noEmit -p surfaces/whiteboard/tsconfig.json && vite build -c surfaces/whiteboard/vite.config.ts",
+    "typecheck:whiteboard": "tsc --noEmit -p surfaces/whiteboard/tsconfig.json"
   },
   "dependencies": {
     "@automerge/automerge": "^3.4.1",

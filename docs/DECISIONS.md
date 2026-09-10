@@ -17,6 +17,14 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   as it is, history and all, which install and start rely on. Tests:
   `docs::tests::restoring_into_a_document_with_changes_is_one_more_change_not_a_replacement`,
   `crates/localspace-core/tests/sync.rs`.
+- **Strings in the whiteboard document are Automerge's plain strings.**
+  Core writes `ScalarValue::Str`; `@automerge/automerge` surfaces those as
+  `ImmutableString`, so the surface reads them as JavaScript strings and
+  writes the same kind back, and both ends hold one representation.
+  Collaborative text (`Text`) is not used for shape labels at this step.
+- **A sticky note typed at creation is two commits**, its creation and its
+  text, as in any editor: the first Ctrl+Z takes the text, the second the
+  note. (§13 step 5, "undo through the DAG".)
 
 ## 2026-09-10, answers to the step-5 questions
 

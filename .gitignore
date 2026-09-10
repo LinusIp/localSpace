@@ -18,4 +18,6 @@ web/dist/
 # tauri build output
 crates/localspace-shell/gen/
 
+# the whiteboard web surface is built from web/surfaces/whiteboard (see docs/BUILD.md)
+harnesses/whiteboard/ui/web/
 web/packages/libs/*.generated.ts

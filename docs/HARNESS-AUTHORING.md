@@ -145,11 +145,40 @@ const h = await connect();           // resolves with the document in hand
 render(h.doc());                     // your document, as JSON
 h.on("doc", (doc) => render(doc));   // Core changed it: the agent, an undo, another user
 h.write(next);                       // your edit; Core reconciles and commits it as `surface:<view>`
+h.write(next, { commit: false });    // state that is the user's but not an edit (a selection): no commit
 h.send({ hello: true });             // a message to your logic's `event` export, at most 64 KB
 h.on("message", (bytes) => …);       // your logic's reply
 h.on("command", ({ name, args }) => …); // the shell: `zoom` {value}, `fit`
+h.undo(); h.redo();                  // the environment's history, not yours: bind your shortcuts to these
+h.report({ zoom: 1.25 });            // what you show, so the shell's controls stay true
 h.theme;                             // the shell's colours and fonts, also set as `--ls-*` CSS variables
 ```
+
+A board with thousands of shapes does not write the whole document on every
+edit. `connect({ sync: true })` hands you Core's Automerge snapshot instead:
+
+```js
+import * as Automerge from "@automerge/automerge";   // the shell's copy, through the import map
+
+const h = await connect({ sync: true });
+let doc = Automerge.load(h.snapshot());
+let state = Automerge.initSyncState();
+h.on("sync", (message) => { [doc, state] = Automerge.receiveSyncMessage(doc, state, message); flush(); render(doc); });
+doc = Automerge.change(doc, (d) => { d.shapes[0].x += 10; });  // your edit
+flush();                                                        // send what Core does not have
+function flush() { for (;;) { let m; [state, m] = Automerge.generateSyncMessage(doc, state); if (!m) break; h.sync(m); } }
+```
+
+Every message that changes Core's document is a commit in the history,
+`surface:sync` by the user; the agent's edits and an undo come back to you
+the same way. The shell also provides React, its JSX runtime and DOM client,
+`@localspace/canvas` and `@localspace/ui` by those names, so a surface built
+on them ships only its own code.
+
+The whiteboard's own surface, `web/surfaces/whiteboard`, is the worked
+example: `@localspace/canvas` against the board document, a replica in the
+frame, undo through Core, built with Vite into the package's `ui/web/`
+directory (`docs/BUILD.md`).
 
 The types are in `web/public/harness-sdk.d.ts`. What the sandbox gives you is
 exactly this: scripts, your own files, the bridge. The origin's
