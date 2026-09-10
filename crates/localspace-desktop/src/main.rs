@@ -5,9 +5,12 @@
 //! is any use: `doctor`, which identifies the hardware profile and says what will
 //! run on it, and `bench`, which reports the efficiency budgets for this machine.
 
+mod output;
+
 use anyhow::Result;
 use localspace_core::{planner, profile, transport, Config, Core};
 use localspace_proto as proto;
+use output::{err, out};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -93,7 +96,7 @@ fn parse_args() -> Args {
             "--user" => args.user = it.next().unwrap_or_else(whoami),
             "--organisation" | "--organization" => args.organisation = true,
             "--allow-below-floor" => args.allow_below_floor = true,
-            other => eprintln!("ignoring unknown argument `{other}`"),
+            other => err!("ignoring unknown argument `{other}`"),
         }
     }
     args
@@ -177,26 +180,26 @@ fn call(args: &Args, tool: &str, params: &str) -> Result<()> {
                 commit,
                 ..
             } => {
-                println!("ok: {diff_summary}");
+                out!("ok: {diff_summary}");
                 if let Some(c) = commit {
-                    println!("commit {c}");
+                    out!("commit {c}");
                 }
                 Ok(())
             }
             other => {
-                eprintln!("{other:?}");
+                err!("{other:?}");
                 std::process::exit(1);
             }
         },
         other => {
-            eprintln!("{other:?}");
+            err!("{other:?}");
             std::process::exit(1);
         }
     }
 }
 
 fn print_help() {
-    println!(
+    out!(
         "localspace — a local agent workspace built from harnesses
 
 USAGE:
@@ -222,17 +225,17 @@ fn doctor(args: &Args) -> Result<()> {
     let tier = machine.tier();
     let model_profile = profile::ModelProfile::for_tier(tier);
 
-    println!("machine   {}", machine.describe());
-    println!("profile   {}", model_profile.name);
-    println!(
+    out!("machine   {}", machine.describe());
+    out!("profile   {}", model_profile.name);
+    out!(
         "budgets   tools {} tokens, working set {} tokens, {} prompt tokens per agent step",
         model_profile.tool_budget_tokens,
         model_profile.working_set_tokens,
         model_profile.prompt_tokens_per_step
     );
-    println!();
+    out!();
 
-    println!("reference models on this machine:");
+    out!("reference models on this machine:");
     for map in [
         planner::reference_moe_100b_q4(),
         planner::reference_dense_70b_fp8(),
@@ -250,27 +253,27 @@ fn doctor(args: &Args) -> Result<()> {
                 ..Default::default()
             },
         );
-        println!("  {:<28} {}", map.model_id, plan.summary());
+        out!("  {:<28} {}", map.model_id, plan.summary());
         for note in &plan.notes {
-            println!("      - {note}");
+            out!("      - {note}");
         }
     }
-    println!();
+    out!();
 
     match tier {
         profile::HardwareTier::BelowFloor => {
-            println!("verdict   below the supported floor (W32: 32 GB VRAM, 64 GB RAM, 16 cores).");
-            println!("          The Client and every harness still run; a large local model will not.");
-            println!("          Point the model picker at any OpenAI-compatible endpoint instead.");
+            out!("verdict   below the supported floor (W32: 32 GB VRAM, 64 GB RAM, 16 cores).");
+            out!("          The Client and every harness still run; a large local model will not.");
+            out!("          Point the model picker at any OpenAI-compatible endpoint instead.");
             if !args.allow_below_floor {
-                println!("          `serve` would refuse here without --allow-below-floor.");
+                out!("          `serve` would refuse here without --allow-below-floor.");
             }
         }
         profile::HardwareTier::W32 | profile::HardwareTier::W96 => {
-            println!("verdict   workstation profile. `serve` runs in team mode (<= 10 users).");
+            out!("verdict   workstation profile. `serve` runs in team mode (<= 10 users).");
         }
         profile::HardwareTier::S => {
-            println!("verdict   server profile. `serve` is supported here.");
+            out!("verdict   server profile. `serve` is supported here.");
         }
     }
     Ok(())
@@ -287,34 +290,34 @@ fn bench(args: &Args) -> Result<()> {
     let blocks = core.context_blocks();
     let elapsed = started.elapsed();
 
-    println!("machine                       {}", machine.describe());
-    println!("harnesses installed           {}", core.environment().harnesses.len());
-    println!(
+    out!("machine                       {}", machine.describe());
+    out!("harnesses installed           {}", core.environment().harnesses.len());
+    out!(
         "active tool set               {} tools, ~{} of {} tokens",
         active.tools.len(),
         active.token_estimate,
         active.budget
     );
-    println!("grammar                       {}", active.grammar_hash);
-    println!("context blocks                {}", blocks.len());
-    println!(
+    out!("grammar                       {}", active.grammar_hash);
+    out!("context blocks                {}", blocks.len());
+    out!(
         "provider cache hit rate       {:.0}%",
         core.provider_cache_hit_rate() * 100.0
     );
-    println!("turn assembly                 {:.2} ms", elapsed.as_secs_f32() * 1000.0);
+    out!("turn assembly                 {:.2} ms", elapsed.as_secs_f32() * 1000.0);
 
     // §1.2: the app itself is budgeted at 50 MB private RSS, Client and Core
     // each. This process is both, with the harnesses instantiated, so it is the
     // honest upper bound — and it is printed whether or not it fits.
     let footprint = localspace_core::footprint::Footprint::measure();
-    println!("app footprint (this process)  {}", footprint.describe());
+    out!("app footprint (this process)  {}", footprint.describe());
     let resident = core
         .environment()
         .harnesses
         .iter()
         .filter(|h| h.loaded)
         .count();
-    println!(
+    out!(
         "harness logic resident        {resident} of {} (idle instances unload after their declared idle_unload)",
         core.environment().harnesses.len()
     );
@@ -323,14 +326,14 @@ fn bench(args: &Args) -> Result<()> {
     let started = std::time::Instant::now();
     core.active_set();
     core.context_blocks();
-    println!(
+    out!(
         "turn assembly (cached)        {:.2} ms, provider hit rate {:.0}%",
         started.elapsed().as_secs_f32() * 1000.0,
         core.provider_cache_hit_rate() * 100.0
     );
-    println!();
-    println!("Budgets that need a loaded model (prompt-cache hit rate, decode tok/s,");
-    println!("draft acceptance, utility-model share) are reported by `serve`'s /metrics.");
+    out!();
+    out!("Budgets that need a loaded model (prompt-cache hit rate, decode tok/s,");
+    out!("draft acceptance, utility-model share) are reported by `serve`'s /metrics.");
     Ok(())
 }
 
@@ -340,12 +343,12 @@ fn evals(args: &Args, harness: &str) -> Result<()> {
         harness: harness.to_string(),
     }) {
         proto::Response::Evals(report) => {
-            println!(
+            out!(
                 "{}: {}/{} passed on {}",
                 report.harness, report.passed, report.total, report.model
             );
             for case in &report.cases {
-                println!(
+                out!(
                     "  [{}] {} — {}",
                     if case.passed { "pass" } else { "FAIL" },
                     case.name,
@@ -358,11 +361,11 @@ fn evals(args: &Args, harness: &str) -> Result<()> {
             Ok(())
         }
         proto::Response::Error { message } => {
-            eprintln!("{message}");
+            err!("{message}");
             std::process::exit(1);
         }
         other => {
-            eprintln!("unexpected response: {other:?}");
+            err!("unexpected response: {other:?}");
             std::process::exit(1);
         }
     }
