@@ -280,6 +280,7 @@ fn index_html(entry: &str, title: &str, nonce: &str) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <script type="importmap" nonce="{nonce}">{IMPORT_MAP}</script>
+<link rel="stylesheet" href="./_localspace/ui.css">
 <style>html,body{{margin:0;height:100%;overflow:hidden}}#root{{height:100%}}</style>
 </head>
 <body>
@@ -475,6 +476,7 @@ mod tests {
         assert!(html.contains(r#""@localspace/harness-sdk":"./_localspace/sdk.js""#));
         assert!(html.contains(r#""@localspace/canvas":"./_localspace/canvas.js""#));
         assert!(html.contains(r#""react":"./_localspace/react.js""#));
+        assert!(html.contains(r#"<link rel="stylesheet" href="./_localspace/ui.css">"#), "the UI library's tokens and styles");
         assert!(html.contains(r#"<script type="module" src="./index.js">"#));
         assert!(html.contains("<title>Board &lt;web> &amp; more</title>"));
         let map: serde_json::Value = serde_json::from_str(IMPORT_MAP).expect("the import map is JSON");
