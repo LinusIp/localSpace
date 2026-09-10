@@ -87,6 +87,7 @@ export class Replica {
   private doc: Automerge.Doc<AmBoard>;
   private state = Automerge.initSyncState();
   private shown = new Map<string, Node>();
+  private docSelection: string[] = [];
   private stopFns: Array<() => void> = [];
   private readonly harness: Harness;
   private readonly editor: Editor;
@@ -118,7 +119,8 @@ export class Replica {
 
   /** The document as the editor's nodes; what changed becomes the editor's. */
   private show(load: boolean): void {
-    const nodes = fromDoc(plain(this.doc));
+    const doc = plain(this.doc);
+    const nodes = fromDoc(doc);
     const next = new Map(nodes.map((n) => [n.id, n]));
     if (load) {
       this.editor.load(nodes);
@@ -131,6 +133,14 @@ export class Replica {
       if (set.length || deleted.length) this.editor.applyRemote({ set, deleted });
     }
     this.shown = next;
+    // The document's selection is the agent's: `canvas.select`, and what its
+    // logic just made. It moves the frame's selection when it changes; the
+    // user's own clicks stay in the frame and are not written back.
+    const selection = (doc.selection ?? []).filter((id) => next.has(id));
+    if (!sameList(selection, this.docSelection)) {
+      this.docSelection = selection;
+      this.editor.select(selection);
+    }
   }
 
   /** Send everything Core does not have yet. */
@@ -178,6 +188,8 @@ export class Replica {
     this.flush();
   }
 }
+
+const sameList = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
 
 function removeById(list: Array<{ id: Str }>, id: string): void {
   const i = list.findIndex((item) => same(item.id, id));
