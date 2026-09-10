@@ -376,8 +376,11 @@ macro_rules! export_surface {
             }
         }
 
+        // SAFETY, for the four exports below: their names are the surface ABI
+        // the host looks up, and a surface module exports nothing else under
+        // them; `no_mangle` is what puts them there.
         /// Scratch buffer the host writes the next input into.
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         #[allow(static_mut_refs, unsafe_code)]
         pub extern "C" fn hs_alloc(len: i32) -> i32 {
             // Reused across frames: the capacity stays, so the host's input
@@ -392,7 +395,7 @@ macro_rules! export_surface {
             }
         }
 
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         #[allow(unsafe_code)]
         pub extern "C" fn hs_init(ptr: i32, len: i32) {
             // SAFETY: `ptr` and `len` name the bytes the host wrote into the
@@ -404,7 +407,7 @@ macro_rules! export_surface {
         }
 
         /// Returns `(ptr << 32) | len` so the ABI needs no multi-value support.
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         #[allow(unsafe_code)]
         pub extern "C" fn hs_frame(ptr: i32, len: i32) -> i64 {
             // SAFETY: as in `hs_init`: the host's input in this module's own
@@ -416,7 +419,8 @@ macro_rules! export_surface {
         }
 
         /// The host has read the textures the last frame pointed at.
-        #[no_mangle]
+        #[unsafe(no_mangle)]
+        #[allow(unsafe_code)]
         pub extern "C" fn hs_release() {
             hs_host().release();
         }
