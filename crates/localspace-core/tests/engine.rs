@@ -151,9 +151,13 @@ fn a_crashed_sidecar_is_restarted() {
     let dir = tempfile::tempdir().unwrap();
     let (mut core, events) = core_with_fake_engine(dir.path());
     // The fake exits on its own after a second; the supervisor must bring it back.
-    std::env::set_var("FAKE_LLAMA_CRASH_AFTER_MS", "1000");
+    // SAFETY: this test is the only one that sets the variable, the fake
+    // engine reads it once at spawn, and it is removed again below; no other
+    // thread reads the environment meanwhile (edition 2024 makes this explicit).
+    unsafe { std::env::set_var("FAKE_LLAMA_CRASH_AFTER_MS", "1000") };
     let result = core.handle(proto::Request::LoadModel { id: "tiny".into() });
-    std::env::remove_var("FAKE_LLAMA_CRASH_AFTER_MS");
+    // SAFETY: as above.
+    unsafe { std::env::remove_var("FAKE_LLAMA_CRASH_AFTER_MS") };
     assert!(matches!(result, proto::Response::Ok));
 
     wait_until(&core, "the first start", |s| s.running);
