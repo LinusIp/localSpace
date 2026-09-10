@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && vite build -c vite.libs.config.ts",
+    "test": "node --test \"packages/**/src/**/*.test.ts\"",
+    "typecheck:packages": "tsc --noEmit -p packages/canvas/tsconfig.json",
     "lint": "oxlint",
     "preview": "vite preview"
   },
@@ -27,6 +29,7 @@
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
     "oxlint": "^1.79.0",
+    "playwright-core": "^1.63.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.2.2"

@@ -1,0 +1,14 @@
+{
+  "name": "@localspace/canvas",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The 2D infinite-canvas engine: camera, retained scene, R-tree culling, hit-testing, selection, text, freehand; zero dependencies (architecture v2.1 §6.4)",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

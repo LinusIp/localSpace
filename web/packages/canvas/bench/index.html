@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>@localspace/canvas benchmark</title>
+    <style>
+      html, body { margin: 0; height: 100%; font: 13px system-ui, sans-serif; color: #1c1f1d; }
+      #host { position: fixed; inset: 0; }
+      #report { position: fixed; left: 12px; top: 12px; background: rgba(255,255,255,0.9); border: 1px solid #e3e7e4; border-radius: 8px; padding: 8px 10px; white-space: pre; }
+    </style>
+  </head>
+  <body>
+    <div id="host"><canvas id="board"></canvas></div>
+    <pre id="report">starting…</pre>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
