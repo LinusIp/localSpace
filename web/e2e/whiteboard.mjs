@@ -145,6 +145,11 @@ try {
   step(`Core has the note (${written.shapes.length} shapes); head commit: ${head.tool} by ${head.author}: ${head.diff_summary}`);
   if (head.tool !== "surface:sync" || head.author !== "user") throw new Error("the edit did not land as the user's commit from the replica");
   if (head.id === headBefore) throw new Error("no commit was made");
+  // Typing is one commit however many keys it takes: the note is its
+  // creation and its text, nothing per keystroke.
+  const made = commits.findIndex((c) => c.id === headBefore);
+  if (made !== 2) throw new Error(`the note made ${made < 0 ? "more than fifty" : made} commit(s); expected two, its creation and its text`);
+  step(`the note is two commits: its creation, and its ${NOTE.length} characters of text in one`);
 
   // 5. Undo through the DAG, from inside the frame: the note was two commits,
   // its creation and its text, so the first Ctrl+Z takes the text and the

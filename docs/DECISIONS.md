@@ -19,6 +19,12 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   screen and the cost follows what is visible; arrows and ink strokes are
   not targets. `web/packages/canvas/src/snap.ts` with 11 tests; the gate
   walk drags a note in a real browser (`web/e2e/whiteboard.mjs`, step 7).
+- **A typed note's text is one commit** (answer 10). A sticky note typed
+  at creation is two commits, its creation and its text; the text is one
+  commit however many keys it took, because the editor commits a text edit
+  when the text editor closes (Escape, Ctrl+Enter, or focus leaving it),
+  not per keystroke. The gate walk asserts exactly two commits for a
+  29-character note (`web/e2e/whiteboard.mjs`, step 4).
 
 ## 2026-09-10, during the step-5 build
 
