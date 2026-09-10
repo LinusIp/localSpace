@@ -42,8 +42,9 @@ for (const channel of ["msedge", "chrome"]) {
 }
 if (!browser) throw new Error("neither Edge nor Chrome could be launched");
 
+let page;
 try {
-  const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+  page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
   page.on("console", (m) => {
     if (m.type() === "error" && !/ws\/json/.test(m.text())) console.log(`  [console] ${m.text().slice(0, 200)}`);
   });
@@ -98,17 +99,34 @@ try {
       await request("new_conversation");
       step("asking the agent for a plan on the board, in a new conversation");
       await request({ send_message: { text: "Add a yellow sticky that says \"Plan: design, build, launch\"." } });
-      const after = await until("the agent's notes", async () => {
-        const d = await doc();
-        return d.shapes.length > shapesBefore ? d : null;
-      }, 20000).catch(() => null);
-      if (after) {
-        agentAdded = after.shapes.length - shapesBefore;
-        await until("the frame to show them", async () => (await state()).shapes >= after.shapes.length + after.frames.length, 15000);
-        step(`the agent added ${agentAdded} shape(s); the frame shows them`);
-      } else {
-        step("the agent added nothing this run (a small model); the rest of the gate goes on");
-      }
+      // The run is over when the history and the transcript have been quiet
+      // for a while and the transcript's last word is the assistant's; a
+      // small model may keep calling tools until Core's cap on one turn, and
+      // the user's edit below must not interleave with the agent's commits.
+      let fingerprint = null;
+      let quietSince = Date.now();
+      await until(
+        "the agent's run to end",
+        async () => {
+          const t = (await request("get_transcript")).transcript;
+          const messages = Array.isArray(t) ? t : (t.messages ?? []);
+          const last = messages[messages.length - 1];
+          const now = `${(await history())[0]?.id}|${messages.length}|${last?.content?.length ?? 0}|${last?.tool_calls?.length ?? 0}`;
+          if (now !== fingerprint) {
+            fingerprint = now;
+            quietSince = Date.now();
+            return false;
+          }
+          return Date.now() - quietSince >= 4000 && last?.role === "assistant";
+        },
+        240000,
+      );
+      const settled = await doc();
+      agentAdded = settled.shapes.length - shapesBefore;
+      await until("the frame to show the document as it is", async () => (await state()).shapes === settled.shapes.length + settled.frames.length, 15000);
+      if (agentAdded > 0) step(`the agent added ${agentAdded} shape(s); the frame shows them`);
+      else if (agentAdded < 0) step(`the agent removed ${-agentAdded} shape(s) instead (a small model); the frame shows the document as it is`);
+      else step(`the agent added nothing this run (a small model); the frame shows the document as it is`);
     } else {
       step("no model to run the agent with; the rest of the gate goes on");
     }
@@ -120,13 +138,22 @@ try {
   await frame.getByRole("button", { name: /Sticky note/ }).click();
   await host.click({ position: { x: box.width * 0.55, y: box.height * 0.7 } });
   await sleep(300);
-  await page.keyboard.type("edited live on the own canvas");
+  // The new note is the selection; every check below is about this one
+  // note by id, because the document persists between runs and an earlier
+  // run's note may still carry the same text.
+  const noteId = await frame.evaluate(() => [...window.__localspace.editor.selection][0] ?? null);
+  if (!noteId) throw new Error("the click did not create a note");
+  const NOTE = "edited live on the own canvas";
+  await page.keyboard.type(NOTE);
   await page.keyboard.press("Escape");
+  // The note's text in Core: null when the note is not in the document.
+  const noteInCore = async () => (await doc()).shapes.find((s) => s.id === noteId)?.text ?? null;
+  const noteInFrame = () => frame.evaluate((id) => window.__localspace.editor.scene.get(id)?.text ?? null, noteId);
   const written = await until(
     "Core to hold the note",
     async () => {
       const d = await doc();
-      return d.shapes.find((s) => s.kind === "sticky" && (s.text ?? "").includes("edited live on the own canvas")) ? d : null;
+      return d.shapes.find((s) => s.id === noteId)?.text === NOTE ? d : null;
     },
     20000,
   );
@@ -139,23 +166,27 @@ try {
   // 5. Undo through the DAG, from inside the frame: the note was two commits,
   // its creation and its text, so the first Ctrl+Z takes the text and the
   // second the note; then redo both.
-  const noteInCore = async () => !!(await doc()).shapes.find((s) => (s.text ?? "").includes("edited live on the own canvas"));
-  const noteInFrame = () => frame.evaluate(() => window.__localspace.editor.scene.all().some((n) => n.text.includes("edited live on the own canvas")));
   const total = written.shapes.length + written.frames.length;
   await host.click({ position: { x: box.width * 0.15, y: box.height * 0.15 } });
   await page.keyboard.press("Control+z");
-  await until("the undo to take the text away", async () => !(await noteInCore()), 20000);
-  await until("the frame to follow the undo", async () => (await state()).shapes === total && !(await noteInFrame()), 20000);
+  await until("the undo to take the text away", async () => (await noteInCore()) === "", 20000);
+  await until("the frame to follow the undo", async () => (await state()).shapes === total && (await noteInFrame()) === "", 20000);
   await page.keyboard.press("Control+z");
-  await until("the second undo to take the note away", async () => (await doc()).shapes.length === written.shapes.length - 1, 20000);
-  await until("the frame to follow the second undo", async () => (await state()).shapes === total - 1, 20000);
+  await until("the second undo to take the note away", async () => (await noteInCore()) === null, 20000);
+  await until("the frame to follow the second undo", async () => (await state()).shapes === total - 1 && (await noteInFrame()) === null, 20000);
   step("Ctrl+Z inside the frame undid the text, then the note, through Core's history; the frame followed both");
   await page.keyboard.press("Control+Shift+z");
-  await until("the redo to bring the note back", async () => (await doc()).shapes.length === written.shapes.length, 20000);
+  await until("the redo to bring the note back", async () => (await noteInCore()) === "", 20000);
   await page.keyboard.press("Control+Shift+z");
-  await until("the redo to bring the text back", noteInCore, 20000);
-  await until("the frame to follow the redo", noteInFrame, 20000);
+  await until("the redo to bring the text back", async () => (await noteInCore()) === NOTE, 20000);
+  await until("the frame to follow the redo", async () => (await noteInFrame()) === NOTE, 20000);
   step("Ctrl+Shift+Z twice redid the note and its text; the frame followed");
+
+  // 6. The document's selection is the agent's: canvas.select, here run by
+  // hand through the API, moves the frame's selection.
+  await request({ call_tool: { tool: "canvas.select", params: { ids: [noteId] } } });
+  await until("the frame to select the note", async () => (await frame.evaluate(() => [...window.__localspace.editor.selection])).join() === noteId, 15000);
+  step("canvas.select through the API selected the note in the frame");
 
   // 6. Zoom from the shell's top bar reaches the frame, and the frame reports back.
   const z0 = (await state()).zoom;
@@ -165,6 +196,17 @@ try {
   step(`zoom from the top bar: ${label} in the shell, ${((await state()).zoom * 100).toFixed(0)}% in the frame`);
 
   console.log(`PASS${agentAdded ? ` (agent added ${agentAdded})` : ""}`);
+} catch (err) {
+  // What the shell and Core say at the moment of a failure, so a run that
+  // fails explains itself.
+  if (page) {
+    const toasts = await page.locator(".ls-toast, [role=alert], [role=status]").allInnerTexts().catch(() => []);
+    console.log(`  shell toasts: ${JSON.stringify(toasts)}`);
+  }
+  for (const c of (await history().catch(() => [])).slice(0, 8)) console.log(`  commit ${c.id} <- ${c.parent} ${c.tool} ${c.author} ${JSON.stringify(c.diff_summary)}`);
+  const d = await doc().catch(() => null);
+  if (d) console.log(`  Core: ${d.shapes.length} shapes; with the note text: ${d.shapes.filter((s) => (s.text ?? "").includes("edited live on the own canvas")).map((s) => s.id).join(", ") || "none"}`);
+  throw err;
 } finally {
   await browser.close();
 }

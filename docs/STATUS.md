@@ -275,7 +275,7 @@ Verified on the review laptop (2026-09-10), a 0.5B model loaded:
 
 | check | result |
 |---|---|
-| `node e2e/whiteboard.mjs`: install from the catalog, the board on its own origin shows Core's document, the agent's note lands and the frame shows it, a note typed in the frame lands as the user's `surface:sync` commit, Ctrl+Z twice and Ctrl+Shift+Z twice through Core's history with the frame following, zoom from the shell's bar reaches the frame | PASS; the agent added 1 shape |
+| `node e2e/whiteboard.mjs`: install from the catalog, the board on its own origin shows Core's document, the agent's run ends and the frame shows what it did, a note typed in the frame lands as the user's `surface:sync` commit, Ctrl+Z twice and Ctrl+Shift+Z twice through Core's history with the frame following, `canvas.select` through the API moves the frame's selection, zoom from the shell's bar reaches the frame | PASS on every run once the checks were keyed by the note's id; the 0.5B model added 1 shape in one run, 30 and 34 (Core's cap on one turn) in two, nothing in others |
 | `node e2e/bench-canvas.mjs --profile laptop`, 5,120 shapes at 1600×900 | pan and drag p95 7.0 ms at both zooms, which is the runner's pointer cadence; paint p95 2.9 ms with all 5,120 drawn and 3.0 ms at reading zoom; 142.9 fps at the worst p95 |
 | the whiteboard evals on Qwen2.5 0.5B Instruct, through the API | 3 of 6, as in step 2 |
 | `cargo test --release -p localspace-core --lib docs::`, `--test sync`, `npm test` | 11, 2 and 19 pass |
