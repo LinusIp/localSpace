@@ -214,23 +214,64 @@ impl DocStore {
         }
     }
 
-    /// Apply a sync message received from a replica.
+    /// Apply a sync message received from a replica. Returns whether the
+    /// document changed: a message may carry only the replica's state.
     pub fn receive_sync(
         &mut self,
         doc: &str,
         state: &mut automerge::sync::State,
         message: &[u8],
-    ) -> Result<()> {
+    ) -> Result<bool> {
         use automerge::sync::SyncDoc;
         let msg = automerge::sync::Message::decode(message).context("decoding sync message")?;
         match self.docs.get_mut(doc) {
             Some(Doc::Crdt(am)) => {
+                let before = am.get_heads();
                 am.sync()
                     .receive_sync_message(state, msg)
                     .context("applying sync message")?;
-                Ok(())
+                Ok(am.get_heads() != before)
             }
             _ => anyhow::bail!("`{doc}` is not a crdt document"),
+        }
+    }
+}
+
+/// What changed between two JSON projections of a document, counted the way
+/// `apply_json` counts: for a commit made from a replica's changes.
+pub fn diff_changes(before: &J, after: &J) -> Changes {
+    let mut changes = Changes::default();
+    diff_into(before, after, &mut changes);
+    changes
+}
+
+fn diff_into(before: &J, after: &J, changes: &mut Changes) {
+    match (before, after) {
+        (J::Object(a), J::Object(b)) => {
+            for (k, v) in b {
+                match a.get(k) {
+                    None => changes.added += 1,
+                    Some(prev) => diff_into(prev, v, changes),
+                }
+            }
+            for k in a.keys() {
+                if !b.contains_key(k) {
+                    changes.removed += 1;
+                }
+            }
+        }
+        (J::Array(a), J::Array(b)) => {
+            let common = a.len().min(b.len());
+            for i in 0..common {
+                diff_into(&a[i], &b[i], changes);
+            }
+            changes.added += b.len().saturating_sub(a.len());
+            changes.removed += a.len().saturating_sub(b.len());
+        }
+        (a, b) => {
+            if a != b {
+                changes.changed += 1;
+            }
         }
     }
 }
@@ -530,5 +571,18 @@ mod tests {
         let projected = s.json("scene").unwrap();
         assert_eq!(projected["blob"], true);
         assert_eq!(projected["bytes"], 4);
+    }
+
+    #[test]
+    fn a_diff_between_two_projections_counts_like_a_write_does() {
+        let before = serde_json::json!({"title": "Board", "shapes": [{"id": "a", "x": 1}, {"id": "b", "x": 2}], "frames": []});
+        let same = diff_changes(&before, &before);
+        assert!(same.is_empty());
+        let after = serde_json::json!({"title": "Plan", "shapes": [{"id": "a", "x": 5}, {"id": "b", "x": 2}, {"id": "c", "x": 3}], "frames": [], "extra": 1});
+        let changes = diff_changes(&before, &after);
+        assert_eq!((changes.added, changes.changed, changes.removed), (2, 2, 0), "{changes:?}");
+        let fewer = serde_json::json!({"shapes": [{"id": "a", "x": 1}]});
+        let changes = diff_changes(&before, &fewer);
+        assert_eq!((changes.added, changes.changed, changes.removed), (0, 0, 3), "{changes:?}");
     }
 }

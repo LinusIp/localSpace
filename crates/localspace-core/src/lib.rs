@@ -1913,10 +1913,34 @@ impl Core {
                     .sync_states
                     .remove(&doc)
                     .unwrap_or_else(automerge::sync::State::new);
+                let before = self.docs.json(&doc).unwrap_or(J::Null);
                 let res = self.docs.receive_sync(&doc, &mut state, &message);
                 self.sync_states.insert(doc.clone(), state);
                 match res {
-                    Ok(()) => {
+                    Ok(changed) => {
+                        if changed {
+                            // A replica's edit is the user's edit: a commit in the
+                            // history like any other write, undoable and durable.
+                            let after = self.docs.json(&doc).unwrap_or(J::Null);
+                            let changes = docs::diff_changes(&before, &after);
+                            let harness = self
+                                .registry
+                                .iter()
+                                .find(|h| h.doc_id == doc)
+                                .map(|h| h.id().to_string())
+                                .unwrap_or_else(|| "core".to_string());
+                            let snapshot = self.docs.snapshot(&doc).unwrap_or_default();
+                            let _ = self.dag.commit(
+                                &doc,
+                                &harness,
+                                "surface:sync",
+                                Json(J::Null),
+                                &snapshot,
+                                &changes.summary(),
+                                proto::Author::User,
+                                None,
+                            );
+                        }
                         self.push_doc_patch(&doc);
                         proto::Response::Ok
                     }
