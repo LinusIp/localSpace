@@ -227,6 +227,13 @@ impl Core {
         if let Some(dir) = core.cfg.harness_dir.clone() {
             core.load_harnesses(&dir);
         }
+        // What the user installed from a catalog, kept under the data
+        // directory (v2 §1: only chat ships in the box; the rest is installed).
+        if let Some(root) = core.installed_root() {
+            if root.is_dir() {
+                core.load_harnesses(&root);
+            }
+        }
         Ok(core)
     }
 
@@ -370,12 +377,44 @@ impl Core {
         self.install_inner(dir, false)
     }
 
+    /// Where packages installed from a catalog live: the environment's own
+    /// copy, so an install outlives the bundle it came from and a restart.
+    fn installed_root(&self) -> Option<PathBuf> {
+        self.cfg.data_dir.as_ref().map(|d| d.join("installed"))
+    }
+
+    /// Copy a package under the data directory before it is staged. Without
+    /// a data directory, or for a package already there, it is used where
+    /// it lies, which is what `--harnesses` and the tests rely on.
+    fn persist_package(&self, dir: &std::path::Path) -> Result<PathBuf> {
+        use anyhow::Context as _;
+        let Some(root) = self.installed_root() else {
+            return Ok(dir.to_path_buf());
+        };
+        let src = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+        let root_c = root.canonicalize().unwrap_or_else(|_| root.clone());
+        if src.starts_with(&root_c) || src.starts_with(&root) {
+            return Ok(dir.to_path_buf());
+        }
+        let manifest = manifest::Manifest::load(dir)?;
+        let dest = root.join(&manifest.harness.id);
+        if dest.exists() {
+            std::fs::remove_dir_all(&dest)
+                .with_context(|| format!("replacing the installed copy at {}", dest.display()))?;
+        }
+        copy_dir(&src, &dest)
+            .with_context(|| format!("copying the package into {}", dest.display()))?;
+        Ok(dest)
+    }
+
     fn install_inner(
         &mut self,
         dir: &std::path::Path,
         capabilities_approved: bool,
     ) -> Result<proto::Response> {
         let policy = self.cfg.policy.clone();
+        let persisted = self.persist_package(dir)?;
+        let dir = persisted.as_path();
         let mut staged = Registry::stage(dir, &policy)?;
 
         // Dependencies (spec §17.2) are resolved against what is installed and
@@ -470,6 +509,9 @@ impl Core {
         self.docs.ensure(&doc_id, kind);
         let ws = self.workspace.clone();
         self.access.add_document(&doc_id, &ws, &title, None);
+        // A package installed again finds its document where its history
+        // left it; the DAG is the durable store, not the package.
+        self.restore_from_dag(&doc_id);
         self.registry.insert(staged);
 
         let _ = self.audit.append(
@@ -1488,7 +1530,15 @@ impl Core {
             }
 
             R::UninstallHarness { harness } => {
-                self.registry.remove(&harness);
+                let removed = self.registry.remove(&harness);
+                // The environment's own copy goes with it; a package used
+                // where it lies (`--harnesses`) is left alone.
+                if let (Some(removed), Some(root)) = (removed, self.installed_root()) {
+                    if removed.dir.starts_with(&root) {
+                        drop(removed);
+                        let _ = std::fs::remove_dir_all(root.join(&harness));
+                    }
+                }
                 if self.focus.as_deref() == Some(harness.as_str()) {
                     self.focus = None;
                 }
@@ -2211,4 +2261,19 @@ mod tests {
         });
         assert_eq!(core.environment().network, proto::NetworkMode::Airgapped);
     }
+}
+
+/// Copy a directory tree. Packages are small; nothing here is clever.
+fn copy_dir(src: &std::path::Path, dest: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dest)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let target = dest.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
 }
