@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && vite build -c vite.libs.config.ts",
+    "build": "tsc -b && vite build && node scripts/build-libs.mjs",
     "test": "node --test \"packages/**/src/**/*.test.ts\"",
     "typecheck:packages": "tsc --noEmit -p packages/canvas/tsconfig.json",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:libs": "node scripts/build-libs.mjs"
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.3.7",
