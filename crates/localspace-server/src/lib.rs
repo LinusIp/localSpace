@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 //! `localspace serve` as a library: Core, the HTTP and WebSocket API, and the
 //! web client bundle (architecture v2 §2–5).
 //!

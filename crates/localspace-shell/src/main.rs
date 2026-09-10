@@ -1,3 +1,5 @@
+#![deny(unsafe_code)]
+#![warn(clippy::unwrap_used)]
 //! The localSpace desktop app (architecture v2 §2, §6.2).
 //!
 //! Core and the API server run in this process on a loopback port chosen at

@@ -12,3 +12,6 @@ postcard.workspace = true
 thiserror.workspace = true
 schemars.workspace = true
 ts-rs.workspace = true
+
+[lints]
+workspace = true

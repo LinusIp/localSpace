@@ -12,3 +12,6 @@ epaint = { workspace = true, default-features = true, features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
 postcard.workspace = true
+
+[lints]
+workspace = true

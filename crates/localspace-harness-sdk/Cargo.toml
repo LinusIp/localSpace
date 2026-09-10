@@ -8,3 +8,6 @@ description = "What harness authors compile logic against: the harness ABI and M
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+
+[lints]
+workspace = true

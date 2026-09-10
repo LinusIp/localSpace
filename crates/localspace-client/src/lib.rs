@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 //! The localSpace Client. Same code natively and in the browser; no IO except
 //! through `Backend`.
 //!

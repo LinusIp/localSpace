@@ -68,3 +68,9 @@ ureq = { version = "3", features = ["json"] }
 # difference between a two-second and a twenty-second startup.
 [profile.dev.package."*"]
 opt-level = 3
+
+# CLAUDE.md, "Coding standards": no `unwrap()` outside tests. A warning
+# across the existing crates while they migrate module by module; every new
+# crate denies it (docs/DECISIONS.md, 2026-09-10).
+[workspace.lints.clippy]
+unwrap_used = "warn"

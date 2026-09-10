@@ -22,3 +22,6 @@ egui = { workspace = true, default-features = true }
 async-trait.workspace = true
 futures.workspace = true
 serde_json.workspace = true
+
+[lints]
+workspace = true

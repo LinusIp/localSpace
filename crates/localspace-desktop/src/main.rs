@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 //! `localspace` — Core and Client in one process over the `InProcess` transport.
 //!
 //! The same binary also carries the two commands an operator needs before a GUI

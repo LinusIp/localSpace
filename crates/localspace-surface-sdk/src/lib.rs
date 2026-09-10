@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 //! What harness authors compile a `kind = "egui"` surface against.
 //!
 //! A surface is a plain `wasm32-unknown-unknown` module — not a WASI component,
@@ -361,8 +362,11 @@ macro_rules! export_surface {
         static mut HS_SCRATCH: ::std::vec::Vec<u8> = ::std::vec::Vec::new();
         static mut HS_HOST: ::std::option::Option<$crate::SurfaceHost<$ty>> = ::std::option::Option::None;
 
-        #[allow(static_mut_refs)]
+        #[allow(static_mut_refs, unsafe_code)]
         fn hs_host() -> &'static mut $crate::SurfaceHost<$ty> {
+            // SAFETY: a wasm surface module is single-threaded and the host
+            // calls its exports one at a time, so this static is never
+            // aliased; it is initialised on first use and lives forever.
             unsafe {
                 if HS_HOST.is_none() {
                     HS_HOST = ::std::option::Option::Some($crate::SurfaceHost::default());
@@ -373,10 +377,13 @@ macro_rules! export_surface {
 
         /// Scratch buffer the host writes the next input into.
         #[no_mangle]
-        #[allow(static_mut_refs)]
+        #[allow(static_mut_refs, unsafe_code)]
         pub extern "C" fn hs_alloc(len: i32) -> i32 {
             // Reused across frames: the capacity stays, so the host's input
             // does not cost a fresh allocation every frame.
+            // SAFETY: single-threaded, one export call at a time (see
+            // `hs_host`); the pointer handed out stays valid until the next
+            // `hs_alloc`, which is the ABI's contract with the host.
             unsafe {
                 HS_SCRATCH.clear();
                 HS_SCRATCH.resize(len.max(0) as usize, 0);
@@ -385,7 +392,11 @@ macro_rules! export_surface {
         }
 
         #[no_mangle]
+        #[allow(unsafe_code)]
         pub extern "C" fn hs_init(ptr: i32, len: i32) {
+            // SAFETY: `ptr` and `len` name the bytes the host wrote into the
+            // buffer it got from `hs_alloc`, inside this module's own linear
+            // memory; the slice lives only for this call.
             let bytes =
                 unsafe { ::std::slice::from_raw_parts(ptr as *const u8, len.max(0) as usize) };
             hs_host().init(bytes);
@@ -393,7 +404,10 @@ macro_rules! export_surface {
 
         /// Returns `(ptr << 32) | len` so the ABI needs no multi-value support.
         #[no_mangle]
+        #[allow(unsafe_code)]
         pub extern "C" fn hs_frame(ptr: i32, len: i32) -> i64 {
+            // SAFETY: as in `hs_init`: the host's input in this module's own
+            // memory, read only for the duration of the call.
             let bytes =
                 unsafe { ::std::slice::from_raw_parts(ptr as *const u8, len.max(0) as usize) };
             let out = hs_host().frame(bytes);

@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 //! `localspace-proto` — the entire Client<->Core API.
 //!
 //! Rule from the spec: if a feature needs a call that is not in `proto`, it is added

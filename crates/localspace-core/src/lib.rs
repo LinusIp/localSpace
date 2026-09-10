@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 //! localSpace Core — the backend. No UI dependencies.
 //!
 //! One rule governs everything here: the agent never talks to a harness directly.
@@ -16,6 +17,9 @@ pub mod docs;
 pub mod engine;
 pub mod evals;
 pub mod exposure;
+// The one module that speaks to the operating system's process accounting
+// directly (`CLAUDE.md`: unsafe only in isolated, documented modules).
+#[allow(unsafe_code)]
 pub mod footprint;
 pub mod gateway;
 pub mod grammar;

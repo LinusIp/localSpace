@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 //! What harness authors compile logic against.
 //!
 //! The ABI itself is `wit/harness.wit`, generated in the guest with
