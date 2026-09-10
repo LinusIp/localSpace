@@ -5,8 +5,11 @@ import { useSession } from "../store";
 import { Dot } from "./ui";
 
 export function TopBar() {
-  const { environment, models, live, me, go, selectModel } = useSession();
+  const { environment, models, live, me, go, selectModel, panels, activePanel, setZoom } = useSession();
   const model = environment?.model ?? null;
+  // Zoom acts on the active panel when it is a web view; those are the
+  // surfaces that take the shell's commands.
+  const canvas = panels.find((p) => p.key === activePanel && p.kind === "web") ?? null;
 
   const readiness = !live
     ? { tone: "neutral" as const, label: "Reconnecting" }
@@ -59,17 +62,32 @@ export function TopBar() {
           <ChevronDown size={14} className="text-muted" />
         </label>
 
-        {/* Canvas zoom acts on an open canvas panel; none can open before the
-            iframe surfaces of build step 4, so it waits, disabled and honest. */}
         <div
-          className="flex items-center rounded-lg border border-line bg-white text-sm text-faint"
-          title="Zoom acts on an open canvas; no canvas panel is open"
+          className={`flex items-center rounded-lg border border-line bg-white text-sm ${canvas ? "text-ink" : "text-faint"}`}
+          title={canvas ? `Zoom ${canvas.title}` : "Zoom acts on an open canvas; no canvas panel is open"}
         >
-          <button className="px-2 py-1.5" disabled>
+          <button
+            className="px-2 py-1.5 disabled:cursor-not-allowed"
+            disabled={!canvas}
+            onClick={() => canvas && setZoom(canvas.key, canvas.zoom - 0.1)}
+            aria-label="Zoom out"
+          >
             <Minus size={14} />
           </button>
-          <span className="px-1 tabular-nums">100%</span>
-          <button className="px-2 py-1.5" disabled>
+          <button
+            className="px-1 tabular-nums disabled:cursor-not-allowed"
+            disabled={!canvas}
+            onClick={() => canvas && setZoom(canvas.key, 1)}
+            title={canvas ? "Back to 100%" : undefined}
+          >
+            {Math.round((canvas?.zoom ?? 1) * 100)}%
+          </button>
+          <button
+            className="px-2 py-1.5 disabled:cursor-not-allowed"
+            disabled={!canvas}
+            onClick={() => canvas && setZoom(canvas.key, canvas.zoom + 0.1)}
+            aria-label="Zoom in"
+          >
             <Plus size={14} />
           </button>
         </div>

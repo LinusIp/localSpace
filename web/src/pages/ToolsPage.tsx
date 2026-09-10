@@ -4,13 +4,13 @@
 // uses.
 
 import { useEffect, useState } from "react";
-import { Pin, Play, Search } from "lucide-react";
+import { PanelsTopLeft, Pin, Play, Search } from "lucide-react";
 import type { CapabilityHit, ToolOutcome } from "../api/generated";
 import { outcomeLine, useSession } from "../store";
 import { Button, Card, Pill, SectionTitle } from "../components/ui";
 
 export function ToolsPage() {
-  const { active, environment, refreshActive, setPinned, setFocus, findCapability, callTool } = useSession();
+  const { active, environment, refreshActive, setPinned, setFocus, findCapability, callTool, openView } = useSession();
   const [need, setNeed] = useState("");
   const [hits, setHits] = useState<CapabilityHit[] | null>(null);
   const [tool, setTool] = useState("");
@@ -95,18 +95,35 @@ export function ToolsPage() {
               const focused = environment?.focus === h.id;
               const pinned = environment?.pinned.includes(h.id) ?? false;
               return (
-                <li key={h.id} className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate">{h.title}</span>
-                  <Button onClick={() => void setFocus(focused ? null : h.id)} kind={focused ? "primary" : "ghost"}>
-                    {focused ? "Focused" : "Focus"}
-                  </Button>
-                  <button
-                    className={`rounded-lg border border-line p-1.5 ${pinned ? "text-accent" : "text-faint"}`}
-                    onClick={() => void setPinned(h.id, !pinned)}
-                    title={pinned ? "Unpin" : "Pin: keep its front-door tools in context"}
-                  >
-                    <Pin size={14} />
-                  </button>
+                <li key={h.id}>
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate">{h.title}</span>
+                    <Button onClick={() => void setFocus(focused ? null : h.id)} kind={focused ? "primary" : "ghost"}>
+                      {focused ? "Focused" : "Focus"}
+                    </Button>
+                    <button
+                      className={`rounded-lg border border-line p-1.5 ${pinned ? "text-accent" : "text-faint"}`}
+                      onClick={() => void setPinned(h.id, !pinned)}
+                      title={pinned ? "Unpin" : "Pin: keep its front-door tools in context"}
+                    >
+                      <Pin size={14} />
+                    </button>
+                  </div>
+                  {h.views.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {h.views.map((v) => (
+                        <button
+                          key={v.id}
+                          className="flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs text-muted hover:text-ink"
+                          onClick={() => openView(h.id, v)}
+                          title={`Open the ${v.kind} view "${v.id}" as a panel beside the chat`}
+                        >
+                          <PanelsTopLeft size={12} /> {v.title}
+                          <span className="text-faint">· {v.kind}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </li>
               );
             })}

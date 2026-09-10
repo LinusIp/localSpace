@@ -115,6 +115,60 @@ Check what the model actually sees at 300, 600 and 1500 tokens with
 
 ## 4. The surface
 
+A view is declared in `harness.toml` with a `kind`. Two kinds run in the web
+client and the desktop app (architecture v2 §6.3):
+
+- `widgets`: your logic describes a tree of plain controls and the shell
+  draws it; every click or edit comes back to your logic as an event. No
+  code of yours runs in the client. Use it for settings, lists and forms.
+- `web`: an ES module of yours runs in an iframe on an origin that is the
+  harness's alone, with `@localspace/harness-sdk` as its only door.
+
+`egui` and `stream` views still run in the egui client only, until the web
+client reaches parity.
+
+### A `web` view
+
+```toml
+views = [{ id = "board", kind = "web", module = "ui/web/index.js", placement = "main", title = "Board" }]
+```
+
+The directory holding the entry module is what the harness's origin serves,
+and nothing else of the package: `ui/web/` here, with any assets you put
+beside `index.js`, addressed by relative URL. The shell generates the page;
+you ship no HTML. The page maps `@localspace/harness-sdk` for you:
+
+```js
+import { connect } from "@localspace/harness-sdk";
+
+const h = await connect();           // resolves with the document in hand
+render(h.doc());                     // your document, as JSON
+h.on("doc", (doc) => render(doc));   // Core changed it: the agent, an undo, another user
+h.write(next);                       // your edit; Core reconciles and commits it as `surface:<view>`
+h.send({ hello: true });             // a message to your logic's `event` export, at most 64 KB
+h.on("message", (bytes) => …);       // your logic's reply
+h.on("command", ({ name, args }) => …); // the shell: `zoom` {value}, `fit`
+h.theme;                             // the shell's colours and fonts, also set as `--ls-*` CSS variables
+```
+
+The types are in `web/public/harness-sdk.d.ts`. What the sandbox gives you is
+exactly this: scripts, your own files, the bridge. The origin's
+Content-Security-Policy allows no script but yours, no connection but to your
+own files, and no frame parent but the shell that opened you. A fetch to the
+API, to the network or to another harness's origin does not leave the frame;
+if the surface needs data, it asks its logic, which asks Core, which checks
+the manifest. Storage on your origin (`localStorage`, IndexedDB) is yours and
+survives reopening; the document does not live there, it lives in Core.
+
+A write is the whole document. Core diffs it against the Automerge document
+field by field and commits only what changed, so writing the same document
+back costs nothing, and the commit carries the user's name, not yours. A
+write that another user or the agent races with merges; the `doc` event
+that follows is the result, so render from it rather than from what you
+sent.
+
+### An `egui` view
+
 Implement `Surface` from `localspace-surface-sdk` and call `export_surface!`:
 
 ```rust

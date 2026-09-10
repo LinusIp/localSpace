@@ -50,6 +50,13 @@ export const logout = () =>
 export const me = () => fetch("/api/v1/me", { credentials: "same-origin" }).then((r) => parse<Me>(r));
 
 /**
+ * A grant to show one `web` view in an iframe: the URL on the harness's own
+ * origin, valid for this user (v2 §6.3).
+ */
+export const openSurface = (harness: string, view: string) =>
+  fetch("/api/v1/surfaces", json({ harness, view })).then((r) => parse<{ url: string; origin: string }>(r));
+
+/**
  * Any request, its response. Core checks every one; the client is never
  * trusted. A response of `{ error }` is raised as an `ApiError`, so callers
  * see one kind of failure.

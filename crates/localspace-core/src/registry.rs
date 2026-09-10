@@ -92,6 +92,45 @@ impl Installed {
         let path = self.dir.join(module);
         std::fs::read(&path).with_context(|| format!("reading {}", path.display()))
     }
+
+    /// One file of a `web` view. `path` is relative to the directory that
+    /// holds the entry module and may not leave it: the harness's origin
+    /// serves that directory and nothing else of the package or the machine.
+    pub fn surface_file(&self, view_id: &str, path: &str) -> Result<(Vec<u8>, String)> {
+        let view = self
+            .manifest
+            .view(view_id)
+            .with_context(|| format!("`{}` has no view `{view_id}`", self.id()))?;
+        if view.kind != SurfaceKind::Web {
+            bail!("view `{view_id}` is not a web surface");
+        }
+        let module = view.module.as_ref().context("web view declares no module")?;
+        let root = self
+            .dir
+            .join(module)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| self.dir.clone());
+        let rel = path.trim_start_matches(['/', '\\']);
+        let clean = rel
+            .split(['/', '\\'])
+            .all(|seg| !seg.is_empty() && seg != "." && seg != ".." && !seg.contains(':'));
+        if rel.is_empty() || !clean {
+            bail!("`{path}` is not a file under the view's directory");
+        }
+        let root_c = root
+            .canonicalize()
+            .with_context(|| format!("the view's directory {} is missing", root.display()))?;
+        let full_c = root
+            .join(rel)
+            .canonicalize()
+            .with_context(|| format!("no file `{path}` in view `{view_id}`"))?;
+        if !full_c.starts_with(&root_c) || !full_c.is_file() {
+            bail!("`{path}` is not a file under the view's directory");
+        }
+        let bytes = std::fs::read(&full_c).with_context(|| format!("reading {}", full_c.display()))?;
+        Ok((bytes, mime_for(rel).to_string()))
+    }
 }
 
 /// Org policy: what capabilities may be granted at all.
@@ -436,6 +475,66 @@ mod tests {
         assert_eq!(order, vec!["io.a.alpha", "io.m.mid", "io.z.zed"]);
     }
 
+    #[test]
+    fn a_web_view_serves_only_the_files_beside_its_entry_module() {
+        // The harness's origin serves the directory holding `index.js` and
+        // nothing above it: not the manifest, not the logic, not the machine.
+        let dir = std::env::temp_dir().join(format!(
+            "localspace-web-surface-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("ui/web/assets")).unwrap();
+        std::fs::write(dir.join("ui/web/index.js"), b"export {}").unwrap();
+        std::fs::write(dir.join("ui/web/assets/a.css"), b"p{}").unwrap();
+        std::fs::write(dir.join("harness.toml"), b"secret").unwrap();
+        let mut h = fake("io.t.web");
+        h.manifest = Manifest::parse(
+            r#"
+[harness]
+id = "io.t.web"
+version = "1.0.0"
+api = "^1.0"
+title = "T"
+publisher = "p"
+
+[contributes]
+tools = "tools.json"
+views = [{ id = "web", kind = "web", module = "ui/web/index.js", placement = "main", title = "W" }]
+"#,
+        )
+        .unwrap();
+        h.dir = dir.clone();
+
+        let (bytes, mime) = h.surface_file("web", "index.js").unwrap();
+        assert_eq!(bytes, b"export {}");
+        assert_eq!(mime, "text/javascript; charset=utf-8");
+        let (_, mime) = h.surface_file("web", "assets/a.css").unwrap();
+        assert_eq!(mime, "text/css; charset=utf-8");
+        let (_, mime) = h.surface_file("web", "/assets/a.css").unwrap();
+        assert_eq!(mime, "text/css; charset=utf-8");
+
+        for escape in [
+            "../harness.toml",
+            "assets/../../harness.toml",
+            "..\\harness.toml",
+            "",
+            ".",
+            "assets",
+            "C:/Windows/win.ini",
+        ] {
+            assert!(
+                h.surface_file("web", escape).is_err(),
+                "`{escape}` must not be served"
+            );
+        }
+        assert!(h.surface_file("board", "index.js").is_err(), "not a web view");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     fn fake(id: &str) -> Installed {
         let manifest = Manifest::parse(&format!(
             r#"
@@ -462,5 +561,40 @@ tools = "tools.json"
             last_used: std::time::Instant::now(),
             idle_unload: std::time::Duration::from_secs(300),
         }
+    }
+}
+
+/// The media type a web surface's file is served with, from its extension.
+pub fn mime_for(name: &str) -> &'static str {
+    let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "html" | "htm" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "json" | "map" => "application/json",
+        "wasm" => "application/wasm",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "ico" => "image/x-icon",
+        "woff2" => "font/woff2",
+        "woff" => "font/woff",
+        "ttf" => "font/ttf",
+        "txt" | "md" => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
+#[cfg(test)]
+mod web_surface_tests {
+    use super::*;
+
+    #[test]
+    fn media_types_follow_the_extension() {
+        assert_eq!(mime_for("index.js"), "text/javascript; charset=utf-8");
+        assert_eq!(mime_for("a/b/c.wasm"), "application/wasm");
+        assert_eq!(mime_for("noext"), "application/octet-stream");
     }
 }

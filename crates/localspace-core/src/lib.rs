@@ -1622,6 +1622,18 @@ impl Core {
                 },
             },
 
+            R::GetSurfaceFile { harness, view, path } => match self.registry.get(&harness) {
+                Some(h) => match h.surface_file(&view, &path) {
+                    Ok((bytes, mime)) => proto::Response::SurfaceFile { bytes, mime },
+                    Err(e) => proto::Response::Error {
+                        message: format!("{e:#}"),
+                    },
+                },
+                None => proto::Response::Error {
+                    message: format!("no harness `{harness}`"),
+                },
+            },
+
             R::GetWidgetView { harness, view } => {
                 let doc = self
                     .registry
@@ -1782,6 +1794,50 @@ impl Core {
                     doc,
                     json: Json(json),
                 }
+            }
+
+            R::WriteDoc { harness, view, doc } => {
+                let Some(h) = self.registry.get(&harness) else {
+                    return proto::Response::Error {
+                        message: format!("no harness `{harness}`"),
+                    };
+                };
+                if h.manifest.view(&view).is_none() {
+                    return proto::Response::Error {
+                        message: format!("`{harness}` has no view `{view}`"),
+                    };
+                }
+                let doc_id = h.doc_id.clone();
+                if let Err(denied) = self.access.check(&self.identity(), &doc_id, Level::Edit) {
+                    return proto::Response::Error {
+                        message: denied.to_string(),
+                    };
+                }
+                // The same path a logic component's `doc_out` takes: reconcile
+                // against the Automerge document, commit only a real change.
+                let changes = match self.docs.apply_json(&doc_id, &doc.0) {
+                    Ok(changes) => changes,
+                    Err(e) => {
+                        return proto::Response::Error {
+                            message: format!("the document could not be applied: {e:#}"),
+                        }
+                    }
+                };
+                if !changes.is_empty() {
+                    let snapshot = self.docs.snapshot(&doc_id).unwrap_or_default();
+                    let _ = self.dag.commit(
+                        &doc_id,
+                        &harness,
+                        &format!("surface:{view}"),
+                        Json(J::Null),
+                        &snapshot,
+                        &changes.summary(),
+                        proto::Author::User,
+                        None,
+                    );
+                    self.push_doc_patch(&doc_id);
+                }
+                proto::Response::Ok
             }
 
             R::DocSync { doc, message } => {

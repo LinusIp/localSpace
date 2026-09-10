@@ -633,7 +633,9 @@ impl From<DocKind> for proto::DocKind {
 pub struct ViewDecl {
     pub id: String,
     pub kind: SurfaceKind,
-    /// Required for `kind = "egui"`: path to the surface wasm module.
+    /// Required for `kind = "egui"` (the surface wasm module) and for
+    /// `kind = "web"` (the entry ES module, `ui/index.js`, whose directory is
+    /// what the harness's origin serves).
     #[serde(default)]
     pub module: Option<String>,
     #[serde(default = "default_placement")]
@@ -651,6 +653,7 @@ fn default_placement() -> Placement {
 pub enum SurfaceKind {
     Widgets,
     Egui,
+    Web,
     Stream,
 }
 
@@ -659,6 +662,7 @@ impl From<SurfaceKind> for proto::SurfaceKind {
         match k {
             SurfaceKind::Widgets => proto::SurfaceKind::Widgets,
             SurfaceKind::Egui => proto::SurfaceKind::Egui,
+            SurfaceKind::Web => proto::SurfaceKind::Web,
             SurfaceKind::Stream => proto::SurfaceKind::Stream,
         }
     }
@@ -736,6 +740,21 @@ impl Manifest {
         for v in &self.contributes.views {
             if v.kind == SurfaceKind::Egui && v.module.is_none() {
                 bail!("view `{}` is kind = \"egui\" but declares no module", v.id);
+            }
+            if v.kind == SurfaceKind::Web {
+                match &v.module {
+                    None => bail!("view `{}` is kind = \"web\" but declares no module", v.id),
+                    Some(m) if !(m == "index.js" || m.ends_with("/index.js")) => bail!(
+                        "view `{}` is kind = \"web\" but its module `{m}` is not an `index.js`: \
+                         the entry module of a web view is `index.js` in the directory the harness's origin serves",
+                        v.id
+                    ),
+                    Some(m) if m.starts_with('/') || m.contains("..") => bail!(
+                        "view `{}`: module `{m}` must be a path inside the package",
+                        v.id
+                    ),
+                    _ => {}
+                }
             }
             if v.kind == SurfaceKind::Stream && self.harness.tier != Tier::Native {
                 bail!(
@@ -1056,5 +1075,42 @@ tools = "tools.json"
         assert!(diff.iter().any(|l| l.contains("model.complete")));
         // Narrowing produces nothing to approve.
         assert!(old.widening_over(&new).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod web_view_tests {
+    use super::*;
+
+    fn with_view(view: &str) -> Result<Manifest> {
+        Manifest::parse(&format!(
+            r#"
+[harness]
+id = "io.t.web"
+version = "1.0.0"
+api = "^1.0"
+title = "T"
+publisher = "p"
+
+[contributes]
+tools = "tools.json"
+views = [{view}]
+"#
+        ))
+        .and_then(|m| m.validate().map(|_| m))
+    }
+
+    #[test]
+    fn a_web_view_needs_an_index_js_inside_the_package() {
+        assert!(with_view(r#"{ id = "w", kind = "web", module = "ui/web/index.js", placement = "main", title = "W" }"#).is_ok());
+        assert!(with_view(r#"{ id = "w", kind = "web", module = "index.js", placement = "main", title = "W" }"#).is_ok());
+        for bad in [
+            r#"{ id = "w", kind = "web", placement = "main", title = "W" }"#,
+            r#"{ id = "w", kind = "web", module = "ui/web/app.js", placement = "main", title = "W" }"#,
+            r#"{ id = "w", kind = "web", module = "../elsewhere/index.js", placement = "main", title = "W" }"#,
+            r#"{ id = "w", kind = "web", module = "/abs/index.js", placement = "main", title = "W" }"#,
+        ] {
+            assert!(with_view(bad).is_err(), "{bad} must be refused");
+        }
     }
 }

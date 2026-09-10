@@ -10,13 +10,17 @@ import { Markdown } from "../components/Markdown";
 import { Mark } from "../components/Mark";
 import { RightPanel } from "../components/RightPanel";
 import { Conversations } from "../components/Conversations";
+import { Panels } from "../components/Panels";
 import { Button, Card } from "../components/ui";
 
 export function ChatPage() {
-  const { transcript, streaming, busy, liveCalls, approvals, environment } = useSession();
+  const { transcript, streaming, busy, liveCalls, approvals, environment, panels, details } = useSession();
   const shown = transcript.filter((m) => m.role === "user" || m.role === "assistant");
   const title = shown.find((m) => m.role === "user")?.content.slice(0, 60) ?? "New Chat";
   const bottom = useRef<HTMLDivElement>(null);
+  // With a panel open the chat becomes a column beside it and the details
+  // column steps aside until asked for; nothing about it is lost.
+  const withPanels = panels.length > 0;
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -24,8 +28,8 @@ export function ChatPage() {
 
   return (
     <div className="flex min-h-0 flex-1 gap-4 px-6 pb-6">
-      <Card className="flex min-w-0 flex-1 flex-row">
-        <Conversations />
+      <Card className={`flex min-w-0 flex-row ${withPanels ? "w-[420px] shrink-0" : "flex-1"}`}>
+        {!withPanels && <Conversations />}
         <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-3 border-b border-line px-6 py-4">
           <span className="text-muted">
@@ -79,7 +83,8 @@ export function ChatPage() {
         <Composer />
         </div>
       </Card>
-      <RightPanel />
+      {withPanels && <Panels />}
+      {(!withPanels || details) && <RightPanel />}
     </div>
   );
 }

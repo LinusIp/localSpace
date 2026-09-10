@@ -160,3 +160,32 @@ and every control is one request; nothing on screen is decoration. The
 readiness pill says "No model" until one is connected in Models, because
 that is the truth of a fresh install. Next is step 2, the llama.cpp sidecar,
 which is what turns that pill green without a hand-connected endpoint.
+
+## 10. Step 4, the harness runtime with iframe surfaces (2026-09-10)
+
+The `web` view kind exists end to end. In the manifest it is `kind = "web"`
+with `module` naming an `index.js`; the directory of that file is all the
+harness's origin serves, and Core refuses any path that leaves it. The
+server gives every harness its own origin, `h-<slug>.localhost:<port>`,
+chosen by the `Host` header in front of every other route; the shell asks
+`POST /api/v1/surfaces` for a view and receives a URL carrying a grant as
+the first path segment of everything the frame loads (a cookie would not
+do: a browser withholds cookies from a third-party frame). The page on that
+origin is generated: an import map for `@localspace/harness-sdk`
+under a per-response nonce, the entry module, and a Content-Security-Policy
+that admits scripts and connections from the origin itself and frames from
+the one shell that opened the view. The SDK is `connect()`, `doc()`,
+`write()`, `send()`, `on("doc" | "message" | "focus" | "command")`, `theme`,
+over `postMessage` with a protocol number. The shell hosts the frames as
+panels beside the chat, six at most, keeps them mounted behind their tabs,
+answers hello with the document, forwards the document again on every
+`doc_patch`, carries writes to Core's new `WriteDoc` (reconciled into the
+Automerge document and committed as `surface:<view>` by the user) and
+messages to `harness_event`, and sends zoom from the top bar as a command.
+The `widgets` kind is rendered by the shell from the logic's tree. `egui`
+and `stream` panels say plainly that the web shell does not run them. The
+whiteboard package carries a small `web` view to prove the loop; step 5
+replaces it with tldraw. Not in this step: Automerge in the client (the
+frame refetches JSON on each patch), a memory budget per frame (browsers do
+not expose one), a policy header on the shell page itself, and the
+`snapshot()` call of §6.3.

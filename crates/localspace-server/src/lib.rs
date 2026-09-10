@@ -10,6 +10,7 @@ pub mod api;
 pub mod auth;
 pub mod openapi;
 pub mod session;
+pub mod surfaces;
 pub mod ws;
 
 use axum::extract::State;
@@ -46,6 +47,11 @@ pub struct ServerConfig {
     pub models: Option<PathBuf>,
     /// `llama-server`, when it is not under `<data>/engines` or on PATH.
     pub llama_server: Option<PathBuf>,
+    /// Where harness surfaces live, one origin each: a host pattern with
+    /// `{slug}` for the harness. `h-{slug}.localhost` resolves to loopback in
+    /// every browser without DNS; a deployment on its own domain sets a
+    /// wildcard it owns, such as `h-{slug}.apps.example.com`.
+    pub surface_hosts: String,
 }
 
 impl Default for ServerConfig {
@@ -63,6 +69,7 @@ impl Default for ServerConfig {
             secure_cookies: false,
             models: Some(PathBuf::from("models")).filter(|p| p.exists()),
             llama_server: None,
+            surface_hosts: surfaces::DEFAULT_HOSTS.into(),
         }
     }
 }
@@ -85,6 +92,8 @@ pub struct Server {
     /// The one token this server accepts. Personal mode hands it to the
     /// shell; organisation mode reads it from the command line until OIDC.
     pub token: String,
+    /// Open surfaces: the grant behind each harness-origin cookie.
+    pub grants: Mutex<HashMap<String, surfaces::Grant>>,
 }
 
 impl Server {
@@ -101,6 +110,7 @@ impl Server {
             started: std::time::Instant::now(),
             connections: Mutex::new(0),
             token,
+            grants: Mutex::new(HashMap::new()),
         })
     }
 
@@ -209,6 +219,7 @@ pub fn router(server: Arc<Server>) -> Router {
         .route("/active-set", get(api::active_set))
         .route("/lock", get(api::lock))
         .route("/docs/{harness}", get(api::doc))
+        .route("/surfaces", post(surfaces::open))
         .route("/logout", post(auth::logout))
         .route_layer(axum::middleware::from_fn_with_state(
             server.clone(),
@@ -239,7 +250,8 @@ pub fn router(server: Arc<Server>) -> Router {
             app = app.fallback(get(placeholder));
         }
     }
-    app
+    // Harness origins are answered before anything else sees the request.
+    app.layer(axum::middleware::from_fn_with_state(server, surfaces::route))
 }
 
 /// A running server: where it listens, and the token it accepts.

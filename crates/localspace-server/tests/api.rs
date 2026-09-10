@@ -237,3 +237,149 @@ async fn the_json_socket_streams_events_and_answers_requests_under_their_id() {
     let refused = tokio_tungstenite::connect_async(format!("ws://{}/ws/json", running.addr)).await;
     assert!(refused.is_err(), "an anonymous socket must not upgrade");
 }
+
+#[tokio::test]
+async fn a_web_surface_lives_on_its_own_origin_behind_a_grant() {
+    // v2 §6.3: the shell asks for a view, gets a URL on the harness's origin,
+    // and that origin serves the view's files and nothing else, under a CSP.
+    let Some(_) = harness_dir() else { return };
+    let app = router(Server::new(config("secret-4")));
+
+    let opened = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/surfaces")
+                .header(header::COOKIE, "ls_session=secret-4")
+                .header(header::HOST, "127.0.0.1:8443")
+                .header(header::ORIGIN, "http://127.0.0.1:8443")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"harness":"io.localspace.whiteboard","view":"web"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(opened.status(), StatusCode::OK);
+    let grant = body_json(opened).await;
+    let url = grant["url"].as_str().unwrap().to_string();
+    assert!(
+        url.starts_with("http://h-io-localspace-whiteboard.localhost:8443/s/"),
+        "{url}"
+    );
+    assert!(url.ends_with('/'), "the page is the grant directory: {url}");
+    let host = "h-io-localspace-whiteboard.localhost:8443";
+    let token = url.trim_end_matches('/').rsplit('/').next().unwrap().to_string();
+    let under = |p: &str| format!("/s/{token}/{p}");
+
+    // A view that is not a web surface, or does not exist, gets no origin.
+    for view in ["board", "nothing"] {
+        let refused = app
+            .clone()
+            .oneshot(
+                Request::post("/api/v1/surfaces")
+                    .header(header::COOKIE, "ls_session=secret-4")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"harness":"io.localspace.whiteboard","view":"{view}"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), StatusCode::NOT_FOUND, "view `{view}`");
+    }
+
+    // The grant directory is the generated page, which maps the SDK and loads
+    // the entry module by relative URL, so both stay under the grant.
+    let index = app
+        .clone()
+        .oneshot(
+            Request::get(under(""))
+                .header(header::HOST, host)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(index.status(), StatusCode::OK);
+    let csp = index
+        .headers()
+        .get(header::CONTENT_SECURITY_POLICY)
+        .expect("a policy on every surface response")
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(csp.starts_with("default-src 'none'"), "{csp}");
+    assert!(csp.contains("frame-ancestors http://127.0.0.1:8443"), "{csp}");
+    assert!(
+        !index.headers().contains_key(header::SET_COOKIE),
+        "no cookie: a third-party frame would not send it back"
+    );
+    let html = String::from_utf8(
+        index.into_body().collect().await.unwrap().to_bytes().to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains(r#""@localspace/harness-sdk":"./_localspace/sdk.js""#), "{html}");
+    assert!(html.contains(r#"src="./index.js""#), "{html}");
+    let nonce = html
+        .split(r#"nonce=""#)
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .expect("the import map carries a nonce");
+    assert!(csp.contains(&format!("'nonce-{nonce}'")), "the page's nonce is in its policy: {csp}");
+
+    let fetch = |path: String, on_host: &str| {
+        app.clone().oneshot(
+            Request::get(path)
+                .header(header::HOST, on_host)
+                .body(Body::empty())
+                .unwrap(),
+        )
+    };
+
+    // The entry module and the SDK, under the grant.
+    let module = fetch(under("index.js"), host).await.unwrap();
+    assert_eq!(module.status(), StatusCode::OK);
+    assert_eq!(
+        module.headers().get(header::CONTENT_TYPE).unwrap(),
+        "text/javascript; charset=utf-8"
+    );
+    assert!(module.headers().contains_key(header::CONTENT_SECURITY_POLICY));
+    let sdk = fetch(under("_localspace/sdk.js"), host).await.unwrap();
+    assert_eq!(sdk.status(), StatusCode::OK);
+    let sdk_text = String::from_utf8(sdk.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+    assert!(sdk_text.contains("export function connect"), "the embedded SDK");
+
+    // Nothing above the view's directory, nothing without the grant, and
+    // nothing on another harness's origin with this grant.
+    for escape in ["../harness.toml", "../../logic.wasm", "%2e%2e/harness.toml", "assets"] {
+        let refused = fetch(under(escape), host).await.unwrap();
+        assert_ne!(refused.status(), StatusCode::OK, "`{escape}` must not be served");
+    }
+    assert_eq!(fetch("/index.js".into(), host).await.unwrap().status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        fetch("/s/0123456789abcdef/index.js".into(), host).await.unwrap().status(),
+        StatusCode::UNAUTHORIZED,
+        "a token nobody minted"
+    );
+    assert_eq!(
+        fetch(under("index.js"), "h-io-other.localhost:8443").await.unwrap().status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    // The harness origin is not the API: the session cookie means nothing
+    // there, and the API is not reachable through it.
+    let api_through_surface = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/environment")
+                .header(header::HOST, host)
+                .header(header::COOKIE, "ls_session=secret-4")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(api_through_surface.status(), StatusCode::UNAUTHORIZED);
+}

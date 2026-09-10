@@ -179,3 +179,53 @@ renamable, persisted as `conversations.json` under the data directory, the
 transcript always the current one, evals kept out of them, a conversation
 list beside the chat. Not yet: citations, which arrive with retrieval in
 step 6; the tool loop and the GBNF grammar were already there.
+
+### v2 step 4, the harness runtime with iframe surfaces (2026-09-10)
+
+Done: the `web` view kind in the manifest (`kind = "web"`, `module` an
+`index.js` inside the package; anything else is refused at validation);
+Core's `GetSurfaceFile`, which serves only the directory holding that entry
+module and refuses `..`, absolute paths, drive letters and directories
+(tested against seven escapes); Core's `WriteDoc`, a surface's whole
+document as JSON, reconciled into the Automerge document and committed as
+`surface:<view>` by the user only when something changed, with the patch
+pushed to every client; the server's harness origins, one per harness at
+`h-<slug>.localhost:<port>` (or a wildcard an organisation owns, via
+`--surface-hosts`), answered by `Host` header before any other route, opened
+by `POST /api/v1/surfaces` into a grant carried as the first path segment of
+everything the frame loads (`/s/<token>/index.js`; no cookie, because a
+browser withholds cookies from a third-party frame, which the harness frame
+is to the shell), a generated page whose import map is admitted by a
+per-response nonce, and a Content-Security-Policy on every response
+(`default-src 'none'`, scripts and connections from the origin only,
+`frame-ancestors` the one shell that opened the view); the bridge SDK,
+`@localspace/harness-sdk`, embedded in the server and typed in
+`web/public/harness-sdk.d.ts`; the shell's panels beside the chat (at most
+six, kept mounted behind their tabs), the iframe host that answers the
+surface's hello with the document and forwards Core's patches, writes and
+messages, the `widgets` kind rendered from the logic's tree, and an honest
+notice for `egui` and `stream` views; zoom in the top bar acting on the
+active web panel as a command; Open buttons per view on the Tools page;
+the whiteboard's own small `web` view, a plain ES module, to prove the loop
+before tldraw. Tests: 2 in the manifest and registry for the rule and the
+escapes, 5 in the server for slugs, hosts, the grant path and the policy, 1
+API test walking the grant, the page, the module, the SDK, four escapes, a
+missing grant and a foreign origin. The api test exe and a release-profile
+Core test exe ran on this laptop; the debug Core test exe was refused by
+Smart App Control as before. Two things the tests could not show and the
+browser did: an inline import map is a script under CSP and needs the nonce,
+and a `SameSite` cookie set by the frame's first response is never sent with
+its module fetches, which is why the grant moved into the path.
+
+Seen live in the browser against `localspace serve` on 2026-09-10: Tools →
+"Board (web)" opens the panel beside the chat; the frame on
+`h-io-localspace-whiteboard.localhost:8443` says hello, receives the board
+and draws its sticky; zoom in the top bar reaches the frame as a command
+(110% shown in both); a `write_doc` through the API makes one `surface:web`
+commit by the user ("added 1, changed 4 field(s)"), writing the same document
+again makes none, and the frame redraws with the second sticky from the
+`doc_patch` that follows. The one hop not driven by hand is a click inside
+the frame: the review browser's automation does not reach into a
+cross-origin frame, so the surface's own "Add sticky" was exercised only by
+reading its code; it posts through the same function as the hello that was
+seen.

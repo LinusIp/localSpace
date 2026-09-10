@@ -21,9 +21,26 @@ import type {
   ModelInfo,
   NetworkMode,
   NoticeLevel,
+  SurfaceKind,
   Task,
   ToolOutcome,
+  ViewDesc,
 } from "./api/generated";
+import { bus } from "./surfaces/bus";
+
+/** An open view of a harness, shown as a panel beside the chat. */
+export type Panel = {
+  key: string;
+  harness: string;
+  view: string;
+  title: string;
+  kind: SurfaceKind;
+  /** The zoom the shell last asked a `web` view for; 1 is 100%. */
+  zoom: number;
+};
+
+/** v2 §6.1: the shell keeps at most this many panels open. */
+export const MAX_PANELS = 6;
 
 export type Page =
   | "chat"
@@ -69,13 +86,24 @@ export type Session = {
   context: { blocks: ContextBlock[]; prompt: string } | null;
   conversations: ConversationSummary[];
   currentConversation: string;
+  panels: Panel[];
+  activePanel: string | null;
+  /** Whether the details column stays open beside an open panel. */
+  details: boolean;
 
   signIn: (me: Me) => void;
   signOut: () => void;
   go: (page: Page) => void;
   setLive: (live: boolean) => void;
   notify: (level: NoticeLevel, text: string) => void;
+  traceLine: (text: string) => void;
   onEvent: (event: Event) => void;
+
+  openView: (harness: string, view: ViewDesc) => void;
+  closePanel: (key: string) => void;
+  activatePanel: (key: string) => void;
+  setZoom: (key: string, zoom: number) => void;
+  toggleDetails: () => void;
 
   refreshEnvironment: () => Promise<void>;
   refreshTranscript: () => Promise<void>;
@@ -161,6 +189,9 @@ export const useSession = create<Session>((set, get) => {
     context: null,
     conversations: [],
     currentConversation: "",
+    panels: [],
+    activePanel: null,
+    details: false,
 
     signIn: (me) => set({ me }),
     signOut: () =>
@@ -184,12 +215,48 @@ export const useSession = create<Session>((set, get) => {
         context: null,
         conversations: [],
         currentConversation: "",
+        panels: [],
+        activePanel: null,
         live: false,
       }),
     go: (page) => set({ page }),
     setLive: (live) => set({ live }),
     notify: (level, text) =>
       set((s) => ({ notices: [...s.notices.slice(1 - KEEP_NOTICES), { level, text, at: Date.now() }] })),
+    traceLine: (text) => set((s) => ({ trace: [...s.trace.slice(1 - KEEP_TRACE), text] })),
+
+    openView: (harness, view) => {
+      const key = `${harness}/${view.id}`;
+      const { panels } = get();
+      if (!panels.some((p) => p.key === key)) {
+        if (panels.length >= MAX_PANELS) {
+          get().notify("warn", `At most ${MAX_PANELS} panels can be open; close one first.`);
+          return;
+        }
+        set({ panels: [...panels, { key, harness, view: view.id, title: view.title, kind: view.kind, zoom: 1 }] });
+      }
+      set({ activePanel: key, page: "chat" });
+      // The open surface is the one the agent works on (spec §4: focus).
+      void get().setFocus(harness);
+    },
+    closePanel: (key) =>
+      set((s) => {
+        const panels = s.panels.filter((p) => p.key !== key);
+        const activePanel = s.activePanel === key ? (panels[panels.length - 1]?.key ?? null) : s.activePanel;
+        return { panels, activePanel };
+      }),
+    activatePanel: (key) => {
+      set({ activePanel: key });
+      const panel = get().panels.find((p) => p.key === key);
+      if (panel && get().environment?.focus !== panel.harness) void get().setFocus(panel.harness);
+    },
+    setZoom: (key, zoom) => {
+      const value = Math.min(4, Math.max(0.25, Math.round(zoom * 100) / 100));
+      set((s) => ({ panels: s.panels.map((p) => (p.key === key ? { ...p, zoom: value } : p)) }));
+      const panel = get().panels.find((p) => p.key === key);
+      if (panel) bus.emit("command", { harness: panel.harness, view: panel.view, name: "zoom", args: { value } });
+    },
+    toggleDetails: () => set((s) => ({ details: !s.details })),
 
     onEvent: (event) => {
       if (event === "assistant_done") {
@@ -213,7 +280,10 @@ export const useSession = create<Session>((set, get) => {
           liveCalls: s.liveCalls.map((c) => (c.id === id ? { ...c, outcome } : c)),
           trace: [...s.trace.slice(1 - KEEP_TRACE), `← ${tool}: ${outcomeLine(outcome)}`],
         }));
-      } else if ("notice" in event) get().notify(event.notice.level, event.notice.text);
+      } else if ("doc_patch" in event) bus.emit("doc_patch", { doc: event.doc_patch.doc });
+      else if ("harness_message" in event) bus.emit("harness_message", event.harness_message);
+      else if ("widget_view_changed" in event) bus.emit("widget_view_changed", event.widget_view_changed);
+      else if ("notice" in event) get().notify(event.notice.level, event.notice.text);
       else if ("trace_line" in event)
         set((s) => ({ trace: [...s.trace.slice(1 - KEEP_TRACE), event.trace_line.text] }));
       else if ("task_changed" in event) set({ task: event.task_changed });

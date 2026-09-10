@@ -216,6 +216,8 @@ pub enum DocKind {
 pub enum SurfaceKind {
     Widgets,
     Egui,
+    /// An ES module bundle in a sandboxed iframe on its own origin (v2 §6.3).
+    Web,
     Stream,
 }
 
@@ -686,6 +688,13 @@ pub enum Request {
         harness: HarnessId,
         view: ViewId,
     },
+    /// One file of a `web` view, relative to its entry module's directory.
+    /// The server hands these out on the harness's own origin.
+    GetSurfaceFile {
+        harness: HarnessId,
+        view: ViewId,
+        path: String,
+    },
     /// Declarative tree of a `kind = "widgets"` view.
     GetWidgetView {
         harness: HarnessId,
@@ -711,6 +720,14 @@ pub enum Request {
     /// The Automerge snapshot in `OpenDoc` is for a replica; this is for a surface.
     GetDocJson {
         harness: HarnessId,
+    },
+    /// A web surface writing its harness's document back as JSON (v2 §6.3).
+    /// Core reconciles it field by field against the Automerge document and
+    /// commits the difference as the user's edit under `surface:<view>`.
+    WriteDoc {
+        harness: HarnessId,
+        view: ViewId,
+        doc: Json,
     },
     /// Automerge sync message from the surface replica.
     DocSync {
@@ -810,6 +827,10 @@ pub enum Response {
     },
     WidgetView {
         root: Widget,
+    },
+    SurfaceFile {
+        bytes: Vec<u8>,
+        mime: String,
     },
     DocOpened {
         doc: DocId,

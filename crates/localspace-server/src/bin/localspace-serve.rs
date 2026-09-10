@@ -66,6 +66,7 @@ fn parse_args() -> ServerConfig {
             "--user" => cfg.user = it.next().unwrap_or(cfg.user),
             "--personal" => cfg.personal = true,
             "--secure-cookies" => cfg.secure_cookies = true,
+            "--surface-hosts" => cfg.surface_hosts = it.next().unwrap_or(cfg.surface_hosts),
             "--allow-below-floor" => cfg.allow_below_floor = true,
             other => eprintln!("ignoring unknown argument `{other}`"),
         }
