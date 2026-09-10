@@ -275,15 +275,45 @@ Verified on the review laptop (2026-09-10), a 0.5B model loaded:
 
 | check | result |
 |---|---|
-| `node e2e/whiteboard.mjs`: install from the catalog, the board on its own origin shows Core's document, the agent's run ends and the frame shows what it did, a note typed in the frame lands as the user's `surface:sync` commit, Ctrl+Z twice and Ctrl+Shift+Z twice through Core's history with the frame following, `canvas.select` through the API moves the frame's selection, zoom from the shell's bar reaches the frame | PASS on every run once the checks were keyed by the note's id; the 0.5B model added 1 shape in one run, 30 and 34 (Core's cap on one turn) in two, nothing in others |
+| `node e2e/whiteboard.mjs`: install from the catalog, the board on its own origin shows Core's document, the agent's run ends and the frame shows what it did, a note typed in the frame lands as the user's `surface:sync` commit, Ctrl+Z twice and Ctrl+Shift+Z twice through Core's history with the frame following, `canvas.select` through the API moves the frame's selection, zoom from the shell's bar reaches the frame | PASS on every run once the checks were keyed by the note's id; the 0.5B model added 1 shape in one run, 30 and 34 in two, calling tools until Core stopped the turn, nothing in others |
 | `node e2e/bench-canvas.mjs --profile laptop`, 5,120 shapes at 1600×900 | pan and drag p95 7.0 ms at both zooms, which is the runner's pointer cadence; paint p95 2.9 ms with all 5,120 drawn and 3.0 ms at reading zoom; 142.9 fps at the worst p95 |
 | the whiteboard evals on Qwen2.5 0.5B Instruct, through the API | 3 of 6, as in step 2 |
 | `cargo test --release -p localspace-core --lib docs::`, `--test sync`, `npm test` | 11, 2 and 19 pass |
 | gzipped: the shell bundle, canvas, ui, the whiteboard surface, the Automerge library | 110 KB, 14 KB, 5.6 KB, 3.5 KB, 1.6 MB |
 
+Open at that report: the 60 fps at 5,000 shapes gate on the W32 machine;
+the frame-time regression check in CI, as the repository had no CI;
+snapping and SVG/PNG export; the IndexedDB storage adapter for the replica;
+the Automerge library's size. The answers to that report, and what was
+built on them, follow.
+
+### Step 5, after the answers to its report (2026-09-11)
+
+The ten answers are in `docs/DECISIONS.md`. Built on them: snapping in
+`@localspace/canvas`, to the edges and centres of the shapes on screen
+within 8 screen pixels, with guides, Alt to skip it, and a grid toggle off
+by default; a sync state per replica in Core, so one board in two windows
+stays in step, with `DocChanged` for whatever reads the JSON; the slim
+Automerge build in frames, its WebAssembly a file of its own on the
+harness origin under an unchanged policy; rustfmt over all the Rust, as one
+commit; `scripts/hpack.mjs`, which lays out each harness's package from its
+sources; a CI workflow; and a check that a typed note's text is one commit.
+On the way: the egui surface had not compiled since the edition 2024
+switch, and its export macro now writes `#[unsafe(no_mangle)]`; clippy is
+clean on every target; two engine tests that had failed since steps 2 and
+3 pass again, the fake `llama-server` now streaming as the real one does.
+
+| check | result |
+|---|---|
+| the gate walk, `node e2e/whiteboard.mjs`, now also: a typed note is exactly two commits; a note dropped 5 px off another's edge rests on it with a guide drawn, and stays 5 px off with Alt held; one board edited from two browser windows | PASS, on the slim Automerge build and the per-replica server |
+| the canvas benchmark on a quiet machine, 5,120 shapes at 1600×900 | pan and drag p95 7.1 and 7.0 ms at overview, 7.0 and 7.0 ms at reading zoom; paint p95 2.8 and 3.0 ms; 140.8 fps at the worst p95, the baseline's own figure |
+| `npm test` in `web/` | 30 pass, 11 of them snapping |
+| `cargo test --release --workspace --no-fail-fast` | every test binary Smart App Control let run passes; the engine tests pass in the debug build, whose release executable was refused; the harness SDK's and the server's unit-test binaries were refused in that run, and the server's five passed earlier the same day |
+| `cargo clippy --workspace --all-targets -- -D warnings --force-warn clippy::unwrap_used`, `cargo fmt --all -- --check` | clean, clean |
+| `node scripts/check-sizes.mjs` in `web/`, gzipped, in units of 1,024 bytes, against `web/size-limits.json` | shell 112 KB of 2,048; canvas 15.4; ui 8.2; React for frames 66.2; Automerge for frames 1,118, its script down from 1.6 MB to 17 KB; the SDK 2.6; the whiteboard surface 3.5; all within their limits |
+
 Not done: the 60 fps at 5,000 shapes gate on the W32 machine, which is not
-available here; the frame-time regression check in CI, as the repository
-has no CI yet; snapping and SVG/PNG export, which follow the gate
-measurement by decision; the IndexedDB storage adapter for the replica,
-raised as a question instead; the Automerge library's size, the vendor's
-full build with its WebAssembly inlined as base64.
+available here (the measurement goes in `docs/gates/w32-canvas.json`, and
+the workflow's manual job checks it); the workflow has not run, as the
+repository has no remote; the CI frame-time baseline, which the first run
+records; SVG and PNG export as artifacts, decided but not built.

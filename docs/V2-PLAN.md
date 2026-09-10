@@ -94,7 +94,7 @@ something changed; only what is on screen is drawn.
 | 2 llama.cpp sidecar + planner + catalog download | **done**: the supervisor, the plan as flags, the catalog with verdicts, download and import, the Models page; verified live with llama.cpp b10869 and a 0.5B model (87 tokens/s on the laptop, evals 3 of 6) | the 15 tok/s gate needs a W32 machine and the 120B model | the utility model and speculative decoding of §4.3 | the gate |
 | 3 chat harness | **done** except citations, which come with retrieval in step 6: the GUI, token streaming from the sidecar, persisted conversations | | | |
 | 4 harness runtime with iframe surfaces | manifest, logic components, install and uninstall, local registry | `widgets` kind stays | `web` kind, bridge SDK, iframe host, CSP | 1–2 weeks |
-| 5 whiteboard as the first package | logic, tools, context provider, evals, Automerge document; `@localspace/canvas`, `@localspace/ui`, the web surface with a replica in the frame, undo as a forward change, the gate walk as a browser test (2026-09-10) | | the gate number on a W32 machine; the CI check; snapping and SVG/PNG export | days, once a W32 machine is at hand |
+| 5 whiteboard as the first package | logic, tools, context provider, evals, Automerge document; `@localspace/canvas` with snapping, `@localspace/ui`, the web surface with a replica in the frame, a sync state per replica, undo as a forward change, the gate walk as a browser test, package layouts from a script, a CI workflow (2026-09-11) | | the gate number on a W32 machine; the workflow's first run; SVG/PNG export | days, once a W32 machine and a remote are at hand |
 | 6 retrieval, upload, gateway, web tools | gateway modes, `web.search` and `web.fetch` | BM25 for `find_capability` only | tantivy, usearch, ACL pre-filter, upload | 2 weeks |
 | 7 multi-user `serve` | ACL, workspaces, proposals, audit, Core-side sync | one local user always | OIDC, sessions, browser-to-browser sync | 2 weeks |
 | 8 Tier B runtime, physics harness, handoff bench | MCP subprocess, handoff, ledger | no sandbox | sandbox, GPU pool, state streaming, the engine | large |
@@ -245,3 +245,13 @@ walk as a browser test, which passes on the review laptop with a 0.5B model
 history, zoom both ways). The numbers are in `docs/STATUS.md`. Open: the
 W32 measurement, the CI check, snapping and export, the storage adapter
 (`docs/DECISIONS.md` and the step report's questions).
+
+After the answers to the step-5 report (2026-09-11, `docs/DECISIONS.md`):
+snapping with guides; a sync state per replica, so one board in two
+windows stays in step; the slim Automerge build in frames; rustfmt as one
+commit; package layouts from `scripts/hpack.mjs`; a CI workflow, not yet
+run for want of a remote. On the way the egui surface compiles again
+(edition 2024 wanted `#[unsafe(no_mangle)]` in its export macro), clippy is
+clean on every target, and two engine tests that had failed since steps 2
+and 3 pass. Open: the W32 measurement, the workflow's first run and its
+frame-time baseline, export.

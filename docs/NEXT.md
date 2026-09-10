@@ -5,22 +5,33 @@ Architecture v2.1 (2026-09-10) sets the order now: its build order is in
 is done. Steps 1 to 4 are done: the generated API and the React shell, the
 `llama-server` sidecar with the model catalog, the chat harness with
 streaming and conversations, and the harness runtime with iframe surfaces
-and the bridge SDK (`docs/V2-PLAN.md` §8–11). Step 5 is under way:
-`@localspace/canvas` and the whiteboard as the first downloadable package,
-with `@localspace/ui` and Automerge in the frame, as approved in
-`docs/DECISIONS.md`. Behind it, the 15 tok/s gate on a W32 machine, then
+and the bridge SDK (`docs/V2-PLAN.md` §8–11). Step 5, `@localspace/canvas`
+and the whiteboard as the first downloadable package, is built and its gate
+walk passes on the review laptop; its 60 fps number waits for a W32 machine
+and its CI for a remote (`docs/STATUS.md`). Behind it, the 15 tok/s gate on a W32 machine, then
 retrieval (step 6) and OIDC (step 7). The items below are the seams inside Core that those
 steps land on; they still hold, and their numbering is the older one.
+
+Step 5 leaves, in the order they come:
+
+- **The W32 measurement.** On the W32 machine, in `web/`:
+  `node e2e/bench-canvas.mjs --profile w32 --shapes 5000 --out ../docs/gates/w32-canvas.json`,
+  then commit the file; the workflow's manual `w32-gate` job checks it
+  against 60 fps with 5,000 shapes on screen.
+- **The workflow's first run**, once the repository has a remote: commit the
+  frame-time baseline it records as `web/packages/canvas/bench/baseline.ci.json`,
+  and see its Linux builds of the Tauri shell and the egui client through,
+  which have not been tried.
+- **SVG and PNG export** as artifacts through Core (answer 4).
 
 Small things step 4 left open, in the order they will matter:
 
 - **Automerge in the client** landed in step 5 (decision of 2026-09-10):
   `@automerge/automerge` in the whiteboard frame over the bridge's sync
-  channel to Core, every message that changes the document a commit. The
-  IndexedDB storage adapter the decision names is an open question in the
-  step-5 report: the frame receives Core's snapshot at every connect, so a
-  local copy only adds a way for a stale one to push old content back.
-  Whole-document JSON writes stay for blob documents.
+  channel to Core, every message that changes the document a commit, with a
+  sync state per replica. Frames in the shell keep no IndexedDB copy
+  (answer 2); a local replica comes back with detached surfaces, merged only
+  after Core's snapshot. Whole-document JSON writes stay for blob documents.
 - **A policy header on the shell page.** The harness origins carry a strict
   CSP; the shell's own `index.html` is served by `ServeDir` without one. It
   should name `frame-src` as the harness hosts and nothing else.
@@ -227,7 +238,3 @@ and Tier B together — but it depends on items 5 and 2.
   list is in use. Borrowing the list and separating the read phase from the
   mutation phase in `canvas()` would make that cost proportional to what is
   visible.
-- `crates/localspace-core` is 299 hunks away from rustfmt's layout, so
-  clippy's automatic fixes of 2026-09-10 were left as the tool laid them out
-  rather than formatting the whole crate. Adopting rustfmt is one dedicated
-  commit, once decided.
