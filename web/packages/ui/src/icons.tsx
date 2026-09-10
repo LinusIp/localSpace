@@ -89,3 +89,4 @@ export const MarkIcon = icon("mark", ["M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z", "M
 export const EditIcon = icon("edit", ["M4 20h4l11-11-4-4L4 16v4z", "M13 7l4 4"]);
 export const ChevronLeftIcon = icon("chevron-left", ["M15 6l-6 6 6 6"]);
 export const CircleIcon = icon("circle", [], [["circle", 12, 12, 7]]);
+export const GridIcon = icon("grid", ["M4 4h16v16H4z", "M9.5 4v16", "M14.5 4v16", "M4 9.5h16", "M4 14.5h16"]);

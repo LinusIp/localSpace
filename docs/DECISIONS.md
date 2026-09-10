@@ -4,6 +4,22 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-10, answers to the step-5 report
+
+- **Snapping** (answer 5; architecture §6.4). A move or a resize comes to
+  rest on the edges and centres of the shapes and frames on screen when one
+  is within 8 screen pixels, the nearest line first, axis by axis; a resize
+  snaps only the edges its handle moves. The lines it rests on are drawn as
+  guides while the gesture lasts. Alt held skips snapping, also when it is
+  pressed or let go in the middle of a gesture. Grid snapping is off by
+  default; the whiteboard's toolbar turns it on, and the grid (24 units, the
+  dots the board draws) then takes an axis no shape is near. The setting
+  lives in the frame and is not saved. Targets are the shapes on screen
+  when the gesture begins, not the whole board, so a guide never leads off
+  screen and the cost follows what is visible; arrows and ink strokes are
+  not targets. `web/packages/canvas/src/snap.ts` with 11 tests; the gate
+  walk drags a note in a real browser (`web/e2e/whiteboard.mjs`, step 7).
+
 ## 2026-09-10, during the step-5 build
 
 - **Undo, redo and a run drop are forward changes on a crdt document.**

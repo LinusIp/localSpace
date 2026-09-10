@@ -11,6 +11,7 @@ import {
   EllipseIcon,
   FitIcon,
   FrameIcon,
+  GridIcon,
   HandIcon,
   IconButton,
   LayersIcon,
@@ -54,6 +55,7 @@ export function Board({ harness }: { harness: Harness }) {
   const [tool, setTool] = useState<Tool>("select");
   const [selection, setSelection] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
+  const [gridSnap, setGridSnap] = useState(false);
 
   useEffect(() => {
     if (!host.current || !canvas.current) return;
@@ -143,6 +145,17 @@ export function Board({ harness }: { harness: Harness }) {
         <span className="board-sep" />
         <IconButton label="Fit the board (Ctrl+0)" quiet onClick={() => editor?.fit()}>
           <FitIcon size={16} />
+        </IconButton>
+        <IconButton
+          label="Snap to the grid (Alt held skips snapping)"
+          quiet
+          on={gridSnap}
+          onClick={() => {
+            editor?.setSnapping({ grid: !gridSnap });
+            setGridSnap(!gridSnap);
+          }}
+        >
+          <GridIcon size={16} />
         </IconButton>
         <span className="board-zoom ls-tabular ls-small ls-muted">{Math.round(zoom * 100)}%</span>
         <span className="board-status ls-small ls-faint">

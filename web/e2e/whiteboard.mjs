@@ -171,7 +171,66 @@ try {
   await until("the frame to select the note", async () => (await frame.evaluate(() => [...window.__localspace.editor.selection])).join() === noteId, 15000);
   step("canvas.select through the API selected the note in the frame");
 
-  // 6. Zoom from the shell's top bar reaches the frame, and the frame reports back.
+  // 7. Snapping, on an empty stretch of the board: a note dropped with its
+  // left edge a few pixels from another's comes to rest on it, with a guide
+  // drawn while it is held; with Alt held it goes exactly where it is put.
+  // Both notes are deleted afterwards.
+  const far = 1_000_000 + Math.round(Math.random() * 1_000_000);
+  await frame.evaluate((x) => window.__localspace.editor.setCamera({ x, y: x, z: 1 }), far);
+  const hostBox = await host.boundingBox();
+  const makeNote = async (sx, sy) => {
+    await frame.getByRole("button", { name: /Sticky note/ }).click();
+    await page.mouse.click(hostBox.x + sx, hostBox.y + sy);
+    await sleep(200);
+    await page.keyboard.press("Escape");
+    return frame.evaluate(() => [...window.__localspace.editor.selection][0]);
+  };
+  const nodeOf = (id) =>
+    frame.evaluate((i) => {
+      const n = window.__localspace.editor.scene.get(i);
+      return n ? { x: n.x, y: n.y, w: n.w, h: n.h } : null;
+    }, id);
+  const coreX = async (id) => (await doc()).shapes.find((s) => s.id === id)?.x;
+  const noteA = await makeNote(300, 150);
+  const noteB = await makeNote(420, 420);
+  const a = await nodeOf(noteA);
+  let b = await nodeOf(noteB);
+  // The editor keeps positions to a hundredth of a unit.
+  const near = (v, want) => typeof v === "number" && Math.abs(v - want) <= 0.006;
+  const grab = async (n) => {
+    await page.mouse.move(hostBox.x + n.x + n.w / 2 - far, hostBox.y + n.y + n.h / 2 - far);
+    await page.mouse.down();
+  };
+  await grab(b);
+  await page.mouse.move(hostBox.x + a.x + 5 + b.w / 2 - far, hostBox.y + b.y + b.h / 2 - far, { steps: 12 });
+  await sleep(150);
+  const guide = await frame.evaluate(
+    ([x, y]) => {
+      const c = document.querySelector(".board-host canvas");
+      const d = c.getContext("2d").getImageData(x * devicePixelRatio, y * devicePixelRatio, 1, 1).data;
+      return [d[0], d[1], d[2]];
+    },
+    [Math.round(a.x - far), Math.round((a.y + a.h + b.y) / 2 - far)],
+  );
+  await page.mouse.up();
+  if (!(guide[0] > 180 && guide[1] < 110)) throw new Error(`no guide drawn at the other note's left edge while the drag was held: rgb(${guide.join(", ")})`);
+  await until("the dropped note to rest on the other's left edge", async () => near(await coreX(noteB), a.x), 20000);
+  b = await nodeOf(noteB);
+  await grab(b);
+  await page.keyboard.down("Alt");
+  await page.mouse.move(hostBox.x + b.x + 5 + b.w / 2 - far, hostBox.y + b.y + b.h / 2 - far, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+  await until("the Alt-dropped note to stay where it was put", async () => near(await coreX(noteB), a.x + 5), 20000);
+  await frame.evaluate(([x, y]) => {
+    const e = window.__localspace.editor;
+    e.select([x, y]);
+    e.deleteSelection();
+  }, [noteA, noteB]);
+  await until("the two notes to go", async () => !(await doc()).shapes.some((s) => s.id === noteA || s.id === noteB), 20000);
+  step("a note dropped 5 px off another's left edge came to rest on it, with a guide drawn; with Alt held it stayed 5 px off");
+
+  // 8. Zoom from the shell's top bar reaches the frame, and the frame reports back.
   const z0 = (await state()).zoom;
   await page.getByRole("button", { name: "Zoom in" }).click();
   await until("the frame to zoom", async () => Math.abs((await state()).zoom - z0) > 0.01);

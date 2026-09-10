@@ -7,6 +7,7 @@ import { expand, type Box, type Point } from "./geometry.ts";
 import { HANDLES, handlePoint } from "./hit.ts";
 import type { Fill, Node } from "./model.ts";
 import { TEXT_PADDING, type Scene } from "./scene.ts";
+import { GRID, type Guide } from "./snap.ts";
 import { fontFor } from "./text.ts";
 
 export interface Palette {
@@ -20,6 +21,8 @@ export interface Theme {
   ink: string;
   muted: string;
   selection: string;
+  /** Snapping guides. */
+  guide: string;
   frame: string;
   fontFamily: string;
   palette: Record<Fill, Palette>;
@@ -31,6 +34,7 @@ export const LIGHT: Theme = {
   ink: "#1c1f1d",
   muted: "#5f6763",
   selection: "#1f9d5b",
+  guide: "#d6336c",
   frame: "#cfd5d1",
   fontFamily: "system-ui, sans-serif",
   palette: {
@@ -60,9 +64,9 @@ export interface Overlay {
   arrow?: [Point, Point] | null;
   /** The node whose text is in the text editor, so its own text is not drawn under it. */
   editing?: string | null;
+  /** Snapping guides for the gesture in progress, in board coordinates. */
+  guides?: Guide[] | null;
 }
-
-const GRID = 24;
 /** Below this many screen pixels per line of text, text is not drawn. */
 const TEXT_MIN_PX = 3;
 /** Below this many screen pixels of height, a shape is a flat fill in a batch. */
@@ -134,6 +138,7 @@ export class Renderer {
     // Screen space: the selection, one pixel wide whatever the zoom.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.selection(scene, camera, selection);
+    if (overlay.guides?.length) this.guides(overlay.guides, camera);
     if (overlay.marquee) {
       const m = overlay.marquee;
       ctx.strokeStyle = theme.selection;
@@ -306,6 +311,28 @@ export class Renderer {
         }
       }
     }
+  }
+
+  /** Snapping guides, one pixel wide in screen space (transform already set). */
+  private guides(guides: readonly Guide[], camera: Camera): void {
+    const { ctx, theme } = this;
+    const z = camera.z;
+    const path = new Path2D();
+    for (const g of guides) {
+      if (g.axis === "x") {
+        const sx = Math.round((g.at - camera.x) * z) + 0.5;
+        path.moveTo(sx, (g.from - camera.y) * z);
+        path.lineTo(sx, (g.to - camera.y) * z);
+      } else {
+        const sy = Math.round((g.at - camera.y) * z) + 0.5;
+        path.moveTo((g.from - camera.x) * z, sy);
+        path.lineTo((g.to - camera.x) * z, sy);
+      }
+    }
+    ctx.strokeStyle = theme.guide;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.stroke(path);
   }
 
   private grid(view: Box, camera: Camera, w: number, h: number): void {

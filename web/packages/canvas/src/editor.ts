@@ -2,12 +2,13 @@
 // the pointer and keyboard turned into changes. Undo is not here: it is the
 // environment's, through Core's history; Ctrl+Z is an event the host acts on.
 
-import { fit as fitCamera, pan, toBoard, toScreen, zoomAt, zoomTo, type Camera } from "./camera.ts";
-import { centre, containsPoint, distance, fromPoints, newId, type Box, type Point } from "./geometry.ts";
+import { fit as fitCamera, pan, toBoard, toScreen, visible, zoomAt, zoomTo, type Camera } from "./camera.ts";
+import { centre, containsPoint, distance, fromPoints, newId, unionAll, type Box, type Point } from "./geometry.ts";
 import { hitHandle, hitTest, nodesWithin, type Handle } from "./hit.ts";
 import { DEFAULTS, cloneNode, type Fill, type Kind, type Node } from "./model.ts";
 import { LIGHT, Renderer, type Theme } from "./render.ts";
 import { Scene } from "./scene.ts";
+import { GRID, snapMove, snapReach, snapResize, snapTargets, type Guide, type SnapTargets, type Snapped } from "./snap.ts";
 import { CanvasMeasurer, FixedMeasurer, type TextMeasurer } from "./text.ts";
 
 export type Tool = "select" | "hand" | "sticky" | "rect" | "ellipse" | "text" | "arrow" | "ink" | "frame";
@@ -39,10 +40,12 @@ export interface EditorOptions {
   measurer?: TextMeasurer;
 }
 
+// A move keeps the box of what it moves and what that box can rest on, both
+// taken at its first step; a resize takes what it can rest on at its first.
 type Drag =
   | { kind: "pan"; last: Point }
-  | { kind: "move"; start: Point; origin: Map<string, Node>; moved: boolean }
-  | { kind: "resize"; handle: Handle; start: Point; origin: Node }
+  | { kind: "move"; start: Point; origin: Map<string, Node>; moved: boolean; box: Box | null; targets: SnapTargets | null }
+  | { kind: "resize"; handle: Handle; start: Point; origin: Node; box: Box; targets: SnapTargets | null }
   | { kind: "marquee"; start: Point; additive: boolean }
   | { kind: "create"; tool: Kind; start: Point }
   | { kind: "arrow"; start: Point; from: string | null }
@@ -51,6 +54,14 @@ type Drag =
 const HIT_PX = 6;
 const HANDLE_PX = 7;
 const MIN_SIZE = 20;
+
+/** What a move or a resize comes to rest on. Alt held skips both. */
+export interface Snapping {
+  /** The edges and centres of the shapes and frames on screen. On by default. */
+  shapes: boolean;
+  /** The grid's points. Off by default. */
+  grid: boolean;
+}
 
 export class Editor {
   readonly scene: Scene;
@@ -65,7 +76,10 @@ export class Editor {
   private readonly renderer: Renderer;
   private listeners = new Map<keyof EditorEvents, Set<(...args: never[]) => void>>();
   private drag: Drag | null = null;
-  private overlay: { marquee?: Box | null; ink?: Point[] | null; arrow?: [Point, Point] | null } = {};
+  private overlay: { marquee?: Box | null; ink?: Point[] | null; arrow?: [Point, Point] | null; guides?: Guide[] | null } = {};
+  /** Where the pointer was last seen in a move or resize, in screen pixels: Alt pressed or let go places the shapes again from there. */
+  private pointer: Point | null = null;
+  private snap: Snapping = { shapes: true, grid: false };
   private frame: number | null = null;
   private viewport = { w: 0, h: 0, dpr: 1 };
   private space = false;
@@ -185,6 +199,15 @@ export class Editor {
     this.tool = tool;
     this.cursor();
     this.emit("tool", tool);
+  }
+
+  /** What moves and resizes come to rest on. */
+  get snapping(): Snapping {
+    return { ...this.snap };
+  }
+
+  setSnapping(next: Partial<Snapping>): void {
+    this.snap = { ...this.snap, ...next };
   }
 
   setCamera(camera: Camera): void {
@@ -471,7 +494,7 @@ export class Editor {
           if (n && b && !n.locked && n.kind !== "arrow" && n.kind !== "ink") {
             const handle = hitHandle(b, p, HANDLE_PX / this.camera.z);
             if (handle) {
-              this.drag = { kind: "resize", handle, start: p, origin: cloneNode(n) };
+              this.drag = { kind: "resize", handle, start: p, origin: cloneNode(n), box: b, targets: null };
               return;
             }
           }
@@ -499,7 +522,7 @@ export class Editor {
               }
             }
           }
-          this.drag = { kind: "move", start: p, origin, moved: false };
+          this.drag = { kind: "move", start: p, origin, moved: false, box: null, targets: null };
         } else {
           if (!e.shiftKey) this.select([]);
           this.drag = { kind: "marquee", start: p, additive: e.shiftKey };
@@ -544,20 +567,11 @@ export class Editor {
         this.setCamera(pan(this.camera, s.x - d.last.x, s.y - d.last.y));
         d.last = s;
         return;
-      case "move": {
-        const dx = p.x - d.start.x;
-        const dy = p.y - d.start.y;
-        if (!d.moved && Math.hypot(dx, dy) * this.camera.z < 3) return;
-        d.moved = true;
-        for (const n of d.origin.values()) this.scene.set(moved(n, dx, dy));
-        this.render();
+      case "move":
+      case "resize":
+        this.pointer = s;
+        this.follow(p, e.altKey);
         return;
-      }
-      case "resize": {
-        this.scene.set(resized(d.origin, d.handle, p.x - d.start.x, p.y - d.start.y));
-        this.render();
-        return;
-      }
       case "marquee":
         this.overlay.marquee = fromPoints(d.start, p);
         this.render();
@@ -584,6 +598,7 @@ export class Editor {
     const d = this.drag;
     if (!d) return;
     this.drag = null;
+    this.pointer = null;
     this.overlay = {};
     const s = this.local(e);
     const p = toBoard(this.camera, s);
@@ -601,8 +616,7 @@ export class Editor {
           this.render();
           return;
         }
-        const dx = p.x - d.start.x;
-        const dy = p.y - d.start.y;
+        const { dx, dy } = this.snapped(d, p.x - d.start.x, p.y - d.start.y, e.altKey);
         const set: Node[] = [];
         for (const n of d.origin.values()) {
           const m = moved(n, dx, dy);
@@ -614,7 +628,8 @@ export class Editor {
         return;
       }
       case "resize": {
-        this.commit({ set: [resized(d.origin, d.handle, p.x - d.start.x, p.y - d.start.y)], deleted: [] }, "resize");
+        const { dx, dy } = this.snapped(d, p.x - d.start.x, p.y - d.start.y, e.altKey);
+        this.commit({ set: [resized(d.origin, d.handle, dx, dy)], deleted: [] }, "resize");
         return;
       }
       case "marquee": {
@@ -722,6 +737,12 @@ export class Editor {
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === "Alt" && this.pointer) {
+      // Alt held skips snapping, at once rather than at the next move.
+      e.preventDefault();
+      this.follow(toBoard(this.camera, this.pointer), true);
+      return;
+    }
     if (this.editing) return;
     const meta = e.ctrlKey || e.metaKey;
     if (e.key === " " && !this.space) {
@@ -772,6 +793,7 @@ export class Editor {
       case "Escape":
         if (this.drag) {
           this.drag = null;
+          this.pointer = null;
           this.overlay = {};
           this.render();
         } else if (this.selection.size) this.select([]);
@@ -828,11 +850,67 @@ export class Editor {
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
+    if (e.key === "Alt" && this.pointer) {
+      e.preventDefault();
+      this.follow(toBoard(this.camera, this.pointer), false);
+      return;
+    }
     if (e.key === " ") {
       this.space = false;
       this.cursor();
     }
   };
+
+  /**
+   * A move or a resize following the pointer to board point `p`: where the
+   * shapes come to rest, snapped unless `bypass`, with the guides for it.
+   */
+  private follow(p: Point, bypass: boolean): void {
+    const d = this.drag;
+    if (d?.kind === "move") {
+      const dx = p.x - d.start.x;
+      const dy = p.y - d.start.y;
+      if (!d.moved && Math.hypot(dx, dy) * this.camera.z < 3) return;
+      if (!d.moved) {
+        d.moved = true;
+        const boxes = [...d.origin.keys()].map((id) => this.scene.bounds(id)).filter((b): b is Box => b !== undefined);
+        d.box = boxes.length ? unionAll(boxes) : null;
+        d.targets = this.snapTargetsExcept(d.origin);
+      }
+      const s = this.snapped(d, dx, dy, bypass);
+      for (const n of d.origin.values()) this.scene.set(moved(n, s.dx, s.dy));
+      this.overlay.guides = s.guides;
+      this.render();
+    } else if (d?.kind === "resize") {
+      const s = this.snapped(d, p.x - d.start.x, p.y - d.start.y, bypass);
+      this.scene.set(resized(d.origin, d.handle, s.dx, s.dy));
+      this.overlay.guides = s.guides;
+      this.render();
+    }
+  }
+
+  /** Where a move or a resize comes to rest: snapped, or exactly at the pointer when snapping is skipped. */
+  private snapped(d: Extract<Drag, { kind: "move" | "resize" }>, dx: number, dy: number, bypass: boolean): Snapped {
+    if (bypass || (!this.snap.shapes && !this.snap.grid)) return { dx, dy, guides: [] };
+    const options = { reach: snapReach(this.camera.z), shapes: this.snap.shapes, grid: this.snap.grid ? GRID : 0 };
+    if (d.kind === "resize") {
+      d.targets ??= this.snapTargetsExcept(new Set([d.origin.id]));
+      return snapResize(d.box, d.handle, dx, dy, d.targets, options);
+    }
+    return d.box ? snapMove(d.box, dx, dy, d.targets, options) : { dx, dy, guides: [] };
+  }
+
+  /** What a gesture can rest on: the shapes and frames on screen, less what it moves. */
+  private snapTargetsExcept(moving: { has(id: string): boolean }): SnapTargets | null {
+    if (!this.snap.shapes) return null;
+    const boxes: Box[] = [];
+    for (const n of this.scene.query(visible(this.camera, this.viewport.w, this.viewport.h))) {
+      if (moving.has(n.id) || n.kind === "arrow" || n.kind === "ink") continue;
+      const b = this.scene.bounds(n.id);
+      if (b) boxes.push(b);
+    }
+    return snapTargets(boxes);
+  }
 
   /** After one shape, back to the arrow; a tool set with `keep` stays. */
   private finishTool(): void {
