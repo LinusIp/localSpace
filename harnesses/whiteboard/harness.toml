@@ -20,8 +20,8 @@ idle_unload = "5m"
 
 [contributes]
 views = [
-  { id = "board", kind = "egui", module = "ui/board.wasm", placement = "main", title = "Board" },
-  { id = "web", kind = "web", module = "ui/web/index.js", placement = "main", title = "Board (web)" },
+  { id = "web", kind = "web", module = "ui/web/index.js", placement = "main", title = "Board" },
+  { id = "board", kind = "egui", module = "ui/board.wasm", placement = "main", title = "Board (egui)" },
   { id = "settings", kind = "widgets", placement = "side", title = "Board settings" },
 ]
 tools = "tools.json"
