@@ -1,0 +1,17 @@
+{
+  "about": "Where each harness's sources live in this repository, for scripts/hpack.mjs. A repository detail: a package's layout does not depend on it.",
+  "harnesses": {
+    "io.localspace.whiteboard": {
+      "manifest": "harnesses/whiteboard",
+      "logic": { "crate": "harnesses/whiteboard-logic", "target": "wasm32-wasip2", "artifact": "whiteboard_logic.wasm" },
+      "files": {
+        "ui/board.wasm": { "crate": "harnesses/whiteboard-surface", "target": "wasm32-unknown-unknown", "artifact": "whiteboard_surface.wasm" },
+        "ui/web/": { "script": "build:whiteboard", "out": "harnesses/whiteboard/ui/web" }
+      }
+    },
+    "io.localspace.planner": {
+      "manifest": "registry/planner",
+      "logic": { "crate": "harnesses/planner-logic", "target": "wasm32-wasip2", "artifact": "planner_logic.wasm" }
+    }
+  }
+}

@@ -71,6 +71,19 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   from the shell. Copying to the clipboard from the frame is allowed under
   the manifest's `clipboard = "on-user-action"`. The frame's sandbox gets
   no `allow-downloads`. Export itself is still to be built.
+- **Package layouts from a script** (answer 1; architecture §7, plugin
+  spec §12). The whiteboard's web surface stays in `web/surfaces/whiteboard`
+  for now. `node scripts/hpack.mjs` builds each harness's files from
+  wherever their sources live and lays the package out as its `.hpack`
+  will hold it, in `dist/hpack/<id>-<version>/`: `harness.toml`,
+  `logic.wasm`, `ui/`, `evals.json`, the tools file, and an icon when there
+  is one. Where the sources live is recorded in `scripts/harnesses.json`, a
+  repository detail the layout does not depend on. The script fails when a
+  file the manifest names is missing from the layout; `--in-place` also
+  puts the built files in the manifest's own directory, which
+  `--harnesses`, `--registry` and the tests load. Zipping and signing a
+  layout into an `.hpack`, and where surface sources live, are the
+  packaging step's (§13 step 10).
 
 ## 2026-09-10, during the step-5 build
 

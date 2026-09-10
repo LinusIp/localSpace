@@ -12,6 +12,19 @@ excluded from the workspace: those crates target wasm and have their own lockfil
 
 ## The reference harness
 
+One command builds every harness's files from their sources and lays each
+package out as its `.hpack` will hold it (architecture v2.1 §7), in
+`dist/hpack/<id>-<version>/`. `--in-place` also puts the built files where
+`--harnesses harnesses`, `--registry registry` and the tests look for them:
+
+```bash
+rustup target add wasm32-wasip2 wasm32-unknown-unknown
+node scripts/hpack.mjs --in-place
+```
+
+`scripts/harnesses.json` records where each harness's sources live; the
+layout does not depend on it. What the script does, by hand:
+
 A harness has two wasm artefacts, built for two different targets, because they are
 two different kinds of thing.
 
