@@ -9,6 +9,8 @@ export interface Harness {
   readonly lastWrite: number;
   /** The harness document as Core holds it, as JSON. */
   doc<T = unknown>(): T;
+  /** Core's Automerge document, saved, when connected with `sync: true`; else null. */
+  snapshot(): Uint8Array | null;
   /**
    * Replace the document. Core reconciles it field by field and commits the
    * difference as the user's edit. `{ commit: false }` moves the document
@@ -18,6 +20,8 @@ export interface Harness {
    * write landed.
    */
   write(next: unknown, options?: { commit?: boolean }): number;
+  /** An Automerge sync message for Core, from the surface's replica. */
+  sync(message: Uint8Array): void;
   /** A message to this harness's logic in Core, at most 64 KB. */
   send(payload: Uint8Array | string | object): void;
   /** Undo and redo are the environment's, through the history, not the surface's. */
@@ -27,14 +31,21 @@ export interface Harness {
   report(status: { zoom?: number }): void;
   /** `written` is the number of the surface's last write Core had taken in when this document was read. */
   on(event: "doc", fn: (doc: unknown, meta: { written: number }) => void): () => void;
+  /** An Automerge sync message from Core, for the surface's replica. */
+  on(event: "sync", fn: (message: Uint8Array) => void): () => void;
   on(event: "message", fn: (bytes: Uint8Array) => void): () => void;
   on(event: "focus", fn: (focused: boolean) => void): () => void;
   on(event: "command", fn: (command: { name: string; args: unknown }) => void): () => void;
   log(text: string): void;
 }
 
+export interface ConnectOptions {
+  /** Hold the document as an Automerge replica and exchange sync messages, rather than JSON. */
+  sync?: boolean;
+}
+
 /** Open the bridge. Resolves once the shell has answered with the document. */
-export function connect(): Promise<Harness>;
+export function connect(options?: ConnectOptions): Promise<Harness>;
 
 /** Decode a message from the logic as text. */
 export function text(bytes: Uint8Array): string;

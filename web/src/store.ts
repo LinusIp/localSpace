@@ -286,7 +286,7 @@ export const useSession = createStore<Session>((set, get) => {
           liveCalls: s.liveCalls.map((c) => (c.id === id ? { ...c, outcome } : c)),
           trace: [...s.trace.slice(1 - KEEP_TRACE), `← ${tool}: ${outcomeLine(outcome)}`],
         }));
-      } else if ("doc_patch" in event) bus.emit("doc_patch", { doc: event.doc_patch.doc });
+      } else if ("doc_patch" in event) bus.emit("doc_patch", event.doc_patch);
       else if ("harness_message" in event) bus.emit("harness_message", event.harness_message);
       else if ("widget_view_changed" in event) bus.emit("widget_view_changed", event.widget_view_changed);
       else if ("notice" in event) get().notify(event.notice.level, event.notice.text);

@@ -13,8 +13,9 @@ import type { Panel } from "../store";
 const PROTOCOL = 1;
 
 type FromSurface =
-  | { ls: number; type: "hello"; protocol: number }
+  | { ls: number; type: "hello"; protocol: number; wants?: "json" | "sync" }
   | { ls: number; type: "write"; doc: unknown; commit?: boolean; seq?: number }
+  | { ls: number; type: "sync"; message: Uint8Array | number[] }
   | { ls: number; type: "send"; payload: number[] }
   | { ls: number; type: "action"; name: string }
   | { ls: number; type: "status"; zoom?: number }
@@ -28,6 +29,8 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
   const ready = useRef(false);
   /** The highest write number Core has answered, stamped on every document sent in. */
   const written = useRef(0);
+  /** Whether the surface holds a replica (sync messages) or takes JSON documents. */
+  const wants = useRef<"json" | "sync">("json");
   const notify = useSession((s) => s.notify);
   const trace = useSession((s) => s.traceLine);
   const undo = useSession((s) => s.undo);
@@ -74,14 +77,33 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
       const message = e.data;
       if (!message || message.ls !== PROTOCOL) return;
       switch (message.type) {
-        case "hello":
-          void fetchDoc()
-            .then((doc) => {
-              post({ type: "init", harness, view, doc, theme: themeTokens(), focused: active });
+        case "hello": {
+          wants.current = message.wants === "sync" ? "sync" : "json";
+          // A replica gets Core's Automerge snapshot as well as the JSON; the
+          // sync messages that follow keep it current.
+          const opening =
+            wants.current === "sync"
+              ? call({ open_doc: { harness } }).then((r) => {
+                  const opened = pick(r, "doc_opened");
+                  if (opened) docId.current = opened.doc;
+                  return opened?.snapshot ?? null;
+                })
+              : Promise.resolve(null);
+          void Promise.all([fetchDoc(), opening])
+            .then(([doc, snapshot]) => {
+              post({ type: "init", harness, view, doc, snapshot, theme: themeTokens(), focused: active });
               ready.current = true;
             })
             .catch((err: unknown) => failed(`${panel.title} could not open its document`, err));
           break;
+        }
+        case "sync": {
+          const id = docId.current;
+          if (!id) break;
+          const bytes = message.message instanceof Uint8Array ? Array.from(message.message) : message.message;
+          void call({ doc_sync: { doc: id, message: bytes } }).catch((err: unknown) => failed(`${panel.title} could not sync its document`, err));
+          break;
+        }
         case "write": {
           // After Core has taken the write, the surface gets the document
           // back stamped with this write's number, so it can tell a document
@@ -122,8 +144,12 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
     };
     window.addEventListener("message", onMessage);
     const off = [
-      bus.on("doc_patch", ({ doc }) => {
+      bus.on("doc_patch", ({ doc, message }) => {
         if (!ready.current || doc !== docId.current) return;
+        if (wants.current === "sync") {
+          post({ type: "sync", message });
+          return;
+        }
         const stamp = written.current;
         void fetchDoc()
           .then((next) => post({ type: "doc", doc: next, written: stamp }))

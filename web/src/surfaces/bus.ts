@@ -5,8 +5,8 @@
 import type { Widget } from "../api/generated";
 
 export type BusEvents = {
-  /** A document changed in Core; the frames showing it fetch it again. */
-  doc_patch: { doc: string };
+  /** A document changed in Core: its Automerge sync message, which a frame holding a replica applies and a JSON frame takes as its cue to fetch again. */
+  doc_patch: { doc: string; message: number[] };
   /** A harness's logic sent its surface a message. */
   harness_message: { harness: string; view: string; payload: number[] };
   /** A `widgets` view was redrawn by its logic. */

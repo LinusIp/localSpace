@@ -6,11 +6,17 @@
 // A surface that needs a file, a fetch, a model call or another harness's
 // document asks its logic, which asks Core, which checks the manifest.
 //
+// Two ways to hold the document. As JSON: `doc()` and `write()`, the whole
+// document each way, for small documents and simple surfaces. As a replica:
+// `connect({ sync: true })` hands the surface Core's Automerge snapshot and a
+// sync channel; the surface keeps its own copy, changes it, and exchanges
+// sync messages with Core, which commits what arrives.
+//
 // Protocol, over postMessage, every message `{ ls: 1, type, ... }`:
-//   surface → shell   hello · send {payload} · write {doc, commit, seq} · action {name}
-//                     status {zoom} · log {level, text}
-//   shell → surface   init {harness, view, doc, theme, focused} · doc {doc, written}
-//                     message {payload} · focus {focused} · command {name, args}
+//   surface → shell   hello {protocol, wants} · send {payload} · write {doc, commit, seq}
+//                     sync {message} · action {name} · status {zoom} · log {level, text}
+//   shell → surface   init {harness, view, doc, snapshot, theme, focused} · doc {doc, written}
+//                     sync {message} · message {payload} · focus {focused} · command {name, args}
 //
 // `seq` numbers the surface's writes; `written` on a document says which of
 // them Core had taken in before that document was read, so a surface can
@@ -20,9 +26,12 @@ const PROTOCOL = 1;
 
 /**
  * Open the bridge. Resolves once the shell has answered with the document.
+ * `{ sync: true }` asks for the Automerge snapshot and sync messages instead
+ * of JSON documents.
  * @returns {Promise<Harness>}
  */
-export function connect() {
+export function connect(options) {
+  const wants = options && options.sync ? "sync" : "json";
   return new Promise((resolve, reject) => {
     if (window.parent === window) {
       reject(new Error("this surface is not inside the localSpace shell"));
@@ -30,13 +39,14 @@ export function connect() {
     }
     const listeners = new Map();
     let doc = null;
+    let snapshot = null;
     let focused = false;
     let theme = {};
     let harness = "";
     let view = "";
     let seq = 0;
 
-    const post = (msg) => window.parent.postMessage({ ls: PROTOCOL, ...msg }, "*");
+    const post = (msg, transfer) => window.parent.postMessage({ ls: PROTOCOL, ...msg }, "*", transfer);
     const emit = (event, value, meta) => {
       for (const fn of listeners.get(event) ?? []) {
         try {
@@ -68,6 +78,10 @@ export function connect() {
       doc() {
         return doc;
       },
+      /** Core's Automerge document, saved, when connected with `sync: true`. */
+      snapshot() {
+        return snapshot;
+      },
       /**
        * Replace the document. Core reconciles it field by field and commits
        * the difference as the user's edit. `{ commit: false }` moves the
@@ -81,6 +95,11 @@ export function connect() {
         seq += 1;
         post({ type: "write", doc: next, commit: !(options && options.commit === false), seq });
         return seq;
+      },
+      /** An Automerge sync message for Core, from the surface's replica. */
+      sync(message) {
+        const bytes = message instanceof Uint8Array ? message : new Uint8Array(message);
+        post({ type: "sync", message: bytes });
       },
       /** A message to this harness's logic in Core, at most 64 KB. */
       send(payload) {
@@ -102,7 +121,7 @@ export function connect() {
       report(status) {
         post({ type: "status", ...status });
       },
-      /** "doc" (with `{ written }`), "message", "focus", "command" */
+      /** "doc" (with `{ written }`), "sync", "message", "focus", "command" */
       on(event, fn) {
         if (!listeners.has(event)) listeners.set(event, new Set());
         listeners.get(event).add(fn);
@@ -121,6 +140,7 @@ export function connect() {
           harness = msg.harness;
           view = msg.view;
           doc = msg.doc;
+          snapshot = msg.snapshot ? new Uint8Array(msg.snapshot) : null;
           theme = msg.theme ?? {};
           focused = !!msg.focused;
           applyTheme(theme);
@@ -132,6 +152,9 @@ export function connect() {
           emit("doc", msg.doc, { written });
           break;
         }
+        case "sync":
+          emit("sync", new Uint8Array(msg.message ?? []));
+          break;
         case "message": {
           const bytes = new Uint8Array(msg.payload ?? []);
           emit("message", bytes);
@@ -148,7 +171,7 @@ export function connect() {
           break;
       }
     });
-    post({ type: "hello", protocol: PROTOCOL });
+    post({ type: "hello", protocol: PROTOCOL, wants });
   });
 }
 
