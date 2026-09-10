@@ -53,6 +53,24 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   policy, and the libraries build fails without it. Gzipped, the script
   went from 1,635 KB to 16.6 KB beside a 1,123 KB WebAssembly file: a
   frame's first load of Automerge from 1,635 KB to 1,140 KB.
+- **No IndexedDB storage for frames in the shell** (answer 2; §6.1). A
+  frame receives Core's snapshot at every connect, so a copy kept in the
+  browser adds nothing but a way for a stale one to push old content back.
+  When a local replica returns, for detached or offline browser surfaces at
+  step 7 or later, it is only ever merged after Core's snapshot has been
+  applied, never pushed to Core first, so a stale local copy cannot bring
+  old content back. This replaces the storage-adapter half of the
+  2026-09-10 answer on Automerge below.
+- **The user's selection stays in the frame** (answer 3; §6.3). It is local
+  and never written. The document's `selection` stays the agent's:
+  `canvas.select` sets it without a commit and the frame follows it. An
+  ephemeral presence channel on the bridge, with identities, comes at step 7.
+- **Export leaves as artifacts through Core** (answer 4; plugin spec
+  §18.3): PNG as `image.v1`, SVG as an artifact type of its own, so an
+  export lands in the workspace and the task ledger, and downloads happen
+  from the shell. Copying to the clipboard from the frame is allowed under
+  the manifest's `clipboard = "on-user-action"`. The frame's sandbox gets
+  no `allow-downloads`. Export itself is still to be built.
 
 ## 2026-09-10, during the step-5 build
 
