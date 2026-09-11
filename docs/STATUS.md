@@ -312,8 +312,10 @@ clean on every target; two engine tests that had failed since steps 2 and
 | `cargo clippy --workspace --all-targets -- -D warnings --force-warn clippy::unwrap_used`, `cargo fmt --all -- --check` | clean, clean |
 | `node scripts/check-sizes.mjs` in `web/`, gzipped, in units of 1,024 bytes, against `web/size-limits.json` | shell 112 KB of 2,048; canvas 15.4; ui 8.2; React for frames 66.2; Automerge for frames 1,118, its script down from 1.6 MB to 17 KB; the SDK 2.6; the whiteboard surface 3.5; all within their limits |
 
-Not done: the 60 fps at 5,000 shapes gate on the W32 machine, which is not
-available here (the measurement goes in `docs/gates/w32-canvas.json`, and
-the workflow's manual job checks it); the workflow has not run, as the
-repository has no remote; the CI frame-time baseline, which the first run
-records; SVG and PNG export as artifacts, decided but not built.
+Step 5 is complete, by the answer of 2026-09-11 in `docs/DECISIONS.md`, with
+three measurements open: the canvas at 60 fps with 5,000 shapes on the W32
+machine, the whiteboard's evals against the reference model on the same
+trip, and the workflow's first run, which records the CI frame-time
+baseline. The canvas measurement goes in `docs/gates/w32-canvas.json`, and
+the workflow's manual job checks it. SVG and PNG export as artifacts is
+decided and not built.

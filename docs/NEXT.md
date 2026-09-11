@@ -6,18 +6,25 @@ is done. Steps 1 to 4 are done: the generated API and the React shell, the
 `llama-server` sidecar with the model catalog, the chat harness with
 streaming and conversations, and the harness runtime with iframe surfaces
 and the bridge SDK (`docs/V2-PLAN.md` §8–11). Step 5, `@localspace/canvas`
-and the whiteboard as the first downloadable package, is built and its gate
-walk passes on the review laptop; its 60 fps number waits for a W32 machine
-and its CI for a remote (`docs/STATUS.md`). Behind it, the 15 tok/s gate on a W32 machine, then
-retrieval (step 6) and OIDC (step 7). The items below are the seams inside Core that those
+and the whiteboard as the first downloadable package, is complete, with
+three measurements open: its 60 fps number and the whiteboard's evals on the
+reference model, taken on one W32 trip, and the workflow's first run once
+the repository has a remote (`docs/STATUS.md`). Step 6 is next: retrieval
+with the ACL pre-filter, document upload, and the network modes with the
+gateway. Behind it, the 15 tok/s gate on a W32 machine, then OIDC (step 7). The items below are the seams inside Core that those
 steps land on; they still hold, and their numbering is the older one.
 
 Step 5 leaves, in the order they come:
 
-- **The W32 measurement.** On the W32 machine, in `web/`:
+- **The W32 trip.** On the W32 machine, in `web/`:
   `node e2e/bench-canvas.mjs --profile w32 --shapes 5000 --out ../docs/gates/w32-canvas.json`,
   then commit the file; the workflow's manual `w32-gate` job checks it
-  against 60 fps with 5,000 shapes on screen.
+  against 60 fps with 5,000 shapes on screen. On the same trip, the
+  whiteboard's evals against the reference model, through the API until step
+  6 gives evals a page and a command: load the model on the Models page,
+  then send `{"run_evals":{"harness":"io.localspace.whiteboard"}}` to
+  `POST /api/v1/request`. If they fail there, step 5 reopens for the tool
+  descriptions, the front doors and the context provider.
 - **The workflow's first run**, once the repository has a remote: commit the
   frame-time baseline it records as `web/packages/canvas/bench/baseline.ci.json`,
   and see its Linux builds of the Tauri shell and the egui client through,

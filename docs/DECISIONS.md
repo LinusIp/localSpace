@@ -40,6 +40,27 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   names; and `localspace call`, a tool run from the command line, which the
   web client's Tools page does in the browser. The first three become
   step-6 tasks, and `archive/egui-client` waits until they are done.
+- **Step 5 is complete, with three measurements open** (answer 1;
+  `CLAUDE.md`, "Definition of done for the MVP"; architecture §13 step 5).
+  The open items are the canvas at 60 fps with 5,000 shapes on the W32
+  machine, the whiteboard's evals, and the workflow's first run. The eval
+  gate moves: the definition of done's "evals pass" is measured against the
+  reference model on the W32 machine, on the same trip as the frame-time
+  number, and not against the 0.5B model, whose 3 of 6 describes the model
+  rather than the harness. If the evals fail on the reference model, step 5
+  reopens for the tool descriptions, the front doors and the context
+  provider.
+- **Snapping targets stay the shapes on screen, captured when a gesture
+  begins** (answer 2): a guide pointing at something the user cannot see is
+  worse than no guide.
+- **`svg.v1` for SVG exports, with their provenance** (answer 6; plugin spec
+  §18.3). PNG exports are `image.v1` and SVG exports `svg.v1`, each
+  registered with its MIME type and extension, and both carry the id of the
+  document and the commit they were rendered from, so an exported picture
+  traces to the board state that produced it. The interchange-types package
+  the answer names does not exist yet: no `kind = "types"` package has been
+  built, and interchange types are names in manifests. How to create it is
+  a question in the step-6 plan.
 
 ## 2026-09-10, answers to the step-5 report
 
