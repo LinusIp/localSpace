@@ -83,7 +83,7 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal --component clippy,rustfmt
           rustup default stable
-          rustup target add wasm32-wasip2 wasm32-unknown-unknown
+          rustup target add wasm32-wasip2
       - name: system libraries the Tauri shell links against
         run: |
           sudo apt-get update
@@ -104,7 +104,7 @@ jobs:
       - name: rustfmt
         run: |
           cargo fmt --all -- --check
-          for crate in harnesses/*-logic harnesses/*-surface; do (cd "$crate" && cargo fmt -- --check); done
+          for crate in harnesses/*-logic; do (cd "$crate" && cargo fmt -- --check); done
       - name: the web bundle the shell embeds, and the harness packages the tests load
         run: |
           (cd web && npm ci && npm run build)
@@ -124,7 +124,7 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
-          rustup target add wasm32-wasip2 wasm32-unknown-unknown
+          rustup target add wasm32-wasip2
       - uses: actions/setup-node@v4
         with:
           node-version: 24

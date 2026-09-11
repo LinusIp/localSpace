@@ -28,6 +28,18 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   `web/size-limits.json`, so any change to it fails the build until the
   limit is updated with the version, on purpose. The script around it keeps
   a quarter's headroom.
+- **The egui whiteboard surface is retired** (answer 5). The crate, its view
+  in the whiteboard's manifest, its build, and the tests that used it,
+  including the egui client's conformance test against it, are gone. The
+  package is 1.1.0, its tools, document and web view unchanged: a package
+  whose content changes gets a new version. The surface had broken
+  unnoticed because nothing built it. **The egui client waits.** What it can
+  do that the web client cannot: run a harness's evals and show the pass
+  rate per model; `localspace doctor`, which the plugin spec (§1.1) and the
+  deployment checklist (§16) name; `localspace bench`, which the checklist
+  names; and `localspace call`, a tool run from the command line, which the
+  web client's Tools page does in the browser. The first three become
+  step-6 tasks, and `archive/egui-client` waits until they are done.
 
 ## 2026-09-10, answers to the step-5 report
 

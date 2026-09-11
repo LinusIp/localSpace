@@ -311,7 +311,7 @@ async fn a_web_surface_lives_on_its_own_origin_behind_a_grant() {
     let under = |p: &str| format!("/s/{token}/{p}");
 
     // A view that is not a web surface, or does not exist, gets no origin.
-    for view in ["board", "nothing"] {
+    for view in ["settings", "nothing"] {
         let refused = app
             .clone()
             .oneshot(

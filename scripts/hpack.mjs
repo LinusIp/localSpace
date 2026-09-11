@@ -13,8 +13,8 @@
 //                                           the tests load
 //   node scripts/hpack.mjs --no-build       assemble from what is already built
 //
-// Needs cargo with the wasm32-wasip2 and wasm32-unknown-unknown targets, and
-// npm for a web surface. Honours CARGO_TARGET_DIR.
+// Needs cargo with the wasm32-wasip2 target, and npm for a web surface.
+// Honours CARGO_TARGET_DIR.
 
 import { execFileSync, execSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";

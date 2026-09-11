@@ -1,6 +1,6 @@
 [harness]
 id = "io.localspace.whiteboard"
-version = "1.0.0"
+version = "1.1.0"
 api = "^1.0"
 title = "Whiteboard"
 publisher = "localSpace"
@@ -15,13 +15,12 @@ docs = "none"
 model = []
 
 [resources]
-memory_mb = { logic = 32, surface = 32 }   # the surface peaks near 18 MB zooming a text-heavy board; see tests/surface.rs
+memory_mb = { logic = 32, surface = 32 }   # surface: the frame; not enforced until a browser reports its memory (architecture §6.6)
 idle_unload = "5m"
 
 [contributes]
 views = [
   { id = "web", kind = "web", module = "ui/web/index.js", placement = "main", title = "Board" },
-  { id = "board", kind = "egui", module = "ui/board.wasm", placement = "main", title = "Board (egui)" },
   { id = "settings", kind = "widgets", placement = "side", title = "Board settings" },
 ]
 tools = "tools.json"

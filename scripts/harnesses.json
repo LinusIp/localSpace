@@ -5,7 +5,6 @@
       "manifest": "harnesses/whiteboard",
       "logic": { "crate": "harnesses/whiteboard-logic", "target": "wasm32-wasip2", "artifact": "whiteboard_logic.wasm" },
       "files": {
-        "ui/board.wasm": { "crate": "harnesses/whiteboard-surface", "target": "wasm32-unknown-unknown", "artifact": "whiteboard_surface.wasm" },
         "ui/web/": { "script": "build:whiteboard", "out": "harnesses/whiteboard/ui/web" }
       }
     },

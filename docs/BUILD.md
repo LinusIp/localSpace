@@ -18,18 +18,18 @@ package out as its `.hpack` will hold it (architecture v2.1 §7), in
 `--harnesses harnesses`, `--registry registry` and the tests look for them:
 
 ```bash
-rustup target add wasm32-wasip2 wasm32-unknown-unknown
+rustup target add wasm32-wasip2
 node scripts/hpack.mjs --in-place
 ```
 
 `scripts/harnesses.json` records where each harness's sources live; the
 layout does not depend on it. What the script does, by hand:
 
-A harness has two wasm artefacts, built for two different targets, because they are
-two different kinds of thing.
+A harness's logic is a wasm component and a `web` view is an ES module bundle,
+each built with its own tools.
 
 ```bash
-rustup target add wasm32-wasip2 wasm32-unknown-unknown
+rustup target add wasm32-wasip2
 ```
 
 **Logic** — a wasm *component*, so it can import the host interface defined in
@@ -41,16 +41,8 @@ cargo build --release --target wasm32-wasip2
 cp target/wasm32-wasip2/release/whiteboard_logic.wasm ../whiteboard/logic.wasm
 ```
 
-**Surface** — a plain wasm *module*, because a browser cannot run a component
-without a transpile step and a surface needs no IO at all. A harness with a
-`widgets` surface (like `registry/planner`) has no second artefact at all — the
-Client renders the tree:
-
-```bash
-cd harnesses/whiteboard-surface
-cargo build --release --target wasm32-unknown-unknown
-cp target/wasm32-unknown-unknown/release/whiteboard_surface.wasm ../whiteboard/ui/board.wasm
-```
+A harness whose views are all `widgets` (like `registry/planner`) has no second
+artefact at all: the shell renders the tree.
 
 **Web surface** — the board the web client and the desktop app show (v2.1
 §6.3, step 5): `@localspace/canvas` against the same document, held in the
@@ -72,15 +64,6 @@ Then:
 ```bash
 localspace --harnesses harnesses
 ```
-
-### Why the surface still imports something
-
-`egui` depends on `web-sys` unconditionally on `wasm32`, so the linker emits
-wasm-bindgen placeholder imports whether or not any of that code is reachable. The
-Client stubs exactly those with traps and refuses every other import, so a surface
-that genuinely tries to call into the browser fails loudly and one that does not —
-the normal case — never touches them. `crates/localspace-client/tests/surface.rs`
-asserts that no other import appears.
 
 ## Running the server
 
@@ -167,9 +150,10 @@ installed app looks for `web/` beside its executable.
 For a client development loop, `npm run dev` in `web/` serves the source with
 hot reload and proxies `/api` and `/ws` to a server on port 8443.
 
-The egui client (`localspace`) and its surface SDK stay in the tree until the
-web client reaches parity, and the server still answers their postcard socket
-at `/ws`.
+The whiteboard's egui surface was retired on 2026-09-11. The egui client
+(`localspace`) and its surface SDK stay until the web client can do what they
+do, as `docs/DECISIONS.md` lists; the server still answers their postcard
+socket at `/ws`.
 
 On this machine Smart App Control has refused some freshly built debug
 binaries and accepted release builds; if a new executable "cannot be run due

@@ -56,10 +56,11 @@ About 6,900 lines, all of them the egui side.
 |---|---|---|
 | `localspace-client` | 4,172 | the TypeScript shell |
 | `localspace-surface-sdk` | 527 | `@localspace/harness-sdk` and the iframe bridge |
-| `harnesses/whiteboard-surface` | 1,829 | a web bundle on tldraw or Konva |
+| `harnesses/whiteboard-surface` | 1,829 | retired on 2026-09-11: the web surface on `@localspace/canvas` |
 | `localspace-desktop` (eframe) | 414 | a Tauri 2 crate |
 
-These keep running until the web client reaches parity, then go. What was
+These keep running until the web client reaches parity, then go; the
+whiteboard's egui surface went first, on 2026-09-11. What was
 learned in them carries over as rules for the bridge: a surface has a memory
 budget and is restarted once when it breaks it; a surface is entered only when
 something changed; only what is on screen is drawn.

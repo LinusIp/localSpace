@@ -27,7 +27,7 @@ model = []                       # complete | structured | embed
 
 [contributes]
 views = [
-  { id = "board", kind = "egui", module = "ui/board.wasm", placement = "main" },
+  { id = "board", kind = "web", module = "ui/web/index.js", placement = "main", title = "Board" },
   { id = "settings", kind = "widgets", placement = "side" },
 ]
 tools = "tools.json"
@@ -124,8 +124,9 @@ client and the desktop app (architecture v2 §6.3):
 - `web`: an ES module of yours runs in an iframe on an origin that is the
   harness's alone, with `@localspace/harness-sdk` as its only door.
 
-`egui` and `stream` views still run in the egui client only, until the web
-client reaches parity.
+`egui` and `stream` views run in the egui client only. Its reference egui
+surface, the whiteboard's, was retired on 2026-09-11, and the egui client goes
+once the web client can do what it does.
 
 ### A `web` view
 
@@ -221,8 +222,8 @@ Your egui's font atlas is capped at 1024 pixels a side, the smallest epaint
 accepts, so it costs 4 MB at most rather than 16. Every distinct text size
 rasterises a fresh set of glyphs into it, and each time it grows the surface
 briefly holds more than two copies — so quantise sizes you derive from a zoom
-(the whiteboard snaps to twelve sizes per doubling) instead of minting a new
-one every frame. Texture pixels never travel through the frame: the host reads
+instead of minting a new one every frame. Texture pixels never travel through
+the frame: the host reads
 them out of your memory and tells you when it has, through `hs_release`.
 
 ## 5. `evals.json`
@@ -261,10 +262,9 @@ A surface that breaks its budget is restarted once by itself — its state is in
 the document — and after that only when the user asks.
 
 Declare what you measure, and no more: the store shows these numbers. For an
-`egui` surface, measure while zooming text. The whiteboard sits at 5 MB with an
-ordinary board and peaks at 12 MB zooming it; a board with five large headings
-peaks at 21 MB. The default of 16 is for surfaces that draw little text. The
-test that produces those numbers is `crates/localspace-client/tests/surface.rs`.
+`egui` surface, measure while zooming text; the default of 16 is for surfaces
+that draw little text. A `web` view's budget is its frame's, enforced once a
+browser can report a frame's memory (architecture §6.6).
 
 Your logic instance is dropped after `idle_unload` without a call. Nothing you kept
 in guest memory survives that — your document does. Keep state in the document.
@@ -330,22 +330,22 @@ the model's turn properly.
 
 ## What the reference whiteboard's surface does, and why
 
-It is worth reading `harnesses/whiteboard-surface` before writing your own, because
-two of its choices are not obvious and both matter:
+It is worth reading the whiteboard's web surface, `web/surfaces/whiteboard` on
+`@localspace/canvas`, before writing your own, because three of its choices are
+not obvious and all matter:
 
-**One gesture, one commit.** A drag mutates `state.doc` every frame so the preview
-is live, but only sets `state.doc_dirty` when the gesture *ends*. Setting it every
-frame would put sixty commits in the history for one drag, and undo would become
-useless. Anything continuous — dragging, resizing, drawing ink — should follow this
-shape.
+**One gesture, one commit.** A drag moves shapes in the editor's scene at every
+pointer move so the preview is live, but the editor emits its change once, when
+the gesture *ends*, and typed text is committed when the text editor closes.
+Anything else would put sixty commits in the history for one drag, and undo would
+become useless. Anything continuous — dragging, resizing, drawing ink — should
+follow this shape.
 
-**Draw what is on screen, and no more.** Immediate mode rebuilds the shape
-list every frame, so every draw pass first tests the shape's screen rectangle
-against `painter.clip_rect()` and skips the rest; on a thousand-note board
-with sixty visible, a frame costs what sixty cost. The background dot grid is
-one mesh of quads rather than 2,600 tessellated circles, and note text is laid
-out at a wrap width snapped to 8 px so egui's galley cache survives a zoom.
-The Client's `tests/surface.rs` measures all of this.
+**Draw what is on screen, and no more.** The scene is retained and indexed in an
+R-tree, so a frame draws only the shapes whose boxes meet the view; at a distance
+small shapes become flat fills batched by colour, and text below a few pixels is
+not drawn. `web/e2e/bench-canvas.mjs` measures frame times with five thousand
+shapes on screen.
 
 **The schema is the only contract.** The board's array-taking tools accept `ids`,
 never a bare `id`, because `required: ["ids"]` means Core refuses the other form
@@ -355,7 +355,7 @@ unreachable code that misleads whoever reads it next.
 
 The editing it implements — tool palette, marquee and shift multi-select, dragging a
 whole selection, eight resize handles, snapping with alignment guides, stacking
-order, locking, duplicate, clipboard, freehand ink, text labels, and keyboard
-shortcuts — is all document mutation. There is no second model to keep in step, and
-every one of those edits is undoable and mergeable because Core reconciles the JSON
-into the CRDT field by field.
+order, locking, duplicate, freehand ink, text labels, and keyboard shortcuts — is
+all document mutation, held in the frame as an Automerge replica that syncs with
+Core. There is no second model to keep in step, and every one of those edits is
+undoable and mergeable.

@@ -81,10 +81,13 @@ fn the_package_installs_with_its_declared_shape() {
     assert_eq!(h.capabilities.fs, "none");
     assert!(h.capabilities.model.is_empty());
 
-    // Two views, one of each renderable kind.
+    // Two views: the board as a web surface on its own origin, the settings
+    // as widgets the shell draws.
     let kinds: Vec<proto::SurfaceKind> = h.views.iter().map(|v| v.kind).collect();
-    assert!(kinds.contains(&proto::SurfaceKind::Egui));
-    assert!(kinds.contains(&proto::SurfaceKind::Widgets));
+    assert_eq!(
+        kinds,
+        vec![proto::SurfaceKind::Web, proto::SurfaceKind::Widgets]
+    );
 }
 
 #[test]
@@ -278,26 +281,6 @@ fn the_widgets_view_renders_from_the_document() {
 }
 
 #[test]
-fn the_egui_surface_module_is_shipped_and_matches_the_shape_schema() {
-    let Some(mut core) = core() else { return };
-    match core.handle(proto::Request::GetSurfaceModule {
-        harness: WHITEBOARD.into(),
-        view: "board".into(),
-    }) {
-        proto::Response::SurfaceModule {
-            bytes,
-            shape_schema,
-            ..
-        } => {
-            assert_eq!(shape_schema, proto::SHAPE_SCHEMA);
-            assert!(bytes.len() > 1024, "surface module looks empty");
-            assert_eq!(&bytes[0..4], b"\0asm", "not a wasm module");
-        }
-        other => panic!("GetSurfaceModule failed: {other:?}"),
-    }
-}
-
-#[test]
 fn find_capability_reaches_the_whiteboard_when_it_is_not_focused() {
     let Some(mut core) = core() else { return };
     core.handle(proto::Request::SetFocus { harness: None });
@@ -328,11 +311,10 @@ fn whiteboard_with(extra_manifest: &str) -> Option<tempfile::TempDir> {
     let src = harness_dir()?.join("whiteboard");
     let dir = tempfile::tempdir().expect("tempdir");
     let dst = dir.path().join("whiteboard");
-    std::fs::create_dir_all(dst.join("ui")).unwrap();
+    std::fs::create_dir_all(&dst).unwrap();
     for name in ["tools.json", "evals.json", "logic.wasm"] {
         std::fs::copy(src.join(name), dst.join(name)).unwrap();
     }
-    std::fs::copy(src.join("ui/board.wasm"), dst.join("ui/board.wasm")).unwrap();
     let manifest = std::fs::read_to_string(src.join("harness.toml")).unwrap();
     // The real package declares `[resources]`; the test's own section replaces
     // it rather than duplicating the table.
@@ -416,9 +398,10 @@ fn idle_logic_is_unloaded_and_comes_back_with_its_document_intact() {
 
 #[test]
 fn the_whiteboard_declares_its_measured_budgets_and_they_are_reported() {
-    // 32 MB for the surface is what the Client's `tests/surface.rs` measures
-    // against: an ordinary board peaks near 12 MB while zooming, a text-heavy
-    // one near 21. The store shows these numbers, so they must be the manifest's.
+    // 32 MB for the surface was measured against the egui surface, retired on
+    // 2026-09-11: an ordinary board peaked near 12 MB while zooming, a
+    // text-heavy one near 21. The store shows these numbers, so they must be
+    // the manifest's.
     let Some(core) = core() else { return };
     let env = core.environment();
     let h = env.harnesses.iter().find(|h| h.id == WHITEBOARD).unwrap();
@@ -713,16 +696,15 @@ fn an_artifact_of_an_undeclared_kind_is_not_registered() {
 // ---------------------------------------------------------------------------
 
 /// Copy the whiteboard package into `bundle/<name>` under a new id, with extra
-/// manifest lines. The logic and surface are the real ones; only the manifest
+/// manifest lines. The logic is the real one; only the manifest
 /// differs, which is all a dependency test needs.
 fn package_in(bundle: &std::path::Path, name: &str, id: &str, extra: &str) -> Option<()> {
     let src = harness_dir()?.join("whiteboard");
     let dst = bundle.join(name);
-    std::fs::create_dir_all(dst.join("ui")).unwrap();
+    std::fs::create_dir_all(&dst).unwrap();
     for f in ["tools.json", "evals.json", "logic.wasm"] {
         std::fs::copy(src.join(f), dst.join(f)).unwrap();
     }
-    std::fs::copy(src.join("ui/board.wasm"), dst.join("ui/board.wasm")).unwrap();
     let manifest = std::fs::read_to_string(src.join("harness.toml"))
         .unwrap()
         .replace(
@@ -1255,7 +1237,7 @@ fn the_catalog_lists_the_bundle_and_marks_what_is_installed() {
         .find(|e| e.id == WHITEBOARD)
         .expect("the installed whiteboard is missing from the catalog");
     assert!(board.installed, "it is installed, so it must say so");
-    assert_eq!(board.installed_version.as_deref(), Some("1.0.0"));
+    assert_eq!(board.installed_version.as_deref(), Some("1.1.0"));
 
     let planner = entries
         .iter()
