@@ -6,6 +6,10 @@
 //   node e2e/bench-canvas.mjs --record        run, write the baseline
 //   node e2e/bench-canvas.mjs --profile w32   name the machine class (default: ci)
 //   node e2e/bench-canvas.mjs --shapes 5000 --frames 240
+//   node e2e/bench-canvas.mjs --profile ci --runner ubuntu-24.04 --tolerance 1.0
+//                                             as CI runs it: the runner's label is kept
+//                                             with the baseline, and a baseline taken on
+//                                             another runner is not compared against
 //   node e2e/bench-canvas.mjs --profile w32 --out ../docs/gates/w32-canvas.json
 //                                             also write the numbers, and the machine
 //                                             they were taken on, to that file
@@ -30,6 +34,9 @@ const profile = flag("profile", "ci");
 const shapes = Number(flag("shapes", "5000"));
 const frames = Number(flag("frames", "240"));
 const tolerance = Number(flag("tolerance", "0.25"));
+// The machine the numbers were taken on, kept with the baseline: numbers from
+// another runner do not compare with it (docs/DECISIONS.md, 2026-09-11).
+const runner = flag("runner", null);
 const baselinePath = resolve(`packages/canvas/bench/baseline.${profile}.json`);
 
 const server = await createServer({ configFile: false, root: process.cwd(), server: { port: 0, strictPort: false }, logLevel: "silent" });
@@ -70,6 +77,7 @@ try {
 
   const summary = {
     profile,
+    runner,
     shapes: r.shapes,
     overview: { drawnPerFrame: r.overview.drawnPerFrame, panP95: r.overview.panMs.p95, dragP95: r.overview.dragMs.p95 },
     reading: { drawnPerFrame: r.reading.drawnPerFrame, panP95: r.reading.panMs.p95, dragP95: r.reading.dragMs.p95 },
@@ -106,7 +114,12 @@ try {
         }
       }
     }
-    if (regressions.length) {
+    if ((baseline.runner ?? null) !== runner) {
+      console.error(
+        `the ${profile} baseline was taken on ${baseline.runner ?? "an unnamed machine"}, this run on ${runner ?? "an unnamed machine"}: the numbers do not compare. Record a baseline on this runner with --record.`,
+      );
+      process.exitCode = 1;
+    } else if (regressions.length) {
       console.error(`REGRESSION against ${baselinePath} (${baseline.recorded}): ${regressions.join("; ")}`);
       process.exitCode = 1;
     } else {

@@ -5,6 +5,11 @@
 # the only actions used are GitHub's own. Nothing here downloads a browser
 # or a model: the end-to-end walk drives the Chrome already on the runner
 # and runs without an agent.
+#
+# Runners are pinned labels, never a moving alias. Core and the server always
+# build and test on Linux, which is what organisations deploy: if the Tauri
+# shell cannot build here, the rust job splits into Core and the server on
+# Linux and the desktop shell on Windows (docs/DECISIONS.md, 2026-09-11).
 
 name: ci
 
@@ -28,7 +33,11 @@ env:
 jobs:
   web:
     name: web (lint, types, tests, build, sizes, frame times)
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # The frame-time baseline names this label; change both together.
+        runner: [ubuntu-24.04]
+    runs-on: ${{ matrix.runner }}
     defaults:
       run:
         working-directory: web
@@ -50,10 +59,12 @@ jobs:
         run: node scripts/check-sizes.mjs
       - name: canvas frame times against the CI baseline
         run: |
+          # A shared runner is noisy and the performance gate is the W32
+          # number, so this fails only at about double the baseline.
           if [ -f packages/canvas/bench/baseline.ci.json ]; then
-            node e2e/bench-canvas.mjs --profile ci
+            node e2e/bench-canvas.mjs --profile ci --runner "${{ matrix.runner }}" --tolerance 1.0
           else
-            node e2e/bench-canvas.mjs --profile ci --record
+            node e2e/bench-canvas.mjs --profile ci --runner "${{ matrix.runner }}" --record
             echo "::warning::No CI frame-time baseline is committed yet. This run recorded one (artifact bench-baseline-ci); commit it as web/packages/canvas/bench/baseline.ci.json to turn the regression check on."
           fi
       - uses: actions/upload-artifact@v4
@@ -65,7 +76,7 @@ jobs:
 
   rust:
     name: rust (format, clippy, tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: toolchain
@@ -105,7 +116,7 @@ jobs:
 
   e2e:
     name: the step-5 gate, end to end in a browser
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [web, rust]
     steps:
       - uses: actions/checkout@v4
@@ -148,7 +159,7 @@ jobs:
   w32-gate:
     name: the canvas gate on W32, from its recorded measurement
     if: github.event_name == 'workflow_dispatch' && inputs.w32_gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

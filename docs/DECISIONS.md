@@ -4,6 +4,24 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-11, answers to the step-5 closing report
+
+- **The CI frame-time baseline comes from the first run, on a pinned
+  runner** (answer 3). The workflow names its runners by a pinned label,
+  `ubuntu-24.04`, never a moving alias. The benchmark keeps the runner's
+  label in the baseline it records, and a run on another runner is not
+  compared against it: the check fails and asks for a baseline recorded on
+  that runner. CI fails only at about double the baseline
+  (`--tolerance 1.0`), because a shared runner is noisy and the performance
+  gate is the W32 number. The baseline the first run records, uploaded as
+  an artifact, is committed as it comes.
+- **CI tries Linux first, and Core and the server never leave it**
+  (answer 4). Core and the server build and test on Linux whatever else
+  happens, because that is what organisations deploy. If the Tauri shell
+  cannot build on the Linux runner, the rust job splits into Core and the
+  server on Linux and the desktop shell on Windows; the server crates are
+  never excluded from Linux.
+
 ## 2026-09-10, answers to the step-5 report
 
 - **Snapping** (answer 5; architecture §6.4). A move or a resize comes to
