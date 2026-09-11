@@ -21,6 +21,13 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   cannot build on the Linux runner, the rust job splits into Core and the
   server on Linux and the desktop shell on Windows; the server crates are
   never excluded from Linux.
+- **Automerge's WebAssembly has a fixed size limit** (answer 7). The other
+  limits stay at their size on 2026-09-10 plus about a quarter. The
+  WebAssembly file of Automerge 3.4.1, a vendor artifact, is held at exactly
+  its gzipped size, 1,128,416 bytes, and named with its version in
+  `web/size-limits.json`, so any change to it fails the build until the
+  limit is updated with the version, on purpose. The script around it keeps
+  a quarter's headroom.
 
 ## 2026-09-10, answers to the step-5 report
 

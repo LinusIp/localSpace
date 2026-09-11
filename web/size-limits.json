@@ -1,11 +1,12 @@
 {
-  "about": "Gzipped bytes, at zlib's default level as gzip -c gives. The shell's limit is the architecture's budget for the base client bundle, 2 MB compressed. Every other limit is the package's size on 2026-09-10 plus about a quarter, so a regression fails the build and growth is a decision.",
+  "about": "Gzipped bytes, at zlib's default level as gzip -c gives. The shell's limit is the architecture's budget for the base client bundle, 2 MB compressed. Each package's limit is its size on 2026-09-10 plus about a quarter, so a regression fails the build and growth is a decision. Automerge's WebAssembly is a vendor file held at the exact size of the version in use: any change to it is a version change, noticed on purpose.",
   "limits": [
     { "name": "shell: index.html and assets", "files": ["dist/index.html"], "dir": "dist/assets", "match": "\\.(js|css)$", "gzip": 2097152 },
     { "name": "@localspace/canvas", "files": ["dist/_localspace/canvas.js"], "gzip": 20000 },
     { "name": "@localspace/ui", "files": ["dist/_localspace/ui.js", "dist/_localspace/ui.css"], "gzip": 10600 },
     { "name": "React for frames", "files": ["dist/_localspace/react.js", "dist/_localspace/react-jsx-runtime.js", "dist/_localspace/react-dom-client.js"], "gzip": 85000 },
-    { "name": "Automerge for frames", "files": ["dist/_localspace/automerge.js", "dist/_localspace/automerge_wasm_bg.wasm"], "gzip": 1432000 },
+    { "name": "Automerge's script", "files": ["dist/_localspace/automerge.js"], "gzip": 20800 },
+    { "name": "Automerge 3.4.1's WebAssembly, fixed", "files": ["dist/_localspace/automerge_wasm_bg.wasm"], "gzip": 1128416 },
     { "name": "the harness SDK", "files": ["public/harness-sdk.js"], "gzip": 3400 },
     { "name": "the whiteboard's web surface", "files": ["../harnesses/whiteboard/ui/web/index.js"], "gzip": 4600 }
   ]
