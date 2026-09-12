@@ -155,7 +155,17 @@ review latency included, hardware excluded.
   switch; the first run an empty chat with the cursor in the box and three
   example prompts; the vocabulary rule of §13 over every member-facing
   string, kept by a check in CI; errors in one plain sentence with what to
-  do; every empty state written.
+  do; every empty state written. And the desktop's face: the window with
+  the localSpace name and icon, and no URL, port or endpoint anywhere in
+  the interface in either mode — the model card's endpoint goes, the
+  model's kind stays.
+- The desktop build as a finished application, since every demo before
+  December runs on it: the icon set from the brand file; a visible error
+  when Core cannot start instead of a silent exit; one instance, a second
+  launch focusing the window; the inference engine shipped beside the
+  executable rather than placed by hand; an installer that lays out the
+  executable, the web bundle, the registry folder and the engine; code
+  signing when a certificate exists.
 - The `localspace` binary (answer 27): `serve`, `doctor`, `bench`, `evals`,
   `call`, `admin`; `localspace.toml` with the keys the pilot uses (answer
   22), `--config` pointing at it. `serve` refuses to start when it binds

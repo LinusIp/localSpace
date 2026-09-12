@@ -4,6 +4,20 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-12, two additions to Phase A's shell commit: the desktop
+
+- **The desktop build looks like a finished application** (architecture
+  §6.2): its own window with the localSpace name and icon, Core started by
+  the app itself, and **no URL, port or endpoint visible anywhere in the
+  interface, in either mode** — the model card, which printed
+  `http://127.0.0.1:65334/v1`, included. The technical id of a model may
+  appear under Advanced; where a model is served from does not. Endpoints
+  and ports stay in the logs and in `localspace doctor`.
+- **Every demo before December runs on the desktop shell**, so the shell is
+  reported on honestly and brought to the state a non-technical user opens
+  on a workstation: the report and the plan for it are in the session of
+  2026-09-12 and folded into `docs/PILOT-1.md`.
+
 ## 2026-09-12, answers to Phase A and the shell, and a fifth directive
 
 - **The migration is proved against a real v1 database** (review of
