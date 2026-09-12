@@ -35,6 +35,10 @@ pub struct Actor {
     pub ip: String,
     #[serde(default)]
     pub role: String,
+    /// The reason an administrator gave to be in a workspace they are not a
+    /// member of, on every record they make while there (deployment §6.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub break_glass: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -210,6 +214,7 @@ mod tests {
             session: "s_9ab".into(),
             ip: "10.1.4.22".into(),
             role: "member".into(),
+            break_glass: None,
         }
     }
 

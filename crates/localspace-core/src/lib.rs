@@ -40,7 +40,7 @@ pub mod transport;
 pub mod types;
 pub mod widgets;
 
-use acl::{AccessControl, Identity, Level, Workspace};
+use acl::{AccessControl, Acl, BreakGlass, Identity, Level, Workspace};
 use anyhow::Result;
 use audit::{Actor, AuditLog, Scope};
 use context::ProviderCache;
@@ -197,6 +197,7 @@ pub type Sink = Arc<dyn Fn(To, proto::Event) + Send + Sync>;
 /// in its own fields and parks everyone else's here; `activate` swaps.
 struct UserState {
     workspace: String,
+    break_glass: Option<BreakGlass>,
     focus: Option<String>,
     pinned: Vec<String>,
     touched: Vec<String>,
@@ -263,6 +264,9 @@ pub struct Core {
     /// The current run's ledger (spec §18.1). Artifacts carry across runs.
     task: proto::Task,
     workspace: String,
+    /// Set while an administrator is in a workspace they are not a member
+    /// of: the reason they gave (deployment §6.1). Ends when they leave it.
+    break_glass: Option<BreakGlass>,
     /// Sync state per document, per replica (v2.1 §6.1): two frames on one
     /// board sync independently.
     sync_states: HashMap<String, HashMap<String, ReplicaSync>>,
@@ -307,9 +311,18 @@ impl Core {
         let gateway = Arc::new(Mutex::new(Gateway::new(cfg.gateway.clone())));
         let router = Arc::new(RwLock::new(Router::default()));
 
+        // Every workspace the database knows, then the local user's personal
+        // one if it is not among them yet.
         let mut access = AccessControl::new();
-        access.add_workspace(Workspace::personal(&cfg.user));
+        for ws in store.workspaces().unwrap_or_default() {
+            access.add_workspace(ws);
+        }
         let workspace = format!("ws_{}", cfg.user);
+        if access.workspace(&workspace).is_none() {
+            let personal = Workspace::personal(&cfg.user);
+            let _ = store.put_workspace(&personal);
+            access.add_workspace(personal);
+        }
 
         let models_store = cfg
             .data_dir
@@ -358,6 +371,7 @@ impl Core {
             run: None,
             task,
             workspace,
+            break_glass: None,
             sync_states: HashMap::new(),
             sync_clock: 0,
             events: None,
@@ -471,7 +485,7 @@ impl Core {
         Identity {
             user: self.active.user.clone(),
             groups: self.active.groups.clone(),
-            break_glass: None,
+            break_glass: self.break_glass.clone(),
         }
     }
 
@@ -481,6 +495,7 @@ impl Core {
             session: self.active.session.clone(),
             ip: self.active.ip.clone(),
             role: self.active.role_label().into(),
+            break_glass: self.break_glass.as_ref().map(|g| g.reason.clone()),
         }
     }
 
@@ -506,6 +521,7 @@ impl Core {
         };
         let parked = UserState {
             workspace: std::mem::replace(&mut self.workspace, incoming.workspace),
+            break_glass: std::mem::replace(&mut self.break_glass, incoming.break_glass),
             focus: std::mem::replace(&mut self.focus, incoming.focus),
             pinned: std::mem::replace(&mut self.pinned, incoming.pinned),
             touched: std::mem::replace(&mut self.touched, incoming.touched),
@@ -529,10 +545,22 @@ impl Core {
     /// §5), their conversations and ledger from the database, and the first
     /// harness in focus, as a fresh Core starts.
     fn fresh_user_state(&mut self, user: &str) -> UserState {
-        let workspace = format!("ws_{user}");
-        if self.access.workspace(&workspace).is_none() {
-            self.access.add_workspace(Workspace::personal(user));
+        let personal = format!("ws_{user}");
+        if self.access.workspace(&personal).is_none() {
+            let ws = Workspace::personal(user);
+            if let Err(e) = self.store.put_workspace(&ws) {
+                self.trace(format!("workspace {personal}: not written: {e:#}"));
+            }
+            self.access.add_workspace(ws);
         }
+        // The workspace they were last in, if they may still be in it.
+        let identity = Identity::user(user);
+        let workspace = self
+            .store
+            .current_workspace(user)
+            .unwrap_or_default()
+            .filter(|ws| self.access.level_in(ws, &identity).is_some())
+            .unwrap_or(personal);
         let conversations =
             conversations::Store::load(&self.store, user, &workspace, dag::now_ms());
         let transcript = conversations
@@ -546,6 +574,7 @@ impl Core {
             .unwrap_or_default();
         UserState {
             workspace,
+            break_glass: None,
             focus: self
                 .registry
                 .iter()
@@ -717,7 +746,8 @@ impl Core {
             } else {
                 record.workspace.clone()
             };
-            self.access.add_document(&id, &ws, &record.title, None);
+            self.access
+                .add_document(&id, &ws, &record.title, record.acl.clone());
         }
     }
 
@@ -764,6 +794,7 @@ impl Core {
             workspace: ws,
             harness: Some(harness.to_string()),
             created_by: self.active.user.clone(),
+            acl: None,
         };
         if let Err(e) = self.store.put_document(&id, &record) {
             self.notice(
@@ -846,6 +877,7 @@ impl Core {
                     workspace: ws.clone(),
                     harness,
                     created_by: user.clone(),
+                    acl: None,
                 };
                 let _ = self.store.put_document(doc, &record);
             }
@@ -1253,6 +1285,7 @@ impl Core {
                 .workspace(&self.workspace)
                 .map(|w| w.name.clone())
                 .unwrap_or_else(|| self.workspace.clone()),
+            workspace_id: self.workspace.clone(),
             machine: self.cfg.machine.describe(),
             profile: self.cfg.profile.name.clone(),
             engine,
@@ -2256,6 +2289,7 @@ impl Core {
             workspace: ws,
             harness: None,
             created_by: self.active.user.clone(),
+            acl: None,
         };
         self.store
             .put_document(&doc_id, &record)
@@ -2451,6 +2485,190 @@ impl Core {
         })
     }
 
+    /// Refuse unless the caller owns the workspace or is an administrator;
+    /// a personal workspace takes no members at all.
+    fn require_workspace_owner(&mut self, workspace: &str, event: &str) -> Option<proto::Response> {
+        let Some(ws) = self.access.workspace(workspace) else {
+            return Some(proto::Response::Error {
+                message: format!("no workspace `{workspace}`"),
+            });
+        };
+        if ws.personal_to.is_some() {
+            return Some(proto::Response::Error {
+                message: "A personal workspace is its owner's alone; share from a workspace an administrator made.".into(),
+            });
+        }
+        let owner = ws.level_of(&self.identity()) == Some(Level::Owner);
+        if owner || self.active.is_admin() {
+            return None;
+        }
+        let _ = self.audit.append(
+            self.actor(),
+            Scope {
+                workspace: workspace.to_string(),
+                conversation: String::new(),
+                document: String::new(),
+            },
+            event,
+            serde_json::json!({}),
+            "denied",
+        );
+        Some(proto::Response::Error {
+            message: "Only the workspace's owner or an administrator can do that.".into(),
+        })
+    }
+
+    fn persist_workspace(&mut self, id: &str) {
+        if let Some(ws) = self.access.workspace(id).cloned()
+            && let Err(e) = self.store.put_workspace(&ws)
+        {
+            self.trace(format!("workspace {id}: not written: {e:#}"));
+        }
+    }
+
+    /// The workspaces as the caller sees them: theirs, with their level;
+    /// every one for an administrator.
+    fn workspace_infos(&self) -> Vec<proto::WorkspaceInfo> {
+        let identity = self.identity();
+        let admin = self.active.is_admin();
+        let mut out: Vec<proto::WorkspaceInfo> = self
+            .access
+            .workspaces()
+            .filter_map(|ws| {
+                let mine = ws.level_of(&identity);
+                if mine.is_none() && !admin {
+                    return None;
+                }
+                Some(proto::WorkspaceInfo {
+                    id: ws.id.clone(),
+                    name: ws.name.clone(),
+                    personal_to: ws.personal_to.clone(),
+                    members: ws
+                        .default_acl
+                        .entries
+                        .iter()
+                        .map(|(p, l)| proto::Member {
+                            principal: proto_principal(p),
+                            level: proto_level(*l),
+                        })
+                        .collect(),
+                    agent_writes: match ws.agent_writes {
+                        acl::AgentWrites::Direct => proto::AgentWrites::Direct,
+                        acl::AgentWrites::Proposal => proto::AgentWrites::Proposal,
+                    },
+                    created_ms: ws.created_ms,
+                    mine: mine.map(proto_level),
+                    current: ws.id == self.workspace,
+                })
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            b.personal_to
+                .is_some()
+                .cmp(&a.personal_to.is_some())
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        out
+    }
+
+    /// Go to a workspace: a member goes; an administrator who is not one
+    /// goes with a reason, audited as break-glass (deployment §6.1). The
+    /// caller's conversations and ledger become the workspace's.
+    fn select_workspace(&mut self, workspace: &str, reason: Option<String>) -> proto::Response {
+        let identity = self.identity();
+        let Some(ws) = self.access.workspace(workspace).cloned() else {
+            return proto::Response::Error {
+                message: "There is no such workspace.".into(),
+            };
+        };
+        let member = ws.level_of(&identity).is_some();
+        if member {
+            // A member's way in needs no reason, and ends any break-glass.
+            self.break_glass = None;
+        } else {
+            let reason = reason
+                .map(|r| r.trim().to_string())
+                .filter(|r| !r.is_empty());
+            match (self.active.is_admin(), reason) {
+                (true, Some(reason)) => {
+                    let _ = self.audit.append(
+                        self.actor(),
+                        Scope {
+                            workspace: workspace.to_string(),
+                            conversation: String::new(),
+                            document: String::new(),
+                        },
+                        "workspace.break_glass",
+                        serde_json::json!({"reason": reason.as_str()}),
+                        "ok",
+                    );
+                    self.break_glass = Some(BreakGlass {
+                        workspace: ws.id.clone(),
+                        reason,
+                    });
+                }
+                (true, None) => {
+                    return proto::Response::Error {
+                        message: "You are not a member of that workspace. As an administrator you can open it with a reason, which is kept.".into(),
+                    };
+                }
+                (false, _) => {
+                    let _ = self.audit.append(
+                        self.actor(),
+                        Scope {
+                            workspace: workspace.to_string(),
+                            conversation: String::new(),
+                            document: String::new(),
+                        },
+                        "workspace.select",
+                        serde_json::json!({}),
+                        "denied",
+                    );
+                    return proto::Response::Error {
+                        message: "You are not a member of that workspace.".into(),
+                    };
+                }
+            }
+        }
+        if self.workspace != ws.id {
+            self.record_conversation();
+            self.workspace = ws.id.clone();
+            let user = self.active.user.clone();
+            self.conversations =
+                conversations::Store::load(&self.store, &user, &self.workspace, dag::now_ms());
+            self.transcript = self
+                .conversations
+                .current()
+                .map(|c| c.messages.clone())
+                .unwrap_or_default();
+            self.task = self
+                .store
+                .ledger(&user, &self.workspace)
+                .unwrap_or_default()
+                .unwrap_or_default();
+            if let Err(e) = self.store.set_current_workspace(&user, &self.workspace) {
+                self.trace(format!("current workspace: not written: {e:#}"));
+            }
+            let _ = self.audit.append(
+                self.actor(),
+                Scope {
+                    workspace: workspace.to_string(),
+                    conversation: String::new(),
+                    document: String::new(),
+                },
+                "workspace.select",
+                serde_json::json!({}),
+                "ok",
+            );
+            self.emit(proto::Event::ConversationChanged {
+                current: self.conversations.current.clone(),
+            });
+            self.emit_task();
+        }
+        self.emit_environment();
+        proto::Response::Environment(self.environment())
+    }
+
     fn user_infos(&self) -> Vec<proto::UserInfo> {
         let now = dag::now_ms();
         self.directory
@@ -2476,6 +2694,7 @@ impl Core {
             session: String::new(),
             ip: ip.to_string(),
             role: String::new(),
+            break_glass: None,
         }
     }
 
@@ -3490,6 +3709,179 @@ impl Core {
                     },
                 },
             },
+            // --- workspaces (deployment §5–6; Pilot 1, Phase A) ---
+            R::ListWorkspaces => proto::Response::Workspaces(self.workspace_infos()),
+            R::CreateWorkspace { name } => match self.require_admin("workspace.create") {
+                Some(refused) => refused,
+                None => {
+                    let name = name.trim().to_string();
+                    if name.is_empty() {
+                        return proto::Response::Error {
+                            message: "Give the workspace a name.".into(),
+                        };
+                    }
+                    let id = format!("ws_{}", uuid::Uuid::new_v4().simple());
+                    let ws = Workspace::shared_by(&id, &name, &self.active.user, dag::now_ms());
+                    if let Err(e) = self.store.put_workspace(&ws) {
+                        return proto::Response::Error {
+                            message: format!("{e:#}"),
+                        };
+                    }
+                    self.access.add_workspace(ws);
+                    let _ = self.audit.append(
+                        self.actor(),
+                        Scope {
+                            workspace: id.clone(),
+                            conversation: String::new(),
+                            document: String::new(),
+                        },
+                        "workspace.create",
+                        serde_json::json!({"workspace": id, "name": name}),
+                        "ok",
+                    );
+                    proto::Response::Workspaces(self.workspace_infos())
+                }
+            },
+            R::SetMember {
+                workspace,
+                principal,
+                level,
+            } => match self.require_workspace_owner(&workspace, "workspace.member") {
+                Some(refused) => refused,
+                None => {
+                    let principal = acl_principal(&principal);
+                    let level = acl_level(level);
+                    match self.access.workspace_mut(&workspace) {
+                        Some(ws) => ws.set_member(principal.clone(), level),
+                        None => {
+                            return proto::Response::Error {
+                                message: format!("no workspace `{workspace}`"),
+                            };
+                        }
+                    }
+                    self.persist_workspace(&workspace);
+                    let _ = self.audit.append(
+                        self.actor(),
+                        Scope {
+                            workspace: workspace.clone(),
+                            conversation: String::new(),
+                            document: String::new(),
+                        },
+                        "workspace.member",
+                        serde_json::json!({"principal": principal, "level": level.label()}),
+                        "ok",
+                    );
+                    proto::Response::Workspaces(self.workspace_infos())
+                }
+            },
+            R::RemoveMember {
+                workspace,
+                principal,
+            } => match self.require_workspace_owner(&workspace, "workspace.member") {
+                Some(refused) => refused,
+                None => {
+                    let principal = acl_principal(&principal);
+                    let removed = self
+                        .access
+                        .workspace_mut(&workspace)
+                        .map(|ws| ws.remove_member(&principal))
+                        .unwrap_or(false);
+                    if !removed {
+                        return proto::Response::Error {
+                            message: "That member is not in the workspace.".into(),
+                        };
+                    }
+                    self.persist_workspace(&workspace);
+                    let _ = self.audit.append(
+                        self.actor(),
+                        Scope {
+                            workspace: workspace.clone(),
+                            conversation: String::new(),
+                            document: String::new(),
+                        },
+                        "workspace.member",
+                        serde_json::json!({"principal": principal, "level": null}),
+                        "ok",
+                    );
+                    proto::Response::Workspaces(self.workspace_infos())
+                }
+            },
+            R::SetAgentWrites { workspace, mode } => {
+                match self.require_workspace_owner(&workspace, "workspace.agent_writes") {
+                    Some(refused) => refused,
+                    None => {
+                        let mode = match mode {
+                            proto::AgentWrites::Direct => acl::AgentWrites::Direct,
+                            proto::AgentWrites::Proposal => acl::AgentWrites::Proposal,
+                        };
+                        match self.access.workspace_mut(&workspace) {
+                            Some(ws) => ws.agent_writes = mode,
+                            None => {
+                                return proto::Response::Error {
+                                    message: format!("no workspace `{workspace}`"),
+                                };
+                            }
+                        }
+                        self.persist_workspace(&workspace);
+                        let _ = self.audit.append(
+                            self.actor(),
+                            Scope {
+                                workspace: workspace.clone(),
+                                conversation: String::new(),
+                                document: String::new(),
+                            },
+                            "workspace.agent_writes",
+                            serde_json::json!({"mode": format!("{mode:?}").to_lowercase()}),
+                            "ok",
+                        );
+                        proto::Response::Workspaces(self.workspace_infos())
+                    }
+                }
+            }
+            R::SelectWorkspace { workspace, reason } => self.select_workspace(&workspace, reason),
+            R::SetDocumentAccess { doc, members } => {
+                // The document's owner, or an administrator.
+                let owner = self
+                    .access
+                    .check(&self.identity(), &doc, Level::Owner)
+                    .is_ok();
+                if !owner && !self.active.is_admin() {
+                    let _ = self.audit.append(
+                        self.actor(),
+                        self.scope(&doc),
+                        "document.access",
+                        serde_json::json!({}),
+                        "denied",
+                    );
+                    return proto::Response::Error {
+                        message: "Only the document's owner or an administrator can change who may open it.".into(),
+                    };
+                }
+                let acl = members.as_ref().map(|members| Acl {
+                    entries: members
+                        .iter()
+                        .map(|m| (acl_principal(&m.principal), acl_level(m.level)))
+                        .collect(),
+                });
+                if let Err(message) = self.access.set_document_acl(&doc, acl.clone()) {
+                    return proto::Response::Error { message };
+                }
+                if let Ok(Some(mut record)) = self.store.get_document(&doc) {
+                    record.acl = acl;
+                    if let Err(e) = self.store.put_document(&doc, &record) {
+                        self.trace(format!("document {doc}: access not written: {e:#}"));
+                    }
+                }
+                let _ = self.audit.append(
+                    self.actor(),
+                    self.scope(&doc),
+                    "document.access",
+                    serde_json::json!({"members": members}),
+                    "ok",
+                );
+                proto::Response::Ok
+            }
+
             R::Bootstrap { .. }
             | R::Login { .. }
             | R::Logout { .. }
@@ -3596,6 +3988,40 @@ impl CoreServices for Services {
             )),
             Egress::Denied(why) => Err(why),
         }
+    }
+}
+
+fn acl_level(level: proto::AccessLevel) -> Level {
+    match level {
+        proto::AccessLevel::View => Level::View,
+        proto::AccessLevel::Comment => Level::Comment,
+        proto::AccessLevel::Edit => Level::Edit,
+        proto::AccessLevel::Owner => Level::Owner,
+    }
+}
+
+fn proto_level(level: Level) -> proto::AccessLevel {
+    match level {
+        Level::View => proto::AccessLevel::View,
+        Level::Comment => proto::AccessLevel::Comment,
+        Level::Edit => proto::AccessLevel::Edit,
+        Level::Owner => proto::AccessLevel::Owner,
+    }
+}
+
+fn acl_principal(principal: &proto::Principal) -> acl::Principal {
+    match principal {
+        proto::Principal::User(u) => acl::Principal::User(u.clone()),
+        proto::Principal::Group(g) => acl::Principal::Group(g.clone()),
+        proto::Principal::Workspace => acl::Principal::Workspace,
+    }
+}
+
+fn proto_principal(principal: &acl::Principal) -> proto::Principal {
+    match principal {
+        acl::Principal::User(u) => proto::Principal::User(u.clone()),
+        acl::Principal::Group(g) => proto::Principal::Group(g.clone()),
+        acl::Principal::Workspace => proto::Principal::Workspace,
     }
 }
 

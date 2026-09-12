@@ -41,8 +41,18 @@ impl Level {
 pub struct Identity {
     pub user: String,
     pub groups: Vec<String>,
-    /// Org admin using break-glass. Still an ordinary access, but audited with a reason.
-    pub break_glass: Option<String>,
+    /// An administrator inside a workspace they are not a member of, with
+    /// the reason the audit keeps (deployment §6.1). An ordinary access: it
+    /// goes through the same check, and holds `owner` on that one
+    /// workspace's documents and nothing anywhere else.
+    pub break_glass: Option<BreakGlass>,
+}
+
+/// Where an administrator went in with a reason, and the reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BreakGlass {
+    pub workspace: String,
+    pub reason: String,
 }
 
 impl Identity {
@@ -67,7 +77,7 @@ impl Identity {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Acl {
     pub entries: Vec<(Principal, Level)>,
 }
@@ -113,8 +123,14 @@ pub struct Workspace {
     pub id: String,
     pub name: String,
     pub personal_to: Option<String>,
+    /// Who holds what here: the workspace's members. A document inherits
+    /// this unless it was tightened.
     pub default_acl: Acl,
     pub agent_writes: AgentWrites,
+    #[serde(default)]
+    pub created_ms: u64,
+    #[serde(default)]
+    pub created_by: String,
 }
 
 impl Workspace {
@@ -126,7 +142,42 @@ impl Workspace {
             default_acl: Acl::owned_by(user),
             // Personal-workspace documents default to direct.
             agent_writes: AgentWrites::Direct,
+            created_ms: 0,
+            created_by: user.to_string(),
         }
+    }
+
+    /// A shared workspace an administrator made, owned by them; members are
+    /// added one by one (deployment §5). Agents write proposals here.
+    pub fn shared_by(id: &str, name: &str, owner: &str, now_ms: u64) -> Workspace {
+        Workspace {
+            id: id.into(),
+            name: name.into(),
+            personal_to: None,
+            default_acl: Acl::owned_by(owner),
+            agent_writes: AgentWrites::Proposal,
+            created_ms: now_ms,
+            created_by: owner.to_string(),
+        }
+    }
+
+    /// The level this workspace itself gives an identity, before any
+    /// document tightening.
+    pub fn level_of(&self, id: &Identity) -> Option<Level> {
+        self.default_acl.level_for(id)
+    }
+
+    /// Give a principal a level here, replacing what it had.
+    pub fn set_member(&mut self, principal: Principal, level: Level) {
+        self.default_acl.entries.retain(|(p, _)| *p != principal);
+        self.default_acl.entries.push((principal, level));
+    }
+
+    /// Returns whether the principal was a member.
+    pub fn remove_member(&mut self, principal: &Principal) -> bool {
+        let before = self.default_acl.entries.len();
+        self.default_acl.entries.retain(|(p, _)| p != principal);
+        self.default_acl.entries.len() != before
     }
 
     pub fn shared(id: &str, name: &str, owner_group: &str) -> Workspace {
@@ -137,6 +188,8 @@ impl Workspace {
             default_acl: Acl::default().grant(Principal::Group(owner_group.into()), Level::Edit),
             // Shared documents get proposals, so an agent never writes to the head.
             agent_writes: AgentWrites::Proposal,
+            created_ms: 0,
+            created_by: String::new(),
         }
     }
 }
@@ -145,8 +198,9 @@ impl Workspace {
 pub struct DocumentMeta {
     pub id: String,
     pub workspace: String,
-    /// A document can be tightened, never loosened beyond its workspace.
-    pub acl: Acl,
+    /// Set when the document was tightened; otherwise the workspace's
+    /// members hold what they hold in the workspace, as it changes.
+    pub acl: Option<Acl>,
     pub title: String,
 }
 
@@ -194,19 +248,15 @@ impl AccessControl {
         self.workspaces.get(id)
     }
 
-    /// Register a document, inheriting the workspace ACL when none is given.
+    /// Register a document. Without an ACL of its own it follows its
+    /// workspace's members as they change; with one, it is tightened.
     pub fn add_document(&mut self, id: &str, workspace: &str, title: &str, acl: Option<Acl>) {
-        let inherited = self
-            .workspaces
-            .get(workspace)
-            .map(|w| w.default_acl.clone())
-            .unwrap_or_default();
         self.documents.insert(
             id.to_string(),
             DocumentMeta {
                 id: id.to_string(),
                 workspace: workspace.to_string(),
-                acl: acl.unwrap_or(inherited),
+                acl,
                 title: title.to_string(),
             },
         );
@@ -214,6 +264,17 @@ impl AccessControl {
 
     pub fn document(&self, id: &str) -> Option<&DocumentMeta> {
         self.documents.get(id)
+    }
+
+    /// The ACL a document answers to: its own tightening, else its workspace's.
+    fn effective(&self, meta: &DocumentMeta) -> Option<Acl> {
+        match &meta.acl {
+            Some(own) => Some(own.clone()),
+            None => self
+                .workspaces
+                .get(&meta.workspace)
+                .map(|w| w.default_acl.clone()),
+        }
     }
 
     /// The one check. Every read, tool call, retrieval hit and sync message goes
@@ -226,7 +287,10 @@ impl AccessControl {
         if !self.workspaces.contains_key(&meta.workspace) {
             return Err(Denied::NoSuchWorkspace(meta.workspace.clone()));
         }
-        let held = meta.acl.level_for(id);
+        let held = match &id.break_glass {
+            Some(glass) if glass.workspace == meta.workspace => Some(Level::Owner),
+            _ => self.effective(meta).and_then(|acl| acl.level_for(id)),
+        };
         match held {
             Some(l) if l >= need => Ok(l),
             other => Err(Denied::Insufficient { need, held: other }),
@@ -238,8 +302,71 @@ impl AccessControl {
     pub fn visible_documents(&self, id: &Identity) -> Vec<&DocumentMeta> {
         self.documents
             .values()
-            .filter(|d| d.acl.allows(id, Level::View))
+            .filter(|d| {
+                matches!(&id.break_glass, Some(glass) if glass.workspace == d.workspace)
+                    || self
+                        .effective(d)
+                        .map(|acl| acl.allows(id, Level::View))
+                        .unwrap_or(false)
+            })
             .collect()
+    }
+
+    pub fn workspaces(&self) -> impl Iterator<Item = &Workspace> {
+        self.workspaces.values()
+    }
+
+    pub fn workspace_mut(&mut self, id: &str) -> Option<&mut Workspace> {
+        self.workspaces.get_mut(id)
+    }
+
+    /// The level a workspace itself gives an identity: membership.
+    pub fn level_in(&self, workspace: &str, id: &Identity) -> Option<Level> {
+        self.workspaces.get(workspace).and_then(|w| w.level_of(id))
+    }
+
+    /// Tighten a document, or clear the tightening. A level above what the
+    /// workspace gives the same principal is refused: a document is never
+    /// loosened beyond its workspace (deployment §6.1).
+    pub fn set_document_acl(&mut self, doc: &str, acl: Option<Acl>) -> Result<(), String> {
+        let workspace = match self.documents.get(doc) {
+            Some(meta) => meta.workspace.clone(),
+            None => return Err(format!("no document `{doc}`")),
+        };
+        if let Some(acl) = &acl {
+            let Some(ws) = self.workspaces.get(&workspace) else {
+                return Err(format!("no workspace `{workspace}`"));
+            };
+            for (principal, level) in &acl.entries {
+                let in_workspace = ws
+                    .default_acl
+                    .entries
+                    .iter()
+                    .filter(|(p, _)| p == principal)
+                    .map(|(_, l)| *l)
+                    .max();
+                match in_workspace {
+                    Some(held) if held >= *level => {}
+                    Some(held) => {
+                        return Err(format!(
+                            "a document cannot give more than its workspace does: `{}` there, `{}` asked",
+                            held.label(),
+                            level.label()
+                        ));
+                    }
+                    None => {
+                        return Err(
+                            "a document cannot give access to someone its workspace does not"
+                                .into(),
+                        );
+                    }
+                }
+            }
+        }
+        if let Some(meta) = self.documents.get_mut(doc) {
+            meta.acl = acl;
+        }
+        Ok(())
     }
 
     /// How an agent's writes reach this document.
@@ -269,6 +396,35 @@ mod tests {
             Some(Acl::owned_by("cfo")),
         );
         ac
+    }
+
+    #[test]
+    fn break_glass_is_owner_in_that_workspace_and_nothing_elsewhere() {
+        let ac = setup();
+        let mut boss = Identity::user("boss");
+        assert!(ac.check(&boss, "d_shared", Level::View).is_err());
+        boss.break_glass = Some(BreakGlass {
+            workspace: "ws_finance".into(),
+            reason: "incident 42".into(),
+        });
+        assert_eq!(ac.check(&boss, "d_shared", Level::Owner), Ok(Level::Owner));
+        assert_eq!(
+            ac.check(&boss, "d_tight", Level::Owner),
+            Ok(Level::Owner),
+            "a tightened document too"
+        );
+        assert!(
+            ac.check(&boss, "d_personal", Level::View).is_err(),
+            "not Anna's workspace"
+        );
+        let visible: Vec<&str> = ac
+            .visible_documents(&boss)
+            .iter()
+            .map(|d| d.id.as_str())
+            .collect();
+        assert!(visible.contains(&"d_shared"), "{visible:?}");
+        assert!(visible.contains(&"d_tight"), "{visible:?}");
+        assert!(!visible.contains(&"d_personal"), "{visible:?}");
     }
 
     #[test]

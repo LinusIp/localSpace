@@ -43,6 +43,9 @@ const INVITES: TableDefinition<&str, &[u8]> = TableDefinition::new("invites");
 /// `account:<user id>` or `ip:<address>` -> `LockRecord`: failed logins and
 /// the lock they earned, kept across a restart.
 const LOCKOUTS: TableDefinition<&str, &[u8]> = TableDefinition::new("lockouts");
+/// Workspace id -> `acl::Workspace` (deployment §5): its members and their
+/// levels, and how agents write there.
+const WORKSPACES: TableDefinition<&str, &[u8]> = TableDefinition::new("workspaces");
 
 const SCHEMA_KEY: &str = "schema_version";
 /// Between the parts of a scoped key: a character no id contains.
@@ -74,6 +77,10 @@ pub struct DocumentRecord {
     pub harness: Option<String>,
     #[serde(default)]
     pub created_by: String,
+    /// Set when the document was tightened below its workspace (deployment
+    /// §6.1); otherwise it follows its workspace's members.
+    #[serde(default)]
+    pub acl: Option<crate::acl::Acl>,
 }
 
 /// A user of an organisation server (deployment §4.1–4.3).
@@ -191,6 +198,60 @@ impl Store {
             txn.open_table(SESSIONS)?;
             txn.open_table(INVITES)?;
             txn.open_table(LOCKOUTS)?;
+            txn.open_table(WORKSPACES)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    // -- workspaces (deployment §5) -------------------------------------------
+
+    pub fn put_workspace(&self, workspace: &crate::acl::Workspace) -> Result<()> {
+        let encoded = serde_json::to_vec(workspace)?;
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(WORKSPACES)?;
+            t.insert(workspace.id.as_str(), encoded.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub fn get_workspace(&self, id: &str) -> Result<Option<crate::acl::Workspace>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(WORKSPACES)?;
+        match t.get(id)? {
+            Some(g) => Ok(Some(serde_json::from_slice(g.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn workspaces(&self) -> Result<Vec<crate::acl::Workspace>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(WORKSPACES)?;
+        let mut out = Vec::new();
+        for entry in t.iter()? {
+            let (_, v) = entry?;
+            out.push(serde_json::from_slice(v.value())?);
+        }
+        Ok(out)
+    }
+
+    /// The workspace a user was last in, remembered across a restart.
+    pub fn current_workspace(&self, user: &str) -> Result<Option<String>> {
+        let key = scoped(user, "", "workspace");
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(USER_STATE)?;
+        Ok(t.get(key.as_str())?
+            .map(|g| String::from_utf8_lossy(g.value()).to_string()))
+    }
+
+    pub fn set_current_workspace(&self, user: &str, workspace: &str) -> Result<()> {
+        let key = scoped(user, "", "workspace");
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(USER_STATE)?;
+            t.insert(key.as_str(), workspace.as_bytes())?;
         }
         txn.commit()?;
         Ok(())
@@ -499,6 +560,7 @@ mod tests {
             workspace: workspace.into(),
             harness: Some("io.localspace.whiteboard".into()),
             created_by: "tester".into(),
+            acl: None,
         }
     }
 

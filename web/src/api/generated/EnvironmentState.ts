@@ -15,10 +15,10 @@ network_ceiling: NetworkMode, model: ModelInfo | null, harnesses: Array<HarnessS
  */
 focus: string | null, pinned: Array<string>, tier_b_permitted: boolean, topology: Topology, 
 /**
- * Workspace this environment belongs to — the unit of access control,
- * quota, retrieval scope and audit scope.
+ * The workspace the caller is in — the unit of access control, quota,
+ * retrieval scope and audit scope — by name, and by id.
  */
-workspace: string, 
+workspace: string, workspace_id: string, 
 /**
  * One line describing the hardware, as `localspace doctor` reports it.
  */

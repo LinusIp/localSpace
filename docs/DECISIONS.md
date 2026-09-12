@@ -4,6 +4,59 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-13, workspaces and access as built (Phase A, commit 5)
+
+Deployment §5, §6.1 and §6.3; Pilot 1 (`docs/PILOT-1.md`) Phase A.
+
+- **Who makes a workspace, who owns it.** Only an administrator creates a
+  shared workspace (`CreateWorkspace`), and the creator owns it. Members
+  are added one by one, each with a level (`view`, `comment`, `edit`,
+  `owner`), by one of its owners or an administrator; a member holding
+  less than `owner` is refused. A personal workspace takes no members at
+  all: it is one person's. Ids are `ws_<uuid>`; personal ones stay
+  `ws_<user>`.
+- **Agents propose in shared workspaces** (§6.3): a shared workspace is
+  created with `agent_writes = proposal`, a personal one with `direct`;
+  an owner or administrator changes it (`SetAgentWrites`).
+- **A document follows its workspace live.** A document with no ACL of its
+  own answers to its workspace's members as they change: adding, changing
+  or removing a member takes effect on the next request, with nothing to
+  re-sync. `SetDocumentAccess`, by the document's owner or an
+  administrator, gives it an ACL of its own, and that ACL can only tighten:
+  a level above what the workspace gives the same principal, or a
+  principal the workspace does not have, is refused with the reason;
+  `None` clears the tightening and the document follows its workspace
+  again. This is §6.1's "tightened, never loosened beyond its workspace"
+  as a property the store enforces, not a convention.
+- **Break-glass** (§5 roles, §6.1): an administrator who is not a member
+  goes into a workspace with a reason or not at all; a member goes without
+  one. The entry is audited as `workspace.break_glass` with the reason.
+  While inside they hold `owner` on that workspace's documents,
+  tightened ones included, through the same check as everyone else (there
+  is no bypass; the check grants it), and every audit record they make
+  there carries the reason in `actor.break_glass`. It ends the moment
+  they go to a workspace they are a member of, and it does not survive a
+  restart: after one they land in their personal workspace.
+- **Where a user was is remembered.** The workspace a user was last in is
+  kept per user in the database and reopened after a restart if they may
+  still be in it; otherwise their personal one opens.
+- **One board per workspace and harness.** The first request for a
+  harness's document in a workspace materialises the workspace's one board
+  for it; every member with `edit` writes to the same document, a
+  `view` member reads it and is refused writing tools with a one-sentence
+  reason, and a non-member is refused the document and cannot select the
+  workspace. Removing a member ends their way in on their next request.
+- **`ListWorkspaces`** shows a member their workspaces with the level they
+  hold and which one they are in; an administrator sees every workspace.
+  `EnvironmentState` names the workspace by id as well as by name, so the
+  client can act on it without matching names.
+- Tests: `crates/localspace-core/tests/workspaces.rs` (a shared workspace
+  is one board for its members and none for others, including break-glass
+  and removal; tightened but never loosened, with the refusals audited as
+  `document.access`; members and the remembered workspace survive a
+  restart; a personal workspace takes no members) and the ACL unit tests
+  (break-glass is `owner` in that workspace and nothing elsewhere).
+
 ## 2026-09-12, two additions to Phase A's shell commit: the desktop
 
 - **The desktop build looks like a finished application** (architecture

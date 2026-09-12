@@ -166,9 +166,10 @@ pub struct EnvironmentState {
     pub pinned: Vec<HarnessId>,
     pub tier_b_permitted: bool,
     pub topology: Topology,
-    /// Workspace this environment belongs to — the unit of access control,
-    /// quota, retrieval scope and audit scope.
+    /// The workspace the caller is in — the unit of access control, quota,
+    /// retrieval scope and audit scope — by name, and by id.
     pub workspace: String,
+    pub workspace_id: String,
     /// One line describing the hardware, as `localspace doctor` reports it.
     pub machine: String,
     /// The model profile every budget in this environment comes from.
@@ -539,6 +540,69 @@ pub struct UserInfo {
     pub last_login_ms: Option<u64>,
     /// Set while repeated failed logins keep the account locked.
     pub locked_until_ms: Option<u64>,
+}
+
+/// What a principal holds on a workspace or a document (deployment §6.1).
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
+    ts_rs::TS,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum AccessLevel {
+    View,
+    Comment,
+    Edit,
+    Owner,
+}
+
+/// Who holds a level: a user, an identity-provider group, or everyone in
+/// the workspace.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Principal {
+    User(String),
+    Group(String),
+    Workspace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct Member {
+    pub principal: Principal,
+    pub level: AccessLevel,
+}
+
+/// How an agent's writes reach a workspace's documents (deployment §6.3).
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentWrites {
+    Direct,
+    Proposal,
+}
+
+/// A workspace as its members and the admin pages see it (deployment §5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct WorkspaceInfo {
+    pub id: String,
+    pub name: String,
+    pub personal_to: Option<String>,
+    pub members: Vec<Member>,
+    pub agent_writes: AgentWrites,
+    pub created_ms: u64,
+    /// What the caller holds here, if anything.
+    pub mine: Option<AccessLevel>,
+    /// Whether the caller is in it right now.
+    pub current: bool,
 }
 
 /// A one-time link's token, single-use, expiring in 24 hours. The shell
@@ -952,6 +1016,41 @@ pub enum Request {
     RevokeSessions {
         user: String,
     },
+    // --- workspaces (deployment §5–6; Pilot 1, Phase A) ---
+    /// The workspaces the caller is a member of; every workspace, for an
+    /// administrator.
+    ListWorkspaces,
+    /// Administrators only. The creator owns it; members are added one by one.
+    CreateWorkspace {
+        name: String,
+    },
+    /// Owners and administrators. A personal workspace takes no members.
+    SetMember {
+        workspace: String,
+        principal: Principal,
+        level: AccessLevel,
+    },
+    RemoveMember {
+        workspace: String,
+        principal: Principal,
+    },
+    SetAgentWrites {
+        workspace: String,
+        mode: AgentWrites,
+    },
+    /// Go to a workspace. A member goes; an administrator who is not one
+    /// goes with a reason, and the audit keeps it (break-glass, §6.1).
+    SelectWorkspace {
+        workspace: String,
+        reason: Option<String>,
+    },
+    /// Tighten a document below its workspace, or clear the tightening with
+    /// `None`. Owners of the document and administrators. Never loosens.
+    SetDocumentAccess {
+        doc: DocId,
+        members: Option<Vec<Member>>,
+    },
+
     /// The server's own: the first administrator of a server with no
     /// accounts, from `localspace admin bootstrap`.
     Bootstrap {
@@ -1136,6 +1235,7 @@ pub enum Response {
         current: String,
     },
     Users(Vec<UserInfo>),
+    Workspaces(Vec<WorkspaceInfo>),
     Invite(Invite),
     SignedIn {
         /// The session id, for the cookie. Only its hash is stored.
