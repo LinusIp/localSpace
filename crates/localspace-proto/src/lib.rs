@@ -537,6 +537,52 @@ pub struct Artifact {
     /// the type requires none.
     #[serde(default = "Json::object")]
     pub fields: Json,
+    /// Set when the artifact is a file — an export, later an upload — whose
+    /// bytes `GET /api/v1/documents/{doc}/content` serves.
+    #[serde(default)]
+    pub file: Option<ArtifactFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct ArtifactFile {
+    pub name: String,
+    pub mime: String,
+    pub bytes: u64,
+}
+
+/// A document as the Data page lists it: a harness's, or a file of its own
+/// such as an export (deployment §5: "harness docs, uploaded files, ingested
+/// sources, web cache").
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct DocumentInfo {
+    pub id: DocId,
+    pub title: String,
+    pub kind: DocKind,
+    /// The content's media type: a harness document's JSON projection, or
+    /// the file's own.
+    pub mime: String,
+    /// The file's size; a harness document has none to give.
+    pub bytes: Option<u64>,
+    /// blake3 of the content at the head commit; empty before any commit.
+    pub hash: String,
+    pub head: Option<CommitId>,
+    pub source: DocumentSource,
+    /// When a file document was created; a harness document is as old as
+    /// its harness's install.
+    pub created_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentSource {
+    /// The one document a harness edits.
+    Harness { harness: HarnessId },
+    /// A surface's rendering of `document` at `commit`.
+    Export {
+        harness: HarnessId,
+        document: DocId,
+        commit: CommitId,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -760,6 +806,29 @@ pub enum Request {
     GetDocJson {
         harness: HarnessId,
     },
+    /// A file a surface rendered from its harness's document — a PNG or an
+    /// SVG of a board — kept as a document of its own and registered as a
+    /// typed artifact pinned to it (plugin spec §18.3). `fields` carries what
+    /// the kind requires, the source `document` and `commit` for a rendering;
+    /// `mime` must be the kind's. The bytes arrive through
+    /// `POST /api/v1/artifacts`, whose body they are.
+    ProduceArtifact {
+        harness: HarnessId,
+        view: ViewId,
+        kind: String,
+        name: String,
+        mime: String,
+        bytes: Vec<u8>,
+        fields: Json,
+        summary: String,
+    },
+    /// Every document in the workspace the caller may see.
+    ListDocuments,
+    /// A file document's bytes at its head, for
+    /// `GET /api/v1/documents/{id}/content`.
+    GetDocBlob {
+        doc: DocId,
+    },
     /// A web surface writing its harness's document back as JSON (v2 §6.3).
     /// Core reconciles it field by field against the Automerge document and
     /// commits the difference as the user's edit under `surface:<view>`.
@@ -895,6 +964,16 @@ pub enum Response {
         harness: HarnessId,
         doc: DocId,
         json: Json,
+    },
+    /// What `ProduceArtifact` registered.
+    Artifact(Artifact),
+    Documents {
+        documents: Vec<DocumentInfo>,
+    },
+    DocBlob {
+        name: String,
+        mime: String,
+        bytes: Vec<u8>,
     },
     History {
         commits: Vec<Commit>,

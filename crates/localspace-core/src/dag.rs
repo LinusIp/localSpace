@@ -17,6 +17,24 @@ const ORDER: TableDefinition<u64, &str> = TableDefinition::new("order");
 const BLOBS: TableDefinition<&str, &[u8]> = TableDefinition::new("blobs");
 /// Small key/value slots: head pointer per document, redo stack.
 const META: TableDefinition<&str, &[u8]> = TableDefinition::new("meta");
+/// Document id -> `DocumentRecord`, for documents that are files of their
+/// own: exports, later uploads and cached pages. A harness's document needs
+/// no record; its harness describes it.
+const DOCUMENTS: TableDefinition<&str, &[u8]> = TableDefinition::new("documents");
+
+/// What Core remembers about a file document besides its history: enough to
+/// list it and serve it without reading its bytes.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DocumentRecord {
+    pub title: String,
+    pub kind: proto::DocKind,
+    pub mime: String,
+    pub bytes: u64,
+    /// blake3 of the bytes it was created with.
+    pub hash: String,
+    pub source: proto::DocumentSource,
+    pub created_ms: u64,
+}
 
 pub struct Dag {
     db: Arc<Database>,
@@ -58,9 +76,44 @@ impl Dag {
             txn.open_table(ORDER)?;
             txn.open_table(BLOBS)?;
             txn.open_table(META)?;
+            txn.open_table(DOCUMENTS)?;
         }
         txn.commit()?;
         Ok(())
+    }
+
+    // -- file documents -----------------------------------------------------
+
+    pub fn put_document(&self, id: &str, record: &DocumentRecord) -> Result<()> {
+        let encoded = serde_json::to_vec(record)?;
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(DOCUMENTS)?;
+            t.insert(id, encoded.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub fn get_document(&self, id: &str) -> Result<Option<DocumentRecord>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(DOCUMENTS)?;
+        match t.get(id)? {
+            Some(g) => Ok(Some(serde_json::from_slice(g.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Every file document, by id.
+    pub fn documents(&self) -> Result<Vec<(proto::DocId, DocumentRecord)>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(DOCUMENTS)?;
+        let mut out = Vec::new();
+        for entry in t.iter()? {
+            let (k, v) = entry?;
+            out.push((k.value().to_string(), serde_json::from_slice(v.value())?));
+        }
+        Ok(out)
     }
 
     // -- blobs --------------------------------------------------------------

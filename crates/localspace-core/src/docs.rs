@@ -491,10 +491,51 @@ fn scalar_to_json(s: &ScalarValue) -> J {
     }
 }
 
+/// A name for a file document, from whatever a surface offered: the last
+/// path component only, without control characters or quotes, ending in the
+/// type's extension, and never empty.
+pub fn file_name(offered: &str, extension: &str) -> String {
+    let last = offered
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !c.is_control() && !matches!(c, '"' | '\'' | '<' | '>' | ':' | '|' | '?' | '*'))
+        .collect::<String>();
+    let trimmed = last.trim().trim_matches('.');
+    let stem = if trimmed.is_empty() {
+        "export"
+    } else {
+        trimmed
+    };
+    let stem: String = stem.chars().take(120).collect();
+    if stem
+        .to_ascii_lowercase()
+        .ends_with(&extension.to_ascii_lowercase())
+    {
+        stem
+    } else {
+        format!("{stem}{extension}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_file_name_is_one_component_with_the_type_s_extension() {
+        assert_eq!(file_name("risks-a1b2c3d.png", ".png"), "risks-a1b2c3d.png");
+        assert_eq!(file_name("../../etc/passwd", ".png"), "passwd.png");
+        assert_eq!(file_name("C:\\boards\\plan.svg", ".svg"), "plan.svg");
+        assert_eq!(file_name("Board.PNG", ".png"), "Board.PNG");
+        assert_eq!(file_name("board", ".svg"), "board.svg");
+        assert_eq!(file_name("  ", ".png"), "export.png");
+        assert_eq!(file_name("..", ".png"), "export.png");
+        assert_eq!(file_name("a\"b<c>.png\n", ".png"), "abc.png");
+        assert!(file_name(&"x".repeat(500), ".png").len() <= 124);
+    }
 
     fn store_with(doc: &str, initial: J) -> DocStore {
         let mut s = DocStore::new();

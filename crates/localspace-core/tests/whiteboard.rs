@@ -1886,3 +1886,384 @@ fn a_harness_loaded_without_its_types_package_is_set_aside() {
             .collect::<Vec<_>>()
     );
 }
+
+// ---------------------------------------------------------------------------
+// Exports (6.0): a file from a surface, kept as a document, pinned as an artifact
+// ---------------------------------------------------------------------------
+
+const PNG_MAGIC: &[u8] = b"\x89PNG\r\n\x1a\n";
+const BOARD_DOC: &str = "io_localspace_whiteboard";
+
+/// The newest commit on `doc`, from the history.
+fn head_of(core: &mut Core, doc: &str) -> Option<String> {
+    match core.handle(proto::Request::GetHistory { limit: 50 }) {
+        proto::Response::History { commits } => {
+            commits.iter().find(|c| c.doc == doc).map(|c| c.id.clone())
+        }
+        other => panic!("history failed: {other:?}"),
+    }
+}
+
+fn documents(core: &mut Core) -> Vec<proto::DocumentInfo> {
+    match core.handle(proto::Request::ListDocuments) {
+        proto::Response::Documents { documents } => documents,
+        other => panic!("ListDocuments failed: {other:?}"),
+    }
+}
+
+fn export(
+    core: &mut Core,
+    kind: &str,
+    name: &str,
+    mime: &str,
+    bytes: &[u8],
+    fields: Value,
+) -> proto::Response {
+    core.handle(proto::Request::ProduceArtifact {
+        harness: WHITEBOARD.into(),
+        view: "web".into(),
+        kind: kind.into(),
+        name: name.into(),
+        mime: mime.into(),
+        bytes: bytes.to_vec(),
+        fields: proto::Json(fields),
+        summary: format!("{kind} of the board"),
+    })
+}
+
+#[test]
+fn a_surface_export_is_a_document_of_its_own_and_an_artifact_pinned_to_it() {
+    let Some(mut core) = core() else { return };
+    stickies(&mut core, 2);
+    let head = head_of(&mut core, BOARD_DOC).expect("two stickies made commits");
+    let png = [PNG_MAGIC, &[0u8; 64]].concat();
+
+    let art = match export(
+        &mut core,
+        "image.v1",
+        "risks-abc1234.png",
+        "image/png",
+        &png,
+        json!({"document": BOARD_DOC, "commit": head}),
+    ) {
+        proto::Response::Artifact(a) => a,
+        other => panic!("export failed: {other:?}"),
+    };
+    assert_eq!(art.kind, "image.v1");
+    assert_eq!(art.produced_by, WHITEBOARD);
+    assert!(art.doc.starts_with("blob:"), "{}", art.doc);
+    assert_eq!(art.fields.0["document"], BOARD_DOC);
+    assert_eq!(art.fields.0["commit"], head);
+    let file = art.file.as_ref().expect("an export is a file");
+    assert_eq!(file.name, "risks-abc1234.png");
+    assert_eq!(file.mime, "image/png");
+    assert_eq!(file.bytes, png.len() as u64);
+    assert_eq!(task_of(&mut core).artifacts.len(), 1, "it is in the ledger");
+
+    // The export's commit is on the export document, by the user; the
+    // board's history did not move.
+    match core.handle(proto::Request::GetHistory { limit: 5 }) {
+        proto::Response::History { commits } => {
+            assert_eq!(commits[0].id, art.commit);
+            assert_eq!(commits[0].doc, art.doc);
+            assert_eq!(commits[0].tool, "surface:export");
+            assert_eq!(commits[0].author, proto::Author::User);
+            assert_eq!(commits[0].params.0["commit"], head);
+            assert_eq!(commits[0].params.0["document"], BOARD_DOC);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        head_of(&mut core, BOARD_DOC).as_deref(),
+        Some(head.as_str())
+    );
+
+    // The bytes come back as they went in.
+    match core.handle(proto::Request::GetDocBlob {
+        doc: art.doc.clone(),
+    }) {
+        proto::Response::DocBlob { name, mime, bytes } => {
+            assert_eq!(name, "risks-abc1234.png");
+            assert_eq!(mime, "image/png");
+            assert_eq!(bytes, png);
+        }
+        other => panic!("{other:?}"),
+    }
+
+    // The listing has the export, with where it came from, beside the board.
+    let docs = documents(&mut core);
+    let listed = docs.iter().find(|d| d.id == art.doc).expect("listed");
+    assert_eq!(listed.title, "risks-abc1234.png");
+    assert_eq!(listed.kind, proto::DocKind::Blob);
+    assert_eq!(listed.mime, "image/png");
+    assert_eq!(listed.bytes, Some(png.len() as u64));
+    assert_eq!(listed.head.as_deref(), Some(art.commit.as_str()));
+    assert!(listed.created_ms.is_some());
+    match &listed.source {
+        proto::DocumentSource::Export {
+            harness,
+            document,
+            commit,
+        } => {
+            assert_eq!(harness, WHITEBOARD);
+            assert_eq!(document, BOARD_DOC);
+            assert_eq!(commit, &head);
+        }
+        other => panic!("{other:?}"),
+    }
+    let board = docs
+        .iter()
+        .find(|d| d.id == BOARD_DOC)
+        .expect("the board is listed too");
+    assert_eq!(board.kind, proto::DocKind::Crdt);
+    assert!(
+        matches!(&board.source, proto::DocumentSource::Harness { harness } if harness == WHITEBOARD)
+    );
+    assert!(
+        docs.iter().all(|d| d.id != "io_localspace_types"),
+        "a types package has no document"
+    );
+
+    // Audited: a document created, read, and an artifact produced.
+    let events: Vec<String> = core
+        .audit_log()
+        .records()
+        .iter()
+        .map(|r| r.event.clone())
+        .collect();
+    for event in ["document.create", "document.read", "artifact.produced"] {
+        assert!(
+            events.contains(&event.to_string()),
+            "{event} not in {events:?}"
+        );
+    }
+}
+
+#[test]
+fn an_export_is_refused_when_its_provenance_or_its_type_is_wrong() {
+    let Some(mut core) = core_with_both() else {
+        return;
+    };
+    stickies(&mut core, 1);
+    let head = head_of(&mut core, BOARD_DOC).unwrap();
+    let png = [PNG_MAGIC, &[1u8; 16]].concat();
+    let refused =
+        |core: &mut Core, kind: &str, mime: &str, bytes: &[u8], fields: Value, expect: &str| {
+            match export(core, kind, "x.png", mime, bytes, fields) {
+                proto::Response::Error { message } => {
+                    assert!(message.contains(expect), "wanted `{expect}` in: {message}")
+                }
+                other => panic!("expected a refusal about `{expect}`, got {other:?}"),
+            }
+        };
+
+    // The fields its type requires.
+    refused(
+        &mut core,
+        "image.v1",
+        "image/png",
+        &png,
+        json!({"document": BOARD_DOC}),
+        "commit",
+    );
+    // A commit that does not exist.
+    refused(
+        &mut core,
+        "image.v1",
+        "image/png",
+        &png,
+        json!({"document": BOARD_DOC, "commit": "c000000000000"}),
+        "not a commit",
+    );
+    // Another harness's document.
+    refused(
+        &mut core,
+        "image.v1",
+        "image/png",
+        &png,
+        json!({"document": "io_localspace_planner", "commit": head}),
+        "its own document",
+    );
+    // A commit that is on another document.
+    call(&mut core, "board.add_card", json!({"text": "x"}));
+    let planner_head = head_of(&mut core, "io_localspace_planner").unwrap();
+    refused(
+        &mut core,
+        "image.v1",
+        "image/png",
+        &png,
+        json!({"document": BOARD_DOC, "commit": planner_head}),
+        "not on",
+    );
+    // The wrong media type for the kind.
+    refused(
+        &mut core,
+        "svg.v1",
+        "image/png",
+        &png,
+        json!({"document": BOARD_DOC, "commit": head}),
+        "image/svg+xml",
+    );
+    // A kind the harness does not produce.
+    refused(
+        &mut core,
+        "mesh.v1",
+        "image/png",
+        &png,
+        json!({"document": BOARD_DOC, "commit": head}),
+        "produces",
+    );
+    // Nothing at all.
+    refused(
+        &mut core,
+        "image.v1",
+        "image/png",
+        &[],
+        json!({"document": BOARD_DOC, "commit": head}),
+        "empty",
+    );
+    // A view the harness does not have.
+    match core.handle(proto::Request::ProduceArtifact {
+        harness: WHITEBOARD.into(),
+        view: "nothing".into(),
+        kind: "image.v1".into(),
+        name: "x.png".into(),
+        mime: "image/png".into(),
+        bytes: png.clone(),
+        fields: proto::Json(json!({"document": BOARD_DOC, "commit": head})),
+        summary: String::new(),
+    }) {
+        proto::Response::Error { message } => assert!(message.contains("no view"), "{message}"),
+        other => panic!("{other:?}"),
+    }
+
+    // No refusal wrote anything.
+    assert!(task_of(&mut core).artifacts.is_empty());
+    assert!(
+        documents(&mut core)
+            .iter()
+            .all(|d| !d.id.starts_with("blob:"))
+    );
+    assert!(
+        !core
+            .audit_log()
+            .records()
+            .iter()
+            .any(|r| r.event == "document.create")
+    );
+}
+
+#[test]
+fn an_export_over_the_limit_is_refused_by_size() {
+    let Some(mut core) = core() else { return };
+    stickies(&mut core, 1);
+    let head = head_of(&mut core, BOARD_DOC).unwrap();
+    let mut huge = vec![0u8; localspace_core::MAX_ARTIFACT_BYTES + 1];
+    huge[..PNG_MAGIC.len()].copy_from_slice(PNG_MAGIC);
+    match export(
+        &mut core,
+        "image.v1",
+        "huge.png",
+        "image/png",
+        &huge,
+        json!({"document": BOARD_DOC, "commit": head}),
+    ) {
+        proto::Response::Error { message } => assert!(message.contains("200 MiB"), "{message}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn undo_after_an_export_takes_back_the_export_and_leaves_the_board() {
+    let Some(mut core) = core() else { return };
+    stickies(&mut core, 1);
+    let head = head_of(&mut core, BOARD_DOC).unwrap();
+    let png = [PNG_MAGIC, &[2u8; 8]].concat();
+    let art = match export(
+        &mut core,
+        "image.v1",
+        "board.png",
+        "image/png",
+        &png,
+        json!({"document": BOARD_DOC, "commit": head}),
+    ) {
+        proto::Response::Artifact(a) => a,
+        other => panic!("{other:?}"),
+    };
+
+    // The export was the last thing done, so it is what undo takes back.
+    assert!(matches!(
+        core.handle(proto::Request::Undo),
+        proto::Response::Ok
+    ));
+    match core.handle(proto::Request::GetDocBlob {
+        doc: art.doc.clone(),
+    }) {
+        proto::Response::Error { message } => assert!(message.contains("undone"), "{message}"),
+        other => panic!("{other:?}"),
+    }
+    let listed = documents(&mut core)
+        .into_iter()
+        .find(|d| d.id == art.doc)
+        .expect("still listed, without content");
+    assert!(listed.head.is_none());
+    assert_eq!(listed.bytes, None);
+    assert_eq!(
+        board(&mut core)["shapes"].as_array().unwrap().len(),
+        1,
+        "the sticky is untouched"
+    );
+
+    // And redo brings the export back, bytes and all.
+    assert!(matches!(
+        core.handle(proto::Request::Redo),
+        proto::Response::Ok
+    ));
+    match core.handle(proto::Request::GetDocBlob { doc: art.doc }) {
+        proto::Response::DocBlob { bytes, .. } => assert_eq!(bytes, png),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn an_export_is_listed_and_readable_after_a_restart() {
+    let Some(harnesses) = harness_dir() else {
+        return;
+    };
+    let data = tempfile::tempdir().unwrap();
+    let make = || {
+        let mut cfg = config();
+        cfg.harness_dir = Some(harnesses.clone());
+        cfg.data_dir = Some(data.path().to_path_buf());
+        cfg
+    };
+    let png = [PNG_MAGIC, &[7u8; 32]].concat();
+    let doc = {
+        let mut core = Core::new(make()).unwrap();
+        stickies(&mut core, 1);
+        let head = head_of(&mut core, BOARD_DOC).unwrap();
+        match export(
+            &mut core,
+            "image.v1",
+            "board.png",
+            "image/png",
+            &png,
+            json!({"document": BOARD_DOC, "commit": head}),
+        ) {
+            proto::Response::Artifact(a) => a.doc,
+            other => panic!("{other:?}"),
+        }
+    };
+
+    let mut core = Core::new(make()).unwrap();
+    let listed = documents(&mut core)
+        .into_iter()
+        .find(|d| d.id == doc)
+        .expect("the export is listed after a restart");
+    assert_eq!(listed.title, "board.png");
+    assert_eq!(listed.bytes, Some(png.len() as u64));
+    match core.handle(proto::Request::GetDocBlob { doc }) {
+        proto::Response::DocBlob { bytes, .. } => assert_eq!(bytes, png),
+        other => panic!("{other:?}"),
+    }
+}

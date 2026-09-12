@@ -2,6 +2,7 @@
 export type { ActiveSet } from "./ActiveSet";
 export type { ApprovalKind } from "./ApprovalKind";
 export type { Artifact } from "./Artifact";
+export type { ArtifactFile } from "./ArtifactFile";
 export type { Author } from "./Author";
 export type { Body } from "./Body";
 export type { CapabilityHit } from "./CapabilityHit";
@@ -14,6 +15,8 @@ export type { ContextBlock } from "./ContextBlock";
 export type { ConversationSummary } from "./ConversationSummary";
 export type { CostHint } from "./CostHint";
 export type { DocKind } from "./DocKind";
+export type { DocumentInfo } from "./DocumentInfo";
+export type { DocumentSource } from "./DocumentSource";
 export type { DownloadState } from "./DownloadState";
 export type { EngineState } from "./EngineState";
 export type { Envelope } from "./Envelope";

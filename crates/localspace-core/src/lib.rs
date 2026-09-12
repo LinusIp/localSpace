@@ -68,6 +68,11 @@ pub const CORE_TOOLS: &[&str] = &[
 /// How many tool calls one agent turn may make before Core stops it.
 pub const MAX_AGENT_STEPS: usize = 24;
 
+/// The largest file a surface may hand Core as an artifact: the spec's default
+/// for `max_upload_mb` (deployment §3.3), a constant until `localspace.toml`
+/// carries the key.
+pub const MAX_ARTIFACT_BYTES: usize = 200 << 20;
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub user: String,
@@ -272,6 +277,7 @@ impl Core {
         if loaded {
             core.settle_packages();
         }
+        core.load_documents();
         Ok(core)
     }
 
@@ -464,6 +470,28 @@ impl Core {
 
     pub fn install(&mut self, dir: &std::path::Path) -> Result<proto::Response> {
         self.install_inner(dir, false)
+    }
+
+    /// The file documents the DAG records — exports, later uploads — known
+    /// to the store and the ACL without their bytes, which are read from the
+    /// DAG when asked for, so a workspace of exports costs Core nothing at
+    /// idle.
+    fn load_documents(&mut self) {
+        let records = match self.dag.documents() {
+            Ok(records) => records,
+            Err(e) => {
+                self.notice(
+                    proto::NoticeLevel::Warn,
+                    format!("the documents table could not be read: {e:#}"),
+                );
+                return;
+            }
+        };
+        for (id, record) in records {
+            self.docs.ensure(&id, record.kind);
+            let ws = self.workspace.clone();
+            self.access.add_document(&id, &ws, &record.title, None);
+        }
     }
 
     /// Where packages installed from a catalog live: the environment's own
@@ -1145,7 +1173,14 @@ impl Core {
         // reference other harnesses can import. Only of a kind this harness
         // declared it `produces`; otherwise it is refused, out loud.
         if let Some(spec) = out.result.get("artifact").cloned() {
-            match self.register_artifact(owner, doc_id, commit_id.clone(), &spec, &diff_summary) {
+            match self.register_artifact(
+                owner,
+                doc_id,
+                commit_id.clone(),
+                &spec,
+                &diff_summary,
+                None,
+            ) {
                 Ok(id) => {
                     let kind = spec.get("kind").and_then(|k| k.as_str()).unwrap_or("?");
                     diff_summary = format!("{diff_summary} → {id} ({kind})");
@@ -1575,6 +1610,7 @@ impl Core {
         commit: Option<String>,
         spec: &J,
         fallback_summary: &str,
+        file: Option<proto::ArtifactFile>,
     ) -> std::result::Result<String, String> {
         let kind = spec
             .get("kind")
@@ -1633,6 +1669,7 @@ impl Core {
             summary,
             produced_by: owner.to_string(),
             fields: proto::Json(J::Object(fields)),
+            file,
         });
         let _ = self.audit.append(
             self.actor(),
@@ -1643,6 +1680,282 @@ impl Core {
         );
         self.emit_task();
         Ok(id)
+    }
+
+    /// A file a surface rendered from its harness's document — a PNG or an
+    /// SVG of a board — kept as a document of its own and registered as a
+    /// typed artifact pinned to it (plugin spec §18.3). The export is not a
+    /// change to the board: its commit is on the export document, so the
+    /// board's history stays the board's. Everything is checked before
+    /// anything is written.
+    #[allow(clippy::too_many_arguments)]
+    fn produce_artifact(
+        &mut self,
+        harness: &str,
+        view: &str,
+        kind: &str,
+        offered_name: &str,
+        mime: &str,
+        bytes: Vec<u8>,
+        fields: J,
+        summary: &str,
+    ) -> std::result::Result<proto::Artifact, String> {
+        let Some(h) = self.registry.get(harness) else {
+            return Err(format!("no harness `{harness}`"));
+        };
+        if h.manifest.view(view).is_none() {
+            return Err(format!("`{harness}` has no view `{view}`"));
+        }
+        if !h.manifest.contributes.produces.iter().any(|k| k == kind) {
+            return Err(format!(
+                "`{harness}` does not declare that it produces {kind}; add it to [contributes] produces"
+            ));
+        }
+        let own_doc = h.doc_id.clone();
+        if let Err(denied) = self.access.check(&self.identity(), &own_doc, Level::View) {
+            return Err(denied.to_string());
+        }
+        let Some((package, decl)) = self.registry.type_decl(kind) else {
+            return Err(format!(
+                "`{kind}` is not declared by any installed types package"
+            ));
+        };
+        if decl.mime != mime {
+            return Err(format!(
+                "an artifact of `{kind}` is `{}`, says `{}`; this export claims `{mime}`",
+                decl.mime,
+                package.id()
+            ));
+        }
+        let name = docs::file_name(offered_name, &decl.extension);
+        let fields = fields.as_object().cloned().unwrap_or_default();
+        let missing = decl.missing(&fields);
+        if !missing.is_empty() {
+            return Err(format!(
+                "an artifact of `{kind}` carries the field(s) {}, says `{}`; this one lacks them",
+                missing.join(", "),
+                package.id()
+            ));
+        }
+        // Provenance is real or refused: a surface exports its own harness's
+        // document, at a commit that is on it. An untouched document has no
+        // commits, and its export says so with an empty one.
+        let source_doc = fields.get("document").and_then(|d| d.as_str());
+        if let Some(document) = source_doc
+            && document != own_doc
+        {
+            return Err(format!(
+                "`{harness}` may export its own document `{own_doc}`, not `{document}`"
+            ));
+        }
+        let source_commit = fields
+            .get("commit")
+            .and_then(|c| c.as_str())
+            .unwrap_or_default()
+            .to_string();
+        if fields.contains_key("commit") {
+            match self.dag.get_commit(&source_commit) {
+                Ok(Some(c)) if c.doc == own_doc => {}
+                Ok(Some(c)) => {
+                    return Err(format!(
+                        "commit `{source_commit}` is on `{}`, not on `{own_doc}`",
+                        c.doc
+                    ));
+                }
+                _ => {
+                    let untouched = self.dag.head(&own_doc).ok().flatten().is_none();
+                    if !(source_commit.is_empty() && untouched) {
+                        return Err(format!("`{source_commit}` is not a commit on `{own_doc}`"));
+                    }
+                }
+            }
+        }
+        if bytes.is_empty() {
+            return Err("the export is empty".into());
+        }
+        if bytes.len() > MAX_ARTIFACT_BYTES {
+            return Err(format!(
+                "the export is {} bytes; the limit is {} MiB",
+                bytes.len(),
+                MAX_ARTIFACT_BYTES >> 20
+            ));
+        }
+
+        // Identical bytes are one document; each export is its own commit.
+        let hash = blake3::hash(&bytes).to_hex().to_string();
+        let doc_id = format!("blob:{hash}");
+        let size = bytes.len() as u64;
+        self.docs.ensure(&doc_id, proto::DocKind::Blob);
+        let ws = self.workspace.clone();
+        self.access.add_document(&doc_id, &ws, &name, None);
+        let diff = format!("exported {name}, {size} bytes of {kind}");
+        let commit = self
+            .dag
+            .commit(
+                &doc_id,
+                harness,
+                "surface:export",
+                Json(serde_json::json!({
+                    "kind": kind,
+                    "name": name,
+                    "document": own_doc,
+                    "commit": source_commit,
+                })),
+                &bytes,
+                &diff,
+                proto::Author::User,
+                None,
+            )
+            .map_err(|e| format!("{e:#}"))?;
+        let record = dag::DocumentRecord {
+            title: name.clone(),
+            kind: proto::DocKind::Blob,
+            mime: mime.to_string(),
+            bytes: size,
+            hash,
+            source: proto::DocumentSource::Export {
+                harness: harness.to_string(),
+                document: own_doc.clone(),
+                commit: source_commit,
+            },
+            created_ms: dag::now_ms(),
+        };
+        self.dag
+            .put_document(&doc_id, &record)
+            .map_err(|e| format!("{e:#}"))?;
+        let _ = self.audit.append(
+            self.actor(),
+            self.scope(&doc_id),
+            "document.create",
+            serde_json::json!({
+                "source": "export",
+                "harness": harness,
+                "kind": kind,
+                "mime": mime,
+                "bytes": size,
+                "name": name,
+            }),
+            "ok",
+        );
+        let spec = serde_json::json!({"kind": kind, "summary": summary, "fields": fields});
+        let file = proto::ArtifactFile {
+            name,
+            mime: mime.to_string(),
+            bytes: size,
+        };
+        let id =
+            self.register_artifact(harness, &doc_id, Some(commit.id), &spec, &diff, Some(file))?;
+        self.emit(proto::Event::DocChanged { doc: doc_id });
+        self.task
+            .artifacts
+            .iter()
+            .find(|a| a.id == id)
+            .cloned()
+            .ok_or_else(|| format!("`{id}` was registered and is not in the ledger"))
+    }
+
+    /// Every document the caller may see: each harness's, and every file
+    /// document the DAG records.
+    fn list_documents(&self) -> Vec<proto::DocumentInfo> {
+        let identity = self.identity();
+        let head_and_hash = |doc: &str| {
+            let head = self.dag.head(doc).ok().flatten();
+            let hash = head
+                .as_ref()
+                .and_then(|id| self.dag.get_commit(id).ok().flatten())
+                .map(|c| c.doc_hash)
+                .unwrap_or_default();
+            (head, hash)
+        };
+        let mut out = Vec::new();
+        for h in self
+            .registry
+            .iter()
+            .filter(|h| h.manifest.package.kind.is_harness())
+        {
+            if self
+                .access
+                .check(&identity, &h.doc_id, Level::View)
+                .is_err()
+            {
+                continue;
+            }
+            let (head, hash) = head_and_hash(&h.doc_id);
+            let kind = h.doc_kind();
+            out.push(proto::DocumentInfo {
+                id: h.doc_id.clone(),
+                title: h.manifest.harness.title.clone(),
+                kind,
+                mime: match kind {
+                    proto::DocKind::Crdt => "application/json".into(),
+                    proto::DocKind::Blob => "application/octet-stream".into(),
+                },
+                bytes: None,
+                hash,
+                head,
+                source: proto::DocumentSource::Harness {
+                    harness: h.id().to_string(),
+                },
+                created_ms: None,
+            });
+        }
+        for (id, record) in self.dag.documents().unwrap_or_default() {
+            if self.access.check(&identity, &id, Level::View).is_err() {
+                continue;
+            }
+            let (head, hash) = head_and_hash(&id);
+            out.push(proto::DocumentInfo {
+                id,
+                title: record.title,
+                kind: record.kind,
+                mime: record.mime,
+                // Undone, the document has no content; the record's size is
+                // its content's only while that content is the head's.
+                bytes: (hash == record.hash).then_some(record.bytes),
+                hash,
+                head,
+                source: record.source,
+                created_ms: Some(record.created_ms),
+            });
+        }
+        out.sort_by(|a, b| a.title.cmp(&b.title).then(a.id.cmp(&b.id)));
+        out
+    }
+
+    /// A file document's bytes at its head, with the name and media type a
+    /// download needs. Reading a file is a document read, and audited as one.
+    fn doc_blob(&self, doc: &str) -> std::result::Result<(String, String, Vec<u8>), String> {
+        if let Err(denied) = self.access.check(&self.identity(), doc, Level::View) {
+            return Err(denied.to_string());
+        }
+        let record = self
+            .dag
+            .get_document(doc)
+            .map_err(|e| format!("{e:#}"))?
+            .ok_or_else(|| format!("`{doc}` is not a file"))?;
+        let head = self
+            .dag
+            .head(doc)
+            .map_err(|e| format!("{e:#}"))?
+            .ok_or_else(|| format!("`{doc}` has no content; its export was undone"))?;
+        let commit = self
+            .dag
+            .get_commit(&head)
+            .map_err(|e| format!("{e:#}"))?
+            .ok_or_else(|| format!("commit `{head}` is missing from the history"))?;
+        let bytes = self
+            .dag
+            .get_blob(&commit.doc_hash)
+            .map_err(|e| format!("{e:#}"))?
+            .ok_or_else(|| format!("the content of `{doc}` is missing from the blob store"))?;
+        let _ = self.audit.append(
+            self.actor(),
+            self.scope(doc),
+            "document.read",
+            serde_json::json!({"name": record.title, "bytes": bytes.len()}),
+            "ok",
+        );
+        Ok((record.title, record.mime, bytes))
     }
 
     // -- residency (spec §1.2) ----------------------------------------------
@@ -2096,6 +2409,31 @@ impl Core {
                     json: Json(json),
                 }
             }
+
+            R::ProduceArtifact {
+                harness,
+                view,
+                kind,
+                name,
+                mime,
+                bytes,
+                fields,
+                summary,
+            } => match self.produce_artifact(
+                &harness, &view, &kind, &name, &mime, bytes, fields.0, &summary,
+            ) {
+                Ok(artifact) => proto::Response::Artifact(artifact),
+                Err(message) => proto::Response::Error { message },
+            },
+
+            R::ListDocuments => proto::Response::Documents {
+                documents: self.list_documents(),
+            },
+
+            R::GetDocBlob { doc } => match self.doc_blob(&doc) {
+                Ok((name, mime, bytes)) => proto::Response::DocBlob { name, mime, bytes },
+                Err(message) => proto::Response::Error { message },
+            },
 
             R::WriteDoc {
                 harness,
