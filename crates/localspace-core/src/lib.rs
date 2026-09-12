@@ -227,10 +227,17 @@ impl Core {
             .unwrap_or_else(|| std::env::temp_dir().join("localspace").join("models"));
         let models = models::Catalog::load(cfg.models_dir.as_deref(), &models_store);
 
-        let conversations = conversations::Store::load(cfg.data_dir.as_deref(), dag::now_ms());
+        let conversations =
+            conversations::Store::load(&store, &cfg.user, &workspace, dag::now_ms());
         let transcript = conversations
             .current()
             .map(|c| c.messages.clone())
+            .unwrap_or_default();
+        // The ledger outlives the process (plugin spec §18.1: artifacts
+        // carry across runs), per user and workspace.
+        let task = store
+            .ledger(&cfg.user, &workspace)
+            .unwrap_or_default()
             .unwrap_or_default();
 
         let mut core = Core {
@@ -257,7 +264,7 @@ impl Core {
             pending_installs: HashMap::new(),
             proposals: Vec::new(),
             run: None,
-            task: proto::Task::default(),
+            task,
             workspace,
             sync_states: HashMap::new(),
             sync_clock: 0,
@@ -643,6 +650,36 @@ impl Core {
                 seen.len()
             ));
         }
+        if version < 3 {
+            // v2 → v3: conversations move from `conversations.json` into the
+            // database, the one user's, in their personal workspace; the file
+            // stays, renamed, as the copy taken before migrating.
+            if let Some(dir) = self.cfg.data_dir.clone() {
+                let path = dir.join(conversations::LEGACY_FILE);
+                if let Some((list, current)) = conversations::read_legacy_file(&path) {
+                    let count = list.len();
+                    self.conversations.import(list, current);
+                    self.transcript = self
+                        .conversations
+                        .current()
+                        .map(|c| c.messages.clone())
+                        .unwrap_or_default();
+                    let kept = dir.join(format!("{}.imported", conversations::LEGACY_FILE));
+                    if let Err(e) = std::fs::rename(&path, &kept) {
+                        self.notice(
+                            proto::NoticeLevel::Warn,
+                            format!(
+                                "{} was imported but could not be renamed: {e}",
+                                path.display()
+                            ),
+                        );
+                    }
+                    self.trace(format!(
+                        "database: migrated to schema 3; {count} conversation(s) imported"
+                    ));
+                }
+            }
+        }
         if let Err(e) = self.store.set_schema_version(store::SCHEMA_VERSION) {
             self.notice(
                 proto::NoticeLevel::Error,
@@ -862,19 +899,13 @@ impl Core {
 
     // -- conversations (v2 §8) ------------------------------------------------
 
-    /// Write the transcript into the current conversation and save.
+    /// Write the transcript into the current conversation; the store writes
+    /// it through.
     pub(crate) fn record_conversation(&mut self) {
         if self.evals_running {
             return;
         }
         self.conversations.record(&self.transcript, dag::now_ms());
-        self.save_conversations();
-    }
-
-    fn save_conversations(&self) {
-        if let Err(e) = self.conversations.save() {
-            self.trace(format!("conversations: not saved: {e:#}"));
-        }
     }
 
     fn conversations_response(&self) -> proto::Response {
@@ -1651,6 +1682,12 @@ impl Core {
     // -- the task ledger (spec §18) ------------------------------------------
 
     pub(crate) fn emit_task(&self) {
+        if let Err(e) = self
+            .store
+            .put_ledger(&self.cfg.user, &self.workspace, &self.task)
+        {
+            self.trace(format!("ledger: not written: {e:#}"));
+        }
         self.emit(proto::Event::TaskChanged(self.task.clone()));
     }
 
@@ -2276,7 +2313,6 @@ impl Core {
                 self.record_conversation();
                 self.conversations.start(dag::now_ms());
                 self.transcript.clear();
-                self.save_conversations();
                 self.emit(proto::Event::ConversationChanged {
                     current: self.conversations.current.clone(),
                 });
@@ -2288,7 +2324,6 @@ impl Core {
                 match self.conversations.select(&id) {
                     Some(c) => {
                         self.transcript = c.messages.clone();
-                        self.save_conversations();
                         self.emit(proto::Event::ConversationChanged { current: id });
                         self.conversations_response()
                     }
@@ -2310,7 +2345,6 @@ impl Core {
                     .current()
                     .map(|c| c.messages.clone())
                     .unwrap_or_default();
-                self.save_conversations();
                 self.emit(proto::Event::ConversationChanged {
                     current: self.conversations.current.clone(),
                 });
@@ -2323,7 +2357,6 @@ impl Core {
                         message: format!("no conversation `{id}`"),
                     };
                 }
-                self.save_conversations();
                 self.conversations_response()
             }
 

@@ -221,3 +221,90 @@ fn the_oldest_document_is_the_one_shown_when_a_workspace_holds_several() {
         "the second is held, under its own name"
     );
 }
+
+fn conversations(core: &mut Core) -> (Vec<proto::ConversationSummary>, String) {
+    match core.handle(proto::Request::ListConversations) {
+        proto::Response::Conversations { list, current } => (list, current),
+        other => panic!("ListConversations failed: {other:?}"),
+    }
+}
+
+#[test]
+fn the_legacy_conversations_file_is_imported_once_and_the_ledger_survives_a_restart() {
+    let data = tempfile::tempdir().unwrap();
+    let Some(cfg) = config(data.path()) else {
+        return;
+    };
+    // A v2 database, as 2026-09-12's first store commit wrote, with the
+    // conversations still in the file beside it.
+    {
+        let core = Core::new(cfg).unwrap();
+        drop(core);
+        let store = Store::open(data.path()).unwrap();
+        store.set_schema_version(2).unwrap();
+    }
+    let legacy = data.path().join("conversations.json");
+    std::fs::write(
+        &legacy,
+        json!({
+            "version": 1,
+            "current": "c_old_2",
+            "conversations": [
+                {"id": "c_old_1", "title": "Risks", "created_ms": 1, "updated_ms": 2,
+                 "messages": [{"role": "user", "content": "Put three risks on the board", "tool_calls": []}]},
+                {"id": "c_old_2", "title": "Launch", "created_ms": 3, "updated_ms": 4,
+                 "messages": [{"role": "user", "content": "Plan the launch", "tool_calls": []}]}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let mut core = Core::new(config(data.path()).unwrap()).unwrap();
+    let (list, current) = conversations(&mut core);
+    assert_eq!(
+        current, "c_old_2",
+        "the file's current conversation is current"
+    );
+    let titles: Vec<&str> = list.iter().map(|c| c.title.as_str()).collect();
+    assert_eq!(
+        titles,
+        vec!["Launch", "Risks"],
+        "both came in, and no placeholder beside them"
+    );
+    match core.handle(proto::Request::GetTranscript) {
+        proto::Response::Transcript { messages } => {
+            assert_eq!(messages[0].content, "Plan the launch")
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(!legacy.exists(), "the file was renamed");
+    assert!(data.path().join("conversations.json.imported").exists());
+
+    // The ledger: an artifact registered now is there after a restart.
+    add_sticky(&mut core);
+    match core.handle(proto::Request::CallTool {
+        tool: "canvas.export_outline".into(),
+        params: proto::Json(json!({})),
+    }) {
+        proto::Response::ToolResult(proto::ToolOutcome::Ok { .. }) => {}
+        other => panic!("export_outline failed: {other:?}"),
+    }
+    drop(core);
+    let mut core = Core::new(config(data.path()).unwrap()).unwrap();
+    match core.handle(proto::Request::GetTask) {
+        proto::Response::Task(task) => {
+            assert_eq!(task.artifacts.len(), 1, "the ledger survived the restart");
+            assert_eq!(task.artifacts[0].kind, "outline.v1");
+        }
+        other => panic!("{other:?}"),
+    }
+    let (list, current) = conversations(&mut core);
+    assert_eq!(current, "c_old_2");
+    assert_eq!(list.len(), 2, "imported once, not again");
+    drop(core);
+    assert_eq!(
+        Store::open(data.path()).unwrap().schema_version().unwrap(),
+        SCHEMA_VERSION
+    );
+}

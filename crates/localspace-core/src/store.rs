@@ -5,6 +5,7 @@
 //! have; Core brings an older file up to date at start, forward only, after
 //! a copy has been taken.
 
+use crate::conversations::Conversation;
 use anyhow::{Context, Result};
 use localspace_proto as proto;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
@@ -15,16 +16,29 @@ use std::sync::Arc;
 pub const FILE: &str = "localspace.redb";
 /// Its name before 2026-09-12, when it held the DAG alone.
 pub const V1_FILE: &str = "dag.redb";
-/// The shape of the tables this code writes.
-pub const SCHEMA_VERSION: u32 = 2;
+/// The shape of the tables this code writes: 2 gave documents their records
+/// and ids; 3 moved conversations and the ledger in, per user and workspace.
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Small key/value slots about the database itself.
 const SETTINGS: TableDefinition<&str, &[u8]> = TableDefinition::new("settings");
 /// Document id -> `DocumentRecord`: every document Core knows by name — a
 /// harness's, an export, later an upload or a cached page.
 const DOCUMENTS: TableDefinition<&str, &[u8]> = TableDefinition::new("documents");
+/// `user ␟ workspace ␟ id` -> `Conversation` (deployment §5: a conversation
+/// runs inside one workspace and is the user's own).
+const CONVERSATIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("conversations");
+/// `user ␟ workspace ␟ what` -> a small per-user, per-workspace value: the
+/// current conversation, the agent's ledger.
+const USER_STATE: TableDefinition<&str, &[u8]> = TableDefinition::new("user_state");
 
 const SCHEMA_KEY: &str = "schema_version";
+/// Between the parts of a scoped key: a character no id contains.
+const SEP: char = '\u{1f}';
+
+fn scoped(user: &str, workspace: &str, tail: &str) -> String {
+    format!("{user}{SEP}{workspace}{SEP}{tail}")
+}
 
 /// What Core remembers about a document besides its history: enough to list
 /// it, to know whose it is, and to serve a file without reading its bytes.
@@ -102,6 +116,8 @@ impl Store {
         {
             txn.open_table(SETTINGS)?;
             txn.open_table(DOCUMENTS)?;
+            txn.open_table(CONVERSATIONS)?;
+            txn.open_table(USER_STATE)?;
         }
         txn.commit()?;
         Ok(())
@@ -174,6 +190,89 @@ impl Store {
         }
         Ok(out)
     }
+
+    // -- conversations, per user and workspace ------------------------------
+
+    pub fn conversations(&self, user: &str, workspace: &str) -> Result<Vec<Conversation>> {
+        let prefix = scoped(user, workspace, "");
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(CONVERSATIONS)?;
+        let mut out = Vec::new();
+        for entry in t.range::<&str>(prefix.as_str()..)? {
+            let (k, v) = entry?;
+            if !k.value().starts_with(&prefix) {
+                break;
+            }
+            out.push(serde_json::from_slice(v.value())?);
+        }
+        Ok(out)
+    }
+
+    pub fn put_conversation(&self, user: &str, workspace: &str, c: &Conversation) -> Result<()> {
+        let encoded = serde_json::to_vec(c)?;
+        let key = scoped(user, workspace, &c.id);
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(CONVERSATIONS)?;
+            t.insert(key.as_str(), encoded.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub fn delete_conversation(&self, user: &str, workspace: &str, id: &str) -> Result<bool> {
+        let key = scoped(user, workspace, id);
+        let txn = self.db.begin_write()?;
+        let removed = {
+            let mut t = txn.open_table(CONVERSATIONS)?;
+            t.remove(key.as_str())?.is_some()
+        };
+        txn.commit()?;
+        Ok(removed)
+    }
+
+    pub fn current_conversation(&self, user: &str, workspace: &str) -> Result<Option<String>> {
+        let key = scoped(user, workspace, "current");
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(USER_STATE)?;
+        Ok(t.get(key.as_str())?
+            .map(|g| String::from_utf8_lossy(g.value()).to_string()))
+    }
+
+    pub fn set_current_conversation(&self, user: &str, workspace: &str, id: &str) -> Result<()> {
+        let key = scoped(user, workspace, "current");
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(USER_STATE)?;
+            t.insert(key.as_str(), id.as_bytes())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    // -- the agent's ledger, per user and workspace (plugin spec §18.1) -------
+
+    pub fn ledger(&self, user: &str, workspace: &str) -> Result<Option<proto::Task>> {
+        let key = scoped(user, workspace, "ledger");
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(USER_STATE)?;
+        match t.get(key.as_str())? {
+            Some(g) => Ok(Some(serde_json::from_slice(g.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn put_ledger(&self, user: &str, workspace: &str, task: &proto::Task) -> Result<()> {
+        let encoded = serde_json::to_vec(task)?;
+        let key = scoped(user, workspace, "ledger");
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(USER_STATE)?;
+            t.insert(key.as_str(), encoded.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -195,6 +294,72 @@ mod tests {
             harness: Some("io.localspace.whiteboard".into()),
             created_by: "tester".into(),
         }
+    }
+
+    #[test]
+    fn conversations_and_the_ledger_are_kept_per_user_and_workspace() {
+        let store = Store::in_memory().unwrap();
+        let c = |id: &str, title: &str| Conversation {
+            id: id.into(),
+            title: title.into(),
+            created_ms: 1,
+            updated_ms: 2,
+            messages: Vec::new(),
+        };
+        store
+            .put_conversation("anna", "ws_anna", &c("c_1", "one"))
+            .unwrap();
+        store
+            .put_conversation("anna", "ws_anna", &c("c_2", "two"))
+            .unwrap();
+        store
+            .put_conversation("anna", "ws_team", &c("c_1", "team"))
+            .unwrap();
+        store
+            .put_conversation("ben", "ws_ben", &c("c_1", "ben"))
+            .unwrap();
+        let anna: Vec<String> = store
+            .conversations("anna", "ws_anna")
+            .unwrap()
+            .into_iter()
+            .map(|c| c.title)
+            .collect();
+        assert_eq!(anna, vec!["one", "two"]);
+        assert_eq!(
+            store.conversations("anna", "ws_team").unwrap()[0].title,
+            "team"
+        );
+        assert_eq!(store.conversations("ben", "ws_ben").unwrap().len(), 1);
+        assert!(store.conversations("carla", "ws_carla").unwrap().is_empty());
+
+        assert!(store.delete_conversation("anna", "ws_anna", "c_1").unwrap());
+        assert!(!store.delete_conversation("anna", "ws_anna", "c_1").unwrap());
+        assert_eq!(store.conversations("anna", "ws_anna").unwrap().len(), 1);
+
+        assert_eq!(store.current_conversation("anna", "ws_anna").unwrap(), None);
+        store
+            .set_current_conversation("anna", "ws_anna", "c_2")
+            .unwrap();
+        assert_eq!(
+            store
+                .current_conversation("anna", "ws_anna")
+                .unwrap()
+                .as_deref(),
+            Some("c_2")
+        );
+
+        assert!(store.ledger("anna", "ws_anna").unwrap().is_none());
+        let task = proto::Task {
+            id: "t_1".into(),
+            goal: "plan the launch".into(),
+            ..Default::default()
+        };
+        store.put_ledger("anna", "ws_anna", &task).unwrap();
+        assert_eq!(
+            store.ledger("anna", "ws_anna").unwrap().unwrap().goal,
+            "plan the launch"
+        );
+        assert!(store.ledger("anna", "ws_team").unwrap().is_none());
     }
 
     #[test]

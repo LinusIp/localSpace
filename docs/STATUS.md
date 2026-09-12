@@ -175,7 +175,7 @@ model's server-sent events and the agent forwards each piece as an
 the grammar's shape (measured over the JSON socket: 27 deltas for a
 128-character answer, the first 3.6 s in, which is the 3,700-token prompt
 being processed); **conversations**: several, switchable, deletable,
-renamable, persisted as `conversations.json` under the data directory, the
+renamable, kept in the database per user and workspace since 2026-09-12, the
 transcript always the current one, evals kept out of them, a conversation
 list beside the chat. Not yet: citations, which arrive with retrieval in
 step 6; the tool loop and the GBNF grammar were already there.
