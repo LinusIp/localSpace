@@ -58,7 +58,7 @@ impl Bench {
         let mut core = Core::new(cfg).expect("creating Core");
         let events: Arc<Mutex<Vec<proto::Event>>> = Arc::new(Mutex::new(Vec::new()));
         let sink = events.clone();
-        core.set_event_sink(Box::new(move |e| sink.lock().unwrap().push(e)));
+        core.set_event_sink(Box::new(move |_to, e| sink.lock().unwrap().push(e)));
         // A commit so the document has content and a history.
         core.handle(proto::Request::CallTool {
             tool: "canvas.add_sticky".into(),

@@ -270,7 +270,10 @@ export const useSession = createStore<Session>((set, get) => {
         void get().refreshTranscript();
         return;
       }
-      if (typeof event === "string") return;
+      if (typeof event === "string") {
+        if (event === "environment_outdated") void get().refreshEnvironment();
+        return;
+      }
       if ("environment_changed" in event) set({ environment: event.environment_changed });
       else if ("assistant_delta" in event)
         set((s) => ({ streaming: s.streaming + event.assistant_delta.text }));

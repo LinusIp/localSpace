@@ -43,6 +43,7 @@ impl ProviderCache {
 ///
 /// `focus` gets the focused budget; each pinned or touched harness gets the
 /// smaller pinned budget; the total is capped by the profile's context budget.
+#[allow(clippy::too_many_arguments)]
 pub fn assemble(
     registry: &mut Registry,
     docs: &mut DocStore,
@@ -50,6 +51,7 @@ pub fn assemble(
     profile: &ModelProfile,
     focus: Option<&str>,
     also: &[String],
+    doc_ids: &std::collections::HashMap<String, proto::DocId>,
 ) -> Vec<proto::ContextBlock> {
     let mut wanted: Vec<(String, usize)> = Vec::new();
     if let Some(f) = focus {
@@ -75,7 +77,9 @@ pub fn assemble(
         if !h.enabled || !h.manifest.contributes.context_provider {
             continue;
         }
-        let doc_id = h.doc_id.clone();
+        let Some(doc_id) = doc_ids.get(&id).cloned() else {
+            continue;
+        };
         let doc = docs.json(&doc_id).unwrap_or(serde_json::Value::Null);
         let doc_hash = blake3::hash(doc.to_string().as_bytes()).to_hex()[..16].to_string();
 

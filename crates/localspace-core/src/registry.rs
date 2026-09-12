@@ -23,9 +23,6 @@ pub struct Installed {
     /// that feature disabled rather than failing to install.
     pub degraded: Option<String>,
     pub runtime: Option<Box<dyn HarnessRuntime>>,
-    /// The document this Core shows for the harness, assigned at install
-    /// (`Core::harness_document`); until then, the harness's name.
-    pub doc_id: String,
     /// When the logic instance last did anything. Idle past `idle_unload`, it
     /// is dropped; the document stays; the next call re-instantiates it.
     pub last_used: std::time::Instant,
@@ -295,7 +292,6 @@ impl Registry {
         let mut manifest = manifest;
         manifest.capabilities = effective;
 
-        let doc_id = manifest.harness.id.replace('.', "_");
         let idle_unload = manifest.resources.idle_unload_duration();
         Ok(Installed {
             manifest,
@@ -304,7 +300,6 @@ impl Registry {
             enabled: true,
             degraded,
             runtime: None,
-            doc_id,
             last_used: std::time::Instant::now(),
             idle_unload,
             types,
@@ -589,7 +584,6 @@ tools = "tools.json"
             enabled: true,
             degraded: None,
             runtime: None,
-            doc_id: id.replace('.', "_"),
             last_used: std::time::Instant::now(),
             idle_unload: std::time::Duration::from_secs(300),
             types: Default::default(),

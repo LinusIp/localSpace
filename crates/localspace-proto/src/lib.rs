@@ -89,6 +89,28 @@ impl<'de> Deserialize<'de> for Json {
     }
 }
 
+/// An organisation role (deployment §4.3, the three of Pilot 1). What a
+/// user may do to a document is the document's level (§6.1), not the role.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum UserRole {
+    Admin,
+    Member,
+    Viewer,
+}
+
+impl UserRole {
+    pub fn label(self) -> &'static str {
+        match self {
+            UserRole::Admin => "admin",
+            UserRole::Member => "member",
+            UserRole::Viewer => "viewer",
+        }
+    }
+}
+
 pub type HarnessId = String;
 pub type ViewId = String;
 pub type DocId = String;
@@ -1087,7 +1109,12 @@ pub struct EvalCase {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Event {
+    /// The environment as the user it is sent to sees it.
     EnvironmentChanged(EnvironmentState),
+    /// Something shared changed — a harness installed, the network mode,
+    /// the model — so every user's view of the environment is stale; each
+    /// asks for its own again.
+    EnvironmentOutdated,
     /// Streamed assistant text.
     AssistantDelta {
         text: String,

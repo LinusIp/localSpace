@@ -40,7 +40,7 @@ fn core_with_fake_engine(dir: &Path) -> (Core, Arc<Mutex<Vec<proto::Event>>>) {
     let mut core = Core::new(cfg).expect("creating Core");
     let events = Arc::new(Mutex::new(Vec::new()));
     let sink = events.clone();
-    core.set_event_sink(Box::new(move |ev| sink.lock().unwrap().push(ev)));
+    core.set_event_sink(Box::new(move |_to, ev| sink.lock().unwrap().push(ev)));
     (core, events)
 }
 

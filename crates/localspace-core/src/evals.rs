@@ -142,13 +142,15 @@ pub fn resolve<'a>(doc: &'a J, path: &str) -> Option<&'a J> {
 
 /// Run a harness's suite against the model this environment has loaded.
 pub fn run(core: &mut Core, harness_id: &str) -> Result<proto::EvalReport> {
-    let (dir, doc_id) = {
-        let h = core
-            .registry
-            .get(harness_id)
-            .with_context(|| format!("no harness `{harness_id}`"))?;
-        (h.dir.clone(), h.doc_id.clone())
-    };
+    let dir = core
+        .registry
+        .get(harness_id)
+        .with_context(|| format!("no harness `{harness_id}`"))?
+        .dir
+        .clone();
+    let doc_id = core
+        .doc_for(harness_id)
+        .with_context(|| format!("`{harness_id}` has no document to run the suite on"))?;
     let path = dir.join("evals.json");
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("`{harness_id}` ships no evals.json at {}", path.display()))?;

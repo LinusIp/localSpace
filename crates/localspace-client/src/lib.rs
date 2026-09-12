@@ -335,6 +335,10 @@ It runs as a native process. Its stated reason: {reason}"
                 self.env = Some(env);
                 self.pending_env_refresh = true;
             }
+            // Something shared moved: ask for this user's view again.
+            E::EnvironmentOutdated => {
+                self.send(proto::Request::GetEnvironment);
+            }
             E::AssistantDelta { .. } | E::AssistantDone => {
                 self.send(proto::Request::GetTranscript);
             }

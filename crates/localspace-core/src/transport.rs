@@ -67,7 +67,9 @@ impl InProcess {
 
         let event_tx = core_tx.clone();
         let event_wake = wake.clone();
-        core.set_event_sink(Box::new(move |ev| {
+        // One client on this transport, so every event is its user's or
+        // everyone's; the server's transport routes by `To`.
+        core.set_event_sink(Box::new(move |_to, ev| {
             let _ = event_tx.send(Incoming::Event(ev));
             notify(&event_wake);
         }));

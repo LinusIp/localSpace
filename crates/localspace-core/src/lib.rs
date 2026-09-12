@@ -129,6 +129,62 @@ struct Pending {
     resume_agent: bool,
 }
 
+/// Who a request is made as: the server's session, or the local user of a
+/// personal Core. Core checks every request against it and routes every
+/// event of the handling to it.
+#[derive(Debug, Clone)]
+pub struct Caller {
+    pub user: String,
+    pub session: String,
+    pub ip: String,
+    pub roles: Vec<proto::UserRole>,
+    pub groups: Vec<String>,
+}
+
+impl Caller {
+    /// The one user of a personal Core: the admin of their own machine.
+    pub fn local(user: &str) -> Caller {
+        Caller {
+            user: user.to_string(),
+            session: "local".into(),
+            ip: String::new(),
+            roles: vec![proto::UserRole::Admin],
+            groups: Vec::new(),
+        }
+    }
+
+    fn role_label(&self) -> &'static str {
+        self.roles.first().map(|r| r.label()).unwrap_or("member")
+    }
+}
+
+/// Whom an event is for: one user's clients, or everyone's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum To {
+    User(String),
+    All,
+}
+
+/// Where Core's events go; the transport delivers each to its user.
+pub type Sink = Arc<dyn Fn(To, proto::Event) + Send + Sync>;
+
+/// What is one user's and not another's. Core carries the active caller's
+/// in its own fields and parks everyone else's here; `activate` swaps.
+struct UserState {
+    workspace: String,
+    focus: Option<String>,
+    pinned: Vec<String>,
+    touched: Vec<String>,
+    transcript: Vec<proto::ChatMessage>,
+    pending: HashMap<String, Pending>,
+    next_approval: u64,
+    pending_installs: HashMap<String, PathBuf>,
+    proposals: Vec<Proposal>,
+    run: Option<String>,
+    task: proto::Task,
+    conversations: conversations::Store,
+}
+
 /// An agent run that wrote to a shared document and is awaiting apply/discard.
 #[derive(Debug, Clone)]
 pub struct Proposal {
@@ -144,11 +200,13 @@ pub struct Proposal {
 /// so the one heard from longest ago is the one that has gone.
 const MAX_REPLICAS_PER_DOC: usize = 32;
 
-/// One replica's sync state, and when Core last heard from it.
+/// One replica's sync state, when Core last heard from it, and whose frame
+/// it is, so its patches go to that user alone.
 #[derive(Default)]
 struct ReplicaSync {
     state: automerge::sync::State,
     seen: u64,
+    user: String,
 }
 
 pub struct Core {
@@ -184,8 +242,13 @@ pub struct Core {
     /// Bumped on every sync message; a replica's `seen` is its value then.
     sync_clock: u64,
 
-    events: Option<engine::EventSink>,
-    /// Every conversation; `transcript` is the current one's messages.
+    events: Option<Sink>,
+    /// Whose request is being handled: the user the per-user fields belong to.
+    active: Caller,
+    /// Every other user's state, parked (`activate`).
+    users: HashMap<String, UserState>,
+    /// Every conversation of the active user in their workspace; `transcript`
+    /// is the current one's messages.
     conversations: conversations::Store,
     /// While evals run, their turns are not recorded as the user's.
     evals_running: bool,
@@ -270,6 +333,8 @@ impl Core {
             sync_clock: 0,
             events: None,
             next_approval: 1,
+            active: Caller::local(&cfg.user),
+            users: HashMap::new(),
             cfg,
         };
 
@@ -296,20 +361,35 @@ impl Core {
         Ok(core)
     }
 
-    pub fn set_event_sink(&mut self, sink: Box<dyn Fn(proto::Event) + Send + Sync>) {
+    pub fn set_event_sink(&mut self, sink: Box<dyn Fn(To, proto::Event) + Send + Sync>) {
         self.events = Some(Arc::from(sink));
     }
 
     /// The sink for Core's own threads — downloads, the engine supervisor —
-    /// which report the same way requests do.
+    /// whose news is everyone's: the model and the engine are shared.
     fn sink(&self) -> engine::EventSink {
-        self.events.clone().unwrap_or_else(|| Arc::new(|_| {}))
+        let events = self.events.clone();
+        Arc::new(move |ev| {
+            if let Some(sink) = &events {
+                sink(To::All, ev);
+            }
+        })
     }
 
-    fn emit(&self, ev: proto::Event) {
+    fn emit_to(&self, to: To, ev: proto::Event) {
         if let Some(sink) = &self.events {
-            sink(ev);
+            sink(to, ev);
         }
+    }
+
+    /// To the user whose request this is.
+    fn emit(&self, ev: proto::Event) {
+        self.emit_to(To::User(self.active.user.clone()), ev);
+    }
+
+    /// To everyone: a document changed, something shared moved.
+    fn emit_all(&self, ev: proto::Event) {
+        self.emit_to(To::All, ev);
     }
 
     fn trace(&self, line: impl Into<String>) {
@@ -353,23 +433,121 @@ impl Core {
     }
 
     fn identity(&self) -> Identity {
-        Identity::user(&self.cfg.user)
+        Identity {
+            user: self.active.user.clone(),
+            groups: self.active.groups.clone(),
+            break_glass: None,
+        }
     }
 
     fn actor(&self) -> Actor {
         Actor {
-            user: self.cfg.user.clone(),
-            role: "member".into(),
-            ..Default::default()
+            user: self.active.user.clone(),
+            session: self.active.session.clone(),
+            ip: self.active.ip.clone(),
+            role: self.active.role_label().into(),
         }
     }
 
     fn scope(&self, document: &str) -> Scope {
         Scope {
             workspace: self.workspace.clone(),
-            conversation: "c_1".into(),
+            conversation: self.conversations.current.clone(),
             document: document.to_string(),
         }
+    }
+
+    /// Make `caller` the user the per-user fields belong to: the previous
+    /// user's are parked, theirs are brought in or made. Nothing moves when
+    /// the same user calls again.
+    fn activate(&mut self, caller: &Caller) {
+        if self.active.user == caller.user {
+            self.active = caller.clone();
+            return;
+        }
+        let incoming = match self.users.remove(&caller.user) {
+            Some(state) => state,
+            None => self.fresh_user_state(&caller.user),
+        };
+        let parked = UserState {
+            workspace: std::mem::replace(&mut self.workspace, incoming.workspace),
+            focus: std::mem::replace(&mut self.focus, incoming.focus),
+            pinned: std::mem::replace(&mut self.pinned, incoming.pinned),
+            touched: std::mem::replace(&mut self.touched, incoming.touched),
+            transcript: std::mem::replace(&mut self.transcript, incoming.transcript),
+            pending: std::mem::replace(&mut self.pending, incoming.pending),
+            next_approval: std::mem::replace(&mut self.next_approval, incoming.next_approval),
+            pending_installs: std::mem::replace(
+                &mut self.pending_installs,
+                incoming.pending_installs,
+            ),
+            proposals: std::mem::replace(&mut self.proposals, incoming.proposals),
+            run: std::mem::replace(&mut self.run, incoming.run),
+            task: std::mem::replace(&mut self.task, incoming.task),
+            conversations: std::mem::replace(&mut self.conversations, incoming.conversations),
+        };
+        let previous = std::mem::replace(&mut self.active, caller.clone());
+        self.users.insert(previous.user, parked);
+    }
+
+    /// A user seen for the first time: their personal workspace (deployment
+    /// §5), their conversations and ledger from the database, and the first
+    /// harness in focus, as a fresh Core starts.
+    fn fresh_user_state(&mut self, user: &str) -> UserState {
+        let workspace = format!("ws_{user}");
+        if self.access.workspace(&workspace).is_none() {
+            self.access.add_workspace(Workspace::personal(user));
+        }
+        let conversations =
+            conversations::Store::load(&self.store, user, &workspace, dag::now_ms());
+        let transcript = conversations
+            .current()
+            .map(|c| c.messages.clone())
+            .unwrap_or_default();
+        let task = self
+            .store
+            .ledger(user, &workspace)
+            .unwrap_or_default()
+            .unwrap_or_default();
+        UserState {
+            workspace,
+            focus: self
+                .registry
+                .iter()
+                .find(|h| h.manifest.package.kind.is_harness())
+                .map(|h| h.id().to_string()),
+            pinned: Vec::new(),
+            touched: Vec::new(),
+            transcript,
+            pending: HashMap::new(),
+            next_approval: 1,
+            pending_installs: HashMap::new(),
+            proposals: Vec::new(),
+            run: None,
+            task,
+            conversations,
+        }
+    }
+
+    /// The active workspace's document for a harness, brought in on first
+    /// use: registered with the store and the ACL, and restored from its
+    /// history. `None` for a package that is not an installed harness.
+    fn doc_for(&mut self, harness: &str) -> Option<proto::DocId> {
+        let (title, kind) = {
+            let h = self.registry.get(harness)?;
+            if !h.manifest.package.kind.is_harness() {
+                return None;
+            }
+            (h.manifest.harness.title.clone(), h.doc_kind())
+        };
+        let doc_id = self.harness_document(harness, &title, kind);
+        if !self.docs.exists(&doc_id) {
+            self.docs.ensure(&doc_id, kind);
+            let ws = self.workspace.clone();
+            self.access.add_document(&doc_id, &ws, &title, None);
+            self.restore_from_dag(&doc_id);
+        }
+        Some(doc_id)
     }
 
     // -- harnesses ----------------------------------------------------------
@@ -427,27 +605,14 @@ impl Core {
         }
         // Each harness gets the document this workspace shows for it (spec
         // §10); a types or library package has nothing to edit.
-        let harnesses: Vec<(String, proto::DocKind, String)> = self
+        let harnesses: Vec<String> = self
             .registry
             .iter()
             .filter(|h| h.manifest.package.kind.is_harness())
-            .map(|h| {
-                (
-                    h.id().to_string(),
-                    h.doc_kind(),
-                    h.manifest.harness.title.clone(),
-                )
-            })
+            .map(|h| h.id().to_string())
             .collect();
-        for (id, kind, title) in harnesses {
-            let doc_id = self.harness_document(&id, &title, kind);
-            if let Some(h) = self.registry.get_mut(&id) {
-                h.doc_id = doc_id.clone();
-            }
-            self.docs.ensure(&doc_id, kind);
-            let ws = self.workspace.clone();
-            self.access.add_document(&doc_id, &ws, &title, None);
-            self.restore_from_dag(&doc_id);
+        for id in harnesses {
+            self.doc_for(&id);
         }
         if self.focus.is_none() {
             self.focus = self
@@ -507,7 +672,11 @@ impl Core {
             }
         };
         for (id, record) in records {
-            self.docs.ensure(&id, record.kind);
+            // A harness's document is brought in, and restored, when a
+            // workspace first asks for it (`doc_for`).
+            if record.harness.is_none() {
+                self.docs.ensure(&id, record.kind);
+            }
             let ws = if record.workspace.is_empty() {
                 self.workspace.clone()
             } else {
@@ -559,7 +728,7 @@ impl Core {
             created_ms: dag::now_ms(),
             workspace: ws,
             harness: Some(harness.to_string()),
-            created_by: self.cfg.user.clone(),
+            created_by: self.active.user.clone(),
         };
         if let Err(e) = self.store.put_document(&id, &record) {
             self.notice(
@@ -773,27 +942,19 @@ impl Core {
         }
 
         Registry::instantiate(&mut staged, self.services())?;
-        let kind = staged.doc_kind();
-        let title = staged.manifest.harness.title.clone();
         let id = staged.id().to_string();
         let staged_is_harness = staged.manifest.package.kind.is_harness();
+        self.registry.insert(staged);
 
         // The workspace's document for the harness (spec §10); a types or
         // library package has nothing to edit. A package installed again
         // finds its document where its history left it: the database is the
         // durable store, not the package.
         let doc_id = if staged_is_harness {
-            let doc_id = self.harness_document(&id, &title, kind);
-            staged.doc_id = doc_id.clone();
-            self.docs.ensure(&doc_id, kind);
-            let ws = self.workspace.clone();
-            self.access.add_document(&doc_id, &ws, &title, None);
-            self.restore_from_dag(&doc_id);
-            doc_id
+            self.doc_for(&id).unwrap_or_default()
         } else {
-            staged.doc_id.clone()
+            String::new()
         };
-        self.registry.insert(staged);
 
         let _ = self.audit.append(
             self.actor(),
@@ -1043,7 +1204,7 @@ impl Core {
             },
         };
         proto::EnvironmentState {
-            user: self.cfg.user.clone(),
+            user: self.active.user.clone(),
             network: gw.config.mode,
             network_ceiling: gw.config.ceiling,
             model,
@@ -1063,7 +1224,15 @@ impl Core {
         }
     }
 
+    /// The caller's own view, and a word to everyone else that theirs is
+    /// stale: something shared moved.
     fn broadcast_environment(&self) {
+        self.emit(proto::Event::EnvironmentChanged(self.environment()));
+        self.emit_all(proto::Event::EnvironmentOutdated);
+    }
+
+    /// The caller's own view alone: focus and pins are theirs.
+    fn emit_environment(&self) {
         self.emit(proto::Event::EnvironmentChanged(self.environment()));
     }
 
@@ -1108,6 +1277,12 @@ impl Core {
             }
         }
 
+        let mut doc_ids: HashMap<String, proto::DocId> = HashMap::new();
+        for id in focus.iter().chain(also.iter()) {
+            if let Some(doc) = self.doc_for(id) {
+                doc_ids.insert(id.clone(), doc);
+            }
+        }
         context::assemble(
             &mut self.registry,
             &mut self.docs,
@@ -1115,6 +1290,7 @@ impl Core {
             &self.cfg.profile,
             focus.as_deref(),
             &also,
+            &doc_ids,
         )
     }
 
@@ -1141,9 +1317,14 @@ impl Core {
             };
         };
 
-        let (decl, doc_id, enabled) = {
+        let (decl, enabled) = {
             let h = self.registry.get(&owner).expect("owner exists");
-            (h.tools.get(tool).cloned(), h.doc_id.clone(), h.enabled)
+            (h.tools.get(tool).cloned(), h.enabled)
+        };
+        let Some(doc_id) = self.doc_for(&owner) else {
+            return proto::ToolOutcome::Error {
+                message: format!("`{owner}` has no document to work on"),
+            };
         };
         let Some(decl) = decl else {
             return proto::ToolOutcome::Error {
@@ -1392,7 +1573,7 @@ impl Core {
     /// A document changed: tell whatever reads its JSON, and send every
     /// replica of it what that replica lacks.
     fn doc_changed(&mut self, doc_id: &str) {
-        self.emit(proto::Event::DocChanged {
+        self.emit_all(proto::Event::DocChanged {
             doc: doc_id.to_string(),
         });
         let peers: Vec<String> = self
@@ -1414,12 +1595,16 @@ impl Core {
         else {
             return;
         };
+        let owner = replica.user.clone();
         if let Some(message) = self.docs.sync_message(doc_id, &mut replica.state) {
-            self.emit(proto::Event::DocPatch {
-                doc: doc_id.to_string(),
-                peer: peer.to_string(),
-                message,
-            });
+            self.emit_to(
+                To::User(owner),
+                proto::Event::DocPatch {
+                    doc: doc_id.to_string(),
+                    peer: peer.to_string(),
+                    message,
+                },
+            );
         }
     }
 
@@ -1437,6 +1622,7 @@ impl Core {
     fn put_replica(&mut self, doc_id: &str, peer: &str, mut replica: ReplicaSync) {
         self.sync_clock += 1;
         replica.seen = self.sync_clock;
+        replica.user = self.active.user.clone();
         let replicas = self.sync_states.entry(doc_id.to_string()).or_default();
         if replicas.len() >= MAX_REPLICAS_PER_DOC
             && let Some(oldest) = replicas
@@ -1684,7 +1870,7 @@ impl Core {
     pub(crate) fn emit_task(&self) {
         if let Err(e) = self
             .store
-            .put_ledger(&self.cfg.user, &self.workspace, &self.task)
+            .put_ledger(&self.active.user, &self.workspace, &self.task)
         {
             self.trace(format!("ledger: not written: {e:#}"));
         }
@@ -1910,7 +2096,9 @@ impl Core {
                 "`{harness}` does not declare that it produces {kind}; add it to [contributes] produces"
             ));
         }
-        let own_doc = h.doc_id.clone();
+        let Some(own_doc) = self.doc_for(harness) else {
+            return Err(format!("`{harness}` has no document to export"));
+        };
         if let Err(denied) = self.access.check(&self.identity(), &own_doc, Level::View) {
             return Err(denied.to_string());
         }
@@ -2032,7 +2220,7 @@ impl Core {
             created_ms: dag::now_ms(),
             workspace: ws,
             harness: None,
-            created_by: self.cfg.user.clone(),
+            created_by: self.active.user.clone(),
         };
         self.store
             .put_document(&doc_id, &record)
@@ -2194,7 +2382,20 @@ impl Core {
 
     // -- request dispatch ---------------------------------------------------
 
+    /// A request from the local user of a personal Core.
     pub fn handle(&mut self, req: proto::Request) -> proto::Response {
+        let caller = Caller::local(&self.cfg.user);
+        self.handle_as(&caller, req)
+    }
+
+    /// A request from `caller`: the per-user state becomes theirs, every
+    /// check is made as them, and every event of the handling goes to them.
+    pub fn handle_as(&mut self, caller: &Caller, req: proto::Request) -> proto::Response {
+        self.activate(caller);
+        self.handle_inner(req)
+    }
+
+    fn handle_inner(&mut self, req: proto::Request) -> proto::Response {
         use proto::Request as R;
         self.tick();
         match req {
@@ -2217,7 +2418,7 @@ impl Core {
 
             R::SetFocus { harness } => {
                 self.focus = harness;
-                self.broadcast_environment();
+                self.emit_environment();
                 proto::Response::Ok
             }
 
@@ -2226,7 +2427,7 @@ impl Core {
                 if pinned {
                     self.pinned.push(harness);
                 }
-                self.broadcast_environment();
+                self.emit_environment();
                 proto::Response::Ok
             }
 
@@ -2428,9 +2629,7 @@ impl Core {
 
             R::GetWidgetView { harness, view } => {
                 let doc = self
-                    .registry
-                    .get(&harness)
-                    .map(|h| h.doc_id.clone())
+                    .doc_for(&harness)
                     .and_then(|d| self.docs.json(&d).ok())
                     .unwrap_or(J::Null);
                 let services = self.services();
@@ -2468,7 +2667,7 @@ impl Core {
                 event,
             } => {
                 let payload = widgets::event_to_json(&event).to_string().into_bytes();
-                self.handle(R::HarnessEvent {
+                self.handle_inner(R::HarnessEvent {
                     harness,
                     view,
                     payload,
@@ -2485,13 +2684,10 @@ impl Core {
                         message: "a surface message may not exceed 64 KB".into(),
                     };
                 }
-                let doc_id = match self.registry.get(&harness) {
-                    Some(h) => h.doc_id.clone(),
-                    None => {
-                        return proto::Response::Error {
-                            message: format!("no harness `{harness}`"),
-                        };
-                    }
+                let Some(doc_id) = self.doc_for(&harness) else {
+                    return proto::Response::Error {
+                        message: format!("no harness `{harness}`"),
+                    };
                 };
                 let doc = self.docs.json(&doc_id).unwrap_or(J::Null);
                 let services = self.services();
@@ -2548,13 +2744,16 @@ impl Core {
             }
 
             R::OpenDoc { harness } => {
-                let Some(h) = self.registry.get(&harness) else {
+                let Some(kind) = self.registry.get(&harness).map(|h| h.doc_kind()) else {
                     return proto::Response::Error {
                         message: format!("no harness `{harness}`"),
                     };
                 };
-                let doc = h.doc_id.clone();
-                let kind = h.doc_kind();
+                let Some(doc) = self.doc_for(&harness) else {
+                    return proto::Response::Error {
+                        message: format!("`{harness}` has no document"),
+                    };
+                };
                 if let Err(denied) = self.access.check(&self.identity(), &doc, Level::View) {
                     return proto::Response::Error {
                         message: denied.to_string(),
@@ -2569,12 +2768,11 @@ impl Core {
             }
 
             R::GetDocJson { harness } => {
-                let Some(h) = self.registry.get(&harness) else {
+                let Some(doc) = self.doc_for(&harness) else {
                     return proto::Response::Error {
                         message: format!("no harness `{harness}`"),
                     };
                 };
-                let doc = h.doc_id.clone();
                 if let Err(denied) = self.access.check(&self.identity(), &doc, Level::View) {
                     return proto::Response::Error {
                         message: denied.to_string(),
@@ -2629,7 +2827,11 @@ impl Core {
                         message: format!("`{harness}` has no view `{view}`"),
                     };
                 }
-                let doc_id = h.doc_id.clone();
+                let Some(doc_id) = self.doc_for(&harness) else {
+                    return proto::Response::Error {
+                        message: format!("`{harness}` has no document"),
+                    };
+                };
                 if let Err(denied) = self.access.check(&self.identity(), &doc_id, Level::Edit) {
                     return proto::Response::Error {
                         message: denied.to_string(),
@@ -2686,10 +2888,11 @@ impl Core {
                             let after = self.docs.json(&doc).unwrap_or(J::Null);
                             let changes = docs::diff_changes(&before, &after);
                             let harness = self
-                                .registry
-                                .iter()
-                                .find(|h| h.doc_id == doc)
-                                .map(|h| h.id().to_string())
+                                .store
+                                .get_document(&doc)
+                                .ok()
+                                .flatten()
+                                .and_then(|r| r.harness)
                                 .unwrap_or_else(|| "core".to_string());
                             let snapshot = self.docs.snapshot(&doc).unwrap_or_default();
                             let _ = self.dag.commit(
