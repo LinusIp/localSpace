@@ -4,6 +4,62 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-12, four directives on the shell and the canvas
+
+Given after seeing the running app: the right panel showed an endpoint, a
+port, a context size, tool counts, a token budget and "removed 1
+field(s)" — machinery, none of it the user's work, which is what makes an
+app feel like a wrapper. A lawyer at a bank should never learn what a token
+budget is. Nothing below changes Phase A's gate or the December date.
+
+- **Directive 1, hide the machinery** (plugin spec §8.1 on the indicator).
+  The right panel leaves the main screen. Active model, tools and their
+  counts, context, recent changes, the endpoint and the port move into
+  Settings under an Advanced section a curious admin opens and an employee
+  never does. Two things stay visible, as a compact strip, not a panel:
+  the network-mode indicator, because the spec requires it always visible
+  and it is the promise the product sells; and a small status pill — the
+  model is ready, or the request is queued at position N.
+- **Directive 2, collapsible chrome and work-shaped navigation.** The left
+  rail gets a collapse control and a keyboard shortcut, to icons and then
+  away, remembered per user. It lists the user's work: their chats, the
+  harnesses they have installed (the Whiteboard as an openable item once
+  it is there, not under "Tools"), their documents — Documents, not Data —
+  and one entry that opens the Store. Models, tool permissions and the
+  diagnostics go into Settings. The agent's ledger and artifacts sit
+  beside the conversation that produced them, not on an Agents page; undo
+  history belongs to the document being looked at, not to a global
+  History page.
+- **Directive 3, the Store is real and the whiteboard comes from it**
+  (architecture principle 3). A Store page with cards, descriptions, what
+  each harness does, an Install button and an installed state, even while
+  it serves a local registry folder in the pilot. The whiteboard is not
+  pre-seeded: the user installs it and watches it appear. An org admin can
+  pre-install for employees; the Store stays visible.
+- **Directive 4, the canvas earns "Miro-like"**, in order of what each
+  contributes: navigation that feels weightless (trackpad and wheel pan
+  and zoom with momentum, space-drag, zoom to fit and to selection, a zoom
+  control that is not just a number); marquee selection and multi-select
+  that moves and resizes as one bounding box with handles; connectors that
+  bind to shapes and reroute when a shape moves; text that edits in place
+  instantly and sticky notes that fit their text; a right-click menu with
+  copy, paste, duplicate, delete, z-order, align and distribute; images
+  pasted or dropped onto the board; live cursors with names.
+- **Where they land.** Directives 1 to 3 are shell work measured in days
+  and fold into Phase A's shell commit, which already opens the shell for
+  login, the admin page and the workspace switcher. Directive 4 goes into
+  Phase C beside presence: canvas depth and live cursors together are what
+  make a pilot user say "this is our Miro", and apart they touch the same
+  code twice.
+- **What already exists of Directive 4**, so the plan counts only the gap:
+  wheel zoom at the pointer and pan, space-drag, zoom to fit, marquee
+  selection, multi-select moving as one, arrows bound to shapes that
+  follow them (`scene.endpoints`), in-place text editing, z-order, align
+  and distribute as agent tools. Missing: momentum, zoom to selection and
+  a zoom control, multi-select resizing as one box, notes that grow with
+  their text, the context menu and its actions in the UI, images, live
+  cursors.
+
 ## 2026-09-12, answers to the Pilot 1 plan
 
 `docs/PILOT-1.md` is approved: four phases, about three months of building

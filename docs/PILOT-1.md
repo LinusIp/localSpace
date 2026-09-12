@@ -140,7 +140,16 @@ review latency included, hardware excluded.
 - Workspaces and ACLs persisted in redb: a personal workspace per user at
   first login, shared workspaces made by admins, members with levels,
   per-document tightening, the `view` member's sync rejected as today.
-  Minimal pages in the shell: Users, Workspaces, a workspace switcher.
+- The shell, reworked to the four directives of 2026-09-12 (DECISIONS): the
+  right panel gone, its machinery under Settings → Advanced; a compact
+  strip with the network-mode indicator and the model's status pill; a
+  collapsible left rail that lists the user's chats, their installed
+  harnesses as openable items, Documents and the Store, remembered per
+  user; the agent's ledger and artifacts beside their conversation; undo
+  history with the document; a real Store with cards, descriptions,
+  Install and an installed state, from which the whiteboard is installed
+  rather than pre-seeded; and the admin page with Users and Workspaces,
+  the workspace switcher, login by email, the invite page, the banner.
 - The `localspace` binary (answer 27): `serve`, `doctor`, `bench`, `evals`,
   `call`, `admin`; `localspace.toml` with the keys the pilot uses (answer
   22), `--config` pointing at it. `serve` refuses to start when it binds
@@ -190,7 +199,14 @@ The approved 6.1–6.6 in their order, on the shared Core, with identities:
 ### Phase C — collaboration and the network (3 weeks)
 
 - Presence over the event stream: who has a board open, their cursor and
-  selection, ephemeral, never in the DAG (question 9).
+  selection, ephemeral, never in the DAG (answer 9); live cursors with
+  names on the board.
+- The canvas earning "Miro-like" (directive 4), in its order: momentum on
+  pan and zoom, zoom to selection and a zoom control; multi-select resizing
+  as one box with handles; connectors rerouting around moved shapes where
+  they do not yet; notes that grow with their text; a right-click menu with
+  copy, paste, duplicate, delete, z-order, align and distribute; images
+  pasted or dropped onto the board.
 - Proposals: the shared workspace's `agent_writes = "proposal"` default; the
   badge, the review with the diff summary, apply and discard, both a single
   commit; personal workspaces stay `direct`.
@@ -399,6 +415,8 @@ installed. Each line is a test with a yes or no; the engineer watches.
 3. The first admin was made with `admin bootstrap`; two more users were
    made in the app; each signs in in their own browser and sees their own
    personal workspace.
+3a. The Store lists the whiteboard with what it does; the admin installs
+   it there and it appears in every member's rail; nothing was pre-seeded.
 4. Two users co-edit the shared workspace's board in two browsers; edits
    appear in both within a second; presence shows both; a third user with
    `view` sees the board and cannot change it, and the refusal is in the
