@@ -479,7 +479,7 @@ Strong hardware is not a licence to waste it; a 70B model's decode step is the m
 - **Short returns.** Tool results carry `diff_summary`, never full state; provider blocks carry summaries with a `zoom` tool. Both are budgeted per model profile and linted at install.
 - **Compaction.** Conversations older than N turns are folded into a DAG-backed summary by the utility model; the working set the big model sees is bounded (default 24k tokens) regardless of conversation length. The full history stays in the DAG for the user.
 - **Provider output is cached by document hash.** A context provider is not re-run when its document has not changed since the last turn; unchanged blocks are also byte-identical, which is what keeps the prefix cache warm.
-- **Embeddings** run batched on the utility/embedding GPU; the index stores int8 vectors with binary pre-filtering and reranks the top 200 with full precision. Chunks are embedded once per content hash — a re-ingested unchanged file costs nothing.
+- **Embeddings** run batched on the utility/embedding GPU (on W32, on the CPU by default, so the expert cache stays whole); the index stores int8 vectors, searched directly, and reranks the top 200 with full precision. A binary pre-filter is deferred until a measurement asks for it — a p95 over budget, or a corpus past a million chunks (amended 2026-09-12, `docs/DECISIONS.md`). Chunks are embedded once per content hash — a re-ingested unchanged file costs nothing.
 
 ### 16.2 GPU and memory layout
 

@@ -14,6 +14,15 @@ with the ACL pre-filter, document upload, and the network modes with the
 gateway. Behind it, the 15 tok/s gate on a W32 machine, then OIDC (step 7). The items below are the seams inside Core that those
 steps land on; they still hold, and their numbering is the older one.
 
+Step 6, in the order approved on 2026-09-12 (`docs/DECISIONS.md`): 6.0 PNG
+and SVG export as artifacts, with the interchange-types package; 6.1
+citations in the proto and the chat; 6.2 documents as files; 6.3 upload;
+6.4 extraction and chunking; 6.5 embeddings; 6.6 the index and
+`docs.search`; 6.7 the gateway's gaps and the zero-connection job; 6.8 the
+evals page and the `localspace` command, after which the egui client goes
+to `archive/egui-client`. The spec changes it authorised are in deployment
+§3.3 and §9.1 and plugin spec §16.1.
+
 Step 5 leaves, in the order they come:
 
 - **The W32 trip.** On the W32 machine, in `web/`:

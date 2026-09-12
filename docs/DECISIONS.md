@@ -4,6 +4,130 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-12, answers to the step-6 plan
+
+- **Export moves to the front of step 6, as 6.0** (the plan's 6.9; plugin
+  spec §18.3). The interchange-types package it creates is a dependency of
+  anything that produces artifacts, so it exists before retrieval writes
+  web-cache documents. The order is now: 6.0 export and the types
+  package; 6.1 citations in the proto and the chat; 6.2 documents as
+  files; 6.3 upload; 6.4 extraction and chunking; 6.5 embeddings; 6.6 the
+  index and `docs.search`; 6.7 the gateway; 6.8 the evals page and the
+  `localspace` command.
+- **Spec change, authorised: encryption at rest is its own step, and the
+  index is not encrypted** (the plan's spec issue; deployment §9.1 against
+  architecture §3 and plugin spec §1.2, §16.4). An encrypted index cannot
+  be memory-mapped: a decrypting layer would hand tantivy and usearch
+  their bytes from Core's heap, and any real corpus would break the 50 MB
+  budget. Step 6 builds blobs and the index unencrypted. Encryption at
+  rest becomes its own step, scheduled before the first enterprise pilot,
+  with this design: per-document keys encrypt the blob and the stored
+  chunk text, so destroying a key crypto-shreds the document; index terms
+  and vectors stay unencrypted and memory-mapped; shredding deletes the
+  document's chunks from the index, which it can do because the index is
+  mutable and the DAG is not; volume encryption covers the index at rest,
+  and `doctor` checks for it. Deployment §9.1 says so now.
+- **The step-6 gate** (answer 1; architecture §13 names none; deployment
+  §16). All of: the ACL suite; in `airgapped`, no `web.*` tool in the
+  trace and zero packets under capture while the positive control passes;
+  in `ask`, one prompt per domain per session, the approval logged;
+  `online` inside the allowlist; an audit record for every gateway
+  request; the browser upload-and-cite test; the retrieval eval. CI
+  measures `docs.search` p95 on a synthetic corpus of 100k chunks, failing
+  at double its baseline, and Core's idle private memory with that index
+  open, failing above 50 MB.
+- **The retrieval eval marks someone else's homework** (answer 2). The
+  corpus is the four spec documents; 30 questions, each paired with the
+  section that answers it, phrased as a user would ask and never reusing a
+  section's heading words; 5 more the corpus does not answer, which pass
+  only when nothing is cited confidently. It passes when the right section
+  is in the top 5 for at least 27 of the 30 with bge-m3; it runs on the
+  laptop now and again on the W32 trip.
+- **tantivy and usearch at their newest release, pinned exactly**
+  (answer 3; architecture §3), recorded here when added. If usearch's C++
+  build turns painful on the runner, that is reported, not worked around:
+  a pure-Rust HNSW is the fallback and the user's call.
+- **Spec change, authorised: the binary pre-filter is deferred** (answer
+  4; plugin spec §16.1). The int8 HNSW is searched directly and the top
+  200 reranked in f32. At 100k chunks it answers in well under a
+  millisecond, and the binary stage buys nothing while costing recall and
+  a rescoring path. It is added when a measurement demands it: a p95 over
+  budget, or a corpus past a million chunks. §16.1 says so now.
+- **Ranking** (answer 5): the top 50 by BM25 and the top 50 by vector,
+  merged by reciprocal rank with k = 60, the top 8 to the model. All four
+  numbers are configuration, not constants, and the source of each of the
+  8 is logged so the eval can attribute its failures.
+- **Chunks** (answer 6): split at headings, then paragraphs, about 512
+  tokens with 64 of overlap; the locator is the heading path and the page.
+  Tokens are counted by `llama-server`'s `/tokenize` at index time; four
+  characters per token is only the fallback when no engine is up, because
+  bge-m3 is multilingual and the heuristic undercounts Russian and Uzbek
+  badly enough to truncate chunks at the model's window.
+- **The embedding model** (answers 7 and 8; deployment §3.3): bge-m3 as
+  `gpustack/bge-m3-GGUF` at Q8_0, with `role = "embedding"` in the
+  catalog; its size, checksum and licence are recorded from the real
+  download. It takes a VRAM reservation in the plan when it fits beside
+  the chat model and runs on the CPU otherwise, shown in the plan bar
+  either way; on W32 the CPU is the default, so the expert cache stays
+  whole.
+- **`find_capability` searches embeddings when bge-m3 is loaded and BM25
+  when it is not** (answer 9; plugin spec §9).
+- **`docs.search` is a Core tool, always present** (answer 10; plugin spec
+  §8.1, whose "retrieval falls back to the local corpus" assumes the agent
+  can search it). Retrieved text is not pasted into every prompt, which
+  would break the stable prefix of §16.1.
+- **Citations are `[n]` markers the model writes, validated by Core**
+  (answer 11; deployment §6.4): numbered per task in the order Core handed
+  the sources over; Core checks every marker the model emits against that
+  set and strips or flags unknown ones, because models invent citation
+  numbers and an invented one is worse than none. The markers become
+  links, and a list of sources sits under the answer; web sources show
+  when they were fetched.
+- **Upload** (answers 12 to 21; deployment §3.3, §6.1, §9.1): the file is
+  the request body, streamed to disk, no multipart; an Upload button on
+  the Data page and the chat's Attach button, which uploads the file and
+  names it in the message; `owner` alone may delete, and the uploader is
+  the owner; one commit per upload referencing the file by hash, so
+  History shows it and undo removes it; text, Markdown, CSV, JSON, HTML,
+  PDF, DOCX, PPTX and XLSX are extracted, everything else stored and
+  listed as "not indexed", and there is no OCR; `pdf-extract` 0.12 for
+  PDF, `zip` and `quick-xml` for the Office formats; extraction runs in a
+  short-lived child process of the same binary with a deadline, because
+  PDF parsers are where untrusted input meets fragile code; a ClamAV
+  scanner that is configured and unreachable refuses uploads, and the UI
+  says why; blobs are streamed, not memory-mapped, until harness surfaces
+  open blob documents in step 8.
+- **Settings live in `localspace.toml`** (answer 22; deployment §3.3),
+  holding only the keys step 6 uses under the spec's names: `[server]
+  max_upload_mb`, the `[network]` keys, `[models] embedding`. **Spec
+  addition, authorised:** `[server] clamav`, the scanner's socket, is
+  added to §3.3.
+- **The ceiling in personal mode is `online`, the default mode `ask`**
+  (answer 23; plugin spec §8.1): there is no admin above the user.
+- **No search backend by default** (answer 24; plugin spec §8.2): SearXNG's
+  JSON API at a URL the user sets; nothing is contacted until they set
+  one.
+- **Zero connections are proved under packet capture, with a mandatory
+  positive control** (answer 25; deployment §16): a Linux CI job runs the
+  stack in a network namespace whose only way out `tcpdump` watches; the
+  airgapped script must produce zero packets, and the same script in `ask`
+  mode with approval must produce exactly the expected connections to a
+  local fake server, so a capture that sees nothing because it is broken
+  can never pass as a clean run.
+- **Gateway quotas, deliberate now** (answer 26; plugin spec §8.2): 100
+  requests and 64 MiB per session, a 20 s timeout, and 5 MiB per page.
+- **The `localspace` command is the server crate's binary** (answer 27;
+  deployment §3.1): `serve`, `doctor`, `bench`, `evals` and `call`, no
+  GUI; `localspace-serve` goes.
+- **The Evals page** (answer 28) sits under Library → the harness → Evals
+  and runs against the loaded model; each run is kept in `db/` with the
+  model, the date, the cases passed and the malformed-call rate.
+- **One types package, `io.localspace.types`** (answer 29; plugin spec
+  §18.3), in `registry/types/` with `kind = "types"`; its `types.toml`
+  gives each type its MIME type, extension and required fields: `image.v1`
+  (PNG) and `svg.v1`, each with `document` and `commit`; `outline.v1`,
+  which the whiteboard already produces.
+
 ## 2026-09-11, answers to the step-5 closing report
 
 - **The CI frame-time baseline comes from the first run, on a pinned

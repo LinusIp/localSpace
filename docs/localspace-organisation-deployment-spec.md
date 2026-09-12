@@ -76,6 +76,7 @@ tls = { cert = "/etc/localspace/tls/fullchain.pem", key = "/etc/localspace/tls/p
 # tls = "behind-proxy"   # accept plain HTTP from a trusted reverse proxy, honour X-Forwarded-*
 trusted_proxies = ["10.0.0.0/8"]
 max_upload_mb = 200
+clamav = "tcp://127.0.0.1:3310"           # optional (added 2026-09-12): a clamd socket, tcp: or unix:; uploads are refused while it is configured and unreachable
 
 [storage]
 root = "/var/lib/localspace"
@@ -307,8 +308,8 @@ registry / bundle  →  candidate  →  admin review  →  approved (pinned vers
 ### 9.1 Data protection
 
 - **In transit**: TLS 1.2+ (TLS 1.3 preferred), HSTS; or plain HTTP only from `trusted_proxies`.
-- **At rest**: per-document data keys (XChaCha20-Poly1305), wrapped by the master key; master key from file, env or an external KMS. Model files are not encrypted (they are public weights); the index is, because chunks are content.
-- **Erasure**: the DAG is immutable, so deletion is **crypto-shredding** — destroying a document's key makes every version unreadable while the commit graph stays consistent. This satisfies GDPR-style erasure without rewriting history. Backups older than the retention window age out on schedule.
+- **At rest** (amended 2026-09-12, `docs/DECISIONS.md`): per-document data keys (XChaCha20-Poly1305), wrapped by the master key; master key from file, env or an external KMS. A document's key encrypts its blob and the stored text of its chunks. Model files are not encrypted (they are public weights). The index's terms and vectors are not encrypted either, so they stay memory-mapped outside Core's budget (plugin spec §1.2, §16.4); volume encryption covers them at rest, and `localspace doctor` checks that the storage root is on an encrypted volume. Encryption at rest is its own build step, scheduled before the first enterprise pilot; until it lands, blobs and the index are stored unencrypted.
+- **Erasure**: the DAG is immutable, so deletion is **crypto-shredding** — destroying a document's key makes every version unreadable while the commit graph stays consistent. This satisfies GDPR-style erasure without rewriting history. Backups older than the retention window age out on schedule. Shredding also deletes the document's chunks from the index, which is mutable where the DAG is not.
 - **Uploads**: type-sniffed, size-limited, scanned by an optional ClamAV socket if configured.
 
 ### 9.2 Isolation
