@@ -15,8 +15,10 @@
 // Protocol, over postMessage, every message `{ ls: 1, type, ... }`:
 //   surface → shell   hello {protocol, wants} · send {payload} · write {doc, commit, seq}
 //                     sync {message} · action {name} · status {zoom} · log {level, text}
+//                     artifact {kind, name, mime, fields, summary, bytes}
 //   shell → surface   init {harness, view, doc, snapshot, theme, focused} · doc {doc, written}
 //                     sync {message} · message {payload} · focus {focused} · command {name, args}
+//                     artifact {ok, id, name, bytes, error}
 //
 // `seq` numbers the surface's writes; `written` on a document says which of
 // them Core had taken in before that document was read, so a surface can
@@ -121,7 +123,31 @@ export function connect(options) {
       report(status) {
         post({ type: "status", ...status });
       },
-      /** "doc" (with `{ written }`), "sync", "message", "focus", "command" */
+      /**
+       * A file rendered from this harness's document — a PNG or an SVG of a
+       * board — for Core to keep as a document of its own and register as a
+       * typed artifact of `kind` (plugin spec §18.3). `name` is the stem;
+       * Core adds the commit it shows and the kind's extension. `bytes` is
+       * transferred, not copied. The shell answers with an "artifact" event:
+       * `{ ok, id, name, bytes }`, or `{ ok: false, error }`.
+       */
+      export(artifact) {
+        const b = artifact.bytes;
+        const buffer = b instanceof Uint8Array ? b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) : b;
+        post(
+          {
+            type: "artifact",
+            kind: artifact.kind,
+            name: artifact.name,
+            mime: artifact.mime,
+            fields: artifact.fields ?? {},
+            summary: artifact.summary ?? "",
+            bytes: buffer,
+          },
+          [buffer],
+        );
+      },
+      /** "doc" (with `{ written }`), "sync", "message", "focus", "command", "artifact" */
       on(event, fn) {
         if (!listeners.has(event)) listeners.set(event, new Set());
         listeners.get(event).add(fn);
@@ -163,6 +189,9 @@ export function connect(options) {
         case "focus":
           focused = !!msg.focused;
           emit("focus", focused);
+          break;
+        case "artifact":
+          emit("artifact", { ok: msg.ok === true, id: msg.id, name: msg.name, bytes: msg.bytes, error: msg.error });
           break;
         case "command":
           emit("command", { name: msg.name, args: msg.args });

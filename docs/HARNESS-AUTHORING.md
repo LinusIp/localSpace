@@ -286,6 +286,15 @@ tool result. Core pins it to the commit that call made and puts it in the ledger
 `art_N`. Only kinds in `produces` are accepted; anything else is refused in the
 trace. The whiteboard's `canvas.export_outline` is the worked example.
 
+**To produce a file from a surface** — a picture of the board, say — render it
+in the frame and call `harness.export({ kind, name, mime, bytes, summary })` on
+the bridge SDK. The bytes go to Core in one upload; Core keeps the file as a
+document of its own, registers an artifact of `kind` pinned to it, fills in the
+`document` and `commit` it was made from, names the file
+`<name>-<commit7><extension>`, and answers with an `artifact` event. The user
+downloads it from the ledger or the Data page; the frame never gets a
+download. The whiteboard's PNG and SVG exports are the worked example.
+
 **To accept:** take an `artifact` parameter. Before your tool runs, Core resolves
 it, checks the kind is in your `accepts` (a wrong target is refused naming a right
 one), and reads the producer's document at the pinned version. Inside the call,
@@ -294,7 +303,12 @@ You never see what the producer's document became afterwards. The planning board
 `board.import_outline` is the worked example.
 
 Interchange types are `name.vN`, owned by localSpace, and strict: never invent a
-private format for data another harness could plausibly consume.
+private format for data another harness could plausibly consume. Each kind is
+declared by a types package — `kind = "types"`, whose `types.toml` gives the
+kind a title, a MIME type, a file extension and the fields an artifact of it
+must carry — and a package must depend on the types package that declares the
+kinds it names in `produces` or `accepts`, or its install is refused.
+`io.localspace.types` declares `outline.v1`, `image.v1` and `svg.v1`.
 
 ## 8. `[package]`, `[dependencies]`, `[provides]`
 
@@ -303,7 +317,8 @@ private format for data another harness could plausibly consume.
 kind = "harness"               # harness | library | types | template | model-pack | skill | theme
 
 [dependencies]
-"io.localspace.types.geometry" = "^1.2"                       # a library package
+"io.localspace.types"          = "^1.0"                       # the types package declaring your kinds
+"io.localspace.geometry-lib"   = "^1.2"                       # a library package
 "io.localspace.mesh-viewer"    = { version = "^2", optional = true }
 "localspace.geometry.v1"       = { interface = true }         # any provider
 

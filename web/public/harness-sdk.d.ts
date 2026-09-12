@@ -29,6 +29,23 @@ export interface Harness {
   redo(): void;
   /** Tell the shell what the surface shows, so its controls stay true. */
   report(status: { zoom?: number }): void;
+  /**
+   * A file rendered from this harness's document — a PNG or an SVG of a
+   * board — for Core to keep as a document of its own and register as a
+   * typed artifact of `kind`. `name` is the stem; Core adds the commit it
+   * shows and the kind's extension. `bytes` is transferred, not copied.
+   * The shell answers with an "artifact" event.
+   */
+  export(artifact: {
+    kind: string;
+    name: string;
+    mime: string;
+    bytes: ArrayBuffer | Uint8Array;
+    fields?: Record<string, unknown>;
+    summary?: string;
+  }): void;
+  /** What became of an `export`: the artifact's id, the file's name and size, or the error. */
+  on(event: "artifact", fn: (result: { ok: boolean; id?: string; name?: string; bytes?: number; error?: string }) => void): () => void;
   /** `written` is the number of the surface's last write Core had taken in when this document was read. */
   on(event: "doc", fn: (doc: unknown, meta: { written: number }) => void): () => void;
   /** An Automerge sync message from Core, for the surface's replica. */

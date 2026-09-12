@@ -99,6 +99,11 @@ export class Replica {
   }
 
   /** How many shapes and frames the replica holds, for the status line and the tests. */
+  /** The board's title, when the document has one. */
+  get title(): string | undefined {
+    return text(this.doc.title);
+  }
+
   get size(): number {
     return (this.doc.shapes?.length ?? 0) + (this.doc.frames?.length ?? 0);
   }

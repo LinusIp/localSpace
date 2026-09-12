@@ -124,7 +124,7 @@ Its build order, against the tree:
 | 3 chat harness | **done** except citations (step 6): the GUI, token streaming, persisted conversations | the main GUI in `web/`: chat with streaming deltas, tool calls inline as they happen, approval cards, the composer with stop; the right column with the active model, tools with switches, the context and recent changes; the Agents page with the task ledger, approvals, trace and the exact prompt the model will see; Tools with the active set, capability search and running a tool by hand; Models with an endpoint to connect; Data with the documents and the lock; History with undo, redo and drop-run; Library with install and uninstall; Settings; Help. Verified through the API: a hand-run `canvas.add_sticky` lands as a commit and in the document, and a chat message without a model gets the honest reply |
 | 4 harness runtime with iframe surfaces and the bridge SDK | not started | manifest, logic components, install and uninstall exist; the `widgets` kind stays |
 | 5 whiteboard as the first package, on tldraw | not started | logic, 20 tools, context provider, evals and the Automerge document exist |
-| 6 retrieval, upload, gateway | partial | gateway modes and `web.*` tools exist |
+| 6 retrieval, upload, gateway | in progress | 6.0 on 2026-09-12: PNG and SVG export as `image.v1` and `svg.v1` artifacts, `io.localspace.types` as the first types package, file documents of their own with a download; gateway modes and `web.*` tools existed |
 | 7 multi-user `serve`, OIDC | partial | ACL, workspaces, proposals, audit exist; identity does not |
 | 8–11 | not started | |
 
@@ -318,4 +318,5 @@ machine, the whiteboard's evals against the reference model on the same
 trip, and the workflow's first run, which records the CI frame-time
 baseline. The canvas measurement goes in `docs/gates/w32-canvas.json`, and
 the workflow's manual job checks it. SVG and PNG export as artifacts is
-decided and not built.
+built in 6.0 on 2026-09-12, as `image.v1` and `svg.v1` artifacts through
+Core, with `io.localspace.types` as the first types package.

@@ -3,11 +3,12 @@
 
 import { useEffect, useState } from "react";
 import { Button, Card, CheckIcon, CircleIcon, CloseIcon, Empty, SectionTitle, Select, SpinnerIcon } from "@localspace/ui";
+import { bytesLabel, downloadDocument } from "../api/client";
 import type { StepStatus } from "../api/generated";
 import { useSession } from "../store";
 
 export function AgentsPage() {
-  const { task, approvals, approve, trace, context, previewContext, refreshTask, busy } = useSession();
+  const { task, approvals, approve, trace, context, previewContext, refreshTask, busy, notify } = useSession();
   const [budget, setBudget] = useState(600);
 
   useEffect(() => {
@@ -42,16 +43,27 @@ export function AgentsPage() {
                     Artifacts
                   </h3>
                   <ul className="ls-list ls-col ls-gap-1 ls-mt-1">
-                    {task.artifacts.map((a) => (
-                      <li key={a.id} className="ls-row ls-gap-2 ls-wrap">
-                        <span className="ls-mono ls-accent">{a.id}</span>
-                        <span className="ls-mono ls-muted">{a.kind}</span>
-                        <span>{a.summary}</span>
-                        <span className="ls-small ls-faint">
-                          from {a.produced_by} @ {a.commit.slice(0, 7)}
-                        </span>
-                      </li>
-                    ))}
+                    {task.artifacts.map((a) => {
+                      const file = a.file;
+                      return (
+                        <li key={a.id} className="ls-row ls-gap-2 ls-wrap">
+                          <span className="ls-mono ls-accent">{a.id}</span>
+                          <span className="ls-mono ls-muted">{a.kind}</span>
+                          <span>{a.summary}</span>
+                          <span className="ls-small ls-faint">
+                            from {a.produced_by} @ {a.commit.slice(0, 7)}
+                          </span>
+                          {file && (
+                            <Button
+                              size="small"
+                              onClick={() => void downloadDocument(a.doc, file.name).catch((err: unknown) => notify("error", err instanceof Error ? err.message : String(err)))}
+                            >
+                              Download {file.name} ({bytesLabel(file.bytes)})
+                            </Button>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </>
               )}

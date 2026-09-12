@@ -6,7 +6,7 @@
 // surface's writes and messages to Core, and passes the shell's commands in.
 
 import { useEffect, useRef, useState } from "react";
-import { ApiError, call, openSurface, pick } from "../api/client";
+import { ApiError, bytesLabel, call, openSurface, pick, produceArtifact } from "../api/client";
 import { bus, themeTokens } from "../surfaces/bus";
 import { useSession } from "../store";
 import type { Panel } from "../store";
@@ -25,7 +25,8 @@ type FromSurface =
   | { ls: number; type: "send"; payload: number[] }
   | { ls: number; type: "action"; name: string }
   | { ls: number; type: "status"; zoom?: number }
-  | { ls: number; type: "log"; level: string; text: string };
+  | { ls: number; type: "log"; level: string; text: string }
+  | { ls: number; type: "artifact"; kind: string; name?: string; mime: string; fields?: Record<string, unknown>; summary?: string; bytes: ArrayBuffer };
 
 export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean }) {
   const frame = useRef<HTMLIFrameElement>(null);
@@ -44,6 +45,7 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
   const undo = useSession((s) => s.undo);
   const redo = useSession((s) => s.redo);
   const reportZoom = useSession((s) => s.reportZoom);
+  const refreshTask = useSession((s) => s.refreshTask);
   const { harness, view } = panel;
 
   // A grant for this view, from the server: the URL on the harness origin.
@@ -160,6 +162,35 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
         case "status":
           if (typeof message.zoom === "number") reportZoom(panel.key, message.zoom);
           break;
+        case "artifact": {
+          // A file the surface rendered from its document: one upload with
+          // the bytes as the body; Core keeps it, pins an artifact to it and
+          // says what it named it. The surface hears back either way.
+          const bytes = message.bytes instanceof ArrayBuffer ? message.bytes : null;
+          if (!bytes || typeof message.kind !== "string" || typeof message.mime !== "string") break;
+          const params = {
+            harness,
+            view,
+            kind: message.kind,
+            name: typeof message.name === "string" ? message.name : "board",
+            mime: message.mime,
+            fields: message.fields && typeof message.fields === "object" ? message.fields : {},
+            summary: typeof message.summary === "string" ? message.summary : "",
+          };
+          void produceArtifact(params, bytes)
+            .then((artifact) => {
+              const file = artifact.file;
+              notify("info", `Exported ${file ? `${file.name} (${bytesLabel(file.bytes)})` : artifact.id}: in the task ledger and on the Data page.`);
+              void refreshTask();
+              post({ type: "artifact", ok: true, id: artifact.id, name: file?.name ?? null, bytes: file?.bytes ?? null });
+            })
+            .catch((err: unknown) => {
+              const text = err instanceof ApiError ? err.message : "the server could not be reached";
+              notify("error", `${panel.title} could not export: ${text}`);
+              post({ type: "artifact", ok: false, error: text });
+            });
+          break;
+        }
         case "log":
           trace(`[${harness}/${view}] ${message.text}`);
           break;
@@ -190,7 +221,7 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
       window.removeEventListener("message", onMessage);
       for (const f of off) f();
     };
-  }, [target, harness, view, panel.key, panel.title, active, notify, trace, undo, redo, reportZoom]);
+  }, [target, harness, view, panel.key, panel.title, active, notify, trace, undo, redo, reportZoom, refreshTask]);
 
   // Focus follows the active tab.
   useEffect(() => {

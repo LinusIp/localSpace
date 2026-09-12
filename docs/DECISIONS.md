@@ -31,7 +31,10 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   reflow where it is opened; no embedded fonts, scripts or external
   references.
 - **File names** (answer 4): the board's title slugified, or `board`, then
-  the first seven characters of the commit, then `.png` or `.svg`.
+  the first seven characters of the commit, then `.png` or `.svg`. Core
+  fills in the document and the head commit when a surface names neither,
+  and checks them when it does: a surface knows its board, not Core's
+  history.
 - **Where an export lives until 6.2** (answers 5, 6 and 13; deployment
   §3.4). Its bytes go through the DAG's content-addressed blob table, as a
   blob document's do; a `documents` table in the same redb holds the
