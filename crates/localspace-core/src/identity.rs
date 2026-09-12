@@ -18,8 +18,27 @@ use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, Salt
 use argon2::{Algorithm, Argon2, Params, Version};
 use localspace_proto as proto;
 
-/// The shortest password a user may set.
+/// The shortest password a user may set; nothing else is required of it.
 pub const MIN_PASSWORD_CHARS: usize = 12;
+/// The longest, well past the 64 the spec asks for: spaces and any Unicode,
+/// counted as characters, never truncated.
+pub const MAX_PASSWORD_CHARS: usize = 256;
+
+/// The most common passwords, refused whatever their length: the one check
+/// that prevents compromise, and it works offline. See the file's header.
+static COMMON_PASSWORDS: std::sync::LazyLock<std::collections::HashSet<&'static str>> =
+    std::sync::LazyLock::new(|| {
+        include_str!("common-passwords.txt")
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect()
+    });
+
+/// Whether a password is on the common list, case-insensitively.
+pub fn is_common_password(password: &str) -> bool {
+    COMMON_PASSWORDS.contains(password.to_lowercase().as_str())
+}
 /// How long a one-time link lives.
 pub const INVITE_TTL_MS: u64 = 24 * 60 * 60 * 1000;
 /// Consecutive failures that lock an account.
@@ -119,10 +138,19 @@ pub fn normalise_email(email: &str) -> String {
 }
 
 pub fn password_acceptable(password: &str) -> std::result::Result<(), String> {
-    if password.chars().count() < MIN_PASSWORD_CHARS {
+    let length = password.chars().count();
+    if length < MIN_PASSWORD_CHARS {
         return Err(format!(
             "Use at least {MIN_PASSWORD_CHARS} characters for your password."
         ));
+    }
+    if length > MAX_PASSWORD_CHARS {
+        return Err(format!(
+            "Use at most {MAX_PASSWORD_CHARS} characters for your password."
+        ));
+    }
+    if is_common_password(password) {
+        return Err("That password is too common. Choose another one.".into());
     }
     Ok(())
 }
@@ -740,5 +768,57 @@ mod tests {
         );
         assert!(verify_password("a password of length", &hash));
         assert!(!verify_password("a password of lengtH", &hash));
+    }
+}
+
+#[cfg(test)]
+mod password_rules {
+    use super::*;
+
+    #[test]
+    fn twelve_characters_at_least_two_hundred_and_fifty_six_at_most_and_nothing_common() {
+        assert!(password_acceptable("elevenchars").is_err());
+        assert!(password_acceptable("twelve chars").is_ok(), "spaces count");
+        assert!(
+            password_acceptable("пароль из кириллицы").is_ok(),
+            "any Unicode counts by character"
+        );
+        assert!(password_acceptable("🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑🔑").is_ok());
+        let sixty_four =
+            "a phrase with spaces, punctuation and ünïcödé that runs long!".to_string() + "!!!";
+        assert_eq!(sixty_four.chars().count(), 64);
+        assert!(password_acceptable(&sixty_four).is_ok());
+        assert!(password_acceptable(&"x".repeat(256)).is_ok());
+        assert!(password_acceptable(&"x".repeat(257)).is_err());
+        for common in [
+            "password1234",
+            "Password1234",
+            "correcthorsebatterystaple",
+            "qwertyuiop123",
+            "letmeinletmein",
+        ] {
+            assert_eq!(
+                password_acceptable(common).unwrap_err(),
+                "That password is too common. Choose another one.",
+                "{common}"
+            );
+        }
+        assert!(
+            COMMON_PASSWORDS.len() >= 3000,
+            "{} entries",
+            COMMON_PASSWORDS.len()
+        );
+    }
+
+    #[test]
+    fn a_long_password_is_never_truncated() {
+        let long = "a".repeat(70);
+        let hash = hash_password(&long).unwrap();
+        assert!(verify_password(&long, &hash));
+        assert!(
+            !verify_password(&long[..64], &hash),
+            "the first 64 characters are not the password"
+        );
+        assert!(!verify_password(&long[..69], &hash));
     }
 }

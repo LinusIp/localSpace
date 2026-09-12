@@ -71,8 +71,19 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   commit, not polish for later: renaming things after pilot users have
   learned them is worse than naming them right once. The rule is kept by a
   check in CI over the member-facing strings of the shell.
-- **Identity, as built on 2026-09-12** (Phase A, commit 4): a password is at
-  least twelve characters and nothing else is required of it; a session id
+- **Passwords** (approved 2026-09-13, with three additions): at least twelve
+  characters and no composition rules, the right modern choice; new
+  passwords are screened against an embedded list of the most common ones
+  and a match is refused — the one check that prevents compromise, and it
+  works offline; up to 256 characters are accepted, past the 64 the spec
+  asks for, with spaces and any Unicode, counted as characters and never
+  silently truncated; and no forced expiry. The embedded list was assembled
+  offline from the well-known most common bases and their usual suffixes
+  (`crates/localspace-core/src/common-passwords.txt`, about 6,500 entries of twelve or
+  more characters); a canonical list of the most
+  common passwords replaces it when one can be supplied, and the loader
+  takes any newline-separated file.
+- **Identity, as built on 2026-09-12** (Phase A, commit 4): a session id
   and a one-time token are 32 random bytes as hex, stored as their blake3;
   the session cookie is `ls_session`, httpOnly, SameSite=Strict, `Secure`
   behind TLS, with a `Max-Age` of the session's life; a one-time link is
