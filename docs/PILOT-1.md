@@ -150,6 +150,12 @@ review latency included, hardware excluded.
   Install and an installed state, from which the whiteboard is installed
   rather than pre-seeded; and the admin page with Users and Workspaces,
   the workspace switcher, login by email, the invite page, the banner.
+  With it, directive 5: models with human names and a one-line reason,
+  the technical id under Advanced, the picker absent when members may not
+  switch; the first run an empty chat with the cursor in the box and three
+  example prompts; the vocabulary rule of §13 over every member-facing
+  string, kept by a check in CI; errors in one plain sentence with what to
+  do; every empty state written.
 - The `localspace` binary (answer 27): `serve`, `doctor`, `bench`, `evals`,
   `call`, `admin`; `localspace.toml` with the keys the pilot uses (answer
   22), `--config` pointing at it. `serve` refuses to start when it binds
@@ -463,9 +469,26 @@ installed. Each line is a test with a yes or no; the engineer watches.
   everything in this release, since nothing is encrypted per document yet;
   the guide says so.
 
-## 12. Answers
+## 12. Words a member sees
 
-All fourteen questions were answered on 2026-09-12 (`docs/DECISIONS.md`,
+An employee logs in, picks a model, and types; nothing else. So, in
+everything a member can see: no *token*, *context window*, *embedding*,
+*harness*, *tier*, *wasm*, *commit*, *DAG*, *entitlement*, *gateway*,
+*sidecar* or *quantisation*. Say *tools*, or the tool's own name; say
+*version* or *change*, not *commit*; *Offline*, not *air-gapped* (the
+configuration keeps `airgapped`, and the admin popover says it, because the
+security reviewer wants the word). Models are "Fast · good for quick
+questions", "Balanced · the everyday choice", "Most capable · slower, for
+hard work"; their ids live under Advanced. An error is one plain sentence
+about what happened and one about what to do: "Your assistant isn't ready
+yet. Ask your administrator." An empty chat, an empty Documents page and an
+empty Store each say what to do first. The rule is checked in CI over the
+shell's member-facing strings; the admin pages and Advanced are exempt.
+
+## 13. Answers
+
+All fourteen questions were answered on 2026-09-12, then the ten of Phase A
+and the eleven on the shell (`docs/DECISIONS.md`,
 "answers to the Pilot 1 plan"), each as recommended, with these amendments
 folded into §5 above: the server refuses to bind a non-loopback address
 without TLS or `trusted_proxies` unless `--insecure` is passed and

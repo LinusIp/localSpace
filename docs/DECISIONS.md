@@ -4,6 +4,62 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-12, answers to Phase A and the shell, and a fifth directive
+
+- **Directive 5 — an employee logs in, picks a model, and types. Nothing
+  else.** Models get human names and a one-line reason to pick one — "Fast
+  · good for quick questions", "Balanced · the everyday choice", "Most
+  capable · slower, for hard work" — with the technical id only under
+  Advanced. In organisation mode the admin sets the default, and a setting
+  decides whether members may switch at all; when they may not, there is
+  no picker on screen. First run after login is an empty chat with the
+  cursor in the box and three example prompts: no wizard, no tour, no
+  setup step. A vocabulary rule for everything a member can see: no token,
+  context window, embedding, harness, tier, wasm, commit, DAG,
+  entitlement, gateway, sidecar, quantisation; say tools, or the tool's
+  own name; say version or change, not commit — "harness" is our word,
+  not theirs. Every error says what happened in one plain sentence and
+  what to do about it ("Your assistant isn't ready yet. Ask your
+  administrator."), never a code or a stack. Empty states are written: an
+  empty chat, an empty Documents page, an empty Store each tell a
+  first-time user what to do. The wording pass is part of Phase A's shell
+  commit, not polish for later: renaming things after pilot users have
+  learned them is worse than naming them right once. The rule is kept by a
+  check in CI over the member-facing strings of the shell.
+- **Phase A, answers 1 to 10, as recommended:** `clap` with the derive API;
+  argon2id at 64 MiB, 3 iterations, 1 lane, a 16-byte salt, PHC strings,
+  hashed on a blocking thread so a login cannot stall the runtime; the
+  lockout as specified (five per account with doubling, thirty per IP in
+  fifteen minutes, records in the database, admins see locked accounts and
+  clear them, the message never says whether the account exists); sessions
+  of 32 random bytes stored hashed, hard expiry at `session_ttl`, the same
+  id as the bearer; the ledger and conversations in the database per user
+  and workspace; `doc_<uuid>` ids with the oldest document as the shown
+  board and the v1→v2 migration after a copy; the database renamed
+  `db/localspace.redb` in that migration; events routed per user, a
+  document's change to every connected user with `view` on it; the admin
+  command line limited to `bootstrap` and `user reset-password`;
+  break-glass with a required reason, audited, in Phase A.
+- **The shell, answers 1 to 11:** the rail's order as proposed, with "New
+  chat" a button at the top rather than a list item; ten recent chats of
+  the current workspace and "All chats" with a search; canvas-first when a
+  board is open, the chat a drawer; **Advanced is admin-only in full in
+  organisation mode** — a member never reaches the endpoint, port, token
+  budgets, context preview, active set, engine log or trace, not even by
+  digging — and exists for the user, collapsed, in personal mode; the
+  status pill says "Ready", "Thinking…", "Waiting — 2nd in line",
+  "Starting up…", and "No model — ask your administrator" in organisation
+  mode against "Choose a model" linking to the picker in personal mode;
+  the network indicator's member-facing label is **"Offline"**, not
+  "Air-gapped" — `airgapped` stays the configuration value and the word in
+  the admin popover, where the security reviewer wants to see it; a Store
+  card leads with an icon, the title, one line of what it does for the
+  user, and Install, with publisher and version small and tier, memory,
+  capabilities, eval count and source registry behind a Details expander;
+  the rail state remembered server-side per user; Ctrl+B and Cmd+B; undo
+  belongs to the document being looked at; nothing pre-seeded anywhere,
+  CI included.
+
 ## 2026-09-12, four directives on the shell and the canvas
 
 Given after seeing the running app: the right panel showed an endpoint, a
