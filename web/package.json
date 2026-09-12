@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "build:libs": "node scripts/build-libs.mjs",
     "build:whiteboard": "tsc --noEmit -p surfaces/whiteboard/tsconfig.json && vite build -c surfaces/whiteboard/vite.config.ts",
+    "brand:icons": "node scripts/brand-icons.mjs",
     "typecheck:whiteboard": "tsc --noEmit -p surfaces/whiteboard/tsconfig.json"
   },
   "dependencies": {

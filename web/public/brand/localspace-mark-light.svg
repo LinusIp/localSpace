@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="localSpace">
-  <title>localSpace</title><style>@media (prefers-color-scheme: dark){ g[stroke]{stroke:#FAFAFA} g[fill="#1C1E20"]{fill:#FAFAFA} }</style>
-  <g fill="none" stroke="#1C1E20" stroke-linecap="round" stroke-linejoin="round">
+  <title>localSpace</title>
+  <g fill="none" stroke="#FAFAFA" stroke-linecap="round" stroke-linejoin="round">
     <path d="M 136.40 40.85 L 199.27 77.15 A 16.80 16.80 0 0 1 207.67 91.70 L 207.67 164.30 A 16.80 16.80 0 0 1 199.27 178.85 L 136.40 215.15 A 16.80 16.80 0 0 1 119.60 215.15 L 56.73 178.85 A 16.80 16.80 0 0 1 48.33 164.30 L 48.33 91.70 A 16.80 16.80 0 0 1 56.73 77.15 L 119.60 40.85 A 16.80 16.80 0 0 1 136.40 40.85 Z" stroke-width="23.3"/>
     <path d="M 88.50 105.30 L 128.00 131.20 L 167.50 105.30" stroke-width="9.1"/>
     <path d="M 128.00 131.20 L 128.00 208.30" stroke-width="9.1"/>
   </g>
-  <g fill="#1C1E20">
+  <g fill="#FAFAFA">
     <circle cx="88.50" cy="105.30" r="15.5"/>
     <circle cx="167.50" cy="105.30" r="15.5"/>
     <circle cx="128.00" cy="168.20" r="15.5"/>
