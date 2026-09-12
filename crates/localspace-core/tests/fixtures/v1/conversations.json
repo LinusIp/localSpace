@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "current": "c_1789223120830_1",
+  "conversations": [
+    {
+      "id": "c_1789223120830_1",
+      "title": "What is on the board?",
+      "created_ms": 1789223120830,
+      "updated_ms": 1789223121243,
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is on the board?",
+          "tool_calls": []
+        },
+        {
+          "role": "assistant",
+          "content": "I could not reach a model: no model is loaded in this environment",
+          "tool_calls": []
+        }
+      ]
+    }
+  ]
+}
