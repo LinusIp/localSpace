@@ -59,6 +59,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
+/// What a read-only account is told when it asks for a tool that changes
+/// things (deployment §4.3; Directive 5: one plain sentence).
+pub const READ_ONLY_REASON: &str = "Your account can read here but not change anything.";
+
 pub const CORE_TOOLS: &[&str] = &[
     "find_capability",
     "web.search",
@@ -176,6 +180,16 @@ impl Caller {
 
     pub fn is_admin(&self) -> bool {
         self.roles.contains(&proto::UserRole::Admin)
+    }
+
+    /// A read-only account (deployment §4.3): holds `viewer` and nothing
+    /// above it. Roles add up, so a viewer who is also a member is a member.
+    pub fn is_viewer(&self) -> bool {
+        self.roles.contains(&proto::UserRole::Viewer)
+            && !self
+                .roles
+                .iter()
+                .any(|r| matches!(r, proto::UserRole::Admin | proto::UserRole::Member))
     }
 
     fn role_label(&self) -> &'static str {
@@ -751,6 +765,22 @@ impl Core {
         }
     }
 
+    /// The document this workspace already holds for a harness, if any: the
+    /// oldest, which is the one shown.
+    fn existing_document_of(&self, harness: &str) -> Option<proto::DocId> {
+        self.store
+            .documents()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(_, r)| r.workspace == self.workspace && r.harness.as_deref() == Some(harness))
+            .min_by(|a, b| {
+                a.1.created_ms
+                    .cmp(&b.1.created_ms)
+                    .then_with(|| a.0.cmp(&b.0))
+            })
+            .map(|(id, _)| id)
+    }
+
     /// The document this workspace shows for a harness: the oldest it holds
     /// for it, made on first use. A workspace may hold several documents per
     /// harness; the UI shows one until a list view is asked for (Pilot 1,
@@ -761,22 +791,10 @@ impl Core {
         title: &str,
         kind: proto::DocKind,
     ) -> proto::DocId {
-        let ws = self.workspace.clone();
-        let existing = self
-            .store
-            .documents()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|(_, r)| r.workspace == ws && r.harness.as_deref() == Some(harness))
-            .min_by(|a, b| {
-                a.1.created_ms
-                    .cmp(&b.1.created_ms)
-                    .then_with(|| a.0.cmp(&b.0))
-            })
-            .map(|(id, _)| id);
-        if let Some(id) = existing {
+        if let Some(id) = self.existing_document_of(harness) {
             return id;
         }
+        let ws = self.workspace.clone();
         let id = store::Store::new_document_id();
         let record = store::DocumentRecord {
             title: title.to_string(),
@@ -1308,6 +1326,7 @@ impl Core {
 
     pub fn active_set(&self) -> proto::ActiveSet {
         let network = self.gateway.lock().unwrap().config.mode;
+        let read_only_harnesses = self.read_only_harnesses();
         exposure::Exposure {
             registry: &self.registry,
             profile: &self.cfg.profile,
@@ -1315,8 +1334,42 @@ impl Core {
             pinned: &self.pinned,
             touched: &self.touched,
             network,
+            read_only: self.active.is_viewer(),
+            read_only_harnesses: &read_only_harnesses,
         }
         .active_set()
+    }
+
+    /// The installed harnesses whose document in this workspace the caller
+    /// may read but not change (deployment §6.2): a `view` or `comment`
+    /// member's. Their `write` tools are not shown to the model.
+    fn read_only_harnesses(&self) -> Vec<String> {
+        let identity = self.identity();
+        self.registry
+            .iter()
+            .filter(|h| h.manifest.package.kind.is_harness())
+            .filter(|h| !self.may_edit_through(h.id(), &identity))
+            .map(|h| h.id().to_string())
+            .collect()
+    }
+
+    /// Whether the caller may change a harness's document in this
+    /// workspace: the document's own answer once it exists, the workspace's
+    /// before that, since the document inherits it when it is made.
+    fn may_edit_through(&self, harness: &str, identity: &Identity) -> bool {
+        match self.existing_document_of(harness) {
+            Some(doc) => self.access.check(identity, &doc, Level::Edit).is_ok(),
+            None => {
+                identity
+                    .break_glass
+                    .as_ref()
+                    .is_some_and(|glass| glass.workspace == self.workspace)
+                    || self
+                        .access
+                        .level_in(&self.workspace, identity)
+                        .is_some_and(|level| level >= Level::Edit)
+            }
+        }
     }
 
     pub fn context_blocks(&mut self) -> Vec<proto::ContextBlock> {
@@ -1374,6 +1427,11 @@ impl Core {
         author: proto::Author,
     ) -> proto::ToolOutcome {
         if CORE_TOOLS.contains(&tool) {
+            if self.active.is_viewer()
+                && exposure::builtin_kind(tool) != Some(proto::ToolKind::Read)
+            {
+                return self.refuse_read_only(tool, exposure::CORE_HARNESS, "");
+            }
             return self.call_core_tool(tool, params);
         }
 
@@ -1403,6 +1461,12 @@ impl Core {
             return proto::ToolOutcome::Denied {
                 reason: format!("`{owner}` is disabled in this environment"),
             };
+        }
+
+        // A read-only account (deployment §4.3) reads: anything else is
+        // refused here, before the harness runs, whoever asked.
+        if self.active.is_viewer() && decl.kind != tools::ToolKind::Read {
+            return self.refuse_read_only(tool, &owner, &doc_id);
         }
 
         // The tool must be in this turn's active set. A tool the model was not
@@ -1470,6 +1534,21 @@ impl Core {
         }
 
         self.execute(tool, &owner, &doc_id, params, author, &decl)
+    }
+
+    /// A read-only account asked for a tool that changes things: refused
+    /// before any harness runs, and audited like any other refusal.
+    fn refuse_read_only(&mut self, tool: &str, harness: &str, doc: &str) -> proto::ToolOutcome {
+        let _ = self.audit.append(
+            self.actor(),
+            self.scope(doc),
+            "tool.call",
+            serde_json::json!({"harness": harness, "tool": tool, "why": "read-only account"}),
+            "denied",
+        );
+        proto::ToolOutcome::Denied {
+            reason: READ_ONLY_REASON.into(),
+        }
     }
 
     /// Run the harness and commit whatever it changed.

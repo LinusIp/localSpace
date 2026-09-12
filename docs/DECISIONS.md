@@ -4,6 +4,51 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-13, roles and tool exposure as built (Phase A, commit 6)
+
+Deployment §4.3 (the Viewer row: "read-only in granted workspaces; can
+chat with documents but the agent has no write tools") and §6.2; plugin
+spec §9; Pilot 1 Phase A.
+
+- **A viewer is a read-only account.** A caller whose roles hold `viewer`
+  and nothing above it (`Caller::is_viewer`; roles add up, so a viewer who
+  is also a member is a member) is shown only the tools of kind `read`,
+  Core's own included: `find_capability`, `web.search` and `web.fetch`
+  stay, `task.plan` and `task.note` go. A call to anything else — from
+  the client, the agent or an eval — is refused before any harness runs,
+  with one sentence, "Your account can read here but not change anything."
+  (`READ_ONLY_REASON`), and audited as `tool.call` denied with
+  `why: read-only account`. The workspace level the viewer holds does not
+  raise this: an `edit` membership given to a viewer reads.
+- **`compute` tools count as changes for a viewer.** A read-only account
+  is shown and allowed `read` only; `compute` needs a member's account.
+  (For a member with a `view` membership, below, `compute` stays, as it
+  changes no document.)
+- **A member who may not change a board is shown none of its writing
+  tools** (§6.2, where a `view` member's outgoing changes are rejected).
+  Per installed harness, Core asks the same check a write would go through
+  — on the workspace's document for that harness once it exists, on the
+  workspace's membership before that, since the document inherits it when
+  it is made — and hides that harness's `write` tools from the active set
+  when the caller holds less than `edit`. Their account is not read-only,
+  so Core's ledger tools and other harnesses' writes stay. The refusal on
+  a call is the document check that already existed. Exposure follows the
+  caller across workspaces and levels on their next request; break-glass
+  shows an owner's tools inside.
+- Why exposure and not only refusal: a model shown a tool it may not use
+  proposes it and is refused, which reads as the product failing; tools it
+  is not shown it does not propose (plugin spec §9 is about what the model
+  sees). Refusal stays as the enforcement, exposure as the courtesy, and
+  the two agree by construction (both ask `AccessControl::check` or the
+  role).
+- Tests: `crates/localspace-core/tests/roles.rs` (a read-only account is
+  shown and allowed only the tools that read, with its refusals audited; a
+  member who may not change a board sees none of its writing tools, before
+  and after the board exists, and sees them again when given `edit`, in
+  their own workspace, and under break-glass) and the exposure unit tests
+  (read-only account; read-only harness; the builtin kinds agree with the
+  builtins shown).
+
 ## 2026-09-13, workspaces and access as built (Phase A, commit 5)
 
 Deployment §5, §6.1 and §6.3; Pilot 1 (`docs/PILOT-1.md`) Phase A.

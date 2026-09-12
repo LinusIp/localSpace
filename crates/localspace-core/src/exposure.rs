@@ -29,6 +29,12 @@ pub struct Exposure<'a> {
     /// Harnesses this conversation has already touched.
     pub touched: &'a [String],
     pub network: proto::NetworkMode,
+    /// The caller's account is read-only (deployment §4.3, a viewer): only
+    /// `read` tools are shown, Core's own included.
+    pub read_only: bool,
+    /// Harnesses whose document the caller may read but not change in this
+    /// workspace (deployment §6.2): their `write` tools are not shown.
+    pub read_only_harnesses: &'a [String],
 }
 
 impl Exposure<'_> {
@@ -36,8 +42,12 @@ impl Exposure<'_> {
     pub fn active_set(&self) -> proto::ActiveSet {
         let mut candidates: Vec<(u8, proto::ExposedTool)> = Vec::new();
 
-        // Rank 0 — Core builtins. Always present, never dropped.
+        // Rank 0 — Core builtins. Always present, never dropped — unless the
+        // account is read-only, which keeps the ones that read.
         for t in self.core_tools() {
+            if self.read_only && t.kind != proto::ToolKind::Read {
+                continue;
+            }
             candidates.push((0, t));
         }
 
@@ -47,6 +57,9 @@ impl Exposure<'_> {
             && h.enabled
         {
             for tool in &h.tools.tools {
+                if !self.shows(h.id(), tool.kind) {
+                    continue;
+                }
                 candidates.push((1, expose(h.id(), tool, ExposureReason::Focused)));
             }
         }
@@ -68,6 +81,9 @@ impl Exposure<'_> {
                 (3, ExposureReason::Touched)
             };
             for tool in h.tools.front_door() {
+                if !self.shows(h.id(), tool.kind) {
+                    continue;
+                }
                 candidates.push((rank, expose(h.id(), tool, reason)));
             }
         }
@@ -135,6 +151,17 @@ impl Exposure<'_> {
             dropped,
             grammar_hash,
         }
+    }
+
+    /// Whether a tool of this kind on this harness is the caller's to see: a
+    /// read-only account sees what reads; a member who may not change a
+    /// harness's document sees none of its writes.
+    fn shows(&self, harness: &str, kind: crate::tools::ToolKind) -> bool {
+        if self.read_only {
+            return kind == crate::tools::ToolKind::Read;
+        }
+        kind != crate::tools::ToolKind::Write
+            || !self.read_only_harnesses.iter().any(|h| h == harness)
     }
 
     /// Core's built-in tools. `web.*` is absent entirely under `airgapped`, so the
@@ -216,6 +243,18 @@ impl Exposure<'_> {
             ));
         }
         out
+    }
+}
+
+/// The kind of one of Core's own tools, for the check a call goes through
+/// before it runs (`Core::call_tool`); `None` for a name that is not one.
+/// The test `builtin_kinds_agree_with_the_builtins_shown` keeps this and
+/// `core_tools` in step.
+pub fn builtin_kind(tool: &str) -> Option<proto::ToolKind> {
+    match tool {
+        "find_capability" | "web.search" | "web.fetch" => Some(proto::ToolKind::Read),
+        "task.plan" | "task.note" => Some(proto::ToolKind::Write),
+        _ => None,
     }
 }
 
@@ -396,6 +435,47 @@ context_provider = true
         })
     }
 
+    fn write_tool(name: &str, summary: &str, front_door: bool) -> serde_json::Value {
+        serde_json::json!({
+            "name": name,
+            "summary": summary,
+            "params": {"type": "object", "properties": {}},
+            "kind": "write",
+            "front_door": front_door,
+            "undoable": true
+        })
+    }
+
+    /// A registry whose tools have kinds: a board that reads and writes, and
+    /// a planner with one write behind a front door.
+    fn registry_with_writes() -> Registry {
+        let mut r = Registry::new();
+        r.insert(harness(
+            "io.localspace.whiteboard",
+            serde_json::json!([
+                tool("canvas.list", "List frames and shapes on the board.", true),
+                write_tool(
+                    "canvas.add_shape",
+                    "Add a rectangle, ellipse or arrow.",
+                    true
+                ),
+                write_tool("canvas.move", "Move a shape to new coordinates.", false),
+            ]),
+        ));
+        r.insert(harness(
+            "io.localspace.planner",
+            serde_json::json!([
+                tool("board.columns", "List columns and their WIP counts.", true),
+                write_tool("board.add_card", "Add a card to a column.", true),
+            ]),
+        ));
+        r
+    }
+
+    fn names(set: &proto::ActiveSet) -> Vec<&str> {
+        set.tools.iter().map(|t| t.name.as_str()).collect()
+    }
+
     fn registry() -> Registry {
         let mut r = Registry::new();
         r.insert(harness(
@@ -446,6 +526,82 @@ context_provider = true
             pinned,
             touched,
             network: proto::NetworkMode::Ask,
+            read_only: false,
+            read_only_harnesses: &[],
+        }
+    }
+
+    #[test]
+    fn a_read_only_account_sees_only_read_tools_core_s_own_included() {
+        let reg = registry_with_writes();
+        let p = ModelProfile::server();
+        let pinned = vec!["io.localspace.planner".to_string()];
+        let mut ex = exposure(&reg, &p, Some("io.localspace.whiteboard"), &pinned, &[]);
+        let all = ex.active_set();
+        assert!(
+            names(&all).contains(&"canvas.add_shape"),
+            "{:?}",
+            names(&all)
+        );
+        assert!(names(&all).contains(&"task.plan"));
+
+        ex.read_only = true;
+        let set = ex.active_set();
+        let shown = names(&set);
+        assert!(shown.contains(&"canvas.list"), "{shown:?}");
+        assert!(shown.contains(&"board.columns"), "{shown:?}");
+        assert!(shown.contains(&"find_capability"), "{shown:?}");
+        for hidden in [
+            "canvas.add_shape",
+            "canvas.move",
+            "board.add_card",
+            "task.plan",
+            "task.note",
+        ] {
+            assert!(
+                !shown.contains(&hidden),
+                "{hidden} shown to a read-only account: {shown:?}"
+            );
+        }
+        assert!(set.tools.iter().all(|t| t.kind == proto::ToolKind::Read));
+    }
+
+    #[test]
+    fn a_harness_the_caller_may_not_change_shows_only_its_read_tools() {
+        let reg = registry_with_writes();
+        let p = ModelProfile::server();
+        let pinned = vec!["io.localspace.planner".to_string()];
+        let read_only = vec!["io.localspace.whiteboard".to_string()];
+        let mut ex = exposure(&reg, &p, Some("io.localspace.whiteboard"), &pinned, &[]);
+        ex.read_only_harnesses = &read_only;
+        let set = ex.active_set();
+        let shown = names(&set);
+        assert!(shown.contains(&"canvas.list"), "{shown:?}");
+        assert!(!shown.contains(&"canvas.add_shape"), "{shown:?}");
+        assert!(!shown.contains(&"canvas.move"), "{shown:?}");
+        assert!(
+            shown.contains(&"board.add_card"),
+            "another harness's writes stay: {shown:?}"
+        );
+        assert!(
+            shown.contains(&"task.plan"),
+            "the account itself is not read-only: {shown:?}"
+        );
+    }
+
+    #[test]
+    fn builtin_kinds_agree_with_the_builtins_shown() {
+        let reg = registry();
+        let p = ModelProfile::server();
+        let ex = exposure(&reg, &p, None, &[], &[]);
+        let builtins = ex.core_tools();
+        assert!(builtins.len() >= 5, "{}", builtins.len());
+        for t in &builtins {
+            assert_eq!(builtin_kind(&t.name), Some(t.kind), "{}", t.name);
+        }
+        assert_eq!(builtin_kind("canvas.add_shape"), None);
+        for name in crate::CORE_TOOLS {
+            assert!(builtin_kind(name).is_some(), "{name} has no kind");
         }
     }
 
