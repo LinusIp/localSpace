@@ -17,6 +17,13 @@ use std::sync::{Arc, Mutex};
 
 const BOARD: &str = "io.localspace.whiteboard";
 
+/// A directory beside `harnesses/` in the repository.
+fn harnesses_sibling(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(name)
+}
+
 fn harnesses() -> Option<PathBuf> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../harnesses");
     dir.join("whiteboard/logic.wasm").exists().then_some(dir)
@@ -45,6 +52,9 @@ impl Bench {
         let harnesses = harnesses()?;
         let mut cfg = Config::personal("tester");
         cfg.harness_dir = Some(harnesses);
+        // The whiteboard depends on the types package, which the registry
+        // offers (plugin spec §18.3).
+        cfg.catalog_dirs = vec![harnesses_sibling("registry")];
         let mut core = Core::new(cfg).expect("creating Core");
         let events: Arc<Mutex<Vec<proto::Event>>> = Arc::new(Mutex::new(Vec::new()));
         let sink = events.clone();
