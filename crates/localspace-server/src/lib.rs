@@ -220,6 +220,14 @@ pub fn router(server: Arc<Server>) -> Router {
         .route("/active-set", get(api::active_set))
         .route("/lock", get(api::lock))
         .route("/docs/{harness}", get(api::doc))
+        .route("/documents", get(api::documents))
+        .route("/documents/{id}/content", get(api::document_content))
+        .route(
+            "/artifacts",
+            post(api::produce_artifact).layer(axum::extract::DefaultBodyLimit::max(
+                localspace_core::MAX_ARTIFACT_BYTES,
+            )),
+        )
         .route("/surfaces", post(surfaces::open))
         .route("/logout", post(auth::logout))
         .route_layer(axum::middleware::from_fn_with_state(

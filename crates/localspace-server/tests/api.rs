@@ -15,10 +15,18 @@ fn harness_dir() -> Option<PathBuf> {
     dir.join("whiteboard/logic.wasm").exists().then_some(dir)
 }
 
+/// The repository's `registry/`: the catalog the whiteboard's dependency,
+/// the types package, resolves from (plugin spec §18.3).
+fn registry_dir() -> Option<PathBuf> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../registry");
+    dir.join("types/types.toml").exists().then_some(dir)
+}
+
 fn config(token: &str) -> ServerConfig {
     ServerConfig {
         bind: "127.0.0.1:0".into(),
         harnesses: harness_dir(),
+        registry: registry_dir().into_iter().collect(),
         personal: true,
         user: "tester".into(),
         token: Some(token.into()),
@@ -582,6 +590,218 @@ async fn a_harness_origin_serves_the_shell_s_libraries_and_nothing_beside_them()
         assert!(
             html.contains(&format!("./_localspace/{name}")),
             "{name} in the import map: {html}"
+        );
+    }
+}
+
+async fn send(app: &axum::Router, request: Request<Body>) -> axum::response::Response {
+    app.clone().oneshot(request).await.unwrap()
+}
+
+fn percent(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+#[tokio::test]
+async fn an_export_goes_in_as_bytes_and_comes_out_as_a_download() {
+    // 6.0: a surface's PNG or SVG of its board is one upload with the file
+    // as the body, a document of its own afterwards, and a download that is
+    // always an attachment and never sniffed.
+    let Some(_) = harness_dir() else { return };
+    let app = router(Server::new(config("secret-6")));
+    let auth = || (header::AUTHORIZATION, "Bearer secret-6");
+    let get = |path: String| {
+        Request::get(path)
+            .header(auth().0, auth().1)
+            .body(Body::empty())
+            .unwrap()
+    };
+    let post_bytes = |path: String, mime: &str, bytes: Vec<u8>| {
+        Request::post(path)
+            .header(auth().0, auth().1)
+            .header(header::CONTENT_TYPE, mime)
+            .body(Body::from(bytes))
+            .unwrap()
+    };
+
+    // A commit on the board, to export from.
+    let added = send(
+        &app,
+        Request::post("/api/v1/request")
+            .header(auth().0, auth().1)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                r#"{"call_tool":{"tool":"canvas.add_sticky","params":{"text":"export me","fill":"yellow"}}}"#,
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(added.status(), StatusCode::OK);
+    let history = body_json(send(&app, get("/api/v1/history?limit=5".into())).await).await;
+    let newest = &history["history"]["commits"][0];
+    assert_eq!(newest["doc"], "io_localspace_whiteboard", "{history}");
+    let head = newest["id"].as_str().unwrap().to_string();
+
+    let png = [b"\x89PNG\r\n\x1a\n".as_slice(), &[0u8; 32]].concat();
+    let fields = format!(r#"{{"document":"io_localspace_whiteboard","commit":"{head}"}}"#);
+    let query = format!(
+        "harness=io.localspace.whiteboard&view=web&kind=image.v1&name=board&summary=PNG%20of%20the%20board&fields={}",
+        percent(&fields)
+    );
+    let produced = send(
+        &app,
+        post_bytes(
+            format!("/api/v1/artifacts?{query}"),
+            "image/png",
+            png.clone(),
+        ),
+    )
+    .await;
+    assert_eq!(produced.status(), StatusCode::OK);
+    let body = body_json(produced).await;
+    let artifact = &body["artifact"];
+    assert_eq!(artifact["kind"], "image.v1", "{body}");
+    let name = format!("board-{}.png", &head[..7]);
+    assert_eq!(artifact["file"]["name"], name);
+    assert_eq!(artifact["file"]["mime"], "image/png");
+    assert_eq!(artifact["fields"]["commit"], head);
+    let doc = artifact["doc"].as_str().unwrap().to_string();
+    assert!(doc.starts_with("blob:"), "{doc}");
+
+    // Listed, with where it came from.
+    let listed = body_json(send(&app, get("/api/v1/documents".into())).await).await;
+    let entry = listed["documents"]["documents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["id"] == doc)
+        .unwrap_or_else(|| panic!("the export is not listed: {listed}"));
+    assert_eq!(entry["source"]["export"]["commit"], head);
+    assert_eq!(entry["bytes"], png.len());
+
+    // Downloaded: an attachment with its own media type, never sniffed.
+    let content = send(&app, get(format!("/api/v1/documents/{doc}/content"))).await;
+    assert_eq!(content.status(), StatusCode::OK);
+    let headers = content.headers().clone();
+    assert_eq!(headers.get(header::CONTENT_TYPE).unwrap(), "image/png");
+    assert_eq!(
+        headers.get(header::CONTENT_DISPOSITION).unwrap(),
+        &format!("attachment; filename=\"{name}\"")
+    );
+    assert_eq!(headers.get("x-content-type-options").unwrap(), "nosniff");
+    let bytes = content.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(bytes.as_ref(), png.as_slice());
+
+    // An SVG, which a browser would run inline, is an attachment too.
+    let svg =
+        br#"<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>"#.to_vec();
+    let svg_query = query.replace("kind=image.v1", "kind=svg.v1");
+    let produced = send(
+        &app,
+        post_bytes(
+            format!("/api/v1/artifacts?{svg_query}"),
+            "image/svg+xml",
+            svg.clone(),
+        ),
+    )
+    .await;
+    let body = body_json(produced).await;
+    let svg_doc = body["artifact"]["doc"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{body}"))
+        .to_string();
+    let content = send(&app, get(format!("/api/v1/documents/{svg_doc}/content"))).await;
+    assert_eq!(content.status(), StatusCode::OK);
+    assert_eq!(
+        content.headers().get(header::CONTENT_TYPE).unwrap(),
+        "image/svg+xml"
+    );
+    assert!(
+        content
+            .headers()
+            .get(header::CONTENT_DISPOSITION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("attachment;")
+    );
+
+    // The wrong media type for the kind is refused in the answer, and
+    // nothing is kept.
+    let wrong = send(
+        &app,
+        post_bytes(
+            format!("/api/v1/artifacts?{query}"),
+            "text/plain",
+            png.clone(),
+        ),
+    )
+    .await;
+    assert_eq!(wrong.status(), StatusCode::OK);
+    let body = body_json(wrong).await;
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("image/png"),
+        "{body}"
+    );
+
+    // No Content-Type: the route cannot say what the file is.
+    let untyped = send(
+        &app,
+        Request::post(format!("/api/v1/artifacts?{query}"))
+            .header(auth().0, auth().1)
+            .body(Body::from(png.clone()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(untyped.status(), StatusCode::BAD_REQUEST);
+
+    // Over the limit: refused by size before it is read.
+    let too_big = vec![0u8; localspace_core::MAX_ARTIFACT_BYTES + 1];
+    let refused = send(
+        &app,
+        post_bytes(format!("/api/v1/artifacts?{query}"), "image/png", too_big),
+    )
+    .await;
+    assert_eq!(refused.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+    // The board's own document is not a file: no download.
+    let none = send(
+        &app,
+        get("/api/v1/documents/io_localspace_whiteboard/content".into()),
+    )
+    .await;
+    assert_eq!(none.status(), StatusCode::NOT_FOUND);
+
+    // Without a session, none of it.
+    for request in [
+        Request::post(format!("/api/v1/artifacts?{query}"))
+            .header(header::CONTENT_TYPE, "image/png")
+            .body(Body::from(png.clone()))
+            .unwrap(),
+        Request::get("/api/v1/documents")
+            .body(Body::empty())
+            .unwrap(),
+        Request::get(format!("/api/v1/documents/{doc}/content"))
+            .body(Body::empty())
+            .unwrap(),
+    ] {
+        let path = request.uri().path().to_string();
+        assert_eq!(
+            send(&app, request).await.status(),
+            StatusCode::UNAUTHORIZED,
+            "{path}"
         );
     }
 }

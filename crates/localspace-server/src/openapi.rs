@@ -68,6 +68,7 @@ fn build() -> Value {
         ("/api/v1/task", "GetTask"),
         ("/api/v1/active-set", "GetActiveSet"),
         ("/api/v1/lock", "GetLock"),
+        ("/api/v1/documents", "ListDocuments"),
     ] {
         paths.insert(
             path.into(),
@@ -83,6 +84,39 @@ fn build() -> Value {
             "summary": "The response to GetDocJson for one harness",
             "parameters": [{"name": "harness", "in": "path", "required": true, "schema": {"type": "string"}}],
             "responses": {"200": response_of(&response, "the response"), "401": unauthorized}
+        }}),
+    );
+    paths.insert(
+        "/api/v1/documents/{id}/content".into(),
+        json!({"get": {
+            "summary": "A file document's bytes at its head (GetDocBlob), as an attachment with nosniff",
+            "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
+            "responses": {
+                "200": {"description": "the file, Content-Type its media type, Content-Disposition attachment"},
+                "401": unauthorized,
+                "404": {"description": "not a file the caller may read, or one with no content"}
+            }
+        }}),
+    );
+    paths.insert(
+        "/api/v1/artifacts".into(),
+        json!({"post": {
+            "summary": "ProduceArtifact with the file as the body: Content-Type is the kind's media type; the rest is in the query",
+            "parameters": [
+                {"name": "harness", "in": "query", "required": true, "schema": {"type": "string"}},
+                {"name": "view", "in": "query", "required": true, "schema": {"type": "string"}},
+                {"name": "kind", "in": "query", "required": true, "schema": {"type": "string"}, "description": "an interchange type, e.g. image.v1"},
+                {"name": "name", "in": "query", "required": true, "schema": {"type": "string"}},
+                {"name": "fields", "in": "query", "required": false, "schema": {"type": "string"}, "description": "a JSON object with the fields the kind requires"},
+                {"name": "summary", "in": "query", "required": false, "schema": {"type": "string"}}
+            ],
+            "requestBody": {"required": true, "content": {"*/*": {"schema": {"type": "string", "format": "binary"}}}},
+            "responses": {
+                "200": response_of(&response, "the artifact, or an error"),
+                "400": {"description": "no Content-Type, or fields that are not a JSON object"},
+                "401": unauthorized,
+                "413": {"description": "over the 200 MiB limit"}
+            }
         }}),
     );
     paths.insert(
