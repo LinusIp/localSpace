@@ -82,6 +82,15 @@ impl Store {
         if !path.exists() && v1.exists() {
             std::fs::copy(&v1, &path)
                 .with_context(|| format!("copying {} to {}", v1.display(), path.display()))?;
+            // The copy carries the original's attributes; a read-only v1 file
+            // must not leave the copy unwritable.
+            let mut writable = std::fs::metadata(&path)
+                .with_context(|| format!("reading {}", path.display()))?
+                .permissions();
+            #[allow(clippy::permissions_set_readonly_false)]
+            writable.set_readonly(false);
+            std::fs::set_permissions(&path, writable)
+                .with_context(|| format!("making {} writable", path.display()))?;
         }
         Store::open_file(&path)
     }
