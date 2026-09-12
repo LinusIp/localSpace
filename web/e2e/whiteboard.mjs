@@ -266,7 +266,8 @@ try {
   // 10. Export (6.0): a PNG and an SVG of the board from the toolbar land
   // as artifacts pinned to the board's head, as documents of their own, and
   // download as attachments with their bytes intact.
-  const boardHead = (await history()).find((c) => c.doc === "io_localspace_whiteboard").id;
+  const boardDoc = (await api("/docs/io.localspace.whiteboard")).doc_json.doc;
+  const boardHead = (await history()).find((c) => c.doc === boardDoc).id;
   const artifactOf = async (kind) => (await api("/task")).task.artifacts.find((a) => a.kind === kind && a.fields.commit === boardHead && a.file) ?? null;
   const download = async (id) => {
     const r = await fetch(`${origin}/api/v1/documents/${encodeURIComponent(id)}/content`, { headers: { Authorization: `Bearer ${token}` } });

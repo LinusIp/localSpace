@@ -32,6 +32,7 @@ pub mod profile;
 pub mod prompt;
 pub mod registry;
 pub mod runtime;
+pub mod store;
 pub mod task;
 pub mod tools;
 pub mod transport;
@@ -154,6 +155,8 @@ pub struct Core {
     cfg: Config,
     registry: Registry,
     docs: DocStore,
+    /// The database: the DAG's tables and every other table share it.
+    store: store::Store,
     dag: Dag,
     /// Shared with harness logic through `CoreServices`; never locks `Core`.
     gateway: Arc<Mutex<Gateway>>,
@@ -200,10 +203,11 @@ impl Core {
     }
 
     pub fn new(cfg: Config) -> Result<Core> {
-        let dag = match &cfg.data_dir {
-            Some(dir) => Dag::open(&dir.join("db").join("dag.redb"))?,
-            None => Dag::in_memory()?,
+        let store = match &cfg.data_dir {
+            Some(dir) => store::Store::open(dir)?,
+            None => store::Store::in_memory()?,
         };
+        let dag = Dag::with(store.db())?;
         let audit = match &cfg.data_dir {
             Some(dir) => AuditLog::open(&dir.join("audit").join("audit.jsonl"))?,
             None => AuditLog::in_memory(),
@@ -237,6 +241,7 @@ impl Core {
             engine: None,
             registry: Registry::new(),
             docs: DocStore::new(),
+            store,
             dag,
             gateway,
             router,
@@ -274,6 +279,9 @@ impl Core {
             core.load_harnesses(&root);
             loaded = true;
         }
+        // An older database is brought up to date before any document is
+        // assigned, so a board keeps the history it has under its old name.
+        core.migrate_if_needed();
         if loaded {
             core.settle_packages();
         }
@@ -410,21 +418,25 @@ impl Core {
                 self.registry.remove(&id);
             }
         }
-        // One document per harness (spec §10); a types or library package
-        // has nothing to edit.
-        let ids: Vec<(String, proto::DocKind, String)> = self
+        // Each harness gets the document this workspace shows for it (spec
+        // §10); a types or library package has nothing to edit.
+        let harnesses: Vec<(String, proto::DocKind, String)> = self
             .registry
             .iter()
             .filter(|h| h.manifest.package.kind.is_harness())
             .map(|h| {
                 (
-                    h.doc_id.clone(),
+                    h.id().to_string(),
                     h.doc_kind(),
                     h.manifest.harness.title.clone(),
                 )
             })
             .collect();
-        for (doc_id, kind, title) in ids {
+        for (id, kind, title) in harnesses {
+            let doc_id = self.harness_document(&id, &title, kind);
+            if let Some(h) = self.registry.get_mut(&id) {
+                h.doc_id = doc_id.clone();
+            }
             self.docs.ensure(&doc_id, kind);
             let ws = self.workspace.clone();
             self.access.add_document(&doc_id, &ws, &title, None);
@@ -472,12 +484,12 @@ impl Core {
         self.install_inner(dir, false)
     }
 
-    /// The file documents the DAG records — exports, later uploads — known
-    /// to the store and the ACL without their bytes, which are read from the
-    /// DAG when asked for, so a workspace of exports costs Core nothing at
-    /// idle.
+    /// Every document the database records — a harness's, an export, later
+    /// an upload — known to the store and the ACL. A file's bytes are not
+    /// loaded; they are read from the DAG when asked for, so a workspace of
+    /// exports costs Core nothing at idle.
     fn load_documents(&mut self) {
-        let records = match self.dag.documents() {
+        let records = match self.store.documents() {
             Ok(records) => records,
             Err(e) => {
                 self.notice(
@@ -489,8 +501,153 @@ impl Core {
         };
         for (id, record) in records {
             self.docs.ensure(&id, record.kind);
-            let ws = self.workspace.clone();
+            let ws = if record.workspace.is_empty() {
+                self.workspace.clone()
+            } else {
+                record.workspace.clone()
+            };
             self.access.add_document(&id, &ws, &record.title, None);
+        }
+    }
+
+    /// The document this workspace shows for a harness: the oldest it holds
+    /// for it, made on first use. A workspace may hold several documents per
+    /// harness; the UI shows one until a list view is asked for (Pilot 1,
+    /// answer 12).
+    fn harness_document(
+        &mut self,
+        harness: &str,
+        title: &str,
+        kind: proto::DocKind,
+    ) -> proto::DocId {
+        let ws = self.workspace.clone();
+        let existing = self
+            .store
+            .documents()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(_, r)| r.workspace == ws && r.harness.as_deref() == Some(harness))
+            .min_by(|a, b| {
+                a.1.created_ms
+                    .cmp(&b.1.created_ms)
+                    .then_with(|| a.0.cmp(&b.0))
+            })
+            .map(|(id, _)| id);
+        if let Some(id) = existing {
+            return id;
+        }
+        let id = store::Store::new_document_id();
+        let record = store::DocumentRecord {
+            title: title.to_string(),
+            kind,
+            mime: match kind {
+                proto::DocKind::Crdt => "application/json".into(),
+                proto::DocKind::Blob => "application/octet-stream".into(),
+            },
+            bytes: 0,
+            hash: String::new(),
+            source: proto::DocumentSource::Harness {
+                harness: harness.to_string(),
+            },
+            created_ms: dag::now_ms(),
+            workspace: ws,
+            harness: Some(harness.to_string()),
+            created_by: self.cfg.user.clone(),
+        };
+        if let Err(e) = self.store.put_document(&id, &record) {
+            self.notice(
+                proto::NoticeLevel::Error,
+                format!("the document for `{harness}` could not be recorded: {e:#}"),
+            );
+        }
+        id
+    }
+
+    /// Bring an older database up to this code's schema, forward only.
+    ///
+    /// v1 → v2 (2026-09-12): the file is `localspace.redb`, the copy having
+    /// been taken by `Store::open`. Every document with history — until now
+    /// known only by its harness's name with dots as underscores — gets a
+    /// record in the one user's personal workspace, so it stays that
+    /// harness's oldest and shown document; the exports of 6.0 get their
+    /// workspace and creator.
+    fn migrate_if_needed(&mut self) {
+        let version = self.store.schema_version().unwrap_or(0);
+        if version >= store::SCHEMA_VERSION {
+            return;
+        }
+        if version < 2 {
+            let ws = self.workspace.clone();
+            let user = self.cfg.user.clone();
+            let records = self.store.documents().unwrap_or_default();
+            for (id, record) in &records {
+                if record.workspace.is_empty() {
+                    let mut filled = record.clone();
+                    filled.workspace = ws.clone();
+                    filled.created_by = user.clone();
+                    let _ = self.store.put_document(id, &filled);
+                }
+            }
+            let by_legacy_id: HashMap<String, (String, String, proto::DocKind)> = self
+                .registry
+                .iter()
+                .filter(|h| h.manifest.package.kind.is_harness())
+                .map(|h| {
+                    (
+                        h.id().replace('.', "_"),
+                        (
+                            h.id().to_string(),
+                            h.manifest.harness.title.clone(),
+                            h.doc_kind(),
+                        ),
+                    )
+                })
+                .collect();
+            let history = self.dag.history(usize::MAX).unwrap_or_default();
+            let mut seen: Vec<String> = Vec::new();
+            for commit in history.iter().rev() {
+                let doc = &commit.doc;
+                if doc == lock::LOCK_DOC
+                    || doc.starts_with("blob:")
+                    || seen.contains(doc)
+                    || records.iter().any(|(id, _)| id == doc)
+                {
+                    continue;
+                }
+                seen.push(doc.clone());
+                let (harness, title, kind) = match by_legacy_id.get(doc) {
+                    Some((id, title, kind)) => (Some(id.clone()), title.clone(), *kind),
+                    None => (None, doc.clone(), proto::DocKind::Crdt),
+                };
+                let record = store::DocumentRecord {
+                    title,
+                    kind,
+                    mime: match kind {
+                        proto::DocKind::Crdt => "application/json".into(),
+                        proto::DocKind::Blob => "application/octet-stream".into(),
+                    },
+                    bytes: 0,
+                    hash: String::new(),
+                    source: proto::DocumentSource::Harness {
+                        harness: harness.clone().unwrap_or_else(|| doc.clone()),
+                    },
+                    created_ms: commit.at_ms,
+                    workspace: ws.clone(),
+                    harness,
+                    created_by: user.clone(),
+                };
+                let _ = self.store.put_document(doc, &record);
+            }
+            self.trace(format!(
+                "database: migrated to schema 2; {} document(s) recorded",
+                seen.len()
+            ));
+        }
+        if let Err(e) = self.store.set_schema_version(store::SCHEMA_VERSION) {
+            self.notice(
+                proto::NoticeLevel::Error,
+                format!("the database's schema version could not be written: {e:#}"),
+            );
         }
     }
 
@@ -579,21 +736,26 @@ impl Core {
         }
 
         Registry::instantiate(&mut staged, self.services())?;
-        let doc_id = staged.doc_id.clone();
         let kind = staged.doc_kind();
         let title = staged.manifest.harness.title.clone();
         let id = staged.id().to_string();
         let staged_is_harness = staged.manifest.package.kind.is_harness();
 
-        // One document per harness (spec §10); a types or library package has
-        // nothing to edit. A package installed again finds its document where
-        // its history left it: the DAG is the durable store, not the package.
-        if staged_is_harness {
+        // The workspace's document for the harness (spec §10); a types or
+        // library package has nothing to edit. A package installed again
+        // finds its document where its history left it: the database is the
+        // durable store, not the package.
+        let doc_id = if staged_is_harness {
+            let doc_id = self.harness_document(&id, &title, kind);
+            staged.doc_id = doc_id.clone();
             self.docs.ensure(&doc_id, kind);
             let ws = self.workspace.clone();
             self.access.add_document(&doc_id, &ws, &title, None);
             self.restore_from_dag(&doc_id);
-        }
+            doc_id
+        } else {
+            staged.doc_id.clone()
+        };
         self.registry.insert(staged);
 
         let _ = self.audit.append(
@@ -1819,7 +1981,7 @@ impl Core {
                 None,
             )
             .map_err(|e| format!("{e:#}"))?;
-        let record = dag::DocumentRecord {
+        let record = store::DocumentRecord {
             title: name.clone(),
             kind: proto::DocKind::Blob,
             mime: mime.to_string(),
@@ -1831,8 +1993,11 @@ impl Core {
                 commit: source_commit,
             },
             created_ms: dag::now_ms(),
+            workspace: ws,
+            harness: None,
+            created_by: self.cfg.user.clone(),
         };
-        self.dag
+        self.store
             .put_document(&doc_id, &record)
             .map_err(|e| format!("{e:#}"))?;
         let _ = self.audit.append(
@@ -1866,64 +2031,31 @@ impl Core {
             .ok_or_else(|| format!("`{id}` was registered and is not in the ledger"))
     }
 
-    /// Every document the caller may see: each harness's, and every file
-    /// document the DAG records.
+    /// Every document the caller may see, from the records: a harness's, an
+    /// export, later an upload.
     fn list_documents(&self) -> Vec<proto::DocumentInfo> {
         let identity = self.identity();
-        let head_and_hash = |doc: &str| {
-            let head = self.dag.head(doc).ok().flatten();
-            let hash = head
-                .as_ref()
-                .and_then(|id| self.dag.get_commit(id).ok().flatten())
-                .map(|c| c.doc_hash)
-                .unwrap_or_default();
-            (head, hash)
-        };
         let mut out = Vec::new();
-        for h in self
-            .registry
-            .iter()
-            .filter(|h| h.manifest.package.kind.is_harness())
-        {
-            if self
-                .access
-                .check(&identity, &h.doc_id, Level::View)
-                .is_err()
-            {
-                continue;
-            }
-            let (head, hash) = head_and_hash(&h.doc_id);
-            let kind = h.doc_kind();
-            out.push(proto::DocumentInfo {
-                id: h.doc_id.clone(),
-                title: h.manifest.harness.title.clone(),
-                kind,
-                mime: match kind {
-                    proto::DocKind::Crdt => "application/json".into(),
-                    proto::DocKind::Blob => "application/octet-stream".into(),
-                },
-                bytes: None,
-                hash,
-                head,
-                source: proto::DocumentSource::Harness {
-                    harness: h.id().to_string(),
-                },
-                created_ms: None,
-            });
-        }
-        for (id, record) in self.dag.documents().unwrap_or_default() {
+        for (id, record) in self.store.documents().unwrap_or_default() {
             if self.access.check(&identity, &id, Level::View).is_err() {
                 continue;
             }
-            let (head, hash) = head_and_hash(&id);
+            let head = self.dag.head(&id).ok().flatten();
+            let hash = head
+                .as_ref()
+                .and_then(|c| self.dag.get_commit(c).ok().flatten())
+                .map(|c| c.doc_hash)
+                .unwrap_or_default();
+            let is_file = record.harness.is_none();
             out.push(proto::DocumentInfo {
                 id,
                 title: record.title,
                 kind: record.kind,
                 mime: record.mime,
-                // Undone, the document has no content; the record's size is
-                // its content's only while that content is the head's.
-                bytes: (hash == record.hash).then_some(record.bytes),
+                // A file's size is its content's only while that content is
+                // the head's: undone, the document has none. A harness's
+                // document has no size to give.
+                bytes: (is_file && hash == record.hash).then_some(record.bytes),
                 hash,
                 head,
                 source: record.source,
@@ -1941,9 +2073,10 @@ impl Core {
             return Err(denied.to_string());
         }
         let record = self
-            .dag
+            .store
             .get_document(doc)
             .map_err(|e| format!("{e:#}"))?
+            .filter(|r| r.harness.is_none())
             .ok_or_else(|| format!("`{doc}` is not a file"))?;
         let head = self
             .dag

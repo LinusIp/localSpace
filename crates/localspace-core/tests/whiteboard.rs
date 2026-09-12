@@ -1892,7 +1892,19 @@ fn a_harness_loaded_without_its_types_package_is_set_aside() {
 // ---------------------------------------------------------------------------
 
 const PNG_MAGIC: &[u8] = b"\x89PNG\r\n\x1a\n";
-const BOARD_DOC: &str = "io_localspace_whiteboard";
+/// The board's document, which has an id of its own since Phase A.
+fn board_doc(core: &mut Core) -> String {
+    doc_of(core, WHITEBOARD)
+}
+
+fn doc_of(core: &mut Core, harness: &str) -> String {
+    match core.handle(proto::Request::GetDocJson {
+        harness: harness.into(),
+    }) {
+        proto::Response::DocJson { doc, .. } => doc,
+        other => panic!("GetDocJson failed: {other:?}"),
+    }
+}
 
 /// The newest commit on `doc`, from the history.
 fn head_of(core: &mut Core, doc: &str) -> Option<String> {
@@ -1935,7 +1947,8 @@ fn export(
 fn a_surface_export_is_a_document_of_its_own_and_an_artifact_pinned_to_it() {
     let Some(mut core) = core() else { return };
     stickies(&mut core, 2);
-    let head = head_of(&mut core, BOARD_DOC).expect("two stickies made commits");
+    let board_id = board_doc(&mut core);
+    let head = head_of(&mut core, &board_id).expect("two stickies made commits");
     let png = [PNG_MAGIC, &[0u8; 64]].concat();
 
     let art = match export(
@@ -1944,7 +1957,7 @@ fn a_surface_export_is_a_document_of_its_own_and_an_artifact_pinned_to_it() {
         "risks",
         "image/png",
         &png,
-        json!({"document": BOARD_DOC, "commit": head}),
+        json!({"document": board_id, "commit": head}),
     ) {
         proto::Response::Artifact(a) => a,
         other => panic!("export failed: {other:?}"),
@@ -1953,7 +1966,7 @@ fn a_surface_export_is_a_document_of_its_own_and_an_artifact_pinned_to_it() {
     assert_eq!(art.kind, "image.v1");
     assert_eq!(art.produced_by, WHITEBOARD);
     assert!(art.doc.starts_with("blob:"), "{}", art.doc);
-    assert_eq!(art.fields.0["document"], BOARD_DOC);
+    assert_eq!(art.fields.0["document"], board_id);
     assert_eq!(art.fields.0["commit"], head);
     let file = art.file.as_ref().expect("an export is a file");
     assert_eq!(file.name, name, "the name says which board state it shows");
@@ -1968,7 +1981,7 @@ fn a_surface_export_is_a_document_of_its_own_and_an_artifact_pinned_to_it() {
         proto::Response::Artifact(a) => a,
         other => panic!("second export failed: {other:?}"),
     };
-    assert_eq!(again.fields.0["document"], BOARD_DOC);
+    assert_eq!(again.fields.0["document"], board_id);
     assert_eq!(again.fields.0["commit"], head);
     assert_eq!(again.doc, art.doc);
     assert_ne!(again.commit, art.commit);
@@ -1984,13 +1997,13 @@ fn a_surface_export_is_a_document_of_its_own_and_an_artifact_pinned_to_it() {
             assert_eq!(commits[1].tool, "surface:export");
             assert_eq!(commits[1].author, proto::Author::User);
             assert_eq!(commits[1].params.0["commit"], head);
-            assert_eq!(commits[1].params.0["document"], BOARD_DOC);
+            assert_eq!(commits[1].params.0["document"], board_id);
             assert_eq!(commits[1].params.0["name"], name);
         }
         other => panic!("{other:?}"),
     }
     assert_eq!(
-        head_of(&mut core, BOARD_DOC).as_deref(),
+        head_of(&mut core, &board_id).as_deref(),
         Some(head.as_str())
     );
 
@@ -2026,14 +2039,14 @@ fn a_surface_export_is_a_document_of_its_own_and_an_artifact_pinned_to_it() {
             commit,
         } => {
             assert_eq!(harness, WHITEBOARD);
-            assert_eq!(document, BOARD_DOC);
+            assert_eq!(document, &board_id);
             assert_eq!(commit, &head);
         }
         other => panic!("{other:?}"),
     }
     let board = docs
         .iter()
-        .find(|d| d.id == BOARD_DOC)
+        .find(|d| d.id == board_id)
         .expect("the board is listed too");
     assert_eq!(board.kind, proto::DocKind::Crdt);
     assert!(
@@ -2065,7 +2078,8 @@ fn an_export_is_refused_when_its_provenance_or_its_type_is_wrong() {
         return;
     };
     stickies(&mut core, 1);
-    let head = head_of(&mut core, BOARD_DOC).unwrap();
+    let board_id = board_doc(&mut core);
+    let head = head_of(&mut core, &board_id).unwrap();
     let png = [PNG_MAGIC, &[1u8; 16]].concat();
     let refused =
         |core: &mut Core, kind: &str, mime: &str, bytes: &[u8], fields: Value, expect: &str| {
@@ -2083,27 +2097,28 @@ fn an_export_is_refused_when_its_provenance_or_its_type_is_wrong() {
         "image.v1",
         "image/png",
         &png,
-        json!({"document": BOARD_DOC, "commit": "c000000000000"}),
+        json!({"document": board_id, "commit": "c000000000000"}),
         "not a commit",
     );
+    let planner_doc = doc_of(&mut core, "io.localspace.planner");
     // Another harness's document.
     refused(
         &mut core,
         "image.v1",
         "image/png",
         &png,
-        json!({"document": "io_localspace_planner", "commit": head}),
+        json!({"document": planner_doc, "commit": head}),
         "its own document",
     );
     // A commit that is on another document.
     call(&mut core, "board.add_card", json!({"text": "x"}));
-    let planner_head = head_of(&mut core, "io_localspace_planner").unwrap();
+    let planner_head = head_of(&mut core, &planner_doc).unwrap();
     refused(
         &mut core,
         "image.v1",
         "image/png",
         &png,
-        json!({"document": BOARD_DOC, "commit": planner_head}),
+        json!({"document": board_id, "commit": planner_head}),
         "not on",
     );
     // The wrong media type for the kind.
@@ -2112,7 +2127,7 @@ fn an_export_is_refused_when_its_provenance_or_its_type_is_wrong() {
         "svg.v1",
         "image/png",
         &png,
-        json!({"document": BOARD_DOC, "commit": head}),
+        json!({"document": board_id, "commit": head}),
         "image/svg+xml",
     );
     // A kind the harness does not produce.
@@ -2121,7 +2136,7 @@ fn an_export_is_refused_when_its_provenance_or_its_type_is_wrong() {
         "mesh.v1",
         "image/png",
         &png,
-        json!({"document": BOARD_DOC, "commit": head}),
+        json!({"document": board_id, "commit": head}),
         "produces",
     );
     // Nothing at all.
@@ -2130,7 +2145,7 @@ fn an_export_is_refused_when_its_provenance_or_its_type_is_wrong() {
         "image.v1",
         "image/png",
         &[],
-        json!({"document": BOARD_DOC, "commit": head}),
+        json!({"document": board_id, "commit": head}),
         "empty",
     );
     // A view the harness does not have.
@@ -2141,7 +2156,7 @@ fn an_export_is_refused_when_its_provenance_or_its_type_is_wrong() {
         name: "x.png".into(),
         mime: "image/png".into(),
         bytes: png.clone(),
-        fields: proto::Json(json!({"document": BOARD_DOC, "commit": head})),
+        fields: proto::Json(json!({"document": board_id, "commit": head})),
         summary: String::new(),
     }) {
         proto::Response::Error { message } => assert!(message.contains("no view"), "{message}"),
@@ -2168,7 +2183,8 @@ fn an_export_is_refused_when_its_provenance_or_its_type_is_wrong() {
 fn an_export_over_the_limit_is_refused_by_size() {
     let Some(mut core) = core() else { return };
     stickies(&mut core, 1);
-    let head = head_of(&mut core, BOARD_DOC).unwrap();
+    let board_id = board_doc(&mut core);
+    let head = head_of(&mut core, &board_id).unwrap();
     let mut huge = vec![0u8; localspace_core::MAX_ARTIFACT_BYTES + 1];
     huge[..PNG_MAGIC.len()].copy_from_slice(PNG_MAGIC);
     match export(
@@ -2177,7 +2193,7 @@ fn an_export_over_the_limit_is_refused_by_size() {
         "huge.png",
         "image/png",
         &huge,
-        json!({"document": BOARD_DOC, "commit": head}),
+        json!({"document": board_id, "commit": head}),
     ) {
         proto::Response::Error { message } => assert!(message.contains("200 MiB"), "{message}"),
         other => panic!("{other:?}"),
@@ -2188,7 +2204,8 @@ fn an_export_over_the_limit_is_refused_by_size() {
 fn undo_after_an_export_takes_back_the_export_and_leaves_the_board() {
     let Some(mut core) = core() else { return };
     stickies(&mut core, 1);
-    let head = head_of(&mut core, BOARD_DOC).unwrap();
+    let board_id = board_doc(&mut core);
+    let head = head_of(&mut core, &board_id).unwrap();
     let png = [PNG_MAGIC, &[2u8; 8]].concat();
     let art = match export(
         &mut core,
@@ -2196,7 +2213,7 @@ fn undo_after_an_export_takes_back_the_export_and_leaves_the_board() {
         "board.png",
         "image/png",
         &png,
-        json!({"document": BOARD_DOC, "commit": head}),
+        json!({"document": board_id, "commit": head}),
     ) {
         proto::Response::Artifact(a) => a,
         other => panic!("{other:?}"),
@@ -2252,14 +2269,15 @@ fn an_export_is_listed_and_readable_after_a_restart() {
     let doc = {
         let mut core = Core::new(make()).unwrap();
         stickies(&mut core, 1);
-        let head = head_of(&mut core, BOARD_DOC).unwrap();
+        let board_id = board_doc(&mut core);
+        let head = head_of(&mut core, &board_id).unwrap();
         match export(
             &mut core,
             "image.v1",
             "board.png",
             "image/png",
             &png,
-            json!({"document": BOARD_DOC, "commit": head}),
+            json!({"document": board_id, "commit": head}),
         ) {
             proto::Response::Artifact(a) => a.doc,
             other => panic!("{other:?}"),

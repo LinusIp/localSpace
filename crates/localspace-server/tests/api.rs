@@ -646,13 +646,18 @@ async fn an_export_goes_in_as_bytes_and_comes_out_as_a_download() {
     )
     .await;
     assert_eq!(added.status(), StatusCode::OK);
+    let board = body_json(send(&app, get("/api/v1/docs/io.localspace.whiteboard".into())).await)
+        .await["doc_json"]["doc"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let history = body_json(send(&app, get("/api/v1/history?limit=5".into())).await).await;
     let newest = &history["history"]["commits"][0];
-    assert_eq!(newest["doc"], "io_localspace_whiteboard", "{history}");
+    assert_eq!(newest["doc"], board, "{history}");
     let head = newest["id"].as_str().unwrap().to_string();
 
     let png = [b"\x89PNG\r\n\x1a\n".as_slice(), &[0u8; 32]].concat();
-    let fields = format!(r#"{{"document":"io_localspace_whiteboard","commit":"{head}"}}"#);
+    let fields = format!(r#"{{"document":"{board}","commit":"{head}"}}"#);
     let query = format!(
         "harness=io.localspace.whiteboard&view=web&kind=image.v1&name=board&summary=PNG%20of%20the%20board&fields={}",
         percent(&fields)
@@ -777,11 +782,7 @@ async fn an_export_goes_in_as_bytes_and_comes_out_as_a_download() {
     assert_eq!(refused.status(), StatusCode::PAYLOAD_TOO_LARGE);
 
     // The board's own document is not a file: no download.
-    let none = send(
-        &app,
-        get("/api/v1/documents/io_localspace_whiteboard/content".into()),
-    )
-    .await;
+    let none = send(&app, get(format!("/api/v1/documents/{board}/content"))).await;
     assert_eq!(none.status(), StatusCode::NOT_FOUND);
 
     // Without a session, none of it.
