@@ -20,4 +20,6 @@ export { CanvasMeasurer, FixedMeasurer, fontFor, layout } from "./text.ts";
 export type { Layout, TextMeasurer } from "./text.ts";
 export { GRID, SNAP_PX, snapMove, snapReach, snapResize, snapTargets } from "./snap.ts";
 export type { Guide, SnapOptions, SnapTargets, Snapped } from "./snap.ts";
+export { EXPORT_MAX_SIDE, EXPORT_PADDING, EXPORT_SCALE, SVG_FONT, exportBounds, exportNodes, rasterize, toSvg } from "./export.ts";
+export type { ExportOptions, Raster } from "./export.ts";
 export * from "./geometry.ts";

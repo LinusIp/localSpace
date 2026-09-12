@@ -115,6 +115,21 @@ export class Renderer {
     return true;
   }
 
+  /**
+   * Draw `nodes` alone into `box` of the board at `scale` device pixels per
+   * unit, on the background, with no grid and no selection: an export. The
+   * next `draw` repaints the screen in full.
+   */
+  paintExport(scene: Scene, nodes: readonly Node[], box: Box, scale: number): void {
+    const { ctx, theme } = this;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = theme.background;
+    ctx.fillRect(0, 0, Math.ceil(box.w * scale), Math.ceil(box.h * scale));
+    ctx.setTransform(scale, 0, 0, scale, -box.x * scale, -box.y * scale);
+    this.lastDrawn = this.nodes(scene, nodes, scale, null);
+    this.drawn.version = -1;
+  }
+
   /** Draw unconditionally. */
   paint(scene: Scene, camera: Camera, viewport: Viewport, selection: ReadonlySet<string>, overlay: Overlay = {}): void {
     const { ctx, theme } = this;
