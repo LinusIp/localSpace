@@ -29,6 +29,7 @@ export type { ExposureReason } from "./ExposureReason";
 export type { HarnessSummary } from "./HarnessSummary";
 export type { Invite } from "./Invite";
 export type { Json } from "./Json";
+export type { Me } from "./Me";
 export type { ModelCatalogEntry } from "./ModelCatalogEntry";
 export type { ModelInfo } from "./ModelInfo";
 export type { NetworkMode } from "./NetworkMode";

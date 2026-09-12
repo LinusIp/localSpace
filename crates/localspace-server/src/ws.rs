@@ -32,7 +32,7 @@ pub async fn json_upgrade(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    upgrade(server, q, &headers, ws, Wire::Json)
+    upgrade(server, q, headers, ws, Wire::Json).await
 }
 
 /// The postcard socket, under the same token as the JSON one: one Core
@@ -43,29 +43,43 @@ pub async fn legacy_upgrade(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    upgrade(server, q, &headers, ws, Wire::Postcard)
+    upgrade(server, q, headers, ws, Wire::Postcard).await
 }
 
-fn upgrade(
+async fn upgrade(
     server: Arc<Server>,
     q: crate::auth::TokenQuery,
-    headers: &HeaderMap,
+    headers: HeaderMap,
     ws: WebSocketUpgrade,
     wire: Wire,
 ) -> Response {
-    let Some(token) = crate::auth::presented(headers, q.token.as_deref()) else {
+    let Some(caller) = server.authenticate(&headers, q.token.as_deref(), "").await else {
         return (StatusCode::UNAUTHORIZED, "sign in first").into_response();
     };
-    if !crate::auth::matches(&server, &token) {
-        return (StatusCode::UNAUTHORIZED, "that token is not this server's").into_response();
-    }
-    let caller = server.caller_for(&token);
+    let presented = crate::auth::presented(&headers, q.token.as_deref()).unwrap_or_default();
     *server.connections.lock().unwrap() += 1;
-    ws.on_upgrade(move |socket| serve(server, caller, socket, wire))
+    ws.on_upgrade(move |socket| serve(server, caller, presented, socket, wire))
         .into_response()
 }
 
-async fn serve(server: Arc<Server>, caller: Caller, mut socket: WebSocket, wire: Wire) {
+/// How often an open socket checks that its session is still live, so a
+/// session an admin ended closes the tab's stream within the minute.
+const REVALIDATE_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+
+async fn serve(
+    server: Arc<Server>,
+    caller: Caller,
+    presented: String,
+    mut socket: WebSocket,
+    wire: Wire,
+) {
+    let mut revalidate = tokio::time::interval(REVALIDATE_EVERY);
+    revalidate.tick().await;
+    let bearer = format!("Bearer {presented}");
+    let mut as_headers = HeaderMap::new();
+    if let Ok(value) = bearer.parse() {
+        as_headers.insert(axum::http::header::AUTHORIZATION, value);
+    }
     let notice = |level, text: String| proto::Envelope {
         id: 0,
         body: proto::Body::Event(proto::Event::Notice { level, text }),
@@ -135,6 +149,16 @@ async fn serve(server: Arc<Server>, caller: Caller, mut socket: WebSocket, wire:
                 if let Some(env) = answer
                     && send(&mut socket, wire, &env).await.is_err()
                 {
+                    break;
+                }
+            }
+            _ = revalidate.tick() => {
+                if server.authenticate(&as_headers, None, "").await.is_none() {
+                    let ended = notice(
+                        proto::NoticeLevel::Warn,
+                        "Your session has ended. Sign in again.".into(),
+                    );
+                    let _ = send(&mut socket, wire, &ended).await;
                     break;
                 }
             }

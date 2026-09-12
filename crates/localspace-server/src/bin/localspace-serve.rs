@@ -68,6 +68,8 @@ fn parse_args() -> ServerConfig {
             "--secure-cookies" => cfg.secure_cookies = true,
             "--surface-hosts" => cfg.surface_hosts = it.next().unwrap_or(cfg.surface_hosts),
             "--allow-below-floor" => cfg.allow_below_floor = true,
+            "--bootstrap-admin" => cfg.bootstrap_admin = it.next(),
+            "--public-url" => cfg.public_url = it.next(),
             other => eprintln!("ignoring unknown argument `{other}`"),
         }
     }

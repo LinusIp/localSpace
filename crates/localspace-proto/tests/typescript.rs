@@ -22,6 +22,8 @@ fn typescript_bindings_are_generated_from_proto() {
     // The envelope reaches everything: Body → Request, Response, Event → the
     // rest of the contract, dependency by dependency.
     proto::Envelope::export_all(&cfg).expect("exporting the contract");
+    // `GET /api/v1/me` answers outside the envelope; its type is generated too.
+    proto::Me::export_all(&cfg).expect("exporting Me");
 
     let mut names: Vec<String> = std::fs::read_dir(&dir)
         .expect("reading the generated directory")

@@ -2490,6 +2490,44 @@ impl Core {
             document: String::new(),
         };
         match req {
+            R::Bootstrap { email, name } => {
+                match self.directory.is_empty() {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        return proto::Response::Error {
+                            message: "this server has accounts already; an administrator makes the next one".into(),
+                        };
+                    }
+                    Err(e) => {
+                        return proto::Response::Error {
+                            message: format!("{e:#}"),
+                        };
+                    }
+                }
+                match self
+                    .directory
+                    .create_user(&email, &name, vec![proto::UserRole::Admin], now)
+                {
+                    Ok((user, token)) => {
+                        let _ = self.audit.append(
+                            Self::auth_actor("system", ""),
+                            no_scope,
+                            "user.bootstrap",
+                            serde_json::json!({"user": user.id, "email": user.email}),
+                            "ok",
+                        );
+                        proto::Response::Invite(proto::Invite {
+                            user: user.id,
+                            email: user.email,
+                            token,
+                            expires_ms: now + identity::INVITE_TTL_MS,
+                        })
+                    }
+                    Err(e) => proto::Response::Error {
+                        message: format!("{e:#}"),
+                    },
+                }
+            }
             R::Login {
                 email,
                 password,
@@ -3452,11 +3490,13 @@ impl Core {
                     },
                 },
             },
-            R::Login { .. } | R::Logout { .. } | R::SetPassword { .. } | R::InviteStatus { .. } => {
-                proto::Response::Error {
-                    message: "not a client request".into(),
-                }
-            }
+            R::Bootstrap { .. }
+            | R::Login { .. }
+            | R::Logout { .. }
+            | R::SetPassword { .. }
+            | R::InviteStatus { .. } => proto::Response::Error {
+                message: "not a client request".into(),
+            },
 
             R::FindCapability { need } => proto::Response::Capabilities {
                 hits: exposure::rank_capabilities(&self.registry, &need),

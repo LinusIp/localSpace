@@ -7,6 +7,7 @@
 //! a one-shot before they are sent; the pump completes them by id, and sends
 //! each event to the user it is for — or to every user, when it is everyone's.
 
+use localspace_core::identity::Directory;
 use localspace_core::transport::{Hub, Outgoing};
 use localspace_core::{Caller, Core, To};
 use localspace_proto as proto;
@@ -25,6 +26,8 @@ pub const CALL_TIMEOUT: Duration = Duration::from_secs(300);
 const EVENTS_PER_USER: usize = 1024;
 
 pub struct Session {
+    /// Sessions are read here on every request, off Core's thread.
+    pub directory: Directory,
     backend: Arc<Hub>,
     pending: Mutex<HashMap<u64, oneshot::Sender<proto::Response>>>,
     /// One channel per user who has asked for events; a shared event goes
@@ -43,6 +46,7 @@ pub enum CallError {
 
 impl Session {
     pub fn spawn(core: Core) -> Arc<Session> {
+        let directory = core.directory();
         let backend = Arc::new(Hub::spawn(core));
         let wake = Arc::new(Notify::new());
         {
@@ -50,6 +54,7 @@ impl Session {
             backend.set_wake(Box::new(move || wake.notify_one()));
         }
         let session = Arc::new(Session {
+            directory,
             backend,
             pending: Mutex::new(HashMap::new()),
             users: Mutex::new(HashMap::new()),

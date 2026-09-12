@@ -46,6 +46,32 @@ fn build() -> Value {
         json!({"post": {"summary": "Clear the session cookie", "responses": {"200": {"description": "signed out"}}}}),
     );
     paths.insert(
+        "/api/v1/auth/login".into(),
+        json!({"post": {
+            "summary": "Organisation mode: sign in with an email and a password; sets the session cookie",
+            "requestBody": {"content": {"application/json": {"schema": {
+                "type": "object", "required": ["email", "password"],
+                "properties": {"email": {"type": "string"}, "password": {"type": "string"}}
+            }}}},
+            "responses": {"200": {"description": "signed in"}, "401": {"description": "the same answer for a wrong email, a wrong password or a locked account"}}
+        }}),
+    );
+    paths.insert(
+        "/api/v1/auth/invite/{token}".into(),
+        json!({"get": {"summary": "Whether a one-time link is live, and for whom, without spending it", "responses": {"200": {"description": "valid, email, name"}}}}),
+    );
+    paths.insert(
+        "/api/v1/auth/set-password".into(),
+        json!({"post": {
+            "summary": "Spend a one-time link on a password and sign in; sets the session cookie",
+            "requestBody": {"content": {"application/json": {"schema": {
+                "type": "object", "required": ["token", "password"],
+                "properties": {"token": {"type": "string"}, "password": {"type": "string"}}
+            }}}},
+            "responses": {"200": {"description": "signed in"}, "400": {"description": "the link is spent or expired, or the password too short"}}
+        }}),
+    );
+    paths.insert(
         "/api/v1/me".into(),
         json!({"get": {"summary": "Who this session is, and the server's mode", "responses": {"200": {"description": "ok"}, "401": unauthorized}}}),
     );

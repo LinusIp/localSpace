@@ -8,18 +8,12 @@
 use crate::Server;
 use crate::session::CallError;
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use localspace_core::Caller;
 use localspace_proto as proto;
 use std::sync::Arc;
-
-/// The user behind a request, from the token it presented. The middleware has
-/// already checked the token is this server's.
-fn user(server: &Server, headers: &HeaderMap, query_token: Option<&str>) -> String {
-    let token = crate::auth::presented(headers, query_token).unwrap_or_default();
-    server.user_for(&token)
-}
 
 fn failed(err: CallError) -> Response {
     let status = match err {
@@ -29,14 +23,7 @@ fn failed(err: CallError) -> Response {
     (status, Json(serde_json::json!({"error": err.to_string()}))).into_response()
 }
 
-async fn call(
-    server: &Server,
-    headers: &HeaderMap,
-    query_token: Option<&str>,
-    request: proto::Request,
-) -> Response {
-    let token = crate::auth::presented(headers, query_token).unwrap_or_default();
-    let caller = server.caller_for(&token);
+async fn call(server: &Server, caller: &Caller, request: proto::Request) -> Response {
     let session = match server.core().await {
         Ok(session) => session,
         Err(e) => {
@@ -47,45 +34,69 @@ async fn call(
                 .into_response();
         }
     };
-    match session.call_as(&caller, request).await {
+    match session.call_as(caller, request).await {
         Ok(response) => Json(response).into_response(),
         Err(e) => failed(e),
     }
 }
 
-/// `GET /api/v1/me`: who the token is, and which mode this server runs in.
+/// `GET /api/v1/me`: who the caller is, and which mode this server runs in.
 pub async fn me(
     State(server): State<Arc<Server>>,
-    Query(q): Query<crate::auth::TokenQuery>,
-    headers: HeaderMap,
+    Extension(caller): Extension<Caller>,
 ) -> Response {
-    Json(serde_json::json!({
-        "user": user(&server, &headers, q.token.as_deref()),
-        "topology": if server.cfg.personal { "personal" } else { "organisation" },
-        "version": env!("CARGO_PKG_VERSION"),
-        "harness_api": proto::HARNESS_API,
-    }))
-    .into_response()
+    let account = if server.cfg.personal {
+        None
+    } else {
+        server
+            .core()
+            .await
+            .ok()
+            .and_then(|s| s.directory.user(&caller.user).ok().flatten())
+    };
+    let me = proto::Me {
+        user: caller.user.clone(),
+        email: account
+            .as_ref()
+            .map(|u| u.email.clone())
+            .unwrap_or_default(),
+        name: account
+            .as_ref()
+            .map(|u| u.name.clone())
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| caller.user.clone()),
+        roles: caller.roles.clone(),
+        provider: account
+            .as_ref()
+            .map(|u| u.provider.clone())
+            .unwrap_or_else(|| "local".into()),
+        topology: if server.cfg.personal {
+            proto::Topology::Personal
+        } else {
+            proto::Topology::Organisation
+        },
+        version: env!("CARGO_PKG_VERSION").into(),
+        harness_api: proto::HARNESS_API.into(),
+    };
+    Json(me).into_response()
 }
 
 /// `POST /api/v1/request`: any request, its response.
 pub async fn request(
     State(server): State<Arc<Server>>,
-    Query(q): Query<crate::auth::TokenQuery>,
-    headers: HeaderMap,
+    Extension(caller): Extension<Caller>,
     Json(request): Json<proto::Request>,
 ) -> Response {
-    call(&server, &headers, q.token.as_deref(), request).await
+    call(&server, &caller, request).await
 }
 
 macro_rules! get_route {
     ($name:ident, $request:expr) => {
         pub async fn $name(
             State(server): State<Arc<Server>>,
-            Query(q): Query<crate::auth::TokenQuery>,
-            headers: HeaderMap,
+            Extension(caller): Extension<Caller>,
         ) -> Response {
-            call(&server, &headers, q.token.as_deref(), $request).await
+            call(&server, &caller, $request).await
         }
     };
 }
@@ -98,20 +109,18 @@ get_route!(lock, proto::Request::GetLock);
 
 #[derive(serde::Deserialize)]
 pub struct HistoryQuery {
-    pub token: Option<String>,
     pub limit: Option<usize>,
 }
 
 /// `GET /api/v1/history?limit=N`: the most recent commits.
 pub async fn history(
     State(server): State<Arc<Server>>,
+    Extension(caller): Extension<Caller>,
     Query(q): Query<HistoryQuery>,
-    headers: HeaderMap,
 ) -> Response {
     call(
         &server,
-        &headers,
-        q.token.as_deref(),
+        &caller,
         proto::Request::GetHistory {
             limit: q.limit.unwrap_or(100).min(1000),
         },
@@ -122,24 +131,16 @@ pub async fn history(
 /// `GET /api/v1/docs/{harness}`: the harness document as JSON.
 pub async fn doc(
     State(server): State<Arc<Server>>,
-    Query(q): Query<crate::auth::TokenQuery>,
+    Extension(caller): Extension<Caller>,
     Path(harness): Path<String>,
-    headers: HeaderMap,
 ) -> Response {
-    call(
-        &server,
-        &headers,
-        q.token.as_deref(),
-        proto::Request::GetDocJson { harness },
-    )
-    .await
+    call(&server, &caller, proto::Request::GetDocJson { harness }).await
 }
 
 get_route!(documents, proto::Request::ListDocuments);
 
 #[derive(serde::Deserialize)]
 pub struct ArtifactQuery {
-    pub token: Option<String>,
     pub harness: String,
     pub view: String,
     pub kind: String,
@@ -164,6 +165,7 @@ fn bad_request(message: &str) -> Response {
 /// `POST /api/v1/request` would.
 pub async fn produce_artifact(
     State(server): State<Arc<Server>>,
+    Extension(caller): Extension<Caller>,
     Query(q): Query<ArtifactQuery>,
     headers: HeaderMap,
     body: axum::body::Bytes,
@@ -185,8 +187,7 @@ pub async fn produce_artifact(
     };
     call(
         &server,
-        &headers,
-        q.token.as_deref(),
+        &caller,
         proto::Request::ProduceArtifact {
             harness: q.harness,
             view: q.view,
@@ -206,12 +207,9 @@ pub async fn produce_artifact(
 /// or uploaded ever runs on the app's origin.
 pub async fn document_content(
     State(server): State<Arc<Server>>,
-    Query(q): Query<crate::auth::TokenQuery>,
+    Extension(caller): Extension<Caller>,
     Path(id): Path<String>,
-    headers: HeaderMap,
 ) -> Response {
-    let token = crate::auth::presented(&headers, q.token.as_deref()).unwrap_or_default();
-    let caller = server.caller_for(&token);
     let session = match server.core().await {
         Ok(session) => session,
         Err(e) => {

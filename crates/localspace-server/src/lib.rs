@@ -53,6 +53,14 @@ pub struct ServerConfig {
     /// every browser without DNS; a deployment on its own domain sets a
     /// wildcard it owns, such as `h-{slug}.apps.example.com`.
     pub surface_hosts: String,
+    /// How long a signed-in session lives (deployment §3.3 `session_ttl`).
+    pub session_ttl_ms: u64,
+    /// The address users open, for the links the server prints; the bind
+    /// address when unset.
+    pub public_url: Option<String>,
+    /// Make the first administrator of a server with no accounts and print
+    /// their one-time link at start (`localspace admin bootstrap`).
+    pub bootstrap_admin: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -71,6 +79,9 @@ impl Default for ServerConfig {
             models: Some(PathBuf::from("models")).filter(|p| p.exists()),
             llama_server: None,
             surface_hosts: surfaces::DEFAULT_HOSTS.into(),
+            session_ttl_ms: 12 * 60 * 60 * 1000,
+            public_url: None,
+            bootstrap_admin: None,
         }
     }
 }
@@ -114,19 +125,9 @@ impl Server {
         })
     }
 
-    /// Whom a valid token stands for. Personal mode: the one user, the
-    /// admin of their own machine. Organisation mode: the operator, an
-    /// admin, until Phase A's identity gives every user a session of their
-    /// own — then the session names the user, the roles and the address.
-    pub fn caller_for(&self, _token: &str) -> Caller {
-        if self.cfg.personal {
-            Caller::local(&self.cfg.user)
-        } else {
-            self.caller_named("operator")
-        }
-    }
-
-    /// The caller a grant or a probe names by user.
+    /// The caller a surface grant names by user: the files of a view are
+    /// served as that user, with no role to speak of. Personal mode has one
+    /// user whatever the grant says.
     pub fn caller_named(&self, user: &str) -> Caller {
         if self.cfg.personal {
             return Caller::local(&self.cfg.user);
@@ -135,14 +136,19 @@ impl Server {
             user: user.to_string(),
             session: String::new(),
             ip: String::new(),
-            roles: vec![proto::UserRole::Admin],
+            roles: Vec::new(),
             groups: Vec::new(),
         }
     }
 
-    /// The user a valid token stands for.
-    pub fn user_for(&self, token: &str) -> String {
-        self.caller_for(token).user
+    /// Who presented a token or session; see `auth::authenticate`.
+    pub async fn authenticate(
+        &self,
+        headers: &axum::http::HeaderMap,
+        query_token: Option<&str>,
+        ip: &str,
+    ) -> Option<Caller> {
+        auth::authenticate(self, headers, query_token, ip).await
     }
 
     fn core_config(&self) -> Config {
@@ -156,7 +162,39 @@ impl Server {
         cfg.models_dir = self.cfg.models.clone();
         cfg.llama_server = self.cfg.llama_server.clone();
         cfg.data_dir = self.cfg.data.clone();
+        cfg.session_ttl_ms = self.cfg.session_ttl_ms;
         cfg
+    }
+
+    /// The first administrator of a server with no accounts, and the link
+    /// that sets their password. `None` when accounts exist already.
+    pub async fn bootstrap(&self, email: &str) -> anyhow::Result<Option<proto::Invite>> {
+        let session = self.core().await?;
+        match session
+            .call_as(
+                &Caller::system(),
+                proto::Request::Bootstrap {
+                    email: email.to_string(),
+                    name: String::new(),
+                },
+            )
+            .await?
+        {
+            proto::Response::Invite(invite) => Ok(Some(invite)),
+            proto::Response::Error { message } if message.contains("already") => Ok(None),
+            proto::Response::Error { message } => anyhow::bail!("{message}"),
+            other => anyhow::bail!("unexpected answer to bootstrap: {other:?}"),
+        }
+    }
+
+    /// The link a one-time token becomes, on the address users open.
+    pub fn invite_link(&self, token: &str, addr: &SocketAddr) -> String {
+        let base = self
+            .cfg
+            .public_url
+            .clone()
+            .unwrap_or_else(|| format!("http://{addr}"));
+        format!("{}/invite/{token}", base.trim_end_matches('/'))
     }
 
     /// The one Core, created on first use. Creating it loads the
@@ -178,11 +216,6 @@ impl Server {
         Ok(session)
     }
 
-    /// Whom the readiness probe asks as: the operator, or the one user.
-    pub fn health_caller(&self) -> Caller {
-        self.caller_named("operator")
-    }
-
     /// Users who have opened an event stream since the server started.
     pub fn user_count(&self) -> usize {
         self.core
@@ -196,6 +229,13 @@ impl Server {
 
 /// The whole HTTP surface.
 pub fn router(server: Arc<Server>) -> Router {
+    let signing_in = Router::new()
+        .route("/login", post(auth::login))
+        .route("/logout", post(auth::logout))
+        .route("/auth/login", post(auth::login_with_password))
+        .route("/auth/invite/{token}", get(auth::invite_status))
+        .route("/auth/set-password", post(auth::set_password));
+
     let protected = Router::new()
         .route("/me", get(api::me))
         .route("/request", post(api::request))
@@ -215,7 +255,6 @@ pub fn router(server: Arc<Server>) -> Router {
             )),
         )
         .route("/surfaces", post(surfaces::open))
-        .route("/logout", post(auth::logout))
         .route_layer(axum::middleware::from_fn_with_state(
             server.clone(),
             auth::require,
@@ -228,7 +267,7 @@ pub fn router(server: Arc<Server>) -> Router {
         .route("/ws", get(ws::legacy_upgrade))
         .route("/ws/json", get(ws::json_upgrade))
         .route("/api/v1/openapi.json", get(openapi_json))
-        .route("/api/v1/login", post(auth::login))
+        .nest("/api/v1", signing_in)
         .nest("/api/v1", protected)
         .with_state(server.clone());
 
@@ -272,9 +311,30 @@ pub async fn start(cfg: ServerConfig) -> anyhow::Result<Running> {
         std::fs::create_dir_all(data).ok();
         std::fs::write(data.join("token"), &server.token).ok();
     }
+    if let Some(email) = server.cfg.bootstrap_admin.clone() {
+        match server.bootstrap(&email).await? {
+            Some(invite) => {
+                let link = server.invite_link(&invite.token, &addr);
+                tracing::info!(
+                    "the first administrator, {}, sets their password at {link} (valid 24 hours)",
+                    invite.email
+                );
+                println!(
+                    "Administrator {}: open {link} within 24 hours to set a password.",
+                    invite.email
+                );
+            }
+            None => tracing::info!("accounts exist already; --bootstrap-admin did nothing"),
+        }
+    }
     tracing::info!("localspace serve listening on http://{addr}");
     let task = tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app).await {
+        if let Err(e) = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        {
             tracing::error!("server stopped: {e}");
         }
     });
@@ -287,7 +347,9 @@ pub async fn start(cfg: ServerConfig) -> anyhow::Result<Running> {
 }
 
 async fn readyz(State(server): State<Arc<Server>>) -> impl IntoResponse {
-    // Ready means: the Core is up and its environment answers.
+    // Ready means: the Core is up, and its database answers. In personal
+    // mode the one user's environment is asked for as well; an organisation
+    // server has no user to ask as until someone signs in.
     let session = match server.core().await {
         Ok(session) => session,
         Err(e) => {
@@ -297,9 +359,21 @@ async fn readyz(State(server): State<Arc<Server>>) -> impl IntoResponse {
             );
         }
     };
+    if !server.cfg.personal {
+        return match session.directory.users() {
+            Ok(_) => (StatusCode::OK, "ready".to_string()),
+            Err(e) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("database not answering: {e:#}"),
+            ),
+        };
+    }
     match tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        session.call_as(&server.health_caller(), proto::Request::GetEnvironment),
+        session.call_as(
+            &Caller::local(&server.cfg.user),
+            proto::Request::GetEnvironment,
+        ),
     )
     .await
     {

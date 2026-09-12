@@ -71,6 +71,17 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   commit, not polish for later: renaming things after pilot users have
   learned them is worse than naming them right once. The rule is kept by a
   check in CI over the member-facing strings of the shell.
+- **Identity, as built on 2026-09-12** (Phase A, commit 4): a password is at
+  least twelve characters and nothing else is required of it; a session id
+  and a one-time token are 32 random bytes as hex, stored as their blake3;
+  the session cookie is `ls_session`, httpOnly, SameSite=Strict, `Secure`
+  behind TLS, with a `Max-Age` of the session's life; a one-time link is
+  `<public url>/invite/<token>`; the first administrator comes from
+  `--bootstrap-admin <email>` on the serve binary until `localspace admin
+  bootstrap` exists (commit 8), and only while the server has no accounts;
+  an open socket rechecks its session every thirty seconds and closes with a
+  word when it has ended; the address on the audit and the lockouts is the
+  connection's until `trusted_proxies` arrives with the settings file.
 - **Phase A, answers 1 to 10, as recommended:** `clap` with the derive API;
   argon2id at 64 MiB, 3 iterations, 1 lane, a 16-byte salt, PHC strings,
   hashed on a blocking thread so a login cannot stall the runtime; the

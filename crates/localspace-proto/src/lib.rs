@@ -508,6 +508,20 @@ pub struct ContextBlock {
 // The task ledger (spec §18.1) — shared context across harnesses
 // ---------------------------------------------------------------------------
 
+/// Who the caller is, as `GET /api/v1/me` answers: the account, its roles,
+/// the mode and the version. Never a token, never an endpoint.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct Me {
+    pub user: String,
+    pub email: String,
+    pub name: String,
+    pub roles: Vec<UserRole>,
+    pub provider: String,
+    pub topology: Topology,
+    pub version: String,
+    pub harness_api: String,
+}
+
 /// A user of an organisation server as the admin pages see them (deployment
 /// §4): never the password hash.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
@@ -937,6 +951,12 @@ pub enum Request {
     },
     RevokeSessions {
         user: String,
+    },
+    /// The server's own: the first administrator of a server with no
+    /// accounts, from `localspace admin bootstrap`.
+    Bootstrap {
+        email: String,
+        name: String,
     },
     /// The server's own requests, never a client's: signing in and out.
     Login {

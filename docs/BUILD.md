@@ -133,9 +133,12 @@ cargo run --release -p localspace-server --bin localspace-serve -- --personal --
 
 The server prints its token at start and writes it to `<data>/token`; the
 browser asks for it once and keeps a session cookie. `--token` fixes it,
-`--user` names the personal user, and without `--personal` the server runs in
-organisation mode, where the one token stands for the operator until OIDC
-(build order step 7).
+`--user` names the personal user. Without `--personal` the server runs in
+organisation mode, where accounts sign in with an email and a password:
+`--bootstrap-admin you@example.com` makes the first administrator on a server
+with no accounts and prints their one-time link (valid 24 hours), and every
+other account is made by an administrator in the app. `--public-url` is the
+address users open, for the links the server prints.
 
 The desktop shell needs `web/dist` to exist when it is built:
 

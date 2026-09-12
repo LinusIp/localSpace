@@ -20,7 +20,7 @@
 use crate::Server;
 use axum::Json;
 use axum::body::Body;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -104,12 +104,10 @@ fn error(status: StatusCode, message: impl Into<String>) -> Response {
 /// view of one harness, valid for this user.
 pub async fn open(
     State(server): State<Arc<Server>>,
-    Query(q): Query<crate::auth::TokenQuery>,
+    axum::extract::Extension(caller): axum::extract::Extension<localspace_core::Caller>,
     headers: HeaderMap,
     Json(open): Json<Open>,
 ) -> Response {
-    let token = crate::auth::presented(&headers, q.token.as_deref()).unwrap_or_default();
-    let caller = server.caller_for(&token);
     let user = caller.user.clone();
     let session = match server.core().await {
         Ok(s) => s,

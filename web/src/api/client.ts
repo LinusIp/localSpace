@@ -3,14 +3,9 @@
 // `generated/`, written by `cargo test -p localspace-proto`; nothing here is
 // typed by hand.
 
-import type { Artifact, DocumentInfo, Envelope, Event, Request, Response } from "./generated";
+import type { Artifact, DocumentInfo, Envelope, Event, Me, Request, Response } from "./generated";
 
-export type Me = {
-  user: string;
-  topology: "personal" | "organisation";
-  version: string;
-  harness_api: string;
-};
+export type { Me };
 
 export class ApiError extends Error {
   status: number;

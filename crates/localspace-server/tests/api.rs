@@ -806,3 +806,362 @@ async fn an_export_goes_in_as_bytes_and_comes_out_as_a_download() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Organisation mode: accounts, sessions and the first administrator
+// (deployment §4; Pilot 1, Phase A)
+// ---------------------------------------------------------------------------
+
+fn organisation(data: &std::path::Path) -> ServerConfig {
+    ServerConfig {
+        bind: "127.0.0.1:0".into(),
+        harnesses: harness_dir(),
+        registry: registry_dir().into_iter().collect(),
+        personal: false,
+        data: Some(data.to_path_buf()),
+        web_root: None,
+        ..ServerConfig::default()
+    }
+}
+
+/// The session cookie a sign-in set, as the next request sends it back.
+fn cookie_of(response: &axum::response::Response) -> String {
+    response
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("the sign-in set a cookie")
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string()
+}
+
+fn post_json(path: &str, body: String, cookie: Option<&str>) -> Request<Body> {
+    let mut request = Request::post(path).header(header::CONTENT_TYPE, "application/json");
+    if let Some(cookie) = cookie {
+        request = request.header(header::COOKIE, cookie);
+    }
+    request.body(Body::from(body)).unwrap()
+}
+
+fn get_with(path: &str, cookie: Option<&str>) -> Request<Body> {
+    let mut request = Request::get(path);
+    if let Some(cookie) = cookie {
+        request = request.header(header::COOKIE, cookie);
+    }
+    request.body(Body::empty()).unwrap()
+}
+
+#[tokio::test]
+async fn an_organisation_signs_in_with_email_and_password_from_the_first_admin_s_link() {
+    let Some(_) = harness_dir() else { return };
+    let data = tempfile::tempdir().unwrap();
+    let server = Server::new(organisation(data.path()));
+    let app = router(server.clone());
+
+    // Personal mode's token is not a way in here.
+    let token_login = send(
+        &app,
+        post_json("/api/v1/login", r#"{"token":"anything"}"#.into(), None),
+    )
+    .await;
+    assert_eq!(token_login.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        send(&app, get_with("/api/v1/environment", None))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    // The first administrator comes from bootstrap, once.
+    let invite = server
+        .bootstrap("root@example.com")
+        .await
+        .unwrap()
+        .expect("no accounts yet");
+    assert!(
+        server
+            .bootstrap("again@example.com")
+            .await
+            .unwrap()
+            .is_none(),
+        "only when there are no accounts"
+    );
+    let link = server.invite_link(&invite.token, &"127.0.0.1:8443".parse().unwrap());
+    assert_eq!(
+        link,
+        format!("http://127.0.0.1:8443/invite/{}", invite.token)
+    );
+
+    // The link is checked without being spent, then spent on a password.
+    let status = body_json(
+        send(
+            &app,
+            get_with(&format!("/api/v1/auth/invite/{}", invite.token), None),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(status["valid"], true);
+    assert_eq!(status["email"], "root@example.com");
+    let short = send(
+        &app,
+        post_json(
+            "/api/v1/auth/set-password",
+            format!(r#"{{"token":"{}","password":"short"}}"#, invite.token),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(
+        short.status(),
+        StatusCode::BAD_REQUEST,
+        "twelve characters at least"
+    );
+    let set = send(
+        &app,
+        post_json(
+            "/api/v1/auth/set-password",
+            format!(
+                r#"{{"token":"{}","password":"a root password of length"}}"#,
+                invite.token
+            ),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(set.status(), StatusCode::OK);
+    let root_cookie = cookie_of(&set);
+    assert!(root_cookie.starts_with("ls_session="), "{root_cookie}");
+    let spent = body_json(
+        send(
+            &app,
+            get_with(&format!("/api/v1/auth/invite/{}", invite.token), None),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(spent["valid"], false, "single use");
+
+    // Signed in: the caller is the admin, by the cookie and as a bearer.
+    let me = body_json(send(&app, get_with("/api/v1/me", Some(&root_cookie))).await).await;
+    assert_eq!(me["email"], "root@example.com");
+    assert_eq!(me["roles"], serde_json::json!(["admin"]));
+    assert_eq!(me["topology"], "organisation");
+    let bearer = root_cookie.trim_start_matches("ls_session=").to_string();
+    let as_bearer = send(
+        &app,
+        Request::get("/api/v1/me")
+            .header(header::AUTHORIZATION, format!("Bearer {bearer}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(as_bearer.status(), StatusCode::OK);
+
+    // The admin makes a member; the member sets a password and signs in.
+    let made = body_json(
+        send(
+            &app,
+            post_json(
+                "/api/v1/request",
+                r#"{"create_user":{"email":"Anna@Example.com","name":"Anna","roles":["member"]}}"#
+                    .into(),
+                Some(&root_cookie),
+            ),
+        )
+        .await,
+    )
+    .await;
+    let anna_token = made["invite"]["token"]
+        .as_str()
+        .expect("an invite for Anna")
+        .to_string();
+    let set = send(
+        &app,
+        post_json(
+            "/api/v1/auth/set-password",
+            format!(r#"{{"token":"{anna_token}","password":"anna has a long password"}}"#),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(set.status(), StatusCode::OK);
+    let login = send(
+        &app,
+        post_json(
+            "/api/v1/auth/login",
+            r#"{"email":"anna@example.com","password":"anna has a long password"}"#.into(),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(login.status(), StatusCode::OK);
+    let anna_cookie = cookie_of(&login);
+    let me = body_json(send(&app, get_with("/api/v1/me", Some(&anna_cookie))).await).await;
+    assert_eq!(me["email"], "anna@example.com");
+    assert_eq!(me["roles"], serde_json::json!(["member"]));
+
+    // A member is not an admin: the accounts are refused to her.
+    let refused = body_json(
+        send(
+            &app,
+            post_json(
+                "/api/v1/request",
+                r#""list_users""#.into(),
+                Some(&anna_cookie),
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("administrator"),
+        "{refused}"
+    );
+
+    // The wrong password and an unknown email say the same thing, as 401.
+    let wrong = send(
+        &app,
+        post_json(
+            "/api/v1/auth/login",
+            r#"{"email":"anna@example.com","password":"not it, not it"}"#.into(),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+    let wrong = body_json(wrong).await;
+    let unknown = body_json(
+        send(
+            &app,
+            post_json(
+                "/api/v1/auth/login",
+                r#"{"email":"nobody@example.com","password":"not it, not it"}"#.into(),
+                None,
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(wrong["error"], unknown["error"]);
+    assert_eq!(wrong["error"], "That email or password isn't right.");
+
+    // Five wrong passwords lock the account: even the right one is refused,
+    // with the same sentence; the admin sees the lock and clears it.
+    for _ in 0..4 {
+        let _ = send(
+            &app,
+            post_json(
+                "/api/v1/auth/login",
+                r#"{"email":"anna@example.com","password":"not it, not it"}"#.into(),
+                None,
+            ),
+        )
+        .await;
+    }
+    let locked = send(
+        &app,
+        post_json(
+            "/api/v1/auth/login",
+            r#"{"email":"anna@example.com","password":"anna has a long password"}"#.into(),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(locked.status(), StatusCode::UNAUTHORIZED);
+    let listed = body_json(
+        send(
+            &app,
+            post_json(
+                "/api/v1/request",
+                r#""list_users""#.into(),
+                Some(&root_cookie),
+            ),
+        )
+        .await,
+    )
+    .await;
+    let anna = listed["users"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["email"] == "anna@example.com")
+        .unwrap();
+    assert!(anna["locked_until_ms"].is_number(), "{anna}");
+    let anna_id = anna["id"].as_str().unwrap().to_string();
+    let _ = send(
+        &app,
+        post_json(
+            "/api/v1/request",
+            format!(r#"{{"unlock_user":{{"user":"{anna_id}"}}}}"#),
+            Some(&root_cookie),
+        ),
+    )
+    .await;
+    let unlocked = send(
+        &app,
+        post_json(
+            "/api/v1/auth/login",
+            r#"{"email":"anna@example.com","password":"anna has a long password"}"#.into(),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(unlocked.status(), StatusCode::OK);
+
+    // Disabling ends her sessions: the cookie that worked is refused at once.
+    assert_eq!(
+        send(&app, get_with("/api/v1/environment", Some(&anna_cookie)))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let _ = send(
+        &app,
+        post_json(
+            "/api/v1/request",
+            format!(r#"{{"disable_user":{{"user":"{anna_id}","disabled":true}}}}"#),
+            Some(&root_cookie),
+        ),
+    )
+    .await;
+    assert_eq!(
+        send(&app, get_with("/api/v1/environment", Some(&anna_cookie)))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    // Logout ends the admin's session and clears the cookie.
+    let out = send(
+        &app,
+        post_json("/api/v1/logout", "{}".into(), Some(&root_cookie)),
+    )
+    .await;
+    assert!(
+        out.headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("Max-Age=0")
+    );
+    assert_eq!(
+        send(&app, get_with("/api/v1/me", Some(&root_cookie)))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    // The readiness probe needs no user in organisation mode.
+    assert_eq!(
+        send(&app, get_with("/readyz", None)).await.status(),
+        StatusCode::OK
+    );
+}
