@@ -35,6 +35,7 @@ pub mod runtime;
 pub mod task;
 pub mod tools;
 pub mod transport;
+pub mod types;
 pub mod widgets;
 
 use acl::{AccessControl, Identity, Level, Workspace};
@@ -255,8 +256,10 @@ impl Core {
             cfg,
         };
 
+        let mut loaded = false;
         if let Some(dir) = core.cfg.harness_dir.clone() {
             core.load_harnesses(&dir);
+            loaded = true;
         }
         // What the user installed from a catalog, kept under the data
         // directory (v2 §1: only chat ships in the box; the rest is installed).
@@ -264,6 +267,10 @@ impl Core {
             && root.is_dir()
         {
             core.load_harnesses(&root);
+            loaded = true;
+        }
+        if loaded {
+            core.settle_packages();
         }
         Ok(core)
     }
@@ -346,6 +353,8 @@ impl Core {
 
     // -- harnesses ----------------------------------------------------------
 
+    /// Stage and instantiate every package under `dir`. `settle_packages`
+    /// follows once every directory is in.
     pub fn load_harnesses(&mut self, dir: &std::path::Path) {
         let services = self.services();
         let failures = self
@@ -357,9 +366,50 @@ impl Core {
                 format!("harness `{name}` failed to install: {err:#}"),
             );
         }
+    }
+
+    /// After the package directories are loaded. Packages loaded from a
+    /// directory arrive without their dependencies resolved, so what they
+    /// need is installed from the catalog as an install would (spec §17.2);
+    /// a package naming an interchange kind no installed types package
+    /// declares is set aside, as an install would refuse it (§18.3); every
+    /// harness gets its document; a focus is picked; the lock is written.
+    pub fn settle_packages(&mut self) {
+        let dependents: Vec<(String, PathBuf, manifest::Manifest)> = self
+            .registry
+            .iter()
+            .filter(|h| !h.manifest.dependencies.is_empty())
+            .map(|h| (h.id().to_string(), h.dir.clone(), h.manifest.clone()))
+            .collect();
+        for (id, dir, manifest) in dependents {
+            if let Err(e) = self.install_dependencies(&manifest, &dir) {
+                self.notice(
+                    proto::NoticeLevel::Error,
+                    format!("`{id}` is not available: {e:#}"),
+                );
+                self.registry.remove(&id);
+            }
+        }
+        let manifests: Vec<(String, manifest::Manifest)> = self
+            .registry
+            .iter()
+            .map(|h| (h.id().to_string(), h.manifest.clone()))
+            .collect();
+        for (id, manifest) in manifests {
+            if let Err(e) = self.interchange_kinds_declared(&manifest) {
+                self.notice(
+                    proto::NoticeLevel::Error,
+                    format!("`{id}` is not available: {e:#}"),
+                );
+                self.registry.remove(&id);
+            }
+        }
+        // One document per harness (spec §10); a types or library package
+        // has nothing to edit.
         let ids: Vec<(String, proto::DocKind, String)> = self
             .registry
             .iter()
+            .filter(|h| h.manifest.package.kind.is_harness())
             .map(|h| {
                 (
                     h.doc_id.clone(),
@@ -456,53 +506,12 @@ impl Core {
         let dir = persisted.as_path();
         let mut staged = Registry::stage(dir, &policy)?;
 
-        // Dependencies (spec §17.2) are resolved against what is installed and
-        // what the catalog offers: one version per package per environment, and
-        // interface dependencies bound to any provider. What is missing is
-        // installed first, in dependency order; a conflict names both dependents.
-        if !staged.manifest.dependencies.is_empty() {
-            let mut candidates = catalog::candidates(&self.catalog_dirs_all(), &self.registry);
-            if !candidates
-                .iter()
-                .any(|c| c.id == staged.manifest.harness.id)
-            {
-                candidates.push(deps::Candidate {
-                    id: staged.manifest.harness.id.clone(),
-                    version: staged.manifest.harness.version.clone(),
-                    kind: staged.manifest.package.kind,
-                    provides: staged.manifest.provides.interfaces.clone(),
-                    deps: staged.manifest.dependencies(),
-                    path: dir.to_path_buf(),
-                    installed: false,
-                });
-            }
-            let resolution = deps::resolve(&staged.manifest.harness.id, &candidates)
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
-            for (id, version) in &resolution.install {
-                if *id == staged.manifest.harness.id {
-                    continue;
-                }
-                let Some(dep) = candidates
-                    .iter()
-                    .find(|c| c.id == *id && c.version == *version)
-                else {
-                    continue;
-                };
-                let path = dep.path.clone();
-                self.trace(format!("installing dependency `{id}` {version} first"));
-                match self.install_inner(&path, false)? {
-                    proto::Response::Ok => {}
-                    proto::Response::InstallPrompt { harness, .. } => anyhow::bail!(
-                        "dependency `{harness}` widens capabilities; approve it before installing `{}`",
-                        staged.manifest.harness.id
-                    ),
-                    other => anyhow::bail!("installing dependency `{id}` failed: {other:?}"),
-                }
-            }
-            for (interface, provider) in &resolution.bindings {
-                self.trace(format!("`{interface}` is provided by `{provider}`"));
-            }
-        }
+        // Dependencies first (spec §17.2); then every interchange kind the
+        // package names must be one an installed types package declares, and
+        // a types package may not redeclare another's kind (§18.3).
+        self.install_dependencies(&staged.manifest, dir)?;
+        self.types_declared_once(&staged)?;
+        self.interchange_kinds_declared(&staged.manifest)?;
 
         // An update that widens capabilities does not auto-install: it re-prompts
         // with a diff, and only proceeds once the user has answered.
@@ -548,12 +557,15 @@ impl Core {
         let id = staged.id().to_string();
         let staged_is_harness = staged.manifest.package.kind.is_harness();
 
-        self.docs.ensure(&doc_id, kind);
-        let ws = self.workspace.clone();
-        self.access.add_document(&doc_id, &ws, &title, None);
-        // A package installed again finds its document where its history
-        // left it; the DAG is the durable store, not the package.
-        self.restore_from_dag(&doc_id);
+        // One document per harness (spec §10); a types or library package has
+        // nothing to edit. A package installed again finds its document where
+        // its history left it: the DAG is the durable store, not the package.
+        if staged_is_harness {
+            self.docs.ensure(&doc_id, kind);
+            let ws = self.workspace.clone();
+            self.access.add_document(&doc_id, &ws, &title, None);
+            self.restore_from_dag(&doc_id);
+        }
         self.registry.insert(staged);
 
         let _ = self.audit.append(
@@ -568,6 +580,94 @@ impl Core {
         }
         self.write_lock();
         Ok(proto::Response::Ok)
+    }
+
+    /// Install what `manifest` depends on and is not installed yet, in
+    /// dependency order, from what is installed and what the catalog offers
+    /// (spec §17.2): one version per package per environment, interface
+    /// dependencies bound to any provider, a conflict named with both
+    /// dependents. `dir` is where the package itself lies, for the resolver.
+    fn install_dependencies(
+        &mut self,
+        manifest: &manifest::Manifest,
+        dir: &std::path::Path,
+    ) -> Result<()> {
+        if manifest.dependencies.is_empty() {
+            return Ok(());
+        }
+        let mut candidates = catalog::candidates(&self.catalog_dirs_all(), &self.registry);
+        if !candidates.iter().any(|c| c.id == manifest.harness.id) {
+            candidates.push(deps::Candidate {
+                id: manifest.harness.id.clone(),
+                version: manifest.harness.version.clone(),
+                kind: manifest.package.kind,
+                provides: manifest.provides.interfaces.clone(),
+                deps: manifest.dependencies(),
+                path: dir.to_path_buf(),
+                installed: false,
+            });
+        }
+        let resolution =
+            deps::resolve(&manifest.harness.id, &candidates).map_err(|e| anyhow::anyhow!("{e}"))?;
+        for (id, version) in &resolution.install {
+            if *id == manifest.harness.id {
+                continue;
+            }
+            let Some(dep) = candidates
+                .iter()
+                .find(|c| c.id == *id && c.version == *version)
+            else {
+                continue;
+            };
+            let path = dep.path.clone();
+            self.trace(format!("installing dependency `{id}` {version} first"));
+            match self.install_inner(&path, false)? {
+                proto::Response::Ok => {}
+                proto::Response::InstallPrompt { harness, .. } => anyhow::bail!(
+                    "dependency `{harness}` widens capabilities; approve it before installing `{}`",
+                    manifest.harness.id
+                ),
+                other => anyhow::bail!("installing dependency `{id}` failed: {other:?}"),
+            }
+        }
+        for (interface, provider) in &resolution.bindings {
+            self.trace(format!("`{interface}` is provided by `{provider}`"));
+        }
+        Ok(())
+    }
+
+    /// Every kind a package produces or accepts is declared by an installed
+    /// types package (spec §18.3), so no consumer ever guesses at a format.
+    fn interchange_kinds_declared(&self, manifest: &manifest::Manifest) -> Result<()> {
+        for kind in manifest
+            .contributes
+            .produces
+            .iter()
+            .chain(manifest.contributes.accepts.iter())
+        {
+            if self.registry.type_decl(kind).is_none() {
+                anyhow::bail!(
+                    "`{kind}` is not declared by any installed types package; add the package that declares it to [dependencies]"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// One types package declares a kind: a second declaring the same name
+    /// would leave Core two answers to what an artifact is.
+    fn types_declared_once(&self, staged: &registry::Installed) -> Result<()> {
+        for kind in staged.types.kinds() {
+            if let Some((other, _)) = self.registry.type_decl(kind)
+                && other.id() != staged.id()
+            {
+                anyhow::bail!(
+                    "`{kind}` is already declared by `{}`; one types package declares a kind",
+                    other.id()
+                );
+            }
+        }
+        Ok(())
     }
 
     // -- conversations (v2 §8) ------------------------------------------------
@@ -1491,6 +1591,29 @@ impl Core {
                 "`{owner}` does not declare that it produces {kind}; add it to [contributes] produces"
             ));
         }
+        // The type's declaration says which fields the artifact carries (spec
+        // §18.3): a rendering names the document and commit it came from.
+        let fields = spec
+            .get("fields")
+            .and_then(|f| f.as_object())
+            .cloned()
+            .unwrap_or_default();
+        let lacking = match self.registry.type_decl(&kind) {
+            Some((package, decl)) => {
+                let missing = decl.missing(&fields);
+                (!missing.is_empty()).then(|| (package.id().to_string(), missing.join(", ")))
+            }
+            None => {
+                return Err(format!(
+                    "`{kind}` is not declared by any installed types package"
+                ));
+            }
+        };
+        if let Some((package, missing)) = lacking {
+            return Err(format!(
+                "an artifact of `{kind}` carries the field(s) {missing}, says `{package}`; this one lacks them"
+            ));
+        }
         let commit = match commit {
             Some(c) => c,
             None => self.dag.head(doc_id).ok().flatten().unwrap_or_default(),
@@ -1509,6 +1632,7 @@ impl Core {
             commit: commit.clone(),
             summary,
             produced_by: owner.to_string(),
+            fields: proto::Json(J::Object(fields)),
         });
         let _ = self.audit.append(
             self.actor(),

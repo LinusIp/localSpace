@@ -57,11 +57,11 @@ function webSurface({ script, out }) {
   return dir;
 }
 
-/** What a manifest names, from the lines that name it: its version, logic, tools and view modules. */
+/** What a manifest names, from the lines that name it: its version, logic, tools, types and view modules. */
 function named(manifest) {
   const text = readFileSync(manifest, "utf8");
   const values = (key) => [...text.matchAll(new RegExp(`\\b${key}\\s*=\\s*"([^"]+)"`, "g"))].map((m) => m[1]);
-  return { version: values("version")[0], logic: values("logic")[0], tools: values("tools")[0], modules: values("module") };
+  return { version: values("version")[0], logic: values("logic")[0], tools: values("tools")[0], types: values("types")[0], modules: values("module") };
 }
 
 function tree(dir, base = dir) {
@@ -90,7 +90,7 @@ for (const id of ids) {
   mkdirSync(out, { recursive: true });
 
   // What the manifest's directory holds as source: the manifest and its data.
-  for (const file of ["harness.toml", names.tools, "evals.json", "icon.svg"]) {
+  for (const file of ["harness.toml", names.tools, names.types, "evals.json", "icon.svg"]) {
     if (file && existsSync(join(manifestDir, file))) copy(join(manifestDir, file), join(out, file));
   }
   // What is built, from wherever its source lives.
@@ -103,7 +103,7 @@ for (const id of ids) {
   }
 
   // Every file the manifest names is in the layout.
-  const missing = [names.logic, names.tools, ...names.modules].filter((p) => p && !existsSync(join(out, p)));
+  const missing = [names.logic, names.tools, names.types, ...names.modules].filter((p) => p && !existsSync(join(out, p)));
   if (missing.length) throw new Error(`${id}: the layout lacks ${missing.join(", ")}`);
   console.log(`${id} ${names.version} -> ${relative(root, out).replaceAll("\\", "/")}`);
   for (const line of tree(out)) console.log(`  ${line}`);

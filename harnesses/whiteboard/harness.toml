@@ -1,6 +1,6 @@
 [harness]
 id = "io.localspace.whiteboard"
-version = "1.1.0"
+version = "1.2.0"
 api = "^1.0"
 title = "Whiteboard"
 publisher = "localSpace"
@@ -25,10 +25,13 @@ views = [
 ]
 tools = "tools.json"
 context_provider = true
-produces = ["outline.v1"]
+produces = ["outline.v1", "image.v1", "svg.v1"]
 doc = "crdt"
 file_types = [".lsboard"]
 logic = "logic.wasm"
 
 [model_hints]
 prefers = ["tool-use", "ctx>=16k"]
+
+[dependencies]
+"io.localspace.types" = "^1.0"   # declares outline.v1, image.v1 and svg.v1 (plugin spec §18.3)

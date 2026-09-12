@@ -532,6 +532,11 @@ pub struct Artifact {
     /// The producing harness's own words for it.
     pub summary: String,
     pub produced_by: HarnessId,
+    /// The fields its type requires (plugin spec §18.3): for a rendering,
+    /// the `document` and `commit` it was made from. An object; `{}` when
+    /// the type requires none.
+    #[serde(default = "Json::object")]
+    pub fields: Json,
 }
 
 // ---------------------------------------------------------------------------

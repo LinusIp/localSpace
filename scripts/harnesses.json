@@ -3,14 +3,28 @@
   "harnesses": {
     "io.localspace.whiteboard": {
       "manifest": "harnesses/whiteboard",
-      "logic": { "crate": "harnesses/whiteboard-logic", "target": "wasm32-wasip2", "artifact": "whiteboard_logic.wasm" },
+      "logic": {
+        "crate": "harnesses/whiteboard-logic",
+        "target": "wasm32-wasip2",
+        "artifact": "whiteboard_logic.wasm"
+      },
       "files": {
-        "ui/web/": { "script": "build:whiteboard", "out": "harnesses/whiteboard/ui/web" }
+        "ui/web/": {
+          "script": "build:whiteboard",
+          "out": "harnesses/whiteboard/ui/web"
+        }
       }
     },
     "io.localspace.planner": {
       "manifest": "registry/planner",
-      "logic": { "crate": "harnesses/planner-logic", "target": "wasm32-wasip2", "artifact": "planner_logic.wasm" }
+      "logic": {
+        "crate": "harnesses/planner-logic",
+        "target": "wasm32-wasip2",
+        "artifact": "planner_logic.wasm"
+      }
+    },
+    "io.localspace.types": {
+      "manifest": "registry/types"
     }
   }
 }

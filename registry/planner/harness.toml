@@ -1,6 +1,6 @@
 [harness]
 id = "io.localspace.planner"
-version = "1.0.0"
+version = "1.1.0"
 api = "^1.0"
 title = "Planning board"
 publisher = "localSpace"
@@ -27,3 +27,6 @@ logic = "logic.wasm"
 
 [model_hints]
 prefers = ["tool-use"]
+
+[dependencies]
+"io.localspace.types" = "^1.0"   # declares outline.v1, which the board imports (plugin spec §18.3)

@@ -1,0 +1,26 @@
+# The interchange types of io.localspace.types (plugin spec §18.3). A harness
+# that produces or accepts one of these depends on this package. Core refuses
+# an artifact of a kind no installed types package declares, and one that
+# lacks a field its type requires, so a producer and a consumer never guess
+# at a format.
+
+[types."outline.v1"]
+title = "Outline"
+description = "Boards, notes and plans as a titled list of items: {title, items: [{id, text, kind, fill, frame}]}."
+mime = "application/json"
+extension = ".json"
+required = []
+
+[types."image.v1"]
+title = "Raster image"
+description = "A PNG rendered from a document at one commit; `document` and `commit` say which."
+mime = "image/png"
+extension = ".png"
+required = ["document", "commit"]
+
+[types."svg.v1"]
+title = "Vector drawing"
+description = "An SVG rendered from a document at one commit; `document` and `commit` say which."
+mime = "image/svg+xml"
+extension = ".svg"
+required = ["document", "commit"]

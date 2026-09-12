@@ -34,9 +34,27 @@ fn harness_dir() -> Option<PathBuf> {
     }
 }
 
+/// The repository's `registry/`: the catalog a test Core installs from. It
+/// holds the types package the whiteboard depends on (spec §18.3) and the
+/// planner.
+fn registry_root() -> Option<PathBuf> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()?
+        .parent()?
+        .join("registry");
+    dir.join("types").join("types.toml").exists().then_some(dir)
+}
+
+/// A personal Core whose catalog is the repository's registry.
+fn config() -> Config {
+    let mut cfg = Config::personal("tester");
+    cfg.catalog_dirs = registry_root().into_iter().collect();
+    cfg
+}
+
 fn core() -> Option<Core> {
     let dir = harness_dir()?;
-    let mut cfg = Config::personal("tester");
+    let mut cfg = config();
     cfg.harness_dir = Some(dir);
     let core = Core::new(cfg).expect("creating Core");
     assert!(
@@ -366,7 +384,7 @@ fn idle_logic_is_unloaded_and_comes_back_with_its_document_intact() {
     let Some(dir) = whiteboard_with("[resources]\nidle_unload = \"1s\"") else {
         return;
     };
-    let mut cfg = Config::personal("tester");
+    let mut cfg = config();
     cfg.harness_dir = Some(dir.path().to_path_buf());
     let mut core = Core::new(cfg).expect("creating Core");
 
@@ -447,7 +465,14 @@ fn the_packages_declare_what_they_produce_and_accept() {
         .iter()
         .find(|h| h.id == "io.localspace.planner")
         .unwrap();
-    assert_eq!(board.produces, vec!["outline.v1".to_string()]);
+    assert_eq!(
+        board.produces,
+        vec![
+            "outline.v1".to_string(),
+            "image.v1".to_string(),
+            "svg.v1".to_string()
+        ]
+    );
     assert_eq!(planner.accepts, vec!["outline.v1".to_string()]);
 }
 
@@ -711,6 +736,9 @@ fn package_in(bundle: &std::path::Path, name: &str, id: &str, extra: &str) -> Op
             "id = \"io.localspace.whiteboard\"",
             &format!("id = \"{id}\""),
         );
+    // The whiteboard's manifest ends with its `[dependencies]` table, so a
+    // test's own dependencies join it rather than opening a second one.
+    let extra = extra.strip_prefix("[dependencies]\n").unwrap_or(extra);
     std::fs::write(dst.join("harness.toml"), format!("{manifest}\n{extra}\n")).unwrap();
     Some(())
 }
@@ -755,8 +783,8 @@ fn installing_a_harness_pulls_its_library_first_and_locks_both() {
         return;
     }
 
-    let mut cfg = Config::personal("tester");
-    cfg.catalog_dirs = vec![bundle.path().to_path_buf()];
+    let mut cfg = config();
+    cfg.catalog_dirs.insert(0, bundle.path().to_path_buf());
     let mut core = Core::new(cfg).unwrap();
     assert!(
         core.environment().harnesses.is_empty(),
@@ -790,10 +818,11 @@ fn installing_a_harness_pulls_its_library_first_and_locks_both() {
         "focus goes to a harness, never a library"
     );
 
-    // The lock: both packages, exact versions, real content hashes.
+    // The lock: every package, exact versions, real content hashes. Three,
+    // because the app, a copy of the whiteboard, depends on the types package.
     let lock = lock_of(&mut core);
     let packages = lock["packages"].as_array().unwrap();
-    assert_eq!(packages.len(), 2, "{lock}");
+    assert_eq!(packages.len(), 3, "{lock}");
     let locked_geo = packages.iter().find(|p| p["id"] == "io.test.geo").unwrap();
     assert_eq!(locked_geo["version"], "1.4.0");
     assert_eq!(locked_geo["kind"], "library");
@@ -851,8 +880,8 @@ fn incompatible_requirements_are_refused_naming_both_dependents() {
     )
     .unwrap();
 
-    let mut cfg = Config::personal("tester");
-    cfg.catalog_dirs = vec![bundle.path().to_path_buf()];
+    let mut cfg = config();
+    cfg.catalog_dirs.insert(0, bundle.path().to_path_buf());
     let mut core = Core::new(cfg).unwrap();
 
     assert!(matches!(
@@ -875,8 +904,8 @@ fn incompatible_requirements_are_refused_naming_both_dependents() {
     }
     assert_eq!(
         lock_of(&mut core)["packages"].as_array().unwrap().len(),
-        2,
-        "a and geo 1.4.0 only"
+        3,
+        "a, geo 1.4.0 and the types package a depends on, nothing of b"
     );
 }
 
@@ -893,8 +922,8 @@ fn a_missing_provider_for_an_interface_is_a_clear_refusal() {
     {
         return;
     }
-    let mut cfg = Config::personal("tester");
-    cfg.catalog_dirs = vec![bundle.path().to_path_buf()];
+    let mut cfg = config();
+    cfg.catalog_dirs.insert(0, bundle.path().to_path_buf());
     let mut core = Core::new(cfg).unwrap();
     match core.handle(proto::Request::InstallHarness {
         path: bundle.path().join("cfd").display().to_string(),
@@ -912,14 +941,19 @@ fn uninstalling_rewrites_the_lock() {
     let Some(mut core) = core_with_both() else {
         return;
     };
-    assert_eq!(lock_of(&mut core)["packages"].as_array().unwrap().len(), 2);
+    // The whiteboard, the planner, and the types package both depend on.
+    assert_eq!(lock_of(&mut core)["packages"].as_array().unwrap().len(), 3);
     core.handle(proto::Request::UninstallHarness {
         harness: "io.localspace.planner".into(),
     });
     let lock = lock_of(&mut core);
-    let packages = lock["packages"].as_array().unwrap();
-    assert_eq!(packages.len(), 1);
-    assert_eq!(packages[0]["id"], WHITEBOARD);
+    let ids: Vec<&str> = lock["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p["id"].as_str())
+        .collect();
+    assert_eq!(ids, vec!["io.localspace.types", WHITEBOARD], "{lock}");
 }
 
 // ---------------------------------------------------------------------------
@@ -1212,7 +1246,7 @@ fn registry_dir() -> Option<PathBuf> {
 fn core_with_catalog() -> Option<Core> {
     let harnesses = harness_dir()?;
     let registry = registry_dir()?;
-    let mut cfg = Config::personal("tester");
+    let mut cfg = config();
     cfg.harness_dir = Some(harnesses);
     cfg.catalog_dirs = vec![registry];
     Some(Core::new(cfg).expect("creating Core"))
@@ -1237,7 +1271,7 @@ fn the_catalog_lists_the_bundle_and_marks_what_is_installed() {
         .find(|e| e.id == WHITEBOARD)
         .expect("the installed whiteboard is missing from the catalog");
     assert!(board.installed, "it is installed, so it must say so");
-    assert_eq!(board.installed_version.as_deref(), Some("1.1.0"));
+    assert_eq!(board.installed_version.as_deref(), Some("1.2.0"));
 
     let planner = entries
         .iter()
@@ -1390,7 +1424,7 @@ fn an_update_that_widens_capabilities_waits_for_the_user() {
     }
     let manifest = std::fs::read_to_string(PathBuf::from(&source).join("harness.toml"))
         .unwrap()
-        .replace("version = \"1.0.0\"", "version = \"1.1.0\"")
+        .replace("version = \"1.1.0\"", "version = \"1.2.0\"")
         .replace("model = []", "model = [\"complete\"]")
         .replace("docs = \"none\"", "docs = \"acl\"");
     std::fs::write(staged.join("harness.toml"), manifest).unwrap();
@@ -1417,7 +1451,7 @@ fn an_update_that_widens_capabilities_waits_for_the_user() {
             .find(|h| h.id == "io.localspace.planner")
             .map(|h| h.version.clone())
     };
-    assert_eq!(installed_version(&core).as_deref(), Some("1.0.0"));
+    assert_eq!(installed_version(&core).as_deref(), Some("1.1.0"));
 
     // An answer with the wrong token is refused rather than assumed.
     assert!(matches!(
@@ -1427,13 +1461,13 @@ fn an_update_that_widens_capabilities_waits_for_the_user() {
         }),
         proto::Response::Error { .. }
     ));
-    assert_eq!(installed_version(&core).as_deref(), Some("1.0.0"));
+    assert_eq!(installed_version(&core).as_deref(), Some("1.1.0"));
 
     core.handle(proto::Request::ApproveInstall {
         harness: "io.localspace.planner".into(),
         token,
     });
-    assert_eq!(installed_version(&core).as_deref(), Some("1.1.0"));
+    assert_eq!(installed_version(&core).as_deref(), Some("1.2.0"));
 
     let records = core.audit_log().records();
     assert!(
@@ -1762,4 +1796,93 @@ fn the_eval_suite_runs_against_the_installed_package() {
         }
         other => panic!("RunEvals failed: {other:?}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Interchange types (spec §18.3): a package of kinds, and the packages that name them
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_types_package_comes_in_as_a_dependency_and_is_locked() {
+    let Some(mut core) = core() else { return };
+    let env = core.environment();
+    let types = env
+        .harnesses
+        .iter()
+        .find(|h| h.id == "io.localspace.types")
+        .expect("the whiteboard depends on io.localspace.types, so installing it installed that");
+    assert_eq!(types.kind, "types");
+    assert_eq!(types.tool_count, 0, "a types package has no tools");
+    assert!(types.views.is_empty(), "and no surface");
+    assert!(!types.loaded, "and nothing to run");
+    assert_eq!(
+        env.focus.as_deref(),
+        Some(WHITEBOARD),
+        "focus goes to a harness, never to a types package"
+    );
+
+    let lock = lock_of(&mut core);
+    let packages = lock["packages"].as_array().unwrap();
+    let locked = packages
+        .iter()
+        .find(|p| p["id"] == "io.localspace.types")
+        .expect("the types package is in the lock");
+    assert_eq!(locked["kind"], "types");
+    assert_eq!(locked["version"], "1.0.0");
+}
+
+#[test]
+fn a_package_naming_a_kind_no_types_package_declares_does_not_install() {
+    let bundle = tempfile::tempdir().unwrap();
+    if package_in(bundle.path(), "x", "io.test.x", "").is_none() {
+        return;
+    }
+    let manifest_path = bundle.path().join("x").join("harness.toml");
+    let manifest = std::fs::read_to_string(&manifest_path)
+        .unwrap()
+        .replace("produces = [", "produces = [\"mystery.v1\", ");
+    std::fs::write(&manifest_path, manifest).unwrap();
+
+    let mut cfg = config();
+    cfg.catalog_dirs.insert(0, bundle.path().to_path_buf());
+    let mut core = Core::new(cfg).unwrap();
+    match core.handle(proto::Request::InstallHarness {
+        path: bundle.path().join("x").display().to_string(),
+    }) {
+        proto::Response::Error { message } => {
+            assert!(message.contains("mystery.v1"), "{message}");
+            assert!(message.contains("types package"), "{message}");
+        }
+        other => panic!("expected a refusal naming the kind, got {other:?}"),
+    }
+    assert!(
+        core.environment()
+            .harnesses
+            .iter()
+            .all(|h| h.id != "io.test.x"),
+        "a refused package is not half-installed"
+    );
+}
+
+#[test]
+fn a_harness_loaded_without_its_types_package_is_set_aside() {
+    // Loaded from a directory at startup with no catalog to resolve its
+    // dependency from, the whiteboard names kinds nothing declares. It is set
+    // aside with a notice rather than offered as if its exports worked.
+    let Some(dir) = harness_dir() else { return };
+    let mut cfg = Config::personal("tester");
+    cfg.harness_dir = Some(dir);
+    let core = Core::new(cfg).unwrap();
+    assert!(
+        core.environment()
+            .harnesses
+            .iter()
+            .all(|h| h.id != WHITEBOARD),
+        "{:?}",
+        core.environment()
+            .harnesses
+            .iter()
+            .map(|h| h.id.clone())
+            .collect::<Vec<_>>()
+    );
 }

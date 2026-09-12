@@ -12,6 +12,13 @@ fn harnesses() -> Option<PathBuf> {
     dir.join("whiteboard/logic.wasm").exists().then_some(dir)
 }
 
+/// The repository's `registry/`, which holds the types package the whiteboard
+/// depends on (plugin spec §18.3).
+fn registry() -> Option<PathBuf> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../registry");
+    dir.join("types/types.toml").exists().then_some(dir)
+}
+
 fn environment(core: &mut Core) -> proto::EnvironmentState {
     match core.handle(proto::Request::GetEnvironment) {
         proto::Response::Environment(state) => state,
@@ -22,13 +29,15 @@ fn environment(core: &mut Core) -> proto::EnvironmentState {
 #[test]
 fn an_install_from_the_catalog_is_copied_and_survives_a_restart() {
     let Some(harnesses) = harnesses() else { return };
+    let Some(registry) = registry() else { return };
     let data = tempfile::tempdir().unwrap();
     let copy = data.path().join("installed/io.localspace.whiteboard");
+    let types_copy = data.path().join("installed/io.localspace.types");
 
     {
         let mut cfg = Config::personal("tester");
         cfg.data_dir = Some(data.path().to_path_buf());
-        cfg.catalog_dirs = vec![harnesses.clone()];
+        cfg.catalog_dirs = vec![harnesses.clone(), registry.clone()];
         let mut core = Core::new(cfg).expect("creating Core");
         assert!(
             environment(&mut core).harnesses.is_empty(),
@@ -54,9 +63,24 @@ fn an_install_from_the_catalog_is_copied_and_survives_a_restart() {
         assert!(copy.join("harness.toml").exists(), "the package was copied");
         assert!(copy.join("logic.wasm").exists());
         assert!(copy.join("tools.json").exists());
-        let installed = environment(&mut core).harnesses;
-        assert_eq!(installed.len(), 1);
-        assert_eq!(installed[0].id, "io.localspace.whiteboard");
+        // The types package the whiteboard depends on came with it, copied
+        // the same way, so the install stands on its own after a restart.
+        assert!(
+            types_copy.join("types.toml").exists(),
+            "the dependency was copied"
+        );
+        let ids: Vec<String> = environment(&mut core)
+            .harnesses
+            .iter()
+            .map(|h| h.id.clone())
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                "io.localspace.types".to_string(),
+                "io.localspace.whiteboard".to_string()
+            ]
+        );
     }
 
     {
@@ -72,8 +96,11 @@ fn an_install_from_the_catalog_is_copied_and_survives_a_restart() {
             .collect();
         assert_eq!(
             ids,
-            vec!["io.localspace.whiteboard".to_string()],
-            "the install came back"
+            vec![
+                "io.localspace.types".to_string(),
+                "io.localspace.whiteboard".to_string()
+            ],
+            "the install came back, with its dependency"
         );
 
         match core.handle(proto::Request::UninstallHarness {
@@ -82,8 +109,18 @@ fn an_install_from_the_catalog_is_copied_and_survives_a_restart() {
             proto::Response::Ok => {}
             other => panic!("uninstall: {other:?}"),
         }
-        assert!(environment(&mut core).harnesses.is_empty());
+        let ids: Vec<String> = environment(&mut core)
+            .harnesses
+            .iter()
+            .map(|h| h.id.clone())
+            .collect();
+        assert_eq!(
+            ids,
+            vec!["io.localspace.types".to_string()],
+            "the dependency stays until it is uninstalled itself"
+        );
         assert!(!copy.exists(), "uninstall removes the environment's copy");
+        assert!(types_copy.exists());
     }
     // The catalog's own package was never touched.
     assert!(harnesses.join("whiteboard/harness.toml").exists());
@@ -112,10 +149,13 @@ fn history_len(core: &mut Core) -> usize {
 #[test]
 fn a_write_without_a_commit_moves_the_document_but_not_the_history() {
     let Some(harnesses) = harnesses() else { return };
+    let Some(registry) = registry() else { return };
     let data = tempfile::tempdir().unwrap();
     let mut cfg = Config::personal("tester");
     cfg.data_dir = Some(data.path().to_path_buf());
     cfg.harness_dir = Some(harnesses);
+    // The whiteboard depends on the types package, resolved from the catalog.
+    cfg.catalog_dirs = vec![registry];
     let mut core = Core::new(cfg).expect("creating Core");
 
     let mut doc = doc_json(&mut core);

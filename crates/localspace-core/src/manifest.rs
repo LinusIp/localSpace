@@ -601,6 +601,10 @@ pub struct Contributes {
     /// an artifact only of a kind listed here.
     #[serde(default)]
     pub produces: Vec<String>,
+    /// `kind = "types"` only: the file that declares this package's
+    /// interchange types (spec §18.3), normally `types.toml`.
+    #[serde(default)]
+    pub types: Option<String>,
 }
 
 /// `name.vN` — lower-case name, a version suffix. The strict form is what lets
@@ -632,6 +636,7 @@ impl Default for Contributes {
             logic: None,
             accepts: Vec::new(),
             produces: Vec::new(),
+            types: None,
         }
     }
 }
@@ -832,6 +837,17 @@ impl Manifest {
         } else if self.contributes.tools.is_none() {
             bail!("a harness needs `[contributes] tools`; without tools it is not agent-usable");
         }
+        // A types package is its declarations (spec §18.3); nothing else has any.
+        match (self.package.kind, &self.contributes.types) {
+            (PackageKind::Types, None) => bail!(
+                "a `types` package needs `[contributes] types = \"types.toml\"`, the file that declares its interchange types"
+            ),
+            (kind, Some(_)) if kind != PackageKind::Types => bail!(
+                "only a `types` package may declare `[contributes] types`; this one is a `{}`",
+                kind.label()
+            ),
+            _ => {}
+        }
         for (id, spec) in &self.dependencies {
             if spec.is_interface() {
                 if !id.contains('.') {
@@ -937,6 +953,38 @@ file_types = [".lsboard"]
         assert!(m.capabilities.net.is_none());
         assert_eq!(m.contributes.views.len(), 2);
         assert_eq!(m.contributes.doc, DocKind::Crdt);
+    }
+
+    #[test]
+    fn a_types_package_is_its_declarations_and_nothing_else_has_any() {
+        let types = r#"
+[harness]
+id = "io.localspace.types"
+version = "1.0.0"
+api = "^1.0"
+title = "Interchange types"
+publisher = "localSpace"
+
+[package]
+kind = "types"
+
+[contributes]
+types = "types.toml"
+"#;
+        let m = Manifest::parse(types).unwrap();
+        assert_eq!(m.package.kind, PackageKind::Types);
+        assert_eq!(m.contributes.types.as_deref(), Some("types.toml"));
+
+        let without = types.replace("types = \"types.toml\"", "");
+        let err = Manifest::parse(&without).unwrap_err().to_string();
+        assert!(err.contains("types.toml"), "got: {err}");
+
+        let harness = WHITEBOARD.replace(
+            "tools = \"tools.json\"",
+            "tools = \"tools.json\"\ntypes = \"types.toml\"",
+        );
+        let err = Manifest::parse(&harness).unwrap_err().to_string();
+        assert!(err.contains("only a `types` package"), "got: {err}");
     }
 
     #[test]

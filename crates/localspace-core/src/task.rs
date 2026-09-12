@@ -114,6 +114,7 @@ mod tests {
                 commit: "c1a2b3c4d5e6".into(),
                 summary: "3 red stickies in frame Risks".into(),
                 produced_by: "io.localspace.whiteboard".into(),
+                fields: proto::Json::object(),
             }],
             notes: vec!["FX exposure needs a mitigation owner".into()],
             citations: Vec::new(),

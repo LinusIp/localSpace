@@ -383,6 +383,7 @@ context_provider = true
             doc_id: id.replace('.', "_"),
             last_used: std::time::Instant::now(),
             idle_unload: std::time::Duration::from_secs(300),
+            types: Default::default(),
         }
     }
 

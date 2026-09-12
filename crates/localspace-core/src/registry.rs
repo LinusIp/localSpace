@@ -5,9 +5,10 @@
 //! rather than recency is what keeps the prompt prefix stable across focus
 //! changes, and therefore what keeps the worker's KV prefix cache warm.
 
-use crate::manifest::{Capabilities, DocKind, Manifest, SurfaceKind, Tier};
+use crate::manifest::{Capabilities, DocKind, Manifest, PackageKind, SurfaceKind, Tier};
 use crate::runtime::{HarnessRuntime, RuntimeConfig, native::NativeHarness, wasm::WasmHarness};
 use crate::tools::ToolSet;
+use crate::types::{TypeDecl, TypeSet};
 use anyhow::{Context, Result, bail};
 use localspace_proto as proto;
 use std::collections::BTreeMap;
@@ -28,6 +29,8 @@ pub struct Installed {
     /// is dropped; the document stays; the next call re-instantiates it.
     pub last_used: std::time::Instant,
     pub idle_unload: std::time::Duration,
+    /// A types package's declarations (spec §18.3); empty for every other kind.
+    pub types: TypeSet,
 }
 
 impl Installed {
@@ -236,6 +239,12 @@ impl Registry {
         self.iter().find(|h| h.tools.get(tool).is_some())
     }
 
+    /// Which installed types package declares an interchange kind, and how
+    /// (spec §18.3).
+    pub fn type_decl(&self, kind: &str) -> Option<(&Installed, &TypeDecl)> {
+        self.iter().find_map(|h| h.types.get(kind).map(|d| (h, d)))
+    }
+
     /// Read and validate a package. Does not instantiate its runtime.
     pub fn stage(dir: &Path, policy: &Policy) -> Result<Installed> {
         let manifest = Manifest::load(dir)?;
@@ -274,6 +283,13 @@ impl Registry {
             ToolSet::default()
         };
 
+        // A types package's file is read and checked here, once, so a
+        // malformed declaration is an install failure, not a surprise later.
+        let types = match (&manifest.contributes.types, manifest.package.kind) {
+            (Some(path), PackageKind::Types) => TypeSet::load(&dir.join(path))?,
+            _ => TypeSet::default(),
+        };
+
         let (effective, degraded) = policy.apply(&manifest.capabilities);
         let mut manifest = manifest;
         manifest.capabilities = effective;
@@ -290,6 +306,7 @@ impl Registry {
             doc_id,
             last_used: std::time::Instant::now(),
             idle_unload,
+            types,
         })
     }
 
@@ -574,6 +591,7 @@ tools = "tools.json"
             doc_id: id.replace('.', "_"),
             last_used: std::time::Instant::now(),
             idle_unload: std::time::Duration::from_secs(300),
+            types: Default::default(),
         }
     }
 }

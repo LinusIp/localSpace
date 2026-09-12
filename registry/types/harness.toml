@@ -1,0 +1,13 @@
+[harness]
+id = "io.localspace.types"
+version = "1.0.0"
+api = "^1.0"
+title = "Interchange types"
+publisher = "localSpace"
+description = "The typed artifacts harnesses hand each other (plugin spec §18.3): what each type is, its MIME type and file extension, and the fields an artifact of that type carries. Installed automatically by the harnesses that depend on it."
+
+[package]
+kind = "types"
+
+[contributes]
+types = "types.toml"

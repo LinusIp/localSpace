@@ -4,6 +4,58 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-12, answers to the 6.0 plan
+
+- **One types package, and every kind is declared** (answers 8 and 9;
+  plugin spec §18.3, §17). `io.localspace.types` 1.0.0 in `registry/types/`
+  declares `outline.v1`, `image.v1` and `svg.v1` in its `types.toml`, each
+  with a title, a MIME type, a file extension and the fields an artifact of
+  it carries. An install is refused when `produces` or `accepts` names a
+  kind no installed types package declares, so a package depends on the
+  types package that declares its kinds and the dependency installs it;
+  the whiteboard is 1.2.0 and the planner 1.1.0 for that. A package loaded
+  from a directory at startup has its dependencies resolved from the
+  catalog the same way, and is set aside with a notice when they cannot
+  be. An artifact carries `fields`, checked against its type's required
+  list, and `file {name, mime, bytes}` when it is a file, which is where
+  the shell shows a Download.
+- **An export is the selection when there is one, else the whole board**
+  (answer 1); a selected frame brings its contents.
+- **PNG geometry** (answer 2): two device pixels per board unit, the longer
+  side capped at 8,192 px by lowering the scale, 24 units of padding, the
+  board's background colour, no grid dots.
+- **SVG content** (answer 3): the same padding and a background rectangle;
+  text as `<text>` lines wrapped exactly as the canvas wraps them, in
+  `system-ui, -apple-system, Segoe UI, Roboto, sans-serif`, with the font
+  size and the line height written on every `<text>` so the file does not
+  reflow where it is opened; no embedded fonts, scripts or external
+  references.
+- **File names** (answer 4): the board's title slugified, or `board`, then
+  the first seven characters of the commit, then `.png` or `.svg`.
+- **Where an export lives until 6.2** (answers 5, 6 and 13; deployment
+  §3.4). Its bytes go through the DAG's content-addressed blob table, as a
+  blob document's do; a `documents` table in the same redb holds the
+  record, so an export is listed after a restart without being loaded into
+  memory; its document id is `blob:<blake3>`, so identical bytes are one
+  document and each export is its own commit with its own provenance. An
+  export is not a change to the board and is not in the board's history:
+  its commit is on the export document, as `surface:export` by the user,
+  with `{kind, name, document, commit}`; undoing it empties the export
+  document while the artifact's pinned commit stays readable. The document
+  listing comes forward from 6.2, with the `Harness` and `Export` sources;
+  6.2 adds `Upload` and `Web`, the index state, and blobs as files.
+- **The route's body limit is 200 MiB for now** (answer 7; deployment
+  §3.3), the spec's default for `max_upload_mb`, a constant until
+  `localspace.toml` carries the key.
+- **Download** (answer 10) is offered three ways: a notice when the export
+  lands, the artifact's row on the Agents page, and the document's row on
+  the Data page. Always as an attachment with `nosniff`, never inline on
+  the app's origin.
+- **"Copy as PNG" is not in 6.0** (answer 11), though the manifest's
+  `clipboard = "on-user-action"` would allow it.
+- **`[server] clamav`** (answer 12; deployment §3.3) is `tcp://host:port`
+  or `unix:/path`, as the spec now reads.
+
 ## 2026-09-12, answers to the step-6 plan
 
 - **Export moves to the front of step 6, as 6.0** (the plan's 6.9; plugin
