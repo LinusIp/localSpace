@@ -31,6 +31,18 @@ const CONVERSATIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("conver
 /// `user ␟ workspace ␟ what` -> a small per-user, per-workspace value: the
 /// current conversation, the agent's ledger.
 const USER_STATE: TableDefinition<&str, &[u8]> = TableDefinition::new("user_state");
+/// User id -> `UserRecord` (deployment §4; Pilot 1, Phase A).
+const USERS: TableDefinition<&str, &[u8]> = TableDefinition::new("users");
+/// Lower-cased email -> user id.
+const USER_EMAILS: TableDefinition<&str, &str> = TableDefinition::new("user_emails");
+/// blake3 of a session id -> `SessionRecord`. The id itself is only ever in
+/// the cookie.
+const SESSIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("sessions");
+/// blake3 of a one-time token -> `InviteRecord`.
+const INVITES: TableDefinition<&str, &[u8]> = TableDefinition::new("invites");
+/// `account:<user id>` or `ip:<address>` -> `LockRecord`: failed logins and
+/// the lock they earned, kept across a restart.
+const LOCKOUTS: TableDefinition<&str, &[u8]> = TableDefinition::new("lockouts");
 
 const SCHEMA_KEY: &str = "schema_version";
 /// Between the parts of a scoped key: a character no id contains.
@@ -62,6 +74,53 @@ pub struct DocumentRecord {
     pub harness: Option<String>,
     #[serde(default)]
     pub created_by: String,
+}
+
+/// A user of an organisation server (deployment §4.1–4.3).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct UserRecord {
+    pub id: String,
+    /// Lower-cased; the login name.
+    pub email: String,
+    pub name: String,
+    pub roles: Vec<proto::UserRole>,
+    /// `local` for an admin-created account, `oidc` once Phase C binds one.
+    pub provider: String,
+    /// The password's PHC string (argon2id), once the user has set one.
+    pub password_hash: Option<String>,
+    pub disabled: bool,
+    pub created_ms: u64,
+    pub last_login_ms: Option<u64>,
+    pub password_set_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SessionRecord {
+    pub user: String,
+    pub created_ms: u64,
+    pub expires_ms: u64,
+    pub ip: String,
+    pub user_agent: String,
+    pub revoked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct InviteRecord {
+    pub user: String,
+    pub created_ms: u64,
+    pub expires_ms: u64,
+    pub used_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LockRecord {
+    /// Failures counted so far: consecutive for an account, within the
+    /// window for an address.
+    pub failures: u32,
+    pub window_start_ms: u64,
+    pub locked_until_ms: u64,
+    /// Locks earned in a row; each doubles an account's lock.
+    pub rounds: u32,
 }
 
 #[derive(Clone)]
@@ -127,6 +186,144 @@ impl Store {
             txn.open_table(DOCUMENTS)?;
             txn.open_table(CONVERSATIONS)?;
             txn.open_table(USER_STATE)?;
+            txn.open_table(USERS)?;
+            txn.open_table(USER_EMAILS)?;
+            txn.open_table(SESSIONS)?;
+            txn.open_table(INVITES)?;
+            txn.open_table(LOCKOUTS)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    // -- users, sessions, invites, lockouts (deployment §4) -----------------
+
+    pub fn put_user(&self, user: &UserRecord) -> Result<()> {
+        let encoded = serde_json::to_vec(user)?;
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(USERS)?;
+            t.insert(user.id.as_str(), encoded.as_slice())?;
+            let mut e = txn.open_table(USER_EMAILS)?;
+            e.insert(user.email.as_str(), user.id.as_str())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub fn get_user(&self, id: &str) -> Result<Option<UserRecord>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(USERS)?;
+        match t.get(id)? {
+            Some(g) => Ok(Some(serde_json::from_slice(g.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn user_by_email(&self, email: &str) -> Result<Option<UserRecord>> {
+        let id = {
+            let txn = self.db.begin_read()?;
+            let e = txn.open_table(USER_EMAILS)?;
+            e.get(email)?.map(|g| g.value().to_string())
+        };
+        match id {
+            Some(id) => self.get_user(&id),
+            None => Ok(None),
+        }
+    }
+
+    /// Every user, by id.
+    pub fn users(&self) -> Result<Vec<UserRecord>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(USERS)?;
+        let mut out = Vec::new();
+        for entry in t.iter()? {
+            let (_, v) = entry?;
+            out.push(serde_json::from_slice(v.value())?);
+        }
+        Ok(out)
+    }
+
+    pub fn put_session(&self, key: &str, session: &SessionRecord) -> Result<()> {
+        let encoded = serde_json::to_vec(session)?;
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(SESSIONS)?;
+            t.insert(key, encoded.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub fn get_session(&self, key: &str) -> Result<Option<SessionRecord>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(SESSIONS)?;
+        match t.get(key)? {
+            Some(g) => Ok(Some(serde_json::from_slice(g.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Every session of a user, keyed as stored.
+    pub fn sessions_of(&self, user: &str) -> Result<Vec<(String, SessionRecord)>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(SESSIONS)?;
+        let mut out = Vec::new();
+        for entry in t.iter()? {
+            let (k, v) = entry?;
+            let record: SessionRecord = serde_json::from_slice(v.value())?;
+            if record.user == user {
+                out.push((k.value().to_string(), record));
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn put_invite(&self, key: &str, invite: &InviteRecord) -> Result<()> {
+        let encoded = serde_json::to_vec(invite)?;
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(INVITES)?;
+            t.insert(key, encoded.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub fn get_invite(&self, key: &str) -> Result<Option<InviteRecord>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(INVITES)?;
+        match t.get(key)? {
+            Some(g) => Ok(Some(serde_json::from_slice(g.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn get_lock(&self, key: &str) -> Result<Option<LockRecord>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(LOCKOUTS)?;
+        match t.get(key)? {
+            Some(g) => Ok(Some(serde_json::from_slice(g.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn put_lock(&self, key: &str, lock: &LockRecord) -> Result<()> {
+        let encoded = serde_json::to_vec(lock)?;
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(LOCKOUTS)?;
+            t.insert(key, encoded.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub fn clear_lock(&self, key: &str) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(LOCKOUTS)?;
+            t.remove(key)?;
         }
         txn.commit()?;
         Ok(())

@@ -23,6 +23,7 @@ redb.workspace = true
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true
 uuid.workspace = true
+argon2.workspace = true
 ureq.workspace = true
 
 [dev-dependencies]

@@ -59,6 +59,8 @@ tower-http = { version = "0.6", features = ["fs", "cors"] }
 
 # --- misc ---
 uuid = { version = "1", features = ["v4", "serde"] }
+# Password hashing for local accounts (Pilot 1, Phase A, answer 3): argon2id.
+argon2 = { version = "0.5", features = ["std"] }
 time = { version = "0.3", features = ["formatting", "parsing", "serde", "macros"] }
 ureq = { version = "3", features = ["json"] }
 

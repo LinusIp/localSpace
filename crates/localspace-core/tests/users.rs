@@ -281,3 +281,224 @@ fn the_local_user_of_a_personal_core_is_its_admin_and_handle_is_theirs() {
         other => panic!("{other:?}"),
     }
 }
+
+fn admin(name: &str) -> Caller {
+    Caller {
+        roles: vec![proto::UserRole::Admin],
+        ..member(name)
+    }
+}
+
+fn users(core: &mut Core, who: &Caller) -> Vec<proto::UserInfo> {
+    match core.handle_as(who, proto::Request::ListUsers) {
+        proto::Response::Users(users) => users,
+        other => panic!("ListUsers failed: {other:?}"),
+    }
+}
+
+#[test]
+fn an_administrator_manages_accounts_and_a_member_may_not() {
+    let Some((mut core, _events)) = core() else {
+        return;
+    };
+    let root = admin("root");
+    let anna = member("anna");
+
+    // A member is refused, and the refusal is audited.
+    match core.handle_as(&anna, proto::Request::ListUsers) {
+        proto::Response::Error { message } => {
+            assert!(message.contains("administrator"), "{message}")
+        }
+        other => panic!("a member listed the users: {other:?}"),
+    }
+    assert!(users(&mut core, &root).is_empty(), "no accounts yet");
+
+    // The admin makes Ben; the answer is his one-time link's token.
+    let invite = match core.handle_as(
+        &root,
+        proto::Request::CreateUser {
+            email: "Ben@Example.com".into(),
+            name: "Ben".into(),
+            roles: vec![proto::UserRole::Member],
+        },
+    ) {
+        proto::Response::Invite(invite) => invite,
+        other => panic!("CreateUser failed: {other:?}"),
+    };
+    assert_eq!(invite.email, "ben@example.com");
+    assert_eq!(invite.token.len(), 64, "32 random bytes as hex");
+    let listed = users(&mut core, &root);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].email, "ben@example.com");
+    assert!(!listed[0].has_password, "until the link is used");
+    assert_eq!(listed[0].roles, vec![proto::UserRole::Member]);
+    assert!(matches!(
+        core.handle_as(
+            &anna,
+            proto::Request::SetUserRoles {
+                user: invite.user.clone(),
+                roles: vec![proto::UserRole::Admin]
+            }
+        ),
+        proto::Response::Error { .. }
+    ));
+    match core.handle_as(
+        &root,
+        proto::Request::SetUserRoles {
+            user: invite.user.clone(),
+            roles: vec![proto::UserRole::Viewer],
+        },
+    ) {
+        proto::Response::Users(list) => assert_eq!(list[0].roles, vec![proto::UserRole::Viewer]),
+        other => panic!("{other:?}"),
+    }
+
+    let records = core.audit_log().records();
+    let events: Vec<(&str, &str, &str)> = records
+        .iter()
+        .map(|r| (r.event.as_str(), r.actor.user.as_str(), r.result.as_str()))
+        .collect();
+    assert!(
+        events.contains(&("user.list", "anna", "denied")),
+        "{events:?}"
+    );
+    assert!(
+        events.contains(&("user.create", "root", "ok")),
+        "{events:?}"
+    );
+    assert!(events.contains(&("user.roles", "root", "ok")), "{events:?}");
+}
+
+#[test]
+fn signing_in_is_the_server_s_request_and_never_a_client_s() {
+    let Some((mut core, _events)) = core() else {
+        return;
+    };
+    let root = admin("root");
+    let anna = member("anna");
+    let system = Caller::system();
+    let invite = match core.handle_as(
+        &root,
+        proto::Request::CreateUser {
+            email: "carla@example.com".into(),
+            name: "Carla".into(),
+            roles: vec![proto::UserRole::Member],
+        },
+    ) {
+        proto::Response::Invite(invite) => invite,
+        other => panic!("CreateUser failed: {other:?}"),
+    };
+
+    // A client cannot sign anyone in through the API.
+    match core.handle_as(
+        &anna,
+        proto::Request::Login {
+            email: "carla@example.com".into(),
+            password: "whatever it is".into(),
+            ip: String::new(),
+            user_agent: String::new(),
+        },
+    ) {
+        proto::Response::Error { message } => assert_eq!(message, "not a client request"),
+        other => panic!("a client signed in: {other:?}"),
+    }
+    // Nor may the system caller do anything else.
+    assert!(matches!(
+        core.handle_as(&system, proto::Request::GetEnvironment),
+        proto::Response::Error { .. }
+    ));
+
+    // The link is checked without being spent, then spent on a password.
+    match core.handle_as(
+        &system,
+        proto::Request::InviteStatus {
+            token: invite.token.clone(),
+        },
+    ) {
+        proto::Response::InviteStatus { valid, email, .. } => {
+            assert!(valid);
+            assert_eq!(email.as_deref(), Some("carla@example.com"));
+        }
+        other => panic!("{other:?}"),
+    }
+    let session = match core.handle_as(
+        &system,
+        proto::Request::SetPassword {
+            token: invite.token.clone(),
+            password: "a long enough password".into(),
+            ip: "10.0.0.5".into(),
+            user_agent: "test".into(),
+        },
+    ) {
+        proto::Response::SignedIn { session, user, .. } => {
+            assert_eq!(user.email, "carla@example.com");
+            assert!(user.has_password);
+            session
+        }
+        other => panic!("SetPassword failed: {other:?}"),
+    };
+    assert_eq!(session.len(), 64);
+    match core.handle_as(
+        &system,
+        proto::Request::InviteStatus {
+            token: invite.token.clone(),
+        },
+    ) {
+        proto::Response::InviteStatus { valid, .. } => assert!(!valid, "spent"),
+        other => panic!("{other:?}"),
+    }
+
+    // The wrong password and a wrong email get the same sentence.
+    let wrong = |core: &mut Core, email: &str, password: &str| match core.handle_as(
+        &system,
+        proto::Request::Login {
+            email: email.into(),
+            password: password.into(),
+            ip: "10.0.0.5".into(),
+            user_agent: "test".into(),
+        },
+    ) {
+        proto::Response::Error { message } => message,
+        other => panic!("signed in with the wrong credentials: {other:?}"),
+    };
+    let a = wrong(&mut core, "carla@example.com", "not her password");
+    let b = wrong(&mut core, "nobody@example.com", "not her password");
+    assert_eq!(a, b);
+    assert_eq!(a, "That email or password isn't right.");
+
+    match core.handle_as(
+        &system,
+        proto::Request::Login {
+            email: "carla@example.com".into(),
+            password: "a long enough password".into(),
+            ip: "10.0.0.5".into(),
+            user_agent: "test".into(),
+        },
+    ) {
+        proto::Response::SignedIn { user, .. } => assert_eq!(user.name, "Carla"),
+        other => panic!("Login failed: {other:?}"),
+    }
+    assert!(matches!(
+        core.handle_as(&system, proto::Request::Logout { session }),
+        proto::Response::Ok
+    ));
+
+    let records = core.audit_log().records();
+    let auth: Vec<(&str, &str, &str)> = records
+        .iter()
+        .filter(|r| r.event.starts_with("auth."))
+        .map(|r| (r.event.as_str(), r.actor.ip.as_str(), r.result.as_str()))
+        .collect();
+    assert!(
+        auth.contains(&("auth.password_set", "10.0.0.5", "ok")),
+        "{auth:?}"
+    );
+    assert!(
+        auth.contains(&("auth.failed", "10.0.0.5", "denied")),
+        "{auth:?}"
+    );
+    assert!(auth.contains(&("auth.login", "10.0.0.5", "ok")), "{auth:?}");
+    assert!(auth.iter().any(|(e, _, _)| *e == "auth.logout"), "{auth:?}");
+    let failed = records.iter().find(|r| r.event == "auth.failed").unwrap();
+    assert_eq!(failed.detail["reason"], "wrong_password");
+}

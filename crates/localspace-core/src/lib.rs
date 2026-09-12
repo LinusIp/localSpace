@@ -23,6 +23,7 @@ pub mod exposure;
 pub mod footprint;
 pub mod gateway;
 pub mod grammar;
+pub mod identity;
 pub mod lock;
 pub mod manifest;
 pub mod model;
@@ -92,6 +93,9 @@ pub struct Config {
     pub models_dir: Option<PathBuf>,
     /// `llama-server`, when it is not under `<data>/engines` or on PATH.
     pub llama_server: Option<PathBuf>,
+    /// How long a signed-in session lives, hard (deployment §3.3
+    /// `session_ttl`, 12 hours by default).
+    pub session_ttl_ms: u64,
 }
 
 impl Config {
@@ -110,6 +114,7 @@ impl Config {
             profile,
             models_dir: None,
             llama_server: None,
+            session_ttl_ms: 12 * 60 * 60 * 1000,
         }
     }
 
@@ -151,6 +156,26 @@ impl Caller {
             roles: vec![proto::UserRole::Admin],
             groups: Vec::new(),
         }
+    }
+
+    /// The server itself, signing users in and out: no state of its own,
+    /// no role, and the only caller the identity requests answer.
+    pub fn system() -> Caller {
+        Caller {
+            user: "system".into(),
+            session: "system".into(),
+            ip: String::new(),
+            roles: Vec::new(),
+            groups: Vec::new(),
+        }
+    }
+
+    pub fn is_system(&self) -> bool {
+        self.user == "system" && self.session == "system"
+    }
+
+    pub fn is_admin(&self) -> bool {
+        self.roles.contains(&proto::UserRole::Admin)
     }
 
     fn role_label(&self) -> &'static str {
@@ -215,6 +240,8 @@ pub struct Core {
     docs: DocStore,
     /// The database: the DAG's tables and every other table share it.
     store: store::Store,
+    /// Users, sessions, one-time links and lockouts, over the same database.
+    directory: identity::Directory,
     dag: Dag,
     /// Shared with harness logic through `CoreServices`; never locks `Core`.
     gateway: Arc<Mutex<Gateway>>,
@@ -271,6 +298,7 @@ impl Core {
             None => store::Store::in_memory()?,
         };
         let dag = Dag::with(store.db())?;
+        let directory = identity::Directory::new(store.clone(), cfg.session_ttl_ms);
         let audit = match &cfg.data_dir {
             Some(dir) => AuditLog::open(&dir.join("audit").join("audit.jsonl"))?,
             None => AuditLog::in_memory(),
@@ -312,6 +340,7 @@ impl Core {
             registry: Registry::new(),
             docs: DocStore::new(),
             store,
+            directory,
             dag,
             gateway,
             router,
@@ -426,6 +455,12 @@ impl Core {
 
     pub fn audit_log(&self) -> &AuditLog {
         &self.audit
+    }
+
+    /// The identity store, for the server to read sessions on every request
+    /// without a trip through this thread. Writes go through requests.
+    pub fn directory(&self) -> identity::Directory {
+        self.directory.clone()
     }
 
     pub fn provider_cache_hit_rate(&self) -> f32 {
@@ -2391,8 +2426,178 @@ impl Core {
     /// A request from `caller`: the per-user state becomes theirs, every
     /// check is made as them, and every event of the handling goes to them.
     pub fn handle_as(&mut self, caller: &Caller, req: proto::Request) -> proto::Response {
+        if caller.is_system() {
+            return self.handle_system(req);
+        }
         self.activate(caller);
         self.handle_inner(req)
+    }
+
+    /// Refuse unless the caller is an administrator; the refusal is audited
+    /// under `event`.
+    fn require_admin(&mut self, event: &str) -> Option<proto::Response> {
+        if self.active.is_admin() {
+            return None;
+        }
+        let _ = self.audit.append(
+            self.actor(),
+            self.scope(""),
+            event,
+            serde_json::json!({}),
+            "denied",
+        );
+        Some(proto::Response::Error {
+            message: "Only an administrator can do that.".into(),
+        })
+    }
+
+    fn user_infos(&self) -> Vec<proto::UserInfo> {
+        let now = dag::now_ms();
+        self.directory
+            .users()
+            .unwrap_or_default()
+            .iter()
+            .map(|u| {
+                identity::info(
+                    u,
+                    self.directory
+                        .account_locked_until(&u.id, now)
+                        .unwrap_or_default(),
+                )
+            })
+            .collect()
+    }
+
+    /// The actor of a sign-in event: the account named, from the address
+    /// given, before there is a session to speak of.
+    fn auth_actor(user: &str, ip: &str) -> Actor {
+        Actor {
+            user: user.to_string(),
+            session: String::new(),
+            ip: ip.to_string(),
+            role: String::new(),
+        }
+    }
+
+    /// The server's own requests: signing users in and out. They touch no
+    /// per-user state, so the system caller never gets any.
+    fn handle_system(&mut self, req: proto::Request) -> proto::Response {
+        use proto::Request as R;
+        let now = dag::now_ms();
+        let no_scope = Scope {
+            workspace: String::new(),
+            conversation: String::new(),
+            document: String::new(),
+        };
+        match req {
+            R::Login {
+                email,
+                password,
+                ip,
+                user_agent,
+            } => match self
+                .directory
+                .login(&email, &password, &ip, &user_agent, now)
+            {
+                Ok(Ok(signed)) => {
+                    let _ = self.audit.append(
+                        Self::auth_actor(&signed.user.id, &ip),
+                        no_scope,
+                        "auth.login",
+                        serde_json::json!({"email": signed.user.email, "provider": signed.user.provider}),
+                        "ok",
+                    );
+                    proto::Response::SignedIn {
+                        session: signed.session,
+                        expires_ms: signed.expires_ms,
+                        user: identity::info(&signed.user, None),
+                    }
+                }
+                Ok(Err(failure)) => {
+                    let _ = self.audit.append(
+                        Self::auth_actor(&identity::normalise_email(&email), &ip),
+                        no_scope,
+                        "auth.failed",
+                        serde_json::json!({"reason": failure.label()}),
+                        "denied",
+                    );
+                    proto::Response::Error {
+                        message: identity::LoginFailure::MESSAGE.into(),
+                    }
+                }
+                Err(e) => proto::Response::Error {
+                    message: format!("{e:#}"),
+                },
+            },
+            R::Logout { session } => {
+                let who = self
+                    .directory
+                    .session(&session, now)
+                    .ok()
+                    .flatten()
+                    .map(|(u, _)| u.id)
+                    .unwrap_or_default();
+                match self.directory.logout(&session) {
+                    Ok(true) => {
+                        let _ = self.audit.append(
+                            Self::auth_actor(&who, ""),
+                            no_scope,
+                            "auth.logout",
+                            serde_json::json!({}),
+                            "ok",
+                        );
+                        proto::Response::Ok
+                    }
+                    Ok(false) => proto::Response::Ok,
+                    Err(e) => proto::Response::Error {
+                        message: format!("{e:#}"),
+                    },
+                }
+            }
+            R::SetPassword {
+                token,
+                password,
+                ip,
+                user_agent,
+            } => match self
+                .directory
+                .set_password(&token, &password, &ip, &user_agent, now)
+            {
+                Ok(signed) => {
+                    let _ = self.audit.append(
+                        Self::auth_actor(&signed.user.id, &ip),
+                        no_scope,
+                        "auth.password_set",
+                        serde_json::json!({"email": signed.user.email}),
+                        "ok",
+                    );
+                    proto::Response::SignedIn {
+                        session: signed.session,
+                        expires_ms: signed.expires_ms,
+                        user: identity::info(&signed.user, None),
+                    }
+                }
+                Err(message) => proto::Response::Error { message },
+            },
+            R::InviteStatus { token } => match self.directory.invite_user(&token, now) {
+                Ok(Some(user)) => proto::Response::InviteStatus {
+                    valid: true,
+                    email: Some(user.email),
+                    name: Some(user.name),
+                },
+                Ok(None) => proto::Response::InviteStatus {
+                    valid: false,
+                    email: None,
+                    name: None,
+                },
+                Err(e) => proto::Response::Error {
+                    message: format!("{e:#}"),
+                },
+            },
+            _ => proto::Response::Error {
+                message: "the system caller only signs users in and out".into(),
+            },
+        }
     }
 
     fn handle_inner(&mut self, req: proto::Request) -> proto::Response {
@@ -3107,6 +3312,151 @@ impl Core {
             R::GetLock => proto::Response::Lock {
                 json: Json(self.docs.json(lock::LOCK_DOC).unwrap_or(J::Null)),
             },
+
+            // --- identity (deployment §4; Pilot 1, Phase A) ---
+            R::ListUsers => match self.require_admin("user.list") {
+                Some(refused) => refused,
+                None => proto::Response::Users(self.user_infos()),
+            },
+            R::CreateUser { email, name, roles } => match self.require_admin("user.create") {
+                Some(refused) => refused,
+                None => {
+                    let now = dag::now_ms();
+                    match self
+                        .directory
+                        .create_user(&email, &name, roles.clone(), now)
+                    {
+                        Ok((user, token)) => {
+                            let _ = self.audit.append(
+                                self.actor(),
+                                self.scope(""),
+                                "user.create",
+                                serde_json::json!({"user": user.id, "email": user.email, "roles": roles}),
+                                "ok",
+                            );
+                            proto::Response::Invite(proto::Invite {
+                                user: user.id,
+                                email: user.email,
+                                token,
+                                expires_ms: now + identity::INVITE_TTL_MS,
+                            })
+                        }
+                        Err(e) => proto::Response::Error {
+                            message: format!("{e:#}"),
+                        },
+                    }
+                }
+            },
+            R::SetUserRoles { user, roles } => match self.require_admin("user.roles") {
+                Some(refused) => refused,
+                None => match self.directory.set_roles(&user, roles.clone()) {
+                    Ok(_) => {
+                        let _ = self.audit.append(
+                            self.actor(),
+                            self.scope(""),
+                            "user.roles",
+                            serde_json::json!({"user": user, "roles": roles}),
+                            "ok",
+                        );
+                        proto::Response::Users(self.user_infos())
+                    }
+                    Err(e) => proto::Response::Error {
+                        message: format!("{e:#}"),
+                    },
+                },
+            },
+            R::DisableUser { user, disabled } => match self.require_admin("user.disable") {
+                Some(refused) => refused,
+                None => match self.directory.set_disabled(&user, disabled) {
+                    Ok(_) => {
+                        let _ = self.audit.append(
+                            self.actor(),
+                            self.scope(""),
+                            "user.disable",
+                            serde_json::json!({"user": user, "disabled": disabled}),
+                            "ok",
+                        );
+                        proto::Response::Users(self.user_infos())
+                    }
+                    Err(e) => proto::Response::Error {
+                        message: format!("{e:#}"),
+                    },
+                },
+            },
+            R::ResetPassword { user } => match self.require_admin("user.reset_password") {
+                Some(refused) => refused,
+                None => {
+                    let now = dag::now_ms();
+                    match self.directory.reset_password(&user, now) {
+                        Ok(token) => {
+                            let email = self
+                                .directory
+                                .user(&user)
+                                .ok()
+                                .flatten()
+                                .map(|u| u.email)
+                                .unwrap_or_default();
+                            let _ = self.audit.append(
+                                self.actor(),
+                                self.scope(""),
+                                "user.reset_password",
+                                serde_json::json!({"user": user}),
+                                "ok",
+                            );
+                            proto::Response::Invite(proto::Invite {
+                                user,
+                                email,
+                                token,
+                                expires_ms: now + identity::INVITE_TTL_MS,
+                            })
+                        }
+                        Err(e) => proto::Response::Error {
+                            message: format!("{e:#}"),
+                        },
+                    }
+                }
+            },
+            R::UnlockUser { user } => match self.require_admin("user.unlock") {
+                Some(refused) => refused,
+                None => match self.directory.unlock(&user) {
+                    Ok(()) => {
+                        let _ = self.audit.append(
+                            self.actor(),
+                            self.scope(""),
+                            "user.unlock",
+                            serde_json::json!({"user": user}),
+                            "ok",
+                        );
+                        proto::Response::Users(self.user_infos())
+                    }
+                    Err(e) => proto::Response::Error {
+                        message: format!("{e:#}"),
+                    },
+                },
+            },
+            R::RevokeSessions { user } => match self.require_admin("session.revoke") {
+                Some(refused) => refused,
+                None => match self.directory.revoke_sessions(&user) {
+                    Ok(ended) => {
+                        let _ = self.audit.append(
+                            self.actor(),
+                            self.scope(""),
+                            "session.revoke",
+                            serde_json::json!({"user": user, "ended": ended}),
+                            "ok",
+                        );
+                        proto::Response::Users(self.user_infos())
+                    }
+                    Err(e) => proto::Response::Error {
+                        message: format!("{e:#}"),
+                    },
+                },
+            },
+            R::Login { .. } | R::Logout { .. } | R::SetPassword { .. } | R::InviteStatus { .. } => {
+                proto::Response::Error {
+                    message: "not a client request".into(),
+                }
+            }
 
             R::FindCapability { need } => proto::Response::Capabilities {
                 hits: exposure::rank_capabilities(&self.registry, &need),

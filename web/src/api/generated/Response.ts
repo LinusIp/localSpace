@@ -11,15 +11,21 @@ import type { DocKind } from "./DocKind";
 import type { DocumentInfo } from "./DocumentInfo";
 import type { EnvironmentState } from "./EnvironmentState";
 import type { EvalReport } from "./EvalReport";
+import type { Invite } from "./Invite";
 import type { Json } from "./Json";
 import type { ModelCatalogEntry } from "./ModelCatalogEntry";
 import type { ModelInfo } from "./ModelInfo";
 import type { Task } from "./Task";
 import type { ToolOutcome } from "./ToolOutcome";
+import type { UserInfo } from "./UserInfo";
 import type { Widget } from "./Widget";
 
 export type Response = "ok" | { "environment": EnvironmentState } | { "transcript": { messages: Array<ChatMessage>, } } | { "tool_result": ToolOutcome } | { "surface_module": { bytes: Array<number>, shape_schema: number, 
 /**
  * The heap limit the Client must enforce on this surface.
  */
-memory_mb: number, } } | { "widget_view": { root: Widget, } } | { "surface_file": { bytes: Array<number>, mime: string, } } | { "doc_opened": { doc: string, snapshot: Array<number>, kind: DocKind, } } | { "doc_json": { harness: string, doc: string, json: Json, } } | { "artifact": Artifact } | { "documents": { documents: Array<DocumentInfo>, } } | { "doc_blob": { name: string, mime: string, bytes: Array<number>, } } | { "history": { commits: Array<Commit>, } } | { "models": { models: Array<ModelInfo>, } } | { "context": { blocks: Array<ContextBlock>, prompt_preview: string, } } | { "active": ActiveSet } | { "task": Task } | { "lock": { json: Json, } } | { "capabilities": { hits: Array<CapabilityHit>, } } | { "catalog": { entries: Array<CatalogEntry>, } } | { "evals": EvalReport } | { "install_prompt": { harness: string, token: string, diff: Array<string>, native_reason: string | null, } } | { "model_catalog": { entries: Array<ModelCatalogEntry>, } } | { "engine_log": { lines: Array<string>, } } | { "conversations": { list: Array<ConversationSummary>, current: string, } } | { "error": { message: string, } };
+memory_mb: number, } } | { "widget_view": { root: Widget, } } | { "surface_file": { bytes: Array<number>, mime: string, } } | { "doc_opened": { doc: string, snapshot: Array<number>, kind: DocKind, } } | { "doc_json": { harness: string, doc: string, json: Json, } } | { "artifact": Artifact } | { "documents": { documents: Array<DocumentInfo>, } } | { "doc_blob": { name: string, mime: string, bytes: Array<number>, } } | { "history": { commits: Array<Commit>, } } | { "models": { models: Array<ModelInfo>, } } | { "context": { blocks: Array<ContextBlock>, prompt_preview: string, } } | { "active": ActiveSet } | { "task": Task } | { "lock": { json: Json, } } | { "capabilities": { hits: Array<CapabilityHit>, } } | { "catalog": { entries: Array<CatalogEntry>, } } | { "evals": EvalReport } | { "install_prompt": { harness: string, token: string, diff: Array<string>, native_reason: string | null, } } | { "model_catalog": { entries: Array<ModelCatalogEntry>, } } | { "engine_log": { lines: Array<string>, } } | { "conversations": { list: Array<ConversationSummary>, current: string, } } | { "users": Array<UserInfo> } | { "invite": Invite } | { "signed_in": { 
+/**
+ * The session id, for the cookie. Only its hash is stored.
+ */
+session: string, expires_ms: number, user: UserInfo, } } | { "invite_status": { valid: boolean, email: string | null, name: string | null, } } | { "error": { message: string, } };

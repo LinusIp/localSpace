@@ -508,6 +508,35 @@ pub struct ContextBlock {
 // The task ledger (spec §18.1) — shared context across harnesses
 // ---------------------------------------------------------------------------
 
+/// A user of an organisation server as the admin pages see them (deployment
+/// §4): never the password hash.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct UserInfo {
+    pub id: String,
+    pub email: String,
+    pub name: String,
+    pub roles: Vec<UserRole>,
+    /// `local` for an admin-made account; `oidc` once an identity provider is bound.
+    pub provider: String,
+    pub disabled: bool,
+    /// Whether the user has set a password; until then only their one-time link signs them in.
+    pub has_password: bool,
+    pub created_ms: u64,
+    pub last_login_ms: Option<u64>,
+    /// Set while repeated failed logins keep the account locked.
+    pub locked_until_ms: Option<u64>,
+}
+
+/// A one-time link's token, single-use, expiring in 24 hours. The shell
+/// makes the link from its own origin and shows it to the admin once.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct Invite {
+    pub user: String,
+    pub email: String,
+    pub token: String,
+    pub expires_ms: u64,
+}
+
 /// One agent run's ledger. Rendered into every prompt regardless of which
 /// harness is focused: the tools change with focus, the ledger does not.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
@@ -880,6 +909,56 @@ pub enum Request {
         peer: String,
     },
 
+    // --- identity (deployment §4; Pilot 1, Phase A) ---
+    /// Administrators only: the accounts of this server.
+    ListUsers,
+    CreateUser {
+        email: String,
+        name: String,
+        roles: Vec<UserRole>,
+    },
+    /// A role change ends the user's live sessions.
+    SetUserRoles {
+        user: String,
+        roles: Vec<UserRole>,
+    },
+    /// Disabling ends the user's live sessions.
+    DisableUser {
+        user: String,
+        disabled: bool,
+    },
+    /// Forget the password, end every session, and give a new one-time link.
+    ResetPassword {
+        user: String,
+    },
+    /// Clear the lock repeated failed logins earned.
+    UnlockUser {
+        user: String,
+    },
+    RevokeSessions {
+        user: String,
+    },
+    /// The server's own requests, never a client's: signing in and out.
+    Login {
+        email: String,
+        password: String,
+        ip: String,
+        user_agent: String,
+    },
+    Logout {
+        session: String,
+    },
+    /// Spend a one-time link on a password, and sign in.
+    SetPassword {
+        token: String,
+        password: String,
+        ip: String,
+        user_agent: String,
+    },
+    InviteStatus {
+        token: String,
+    },
+
     // --- DAG ---
     GetHistory {
         limit: usize,
@@ -1035,6 +1114,19 @@ pub enum Response {
     Conversations {
         list: Vec<ConversationSummary>,
         current: String,
+    },
+    Users(Vec<UserInfo>),
+    Invite(Invite),
+    SignedIn {
+        /// The session id, for the cookie. Only its hash is stored.
+        session: String,
+        expires_ms: u64,
+        user: UserInfo,
+    },
+    InviteStatus {
+        valid: bool,
+        email: Option<String>,
+        name: Option<String>,
     },
     Error {
         message: String,
