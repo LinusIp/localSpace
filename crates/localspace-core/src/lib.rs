@@ -1727,8 +1727,18 @@ impl Core {
                 package.id()
             ));
         }
-        let name = docs::file_name(offered_name, &decl.extension);
-        let fields = fields.as_object().cloned().unwrap_or_default();
+        let extension = decl.extension.clone();
+        let mut fields = fields.as_object().cloned().unwrap_or_default();
+        // A surface knows its board, not Core's history: the document and
+        // the head commit are filled in here when it does not name them, and
+        // checked against the same when it does.
+        let head = self.dag.head(&own_doc).ok().flatten();
+        fields
+            .entry("document".to_string())
+            .or_insert_with(|| J::String(own_doc.clone()));
+        fields
+            .entry("commit".to_string())
+            .or_insert_with(|| J::String(head.clone().unwrap_or_default()));
         let missing = decl.missing(&fields);
         if !missing.is_empty() {
             return Err(format!(
@@ -1763,13 +1773,15 @@ impl Core {
                     ));
                 }
                 _ => {
-                    let untouched = self.dag.head(&own_doc).ok().flatten().is_none();
-                    if !(source_commit.is_empty() && untouched) {
+                    if !(source_commit.is_empty() && head.is_none()) {
                         return Err(format!("`{source_commit}` is not a commit on `{own_doc}`"));
                     }
                 }
             }
         }
+        // `<title>-<commit7>.png`: the name says which board state it shows.
+        let suffix: String = source_commit.chars().take(7).collect();
+        let name = docs::file_name(offered_name, &suffix, &extension);
         if bytes.is_empty() {
             return Err("the export is empty".into());
         }

@@ -1941,7 +1941,7 @@ fn a_surface_export_is_a_document_of_its_own_and_an_artifact_pinned_to_it() {
     let art = match export(
         &mut core,
         "image.v1",
-        "risks-abc1234.png",
+        "risks",
         "image/png",
         &png,
         json!({"document": BOARD_DOC, "commit": head}),
@@ -1949,27 +1949,43 @@ fn a_surface_export_is_a_document_of_its_own_and_an_artifact_pinned_to_it() {
         proto::Response::Artifact(a) => a,
         other => panic!("export failed: {other:?}"),
     };
+    let name = format!("risks-{}.png", &head[..7]);
     assert_eq!(art.kind, "image.v1");
     assert_eq!(art.produced_by, WHITEBOARD);
     assert!(art.doc.starts_with("blob:"), "{}", art.doc);
     assert_eq!(art.fields.0["document"], BOARD_DOC);
     assert_eq!(art.fields.0["commit"], head);
     let file = art.file.as_ref().expect("an export is a file");
-    assert_eq!(file.name, "risks-abc1234.png");
+    assert_eq!(file.name, name, "the name says which board state it shows");
     assert_eq!(file.mime, "image/png");
     assert_eq!(file.bytes, png.len() as u64);
     assert_eq!(task_of(&mut core).artifacts.len(), 1, "it is in the ledger");
+
+    // A surface need not know Core's history: the same bytes again with no
+    // fields get the document and the head filled in, and are the same
+    // document — identical bytes are one — under a second commit.
+    let again = match export(&mut core, "image.v1", "risks", "image/png", &png, json!({})) {
+        proto::Response::Artifact(a) => a,
+        other => panic!("second export failed: {other:?}"),
+    };
+    assert_eq!(again.fields.0["document"], BOARD_DOC);
+    assert_eq!(again.fields.0["commit"], head);
+    assert_eq!(again.doc, art.doc);
+    assert_ne!(again.commit, art.commit);
+    assert_eq!(task_of(&mut core).artifacts.len(), 2);
 
     // The export's commit is on the export document, by the user; the
     // board's history did not move.
     match core.handle(proto::Request::GetHistory { limit: 5 }) {
         proto::Response::History { commits } => {
-            assert_eq!(commits[0].id, art.commit);
-            assert_eq!(commits[0].doc, art.doc);
-            assert_eq!(commits[0].tool, "surface:export");
-            assert_eq!(commits[0].author, proto::Author::User);
-            assert_eq!(commits[0].params.0["commit"], head);
-            assert_eq!(commits[0].params.0["document"], BOARD_DOC);
+            assert_eq!(commits[0].id, again.commit);
+            assert_eq!(commits[1].id, art.commit);
+            assert_eq!(commits[1].doc, art.doc);
+            assert_eq!(commits[1].tool, "surface:export");
+            assert_eq!(commits[1].author, proto::Author::User);
+            assert_eq!(commits[1].params.0["commit"], head);
+            assert_eq!(commits[1].params.0["document"], BOARD_DOC);
+            assert_eq!(commits[1].params.0["name"], name);
         }
         other => panic!("{other:?}"),
     }
@@ -1982,8 +1998,12 @@ fn a_surface_export_is_a_document_of_its_own_and_an_artifact_pinned_to_it() {
     match core.handle(proto::Request::GetDocBlob {
         doc: art.doc.clone(),
     }) {
-        proto::Response::DocBlob { name, mime, bytes } => {
-            assert_eq!(name, "risks-abc1234.png");
+        proto::Response::DocBlob {
+            name: served,
+            mime,
+            bytes,
+        } => {
+            assert_eq!(served, name);
             assert_eq!(mime, "image/png");
             assert_eq!(bytes, png);
         }
@@ -1993,11 +2013,11 @@ fn a_surface_export_is_a_document_of_its_own_and_an_artifact_pinned_to_it() {
     // The listing has the export, with where it came from, beside the board.
     let docs = documents(&mut core);
     let listed = docs.iter().find(|d| d.id == art.doc).expect("listed");
-    assert_eq!(listed.title, "risks-abc1234.png");
+    assert_eq!(listed.title, name);
     assert_eq!(listed.kind, proto::DocKind::Blob);
     assert_eq!(listed.mime, "image/png");
     assert_eq!(listed.bytes, Some(png.len() as u64));
-    assert_eq!(listed.head.as_deref(), Some(art.commit.as_str()));
+    assert_eq!(listed.head.as_deref(), Some(again.commit.as_str()));
     assert!(listed.created_ms.is_some());
     match &listed.source {
         proto::DocumentSource::Export {
@@ -2057,15 +2077,6 @@ fn an_export_is_refused_when_its_provenance_or_its_type_is_wrong() {
             }
         };
 
-    // The fields its type requires.
-    refused(
-        &mut core,
-        "image.v1",
-        "image/png",
-        &png,
-        json!({"document": BOARD_DOC}),
-        "commit",
-    );
     // A commit that does not exist.
     refused(
         &mut core,
@@ -2260,7 +2271,11 @@ fn an_export_is_listed_and_readable_after_a_restart() {
         .into_iter()
         .find(|d| d.id == doc)
         .expect("the export is listed after a restart");
-    assert_eq!(listed.title, "board.png");
+    assert!(
+        listed.title.starts_with("board-") && listed.title.ends_with(".png"),
+        "{}",
+        listed.title
+    );
     assert_eq!(listed.bytes, Some(png.len() as u64));
     match core.handle(proto::Request::GetDocBlob { doc }) {
         proto::Response::DocBlob { bytes, .. } => assert_eq!(bytes, png),
