@@ -17,6 +17,26 @@ the source of truth once written (`CLAUDE.md`, "Source of truth").
   reported on honestly and brought to the state a non-technical user opens
   on a workstation: the report and the plan for it are in the session of
   2026-09-12 and folded into `docs/PILOT-1.md`.
+- **The desktop, answers 2 to 7.** The "connect to a model server" form
+  stays under Settings → Advanced in personal mode — something the user
+  types, not machinery shown at them — and is absent in organisation mode.
+  The installer ships llama.cpp's **Vulkan** build, which runs everywhere
+  at a real fraction of CUDA's speed, right for a first launch; the CUDA
+  build is a one-click download under Settings → Model when an NVIDIA GPU
+  is detected, provisioning egress like a model (plugin spec §8.4). The
+  installer is an **NSIS `.exe` through `tauri-cli`**; MSI when an
+  organisation asks to deploy by policy. `tauri-plugin-dialog` and
+  `tauri-plugin-single-instance` are approved, and if the week gets tight
+  the visible failure and the single-instance guard come **before** the
+  installer: an app that opens nothing, or opens twice and dies on a
+  database lock, is the worst thing that can happen in front of a
+  prospect. **Windows only** for Pilot 1: the organisation server runs
+  `serve` headless with a browser client, so no AppImage or `.deb`; Linux
+  CI still matters for Core and the server. **Signing:** the certificate
+  process is under way; the first demos run unsigned, the pilot install
+  runs signed; the bundler is configured so that adding the certificate is
+  a configuration change, not a rework, and the install guide says
+  SmartScreen warns until it is in place.
 
 ## 2026-09-12, answers to Phase A and the shell, and a fifth directive
 

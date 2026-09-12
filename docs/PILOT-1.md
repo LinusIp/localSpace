@@ -160,12 +160,20 @@ review latency included, hardware excluded.
   the interface in either mode — the model card's endpoint goes, the
   model's kind stays.
 - The desktop build as a finished application, since every demo before
-  December runs on it: the icon set from the brand file; a visible error
-  when Core cannot start instead of a silent exit; one instance, a second
-  launch focusing the window; the inference engine shipped beside the
-  executable rather than placed by hand; an installer that lays out the
-  executable, the web bundle, the registry folder and the engine; code
-  signing when a certificate exists.
+  December runs on it, in this order: the icon set from the brand mark
+  (landed 2026-09-12); a visible error when Core cannot start instead of a
+  silent exit, and one instance with a second launch focusing the window
+  (`tauri-plugin-dialog`, `tauri-plugin-single-instance`) — these two
+  before anything else, because an app that opens nothing, or opens twice
+  and dies on a database lock, is the worst thing in front of a prospect;
+  llama.cpp's Vulkan build shipped beside the executable under `engines/`,
+  the CUDA build a one-click download under Settings → Model when an
+  NVIDIA GPU is detected; an NSIS installer through `tauri-cli` laying out
+  the executable, the web bundle, the registry folder and the engine,
+  Windows only; the bundler configured so that the signing certificate,
+  when it arrives, is a configuration change, with the guide saying
+  SmartScreen warns until then. The "connect to a model server" form
+  stays under Settings → Advanced in personal mode only.
 - The `localspace` binary (answer 27): `serve`, `doctor`, `bench`, `evals`,
   `call`, `admin`; `localspace.toml` with the keys the pilot uses (answer
   22), `--config` pointing at it. `serve` refuses to start when it binds
