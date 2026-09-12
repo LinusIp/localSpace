@@ -44,8 +44,9 @@ follows alone, and the acceptance list that decides "installed".
 - The `stream` and `native` surface kinds.
 - The admin console as a whole (§13): Pilot 1 has the admin pages it needs
   (users, workspaces, network, audit) and no more.
-- Multiple documents per harness per workspace: one board per workspace per
-  harness, as today; several boards is a step of its own (question 12).
+- Several boards per workspace in the UI: one board per workspace per
+  harness is shown; the data model holds many from Phase A, so a list view
+  is a day's work when pilot users ask for it (answer 12).
 
 ## 3. Where the code stands
 
@@ -127,17 +128,28 @@ review latency included, hardware excluded.
   routes events to the right connections. The personal desktop is the same
   code with one user.
 - Identity: users, sessions and roles in redb; the local provider with
-  argon2 password hashes (question 3), a one-time link to set the first
-  password, `localspace admin bootstrap` printing the first admin's link;
-  sessions as httpOnly SameSite=Strict cookies with `session_ttl`, a
-  bearer token for the API; the persistent banner while local is on.
+  argon2id password hashes (answer 3, parameters in DECISIONS), a one-time
+  link to set the first password — single-use, 24 hours, regenerable by an
+  admin (answer 11) — and `localspace admin bootstrap` printing the first
+  admin's link from the command line (answer 8); sessions as httpOnly
+  SameSite=Strict cookies with `session_ttl`, a bearer token for the API;
+  the persistent banner while local is on. Repeated failed logins are
+  rate-limited and locked out per account and per IP, the attempts
+  audited; every live session of a user is invalidated when their password
+  is reset, their role changes or an admin disables them.
 - Workspaces and ACLs persisted in redb: a personal workspace per user at
   first login, shared workspaces made by admins, members with levels,
   per-document tightening, the `view` member's sync rejected as today.
   Minimal pages in the shell: Users, Workspaces, a workspace switcher.
 - The `localspace` binary (answer 27): `serve`, `doctor`, `bench`, `evals`,
   `call`, `admin`; `localspace.toml` with the keys the pilot uses (answer
-  22), `--config` pointing at it.
+  22), `--config` pointing at it. `serve` refuses to start when it binds
+  anything but loopback without TLS or `trusted_proxies`, unless
+  `--insecure` is passed and logged loudly (answer 2).
+- Documents get ids of their own and a table naming their workspace,
+  harness, title and creator, so a workspace holds several per harness
+  while the UI shows one (answer 12); existing data migrates forward once,
+  with a copy of the database taken first.
 - Audit off the hot path: a bounded channel and a writer task, nothing
   retained in memory, the actor's role, IP (from the socket, or from
   `X-Forwarded-For` behind a trusted proxy) and session on each record, the
@@ -204,10 +216,11 @@ The approved 6.1–6.6 in their order, on the shared Core, with identities:
   binary, the web bundle, the registry folder holding the whiteboard, the
   planner and the types package, a unit file and the guide (question 5).
 - `localspace install` writing the unit, the user and the directories;
-  `localspace doctor` extended to the pilot's checks (§9 below); TLS or
-  `behind-proxy` (question 2); `backup create` and `backup restore`
-  (question 6); the forward-only migration at start with the automatic
-  pre-migration backup.
+  `localspace doctor` extended to the pilot's checks (§9 below);
+  `behind-proxy` with Caddy in the guide, native TLS as a stretch (answer
+  2); `backup create` and `backup restore` as one `.tar.zst` (answer 6);
+  the forward-only migration at start with the automatic pre-migration
+  backup.
 - The install guide (§9) written from a clean machine, then followed by
   someone who did not write it.
 - The real model: the catalog entry the partner's hardware fits, loaded
@@ -432,53 +445,16 @@ installed. Each line is a test with a yes or no; the engineer watches.
   everything in this release, since nothing is encrypted per document yet;
   the guide says so.
 
-## 12. Questions
+## 12. Answers
 
-1. **Phase order.** Identity and the shared Core before retrieval, as in §7;
-   the option is retrieval first, on the one-user Core, then identity.
-   **Recommend** identity first.
-2. **TLS.** Options: native TLS in the binary with `rustls` through
-   `axum-server`, two new dependencies; or `behind-proxy` only for Pilot 1,
-   with Caddy or nginx in the guide terminating TLS, native TLS following.
-   **Recommend** behind-proxy first, since every organisation has a proxy
-   and it removes certificate handling from the first install; native TLS
-   as a Phase D stretch if the partner cannot run a proxy.
-3. **Password hashing** for local accounts: `argon2` (RustCrypto), a new
-   dependency. **Recommend** it.
-4. **OIDC.** Options: the `openidconnect` crate (discovery, PKCE, JWKS,
-   token validation; pulls `oauth2`), or discovery and PKCE by hand over
-   `ureq` with `jsonwebtoken` for the tokens. **Recommend** `openidconnect`:
-   the failure modes of OIDC are in the details it covers.
-5. **The artefact.** A tarball with the binary, the web bundle as files, the
-   registry folder and the unit; or the web bundle embedded in the binary
-   as deployment §3.1 says. **Recommend** the tarball for Pilot 1 and the
-   embedding when the release pipeline exists (step 10).
-6. **Backup.** `localspace backup create` writing a consistent snapshot
-   directory with a checksum manifest, compressed by the sysadmin's tools;
-   or the single `.tar.zst` of §11.3, which needs `tar` and `zstd` crates.
-   **Recommend** the single file as the spec says, with the two crates.
-7. **The pilot's hardware profile.** The §12.1 floor (4 × 80 GB), or a
-   W32-class box in team mode (one stream, ten users). **Recommend**
-   planning for team mode and being glad of more: it is what the user is
-   likely to find, and the sizing note in the guide follows from it.
-8. **Admin pages or a CLI first.** Users and workspaces managed in the app,
-   or by `localspace admin user add` and `workspace create` in Phase A with
-   the pages in Phase C. **Recommend** the pages in Phase A: the sysadmin
-   bootstraps from the CLI, everything after is in the app.
-9. **Presence transport.** Ephemeral events over `/ws/json`, at most ten a
-   second per user, never in the DAG; the option is a separate socket.
-   **Recommend** the event stream.
-10. **The shared workspace's agent default.** `proposal`, as §6.3 says for
-    shared workspaces, with the owner able to set `direct`. **Recommend**
-    that.
-11. **Local users' first password.** A one-time link the admin hands over,
-    or an admin-typed initial password. **Recommend** the link, so no
-    password ever passes through an admin.
-12. **One board per workspace per harness** stays for Pilot 1, or several
-    boards per workspace come in. **Recommend** one, named in §2 as out.
-13. **The audit's IP behind a proxy.** From `X-Forwarded-For` only when the
-    peer is in `trusted_proxies`, else the socket's address. **Recommend**
-    that.
-14. **`doctor`'s encryption check.** Warn and show a banner when the storage
-    root is not on an encrypted volume, or refuse to serve. **Recommend**
-    warn: the partner decides, in writing, on the acceptance list.
+All fourteen questions were answered on 2026-09-12 (`docs/DECISIONS.md`,
+"answers to the Pilot 1 plan"), each as recommended, with these amendments
+folded into §5 above: the server refuses to bind a non-loopback address
+without TLS or `trusted_proxies` unless `--insecure` is passed and
+logged; argon2id with its parameters recorded; the first admin from the
+command line, every other user from the pages; one-time links single-use,
+24 hours, regenerable; the data model holds several boards per workspace
+while the UI shows one; failed logins rate-limited and locked out per
+account and per IP, audited; a user's sessions invalidated on a password
+reset, a role change or a disable. The partner's actual hardware is told
+before Phase D; a better machine raises the profile, not the scope.

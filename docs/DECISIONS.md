@@ -4,6 +4,62 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-12, answers to the Pilot 1 plan
+
+`docs/PILOT-1.md` is approved: four phases, about three months of building
+to a pilot-ready build in early December, the partner's week after it. The
+user plans the pilot conversations around that and holds, dated: the W32
+trip, the private repository before Phase A's gate, and the partner with
+its hardware before Phase D — both settled by mid-November.
+
+- **Identity first** (answer 1): retrieval built on a single-user Core is
+  retrieval built twice.
+- **Behind a proxy only, for Pilot 1** (answer 2; deployment §9.1): Caddy in
+  the guide terminates TLS; native TLS is a Phase D stretch. **Spec
+  addition, authorised:** the server refuses to start when it binds
+  anything but loopback without TLS or `trusted_proxies` set, unless an
+  explicit `--insecure` flag is passed, which is logged loudly. Nobody
+  serves a company's documents in plaintext by forgetting a key.
+- **Passwords are argon2id** (answer 3), through the `argon2` crate; the
+  parameters are recorded here when chosen, so they can be reviewed rather
+  than discovered.
+- **OIDC through the `openidconnect` crate** (answer 4), which covers the
+  details the failure modes live in.
+- **The artefact is a tarball** (answer 5): the binary, the web bundle, the
+  registry folder and the unit file; embedding the bundle waits for the
+  release pipeline.
+- **Backup is the single `.tar.zst` of deployment §11.3** (answer 6), with
+  the `tar` and `zstd` crates.
+- **Team mode on a W32-class box is the planning floor** (answer 7;
+  deployment §12.1): one interactive stream, ten users. If the partner's
+  machine is better, the profile rises, not the scope.
+- **Admin pages from Phase A** (answer 8); `localspace admin bootstrap`
+  stays the command-line path, since the first admin cannot create
+  themselves through a page they cannot log into.
+- **Presence is ephemeral events over the event stream** (answer 9), never
+  in the DAG.
+- **Shared workspaces default to `proposal`** (answer 10; deployment §6.3),
+  and an owner may set `direct`.
+- **A local user's first password comes from a one-time link** (answer 11):
+  single-use, expiring in 24 hours, regenerable by an admin; no password
+  passes through an admin.
+- **One board per workspace per harness is shown; many are held** (answer
+  12): the data model carries several documents per harness per workspace
+  from Phase A, and the UI shows one until a list view is asked for.
+- **The audit's IP comes from `X-Forwarded-For` only behind
+  `trusted_proxies`** (answer 13), else from the socket.
+- **`doctor` warns about an unencrypted volume and shows a banner** (answer
+  14); the partner accepts it in writing on the acceptance list.
+- **Two additions to Phase A, because local accounts are new attack
+  surface:** repeated failed logins are rate-limited and locked out per
+  account and per IP, with the attempts audited; and every live session of
+  a user is invalidated when their password is reset, their role changes or
+  an admin disables them, so a revoked employee does not keep working
+  because a tab stayed open.
+- **The provenance refinement of 6.0 stands** — Core fills in the document
+  and the head commit, because the surface knows its board and not Core's
+  history — as a better design than the one specified.
+
 ## 2026-09-12, answers to the 6.0 plan
 
 - **One types package, and every kind is declared** (answers 8 and 9;
