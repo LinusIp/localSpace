@@ -4,6 +4,57 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-13, the audit writer as built (Phase A, commit 7)
+
+Deployment §10.1 ("append-only, hash-chained, daily rotated, verifiable
+with `localspace audit verify`") and §16.4; Pilot 1 Phase A.
+
+- **One file per UTC day**, `audit/YYYY-MM-DD.jsonl`, the day taken from
+  the record's own timestamp. UTC, not local time, so a file's name means
+  the same on every machine and the cut does not move with daylight
+  saving. The chain runs across files: the first record of a day carries
+  the hash of the last record of the day before, and `verify` walks the
+  files in name order, one line at a time.
+- **The writer never opens an older file than the last it wrote to.** A
+  clock stepped back across midnight, before or after a restart, puts
+  records in the current day's file with their own timestamps, so the
+  files stay in chain order and `verify` stays true.
+- **A writer thread behind a bounded channel** of 4,096 records. Core's
+  thread computes the chain (the blake3 of a record is microseconds) and
+  hands the record over; the writer serialises and appends, one write per
+  record, unbuffered, so a crash loses nothing the writer had reached. When
+  the writer is 4,096 records behind, an append waits rather than drops:
+  the local file is the record, and §16.4's rule that the hot path never
+  waits is about the SIEM, which is not in Pilot 1. A record the disk
+  refuses is counted (`write_failures`) and reported through `tracing`;
+  the chain in memory continues, so the failure is visible and the next
+  restart continues from what is on disk.
+- **The file from before the cut**, `audit/audit.jsonl`, is read first and
+  never written again; a log that has one continues its chain from its
+  last record. Nothing is rewritten or renamed: an append-only log is not
+  migrated by editing it.
+- **Ids and fields stay as they were** (`a<12 digits>`, `ts_ms`): the hash
+  is over a record's serialised bytes, so a renamed field would break every
+  chain already on disk. The spec's example (`ts` as ISO time, ULID ids) is
+  a presentation; the verify walk and the export of §10.2 can render
+  either.
+- **A log kept in memory** (tests, `--ephemeral`) keeps its records in
+  memory; a log on disk keeps none there, so Core's memory does not grow
+  with the audit. `records()` on a log on disk writes out what is pending
+  and reads the files back.
+- **`localspace audit verify --data <dir>`** prints the count, the files
+  and the first and last day when the chain is intact, and exits 1 naming
+  the file and line of the first broken or unreadable link. It lives in
+  the `localspace` binary with `doctor` and moves with it into the one
+  binary of commit 8.
+- Tests: the audit unit tests (records go to the file of their day and the
+  chain runs across days; a record edited in an older file is found with
+  its file and line, and a deleted one breaks the next file's first link; a
+  record stamped before the current day stays in the current file, before
+  and after a restart; the old file is read first and continued from;
+  three times the queue's depth of appends all land; a line that is not a
+  record is reported with its place; days are named in UTC).
+
 ## 2026-09-13, roles and tool exposure as built (Phase A, commit 6)
 
 Deployment §4.3 (the Viewer row: "read-only in granted workspaces; can

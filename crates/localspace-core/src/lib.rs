@@ -318,7 +318,7 @@ impl Core {
         let dag = Dag::with(store.db())?;
         let directory = identity::Directory::new(store.clone(), cfg.session_ttl_ms);
         let audit = match &cfg.data_dir {
-            Some(dir) => AuditLog::open(&dir.join("audit").join("audit.jsonl"))?,
+            Some(dir) => AuditLog::open(&dir.join("audit"))?,
             None => AuditLog::in_memory(),
         };
 

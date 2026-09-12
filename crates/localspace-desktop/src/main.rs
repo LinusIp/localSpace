@@ -61,6 +61,8 @@ enum Command {
     Evals(String),
     /// Invoke one tool by name, the same way the agent would.
     Call(String, String),
+    /// Walk the audit log's chain across its files: `audit verify`.
+    Audit(String),
     Help,
 }
 
@@ -87,6 +89,7 @@ fn parse_args() -> Args {
                 let params = it.next().unwrap_or_else(|| "{}".into());
                 args.command = Command::Call(tool, params);
             }
+            "audit" => args.command = Command::Audit(it.next().unwrap_or_default()),
             "-h" | "--help" | "help" => args.command = Command::Help,
             "--harnesses" => args.harnesses = it.next().map(PathBuf::from),
             "--data" => args.data = it.next().map(PathBuf::from),
@@ -162,7 +165,40 @@ fn main() -> Result<()> {
         Command::Bench => bench(&args),
         Command::Evals(harness) => evals(&args, harness),
         Command::Call(tool, params) => call(&args, tool, params),
+        Command::Audit(sub) => audit(&args, sub),
         Command::Run => run_gui(args),
+    }
+}
+
+/// `localspace audit verify --data <dir>` — walks every file of the audit log
+/// in order and checks each record's hash against the one before it, across
+/// files (deployment §10.1). Exit 1 at the first broken or unreadable link.
+fn audit(args: &Args, sub: &str) -> Result<()> {
+    if sub != "verify" {
+        err!("audit: the one command is `verify`");
+        std::process::exit(2);
+    }
+    let Some(data) = &args.data else {
+        err!("audit verify needs --data <dir>: the directory the data is kept in");
+        std::process::exit(2);
+    };
+    let dir = data.join("audit");
+    match localspace_core::audit::verify_dir(&dir) {
+        Ok(report) => {
+            match (&report.first_day, &report.last_day) {
+                (Some(first), Some(last)) if report.records > 0 => out!(
+                    "audit: {} record(s) in {} file(s), {first} to {last}; the chain is intact",
+                    report.records,
+                    report.files
+                ),
+                _ => out!("audit: no records in {}", dir.display()),
+            }
+            Ok(())
+        }
+        Err(e) => {
+            err!("audit: {e}");
+            std::process::exit(1);
+        }
     }
 }
 
@@ -211,10 +247,11 @@ USAGE:
     localspace bench                     report the efficiency budgets for this machine
     localspace evals <harness id>        run a harness's agent-compatibility suite
     localspace call <tool> '<json>'      invoke one tool, the same way the agent would
+    localspace audit verify --data <dir> walk the audit log's hash chain across its files
 
 OPTIONS:
     --harnesses <dir>     directory of harness packages to install at start
-    --data <dir>          persist the DAG, blobs and audit log here (default: memory only)
+    --data <dir>          persist the database, blobs and audit log here (default: memory only)
     --registry <dir>      a catalog the Marketplace lists: a registry, or an offline bundle
     --user <name>         the environment's user
     --organisation        apply organisation policy (Tier B off by default)
