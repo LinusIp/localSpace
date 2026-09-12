@@ -19,8 +19,8 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
-use localspace_core::transport::InProcess;
-use localspace_core::{Config, Core};
+use localspace_core::{Caller, Config, Core};
+use localspace_proto as proto;
 use session::Session;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -82,11 +82,11 @@ pub fn whoami() -> String {
 }
 
 pub struct Server {
-    sessions: Mutex<HashMap<String, Arc<Session>>>,
-    /// Held while a Core is being created, so two first requests for the
-    /// same user do not race to open one database.
+    /// The one Core of this server, made on first use.
+    core: Mutex<Option<Arc<Session>>>,
+    /// Held while the Core is being created, so two first requests do not
+    /// race to open one database.
     creating: tokio::sync::Mutex<()>,
-    legacy: Mutex<HashMap<String, Arc<InProcess>>>,
     pub cfg: ServerConfig,
     pub started: std::time::Instant,
     pub connections: Mutex<u64>,
@@ -104,9 +104,8 @@ impl Server {
             .take()
             .unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
         Arc::new(Server {
-            sessions: Mutex::new(HashMap::new()),
+            core: Mutex::new(None),
             creating: tokio::sync::Mutex::new(()),
-            legacy: Mutex::new(HashMap::new()),
             cfg,
             started: std::time::Instant::now(),
             connections: Mutex::new(0),
@@ -115,97 +114,84 @@ impl Server {
         })
     }
 
-    /// The user a valid token stands for. One token, one user, in both modes
-    /// for now; OIDC replaces this with the authenticated subject.
-    pub fn user_for(&self, _token: &str) -> String {
+    /// Whom a valid token stands for. Personal mode: the one user, the
+    /// admin of their own machine. Organisation mode: the operator, an
+    /// admin, until Phase A's identity gives every user a session of their
+    /// own — then the session names the user, the roles and the address.
+    pub fn caller_for(&self, _token: &str) -> Caller {
         if self.cfg.personal {
-            self.cfg.user.clone()
+            Caller::local(&self.cfg.user)
         } else {
-            "operator".to_string()
+            self.caller_named("operator")
         }
     }
 
-    fn core_config(&self, user: &str) -> Config {
+    /// The caller a grant or a probe names by user.
+    pub fn caller_named(&self, user: &str) -> Caller {
+        if self.cfg.personal {
+            return Caller::local(&self.cfg.user);
+        }
+        Caller {
+            user: user.to_string(),
+            session: String::new(),
+            ip: String::new(),
+            roles: vec![proto::UserRole::Admin],
+            groups: Vec::new(),
+        }
+    }
+
+    /// The user a valid token stands for.
+    pub fn user_for(&self, token: &str) -> String {
+        self.caller_for(token).user
+    }
+
+    fn core_config(&self) -> Config {
         let mut cfg = if self.cfg.personal {
-            Config::personal(user)
+            Config::personal(&self.cfg.user)
         } else {
-            Config::organisation(user)
+            Config::organisation("operator")
         };
         cfg.harness_dir = self.cfg.harnesses.clone();
         cfg.catalog_dirs = self.cfg.registry.clone();
         cfg.models_dir = self.cfg.models.clone();
         cfg.llama_server = self.cfg.llama_server.clone();
-        cfg.data_dir = self.cfg.data.as_ref().map(|d| {
-            if self.cfg.personal {
-                d.clone()
-            } else {
-                d.join("sessions").join(sanitize(user))
-            }
-        });
+        cfg.data_dir = self.cfg.data.clone();
         cfg
     }
 
-    /// The session for a user, created on first use. Creating one loads the
-    /// user's environment — harnesses, documents, the DAG — so it runs off
-    /// the async threads, one at a time. A failure is the caller's error, not
-    /// a poisoned lock for everyone after.
-    pub async fn session(&self, user: &str) -> anyhow::Result<Arc<Session>> {
-        if let Some(existing) = self.sessions.lock().unwrap().get(user) {
-            return Ok(existing.clone());
+    /// The one Core, created on first use. Creating it loads the
+    /// environment — harnesses, documents, the database — so it runs off
+    /// the async threads, once. A failure is the caller's error, not a
+    /// poisoned lock for everyone after.
+    pub async fn core(&self) -> anyhow::Result<Arc<Session>> {
+        if let Some(existing) = self.core.lock().unwrap().clone() {
+            return Ok(existing);
         }
         let _creating = self.creating.lock().await;
-        if let Some(existing) = self.sessions.lock().unwrap().get(user) {
-            return Ok(existing.clone());
+        if let Some(existing) = self.core.lock().unwrap().clone() {
+            return Ok(existing);
         }
-        let cfg = self.core_config(user);
+        let cfg = self.core_config();
         let core = tokio::task::spawn_blocking(move || Core::new(cfg)).await??;
-        let session = Session::spawn(user, core);
-        self.sessions
-            .lock()
-            .unwrap()
-            .insert(user.to_string(), session.clone());
+        let session = Session::spawn(core);
+        *self.core.lock().unwrap() = Some(session.clone());
         Ok(session)
     }
 
-    /// The user whose session answers health checks: the one user in
-    /// personal mode, whose data directory is the only one there is.
-    pub fn health_user(&self) -> String {
-        if self.cfg.personal {
-            self.cfg.user.clone()
-        } else {
-            "healthcheck".to_string()
-        }
+    /// Whom the readiness probe asks as: the operator, or the one user.
+    pub fn health_caller(&self) -> Caller {
+        self.caller_named("operator")
     }
 
-    pub fn session_count(&self) -> usize {
-        self.sessions.lock().unwrap().len() + self.legacy.lock().unwrap().len()
-    }
-
-    /// One Core per postcard connection, as the egui Client expects.
-    pub async fn legacy_backend(&self, key: &str) -> anyhow::Result<Arc<InProcess>> {
-        if let Some(existing) = self.legacy.lock().unwrap().get(key) {
-            return Ok(existing.clone());
-        }
-        let _creating = self.creating.lock().await;
-        let cfg = self.core_config(key);
-        let core = tokio::task::spawn_blocking(move || Core::new(cfg)).await??;
-        let backend = Arc::new(InProcess::spawn(core));
-        self.legacy
+    /// Users who have opened an event stream since the server started.
+    pub fn user_count(&self) -> usize {
+        self.core
             .lock()
             .unwrap()
-            .insert(key.to_string(), backend.clone());
-        Ok(backend)
+            .as_ref()
+            .map(|s| s.user_count())
+            .unwrap_or(0)
     }
-
-    pub fn drop_legacy_backend(&self, key: &str) {
-        self.legacy.lock().unwrap().remove(key);
-    }
-}
-
-fn sanitize(s: &str) -> String {
-    s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect()
 }
 
 /// The whole HTTP surface.
@@ -301,8 +287,8 @@ pub async fn start(cfg: ServerConfig) -> anyhow::Result<Running> {
 }
 
 async fn readyz(State(server): State<Arc<Server>>) -> impl IntoResponse {
-    // Ready means: a Core can be created and its environment answers.
-    let session = match server.session(&server.health_user()).await {
+    // Ready means: the Core is up and its environment answers.
+    let session = match server.core().await {
         Ok(session) => session,
         Err(e) => {
             return (
@@ -313,7 +299,7 @@ async fn readyz(State(server): State<Arc<Server>>) -> impl IntoResponse {
     };
     match tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        session.call(localspace_proto::Request::GetEnvironment),
+        session.call_as(&server.health_caller(), proto::Request::GetEnvironment),
     )
     .await
     {
@@ -326,7 +312,7 @@ async fn readyz(State(server): State<Arc<Server>>) -> impl IntoResponse {
 }
 
 async fn metrics(State(server): State<Arc<Server>>) -> impl IntoResponse {
-    let sessions = server.session_count();
+    let sessions = server.user_count();
     let connections = *server.connections.lock().unwrap();
     let uptime = server.started.elapsed().as_secs();
     let footprint = localspace_core::footprint::Footprint::measure();
@@ -335,7 +321,7 @@ async fn metrics(State(server): State<Arc<Server>>) -> impl IntoResponse {
         "# HELP localspace_uptime_seconds Seconds since this process started.\n\
          # TYPE localspace_uptime_seconds counter\n\
          localspace_uptime_seconds {uptime}\n\
-         # HELP localspace_sessions Environments currently held in memory.\n\
+         # HELP localspace_sessions Users who have opened an event stream since the start.\n\
          # TYPE localspace_sessions gauge\n\
          localspace_sessions {sessions}\n\
          # HELP localspace_ws_connections WebSocket connections accepted.\n\

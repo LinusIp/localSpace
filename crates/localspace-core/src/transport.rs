@@ -107,6 +107,87 @@ impl InProcess {
     }
 }
 
+/// What the server's Core hands back: an answer under its request's id, or
+/// an event with whom it is for.
+#[derive(Debug, Clone)]
+pub enum Outgoing {
+    Response { id: u64, response: proto::Response },
+    Event { to: crate::To, event: proto::Event },
+}
+
+/// The server's transport: one Core on its own thread for every user, each
+/// request made as its caller, each event tagged with whom it is for. The
+/// server's pump drains it and routes.
+pub struct Hub {
+    to_core: Sender<(u64, crate::Caller, proto::Request)>,
+    from_core: Mutex<Receiver<Outgoing>>,
+    next_id: AtomicU64,
+    wake: Arc<Mutex<Option<Wake>>>,
+}
+
+impl Hub {
+    /// Take ownership of a Core and run it on its own thread, as `InProcess`
+    /// does, with a caller on every request.
+    pub fn spawn(mut core: crate::Core) -> Hub {
+        let (to_core, core_rx) = std::sync::mpsc::channel::<(u64, crate::Caller, proto::Request)>();
+        let (core_tx, from_core) = std::sync::mpsc::channel::<Outgoing>();
+        let wake: Arc<Mutex<Option<Wake>>> = Arc::new(Mutex::new(None));
+
+        let event_tx = core_tx.clone();
+        let event_wake = wake.clone();
+        core.set_event_sink(Box::new(move |to, event| {
+            let _ = event_tx.send(Outgoing::Event { to, event });
+            notify(&event_wake);
+        }));
+
+        let thread_wake = wake.clone();
+        std::thread::Builder::new()
+            .name("localspace-core".into())
+            .spawn(move || {
+                let housekeeping = std::time::Duration::from_secs(15);
+                loop {
+                    match core_rx.recv_timeout(housekeeping) {
+                        Ok((id, caller, req)) => {
+                            let response = core.handle_as(&caller, req);
+                            if core_tx.send(Outgoing::Response { id, response }).is_err() {
+                                break;
+                            }
+                            notify(&thread_wake);
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => core.tick(),
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+            })
+            .expect("spawning the Core thread");
+
+        Hub {
+            to_core,
+            from_core: Mutex::new(from_core),
+            next_id: AtomicU64::new(1),
+            wake,
+        }
+    }
+
+    /// Queue a request as `caller`. The answer arrives from `poll` under
+    /// the id returned.
+    pub fn request_as(&self, caller: &crate::Caller, req: proto::Request) -> u64 {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let _ = self.to_core.send((id, caller.clone(), req));
+        id
+    }
+
+    /// Everything that has arrived since the last call, in order.
+    pub fn poll(&self) -> Vec<Outgoing> {
+        let rx = self.from_core.lock().unwrap();
+        rx.try_iter().collect()
+    }
+
+    pub fn set_wake(&self, wake: Wake) {
+        *self.wake.lock().unwrap() = Some(wake);
+    }
+}
+
 impl Backend for InProcess {
     fn request(&self, req: proto::Request) -> u64 {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);

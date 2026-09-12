@@ -1,21 +1,28 @@
 //! The event stream: `/ws/json` carries `proto::Envelope` as JSON text frames
-//! (v2 §5). Events flow out as they happen; a request sent on the socket is
-//! answered on the socket under its own id. Binary frames are reserved for
-//! Automerge sync messages and blobs.
+//! (v2 §5). Events flow out as they happen — the user's own, and everyone's;
+//! a request sent on the socket is answered on the socket under its own id.
+//! Binary frames are reserved for Automerge sync messages and blobs.
 //!
 //! `/ws` is the older postcard socket the egui Client speaks, kept until that
-//! Client retires.
+//! Client retires. It speaks to the same one Core, as the same caller.
 
 use crate::Server;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use localspace_core::transport::{Backend, Incoming};
+use localspace_core::Caller;
 use localspace_proto as proto;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::broadcast::error::RecvError;
+
+/// How a socket's frames are encoded: JSON text for the web client, postcard
+/// binary for the egui Client.
+#[derive(Clone, Copy)]
+enum Wire {
+    Json,
+    Postcard,
+}
 
 /// A browser cannot set headers on a WebSocket, so the cookie or `?token=`
 /// carries the session here.
@@ -25,43 +32,62 @@ pub async fn json_upgrade(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
-    let Some(token) = crate::auth::presented(&headers, q.token.as_deref()) else {
+    upgrade(server, q, &headers, ws, Wire::Json)
+}
+
+/// The postcard socket, under the same token as the JSON one: one Core
+/// answers every socket, so none may reach it unsigned.
+pub async fn legacy_upgrade(
+    State(server): State<Arc<Server>>,
+    Query(q): Query<crate::auth::TokenQuery>,
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> Response {
+    upgrade(server, q, &headers, ws, Wire::Postcard)
+}
+
+fn upgrade(
+    server: Arc<Server>,
+    q: crate::auth::TokenQuery,
+    headers: &HeaderMap,
+    ws: WebSocketUpgrade,
+    wire: Wire,
+) -> Response {
+    let Some(token) = crate::auth::presented(headers, q.token.as_deref()) else {
         return (StatusCode::UNAUTHORIZED, "sign in first").into_response();
     };
     if !crate::auth::matches(&server, &token) {
         return (StatusCode::UNAUTHORIZED, "that token is not this server's").into_response();
     }
-    let user = server.user_for(&token);
+    let caller = server.caller_for(&token);
     *server.connections.lock().unwrap() += 1;
-    ws.on_upgrade(move |socket| serve_json(server, user, socket))
+    ws.on_upgrade(move |socket| serve(server, caller, socket, wire))
         .into_response()
 }
 
-async fn serve_json(server: Arc<Server>, user: String, mut socket: WebSocket) {
-    let session = match server.session(&user).await {
+async fn serve(server: Arc<Server>, caller: Caller, mut socket: WebSocket, wire: Wire) {
+    let notice = |level, text: String| proto::Envelope {
+        id: 0,
+        body: proto::Body::Event(proto::Event::Notice { level, text }),
+    };
+    let session = match server.core().await {
         Ok(session) => session,
         Err(e) => {
-            let refusal = proto::Envelope {
-                id: 0,
-                body: proto::Body::Event(proto::Event::Notice {
-                    level: proto::NoticeLevel::Error,
-                    text: format!("Core could not start: {e:#}"),
-                }),
-            };
-            let _ = send_json(&mut socket, &refusal).await;
+            let refusal = notice(
+                proto::NoticeLevel::Error,
+                format!("Core could not start: {e:#}"),
+            );
+            let _ = send(&mut socket, wire, &refusal).await;
             return;
         }
     };
-    let mut events = session.subscribe();
+    let mut events = session.subscribe(&caller.user);
 
-    let hello = proto::Envelope {
-        id: 0,
-        body: proto::Body::Event(proto::Event::Notice {
-            level: proto::NoticeLevel::Info,
-            text: format!("connected to localSpace {}", env!("CARGO_PKG_VERSION")),
-        }),
-    };
-    if send_json(&mut socket, &hello).await.is_err() {
+    let hello = notice(
+        proto::NoticeLevel::Info,
+        format!("connected to localSpace {}", env!("CARGO_PKG_VERSION")),
+    );
+    if send(&mut socket, wire, &hello).await.is_err() {
         return;
     }
 
@@ -71,38 +97,43 @@ async fn serve_json(server: Arc<Server>, user: String, mut socket: WebSocket) {
     loop {
         tokio::select! {
             incoming = socket.recv() => {
-                match incoming {
-                    Some(Ok(Message::Text(text))) => {
-                        match serde_json::from_str::<proto::Envelope>(&text) {
-                            Ok(proto::Envelope { id, body: proto::Body::Request(request) }) => {
-                                let session = session.clone();
-                                let answers = answers_tx.clone();
-                                tokio::spawn(async move {
-                                    let body = match session.call(request).await {
-                                        Ok(response) => proto::Body::Response(response),
-                                        Err(e) => proto::Body::Event(proto::Event::Notice {
-                                            level: proto::NoticeLevel::Error,
-                                            text: e.to_string(),
-                                        }),
-                                    };
-                                    let _ = answers.send(proto::Envelope { id, body }).await;
-                                });
-                            }
-                            Ok(_) => tracing::warn!("a client sent something other than a request"),
-                            Err(e) => tracing::warn!("undecodable frame: {e}"),
-                        }
+                let envelope = match (wire, incoming) {
+                    (Wire::Json, Some(Ok(Message::Text(text)))) => {
+                        serde_json::from_str::<proto::Envelope>(&text).map_err(|e| e.to_string())
                     }
-                    Some(Ok(Message::Close(_))) | None => break,
-                    Some(Err(e)) => {
+                    (Wire::Postcard, Some(Ok(Message::Binary(bytes)))) => {
+                        proto::decode(&bytes).map_err(|e| e.to_string())
+                    }
+                    (_, Some(Ok(Message::Close(_)))) | (_, None) => break,
+                    (_, Some(Err(e))) => {
                         tracing::info!("socket closed: {e}");
                         break;
                     }
-                    _ => {}
+                    _ => continue,
+                };
+                match envelope {
+                    Ok(proto::Envelope { id, body: proto::Body::Request(request) }) => {
+                        let session = session.clone();
+                        let caller = caller.clone();
+                        let answers = answers_tx.clone();
+                        tokio::spawn(async move {
+                            let body = match session.call_as(&caller, request).await {
+                                Ok(response) => proto::Body::Response(response),
+                                Err(e) => proto::Body::Event(proto::Event::Notice {
+                                    level: proto::NoticeLevel::Error,
+                                    text: e.to_string(),
+                                }),
+                            };
+                            let _ = answers.send(proto::Envelope { id, body }).await;
+                        });
+                    }
+                    Ok(_) => tracing::warn!("a client sent something other than a request"),
+                    Err(e) => tracing::warn!("undecodable frame: {e}"),
                 }
             }
             answer = answers_rx.recv() => {
                 if let Some(env) = answer
-                    && send_json(&mut socket, &env).await.is_err()
+                    && send(&mut socket, wire, &env).await.is_err()
                 {
                     break;
                 }
@@ -111,19 +142,16 @@ async fn serve_json(server: Arc<Server>, user: String, mut socket: WebSocket) {
                 match event {
                     Ok(event) => {
                         let env = proto::Envelope { id: 0, body: proto::Body::Event(event) };
-                        if send_json(&mut socket, &env).await.is_err() {
+                        if send(&mut socket, wire, &env).await.is_err() {
                             break;
                         }
                     }
                     Err(RecvError::Lagged(n)) => {
-                        let env = proto::Envelope {
-                            id: 0,
-                            body: proto::Body::Event(proto::Event::Notice {
-                                level: proto::NoticeLevel::Warn,
-                                text: format!("{n} events were missed; refresh the environment"),
-                            }),
-                        };
-                        if send_json(&mut socket, &env).await.is_err() {
+                        let env = notice(
+                            proto::NoticeLevel::Warn,
+                            format!("{n} events were missed; refresh the environment"),
+                        );
+                        if send(&mut socket, wire, &env).await.is_err() {
                             break;
                         }
                     }
@@ -134,87 +162,10 @@ async fn serve_json(server: Arc<Server>, user: String, mut socket: WebSocket) {
     }
 }
 
-async fn send_json(socket: &mut WebSocket, env: &proto::Envelope) -> Result<(), ()> {
-    let text = serde_json::to_string(env).map_err(|_| ())?;
-    socket
-        .send(Message::Text(text.into()))
-        .await
-        .map_err(|_| ())
-}
-
-// ---------------------------------------------------------------------------
-// The postcard socket the egui Client speaks
-// ---------------------------------------------------------------------------
-
-pub async fn legacy_upgrade(State(server): State<Arc<Server>>, ws: WebSocketUpgrade) -> Response {
-    *server.connections.lock().unwrap() += 1;
-    ws.on_upgrade(move |socket| serve_legacy(server, socket))
-        .into_response()
-}
-
-async fn serve_legacy(server: Arc<Server>, mut socket: WebSocket) {
-    // One Core per connection, as before: this path predates sessions.
-    let key = format!("s_{}", uuid::Uuid::new_v4());
-    let backend = match server.legacy_backend(&key).await {
-        Ok(backend) => backend,
-        Err(e) => {
-            tracing::warn!("a postcard client could not get a Core: {e:#}");
-            return;
-        }
+async fn send(socket: &mut WebSocket, wire: Wire, env: &proto::Envelope) -> Result<(), ()> {
+    let message = match wire {
+        Wire::Json => Message::Text(serde_json::to_string(env).map_err(|_| ())?.into()),
+        Wire::Postcard => Message::Binary(proto::encode(env).map_err(|_| ())?.into()),
     };
-
-    let hello = proto::Envelope {
-        id: 0,
-        body: proto::Body::Event(proto::Event::Notice {
-            level: proto::NoticeLevel::Info,
-            text: format!("connected to localSpace {}", env!("CARGO_PKG_VERSION")),
-        }),
-    };
-    if let Ok(bytes) = proto::encode(&hello) {
-        let _ = socket.send(Message::Binary(bytes.into())).await;
-    }
-
-    let mut ticker = tokio::time::interval(Duration::from_millis(8));
-    loop {
-        tokio::select! {
-            incoming = socket.recv() => {
-                match incoming {
-                    Some(Ok(Message::Binary(bytes))) => match proto::decode(&bytes) {
-                        Ok(env) => {
-                            if let proto::Body::Request(req) = env.body {
-                                backend.request(req);
-                            }
-                        }
-                        Err(e) => tracing::warn!("undecodable frame: {e}"),
-                    },
-                    Some(Ok(Message::Close(_))) | None => break,
-                    Some(Err(e)) => {
-                        tracing::info!("socket closed: {e}");
-                        break;
-                    }
-                    _ => {}
-                }
-            }
-            _ = ticker.tick() => {
-                for msg in backend.poll() {
-                    let env = match msg {
-                        Incoming::Response { id, response } => proto::Envelope {
-                            id,
-                            body: proto::Body::Response(response),
-                        },
-                        Incoming::Event(event) => proto::Envelope {
-                            id: 0,
-                            body: proto::Body::Event(event),
-                        },
-                    };
-                    let Ok(bytes) = proto::encode(&env) else { continue };
-                    if socket.send(Message::Binary(bytes.into())).await.is_err() {
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    server.drop_legacy_backend(&key);
+    socket.send(message).await.map_err(|_| ())
 }

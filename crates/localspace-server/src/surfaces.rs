@@ -109,8 +109,9 @@ pub async fn open(
     Json(open): Json<Open>,
 ) -> Response {
     let token = crate::auth::presented(&headers, q.token.as_deref()).unwrap_or_default();
-    let user = server.user_for(&token);
-    let session = match server.session(&user).await {
+    let caller = server.caller_for(&token);
+    let user = caller.user.clone();
+    let session = match server.core().await {
         Ok(s) => s,
         Err(e) => {
             return error(
@@ -122,11 +123,14 @@ pub async fn open(
     // Core says whether the view exists and is a web surface: asking for its
     // entry file is the same check the origin will make on every file.
     match session
-        .call(proto::Request::GetSurfaceFile {
-            harness: open.harness.clone(),
-            view: open.view.clone(),
-            path: "index.js".into(),
-        })
+        .call_as(
+            &caller,
+            proto::Request::GetSurfaceFile {
+                harness: open.harness.clone(),
+                view: open.view.clone(),
+                path: "index.js".into(),
+            },
+        )
         .await
     {
         Ok(proto::Response::SurfaceFile { .. }) => {}
@@ -409,7 +413,7 @@ async fn serve(server: &Server, slug: &str, request: Request<Body>) -> Response 
         };
     }
 
-    let session = match server.session(&grant.user).await {
+    let session = match server.core().await {
         Ok(s) => s,
         Err(e) => {
             return hardened(
@@ -423,11 +427,14 @@ async fn serve(server: &Server, slug: &str, request: Request<Body>) -> Response 
         }
     };
     match session
-        .call(proto::Request::GetSurfaceFile {
-            harness: grant.harness.clone(),
-            view: grant.view.clone(),
-            path: rest.to_string(),
-        })
+        .call_as(
+            &server.caller_named(&grant.user),
+            proto::Request::GetSurfaceFile {
+                harness: grant.harness.clone(),
+                view: grant.view.clone(),
+                path: rest.to_string(),
+            },
+        )
         .await
     {
         Ok(proto::Response::SurfaceFile { bytes, mime }) => hardened(

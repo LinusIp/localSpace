@@ -35,7 +35,9 @@ async fn call(
     query_token: Option<&str>,
     request: proto::Request,
 ) -> Response {
-    let session = match server.session(&user(server, headers, query_token)).await {
+    let token = crate::auth::presented(headers, query_token).unwrap_or_default();
+    let caller = server.caller_for(&token);
+    let session = match server.core().await {
         Ok(session) => session,
         Err(e) => {
             return (
@@ -45,7 +47,7 @@ async fn call(
                 .into_response();
         }
     };
-    match session.call(request).await {
+    match session.call_as(&caller, request).await {
         Ok(response) => Json(response).into_response(),
         Err(e) => failed(e),
     }
@@ -208,10 +210,9 @@ pub async fn document_content(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let session = match server
-        .session(&user(&server, &headers, q.token.as_deref()))
-        .await
-    {
+    let token = crate::auth::presented(&headers, q.token.as_deref()).unwrap_or_default();
+    let caller = server.caller_for(&token);
+    let session = match server.core().await {
         Ok(session) => session,
         Err(e) => {
             return (
@@ -221,7 +222,10 @@ pub async fn document_content(
                 .into_response();
         }
     };
-    match session.call(proto::Request::GetDocBlob { doc: id }).await {
+    match session
+        .call_as(&caller, proto::Request::GetDocBlob { doc: id })
+        .await
+    {
         Ok(proto::Response::DocBlob { name, mime, bytes }) => {
             let mut response = (StatusCode::OK, bytes).into_response();
             let h = response.headers_mut();
