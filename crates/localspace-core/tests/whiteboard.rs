@@ -1271,7 +1271,7 @@ fn the_catalog_lists_the_bundle_and_marks_what_is_installed() {
         .find(|e| e.id == WHITEBOARD)
         .expect("the installed whiteboard is missing from the catalog");
     assert!(board.installed, "it is installed, so it must say so");
-    assert_eq!(board.installed_version.as_deref(), Some("1.2.0"));
+    assert_eq!(board.installed_version.as_deref(), Some("1.3.0"));
 
     let planner = entries
         .iter()

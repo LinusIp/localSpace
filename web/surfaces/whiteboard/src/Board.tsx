@@ -1,44 +1,44 @@
-// The board: the canvas engine's editor in a host, a toolbar of the
-// environment's own controls above it, and the replica between the editor
+// The board (the app screens, 4): the canvas fills the frame; the tools
+// float on its left, the zoom on its bottom right, and what applies to the
+// selection above it while there is one. Undo and redo are Ctrl+Z and
+// Ctrl+Shift+Z, the environment's. The replica sits between the editor
 // and Core.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ButtonHTMLAttributes } from "react";
 import type { Harness } from "@localspace/harness-sdk";
-import { Editor, FILLS, TOOLS, exportNodes, rasterize, toSvg, type Fill, type Tool } from "@localspace/canvas";
+import { Editor, FILLS, LIGHT, exportNodes, rasterize, toSvg, type Fill, type Tool } from "@localspace/canvas";
 import {
   ArrowIcon,
   CursorIcon,
-  DownloadIcon,
   EllipseIcon,
   FitIcon,
   FrameIcon,
-  GridIcon,
-  HandIcon,
-  IconButton,
   LayersIcon,
   LockIcon,
-  Menu,
+  MinusIcon,
   PenIcon,
+  PlusIcon,
   RectIcon,
-  RedoIcon,
   StickyIcon,
   TextIcon,
-  UndoIcon,
+  TrashIcon,
   UnlockIcon,
 } from "@localspace/ui";
 import { Replica } from "./replica.ts";
 
-const TOOL_LABELS: Record<Tool, { label: string; key: string; icon: typeof CursorIcon }> = {
-  select: { label: "Select", key: "V", icon: CursorIcon },
-  hand: { label: "Pan", key: "H", icon: HandIcon },
-  sticky: { label: "Sticky note", key: "N", icon: StickyIcon },
-  rect: { label: "Rectangle", key: "R", icon: RectIcon },
-  ellipse: { label: "Ellipse", key: "O", icon: EllipseIcon },
-  text: { label: "Text", key: "T", icon: TextIcon },
-  arrow: { label: "Arrow", key: "A", icon: ArrowIcon },
-  ink: { label: "Pen", key: "P", icon: PenIcon },
-  frame: { label: "Frame", key: "F", icon: FrameIcon },
-};
+type ExportKind = "image.v1" | "svg.v1";
+
+/** The palette, top to bottom as on the screens. Panning is the space bar, the middle button, or H. */
+const PALETTE: Array<[Tool, string, typeof CursorIcon]> = [
+  ["select", "Select (V)", CursorIcon],
+  ["sticky", "Sticky note (N)", StickyIcon],
+  ["rect", "Rectangle (R)", RectIcon],
+  ["ellipse", "Ellipse (O)", EllipseIcon],
+  ["arrow", "Connector (A)", ArrowIcon],
+  ["text", "Text (T)", TextIcon],
+  ["ink", "Pen (P)", PenIcon],
+  ["frame", "Frame (F)", FrameIcon],
+];
 
 /** The board's title as a file stem: lower-case, dashes, nothing a path minds. */
 function slug(title: string | undefined): string {
@@ -49,19 +49,10 @@ function slug(title: string | undefined): string {
     .slice(0, 40);
 }
 
-function sizeLabel(bytes: number): string {
-  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+/** A floating control: its label is its accessible name and its tooltip. */
+function Btn({ label, className = "pill-btn", ...rest }: { label: string } & ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button type="button" className={className} aria-label={label} title={label} {...rest} />;
 }
-
-const SWATCH: Record<Fill, string> = {
-  red: "#c73e3e",
-  amber: "#b7791f",
-  green: "#1f9d5b",
-  blue: "#2f6fcb",
-  yellow: "#a88a17",
-  grey: "#5f6763",
-  none: "transparent",
-};
 
 export function Board({ harness }: { harness: Harness }) {
   const host = useRef<HTMLDivElement>(null);
@@ -70,10 +61,10 @@ export function Board({ harness }: { harness: Harness }) {
   const [tool, setTool] = useState<Tool>("select");
   const [selection, setSelection] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
-  const [gridSnap, setGridSnap] = useState(false);
-  /** What the last export came to, shown in the status for a while. */
+  /** A word about an export that did not leave the frame, shown for a while; the shell reports the ones that did. */
   const [note, setNote] = useState<string | null>(null);
   const replicaRef = useRef<Replica | null>(null);
+  const exportRef = useRef<(kind: ExportKind) => void>(() => undefined);
 
   useEffect(() => {
     if (!host.current || !canvas.current) return;
@@ -83,19 +74,20 @@ export function Board({ harness }: { harness: Harness }) {
     replicaRef.current = replica;
     replica?.start();
     const off = [
-      harness.on("artifact", (r) => {
-        setNote(r.ok ? `Exported ${r.name ?? r.id ?? ""}${typeof r.bytes === "number" ? ` (${sizeLabel(r.bytes)})` : ""}` : `Export failed: ${r.error ?? "unknown error"}`);
-      }),
       ed.on("tool", setTool),
       ed.on("selection", setSelection),
       ed.on("camera", (c) => setZoom(c.z)),
       ed.on("undo", () => harness.undo()),
       ed.on("redo", () => harness.redo()),
       harness.on("command", ({ name, args }) => {
+        const a = (args ?? null) as { value?: unknown; kind?: unknown } | null;
         if (name === "zoom") {
-          const value = (args as { value?: unknown } | null)?.value;
-          if (typeof value === "number") ed.zoomTo(value);
-        } else if (name === "fit") ed.fit();
+          if (typeof a?.value === "number") ed.zoomTo(a.value);
+        } else if (name === "fit") {
+          ed.fit();
+        } else if (name === "export") {
+          exportRef.current(a?.kind === "svg.v1" ? "svg.v1" : "image.v1");
+        }
       }),
       harness.on("focus", (focused) => {
         if (focused) host.current?.focus();
@@ -109,13 +101,35 @@ export function Board({ harness }: { harness: Harness }) {
       }
     });
     harness.report({ zoom: ed.camera.z });
-    if (ed.scene.size > 0) ed.fit();
+    // Fit the board once the frame has a size: a frame opened in a hidden
+    // tab has none yet, and a fit to nothing is the smallest zoom there is.
+    let fitted = false;
+    const fitOnce = () => {
+      if (fitted || ed.size.w < 40 || ed.size.h < 40) return;
+      fitted = true;
+      if (ed.scene.size > 0) ed.fit();
+    };
+    fitOnce();
+    const sizes = new ResizeObserver(() => {
+      ed.resize();
+      fitOnce();
+    });
+    sizes.observe(host.current);
+    // The text is measured and drawn in the page's face; when it arrives
+    // after the first frame, the board is drawn again in it.
+    const fonts = typeof document !== "undefined" ? document.fonts : undefined;
+    if (fonts) {
+      void Promise.all([fonts.load('600 13.5px "Figtree"'), fonts.load('400 13.5px "Figtree"')])
+        .catch(() => undefined)
+        .then(() => ed.refresh());
+    }
     setEditor(ed);
     host.current.focus();
     // For the end-to-end check and for anyone debugging the surface: the
     // editor, the replica and the bridge, reachable from the frame's console.
     (window as unknown as { __localspace?: unknown }).__localspace = { editor: ed, replica, harness };
     return () => {
+      sizes.disconnect();
       for (const fn of off) fn();
       offCamera();
       replica?.stop();
@@ -134,8 +148,9 @@ export function Board({ harness }: { harness: Harness }) {
 
   // Export (6.0): the selection when there is one, else the board, rendered
   // here and handed to Core through the bridge as an artifact; Core keeps
-  // the file, pins it to the board's head and names it.
-  const exportAs = async (kind: "image.v1" | "svg.v1") => {
+  // the file, pins it to the board's head and names it. The shell's Export
+  // menu asks for it by command.
+  const exportAs = async (kind: ExportKind) => {
     if (!editor) return;
     const nodes = exportNodes(editor.scene, editor.selection);
     if (nodes.length === 0) {
@@ -144,7 +159,6 @@ export function Board({ harness }: { harness: Harness }) {
     }
     const stem = slug(replicaRef.current?.title) || "board";
     const what = `${nodes.length} ${selected ? "selected " : ""}shape${nodes.length === 1 ? "" : "s"}`;
-    setNote("Exporting…");
     try {
       if (kind === "svg.v1") {
         const svg = toSvg(editor.scene, nodes);
@@ -157,83 +171,66 @@ export function Board({ harness }: { harness: Harness }) {
       setNote(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
+  // The command handler was made once, in the mount effect; it reaches the
+  // current editor and selection through this ref, kept current after every
+  // render.
+  useEffect(() => {
+    exportRef.current = (kind) => void exportAs(kind);
+  });
 
   return (
     <div className="board">
-      <div className="board-toolbar" role="toolbar" aria-label="Board tools">
-        {TOOLS.map((t) => {
-          const { label, key, icon: Icon } = TOOL_LABELS[t];
-          return (
-            <IconButton key={t} label={`${label} (${key})`} quiet on={tool === t} onClick={() => editor?.setTool(t, t === "ink")}>
-              <Icon size={16} />
-            </IconButton>
-          );
-        })}
-        <span className="board-sep" />
-        {FILLS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            className="board-swatch"
-            style={{ background: SWATCH[f] }}
-            title={`Fill: ${f}`}
-            aria-label={`Fill ${f}`}
-            disabled={!selected}
-            onClick={() => editor?.setFill(f)}
-          />
-        ))}
-        <span className="board-sep" />
-        <IconButton label={anyLocked ? "Unlock" : "Lock"} quiet disabled={!selected} onClick={() => editor?.setLocked(!anyLocked)}>
-          {anyLocked ? <UnlockIcon size={16} /> : <LockIcon size={16} />}
-        </IconButton>
-        <IconButton label="Bring to front (])" quiet disabled={!selected} onClick={() => editor?.order("front")}>
-          <LayersIcon size={16} />
-        </IconButton>
-        <span className="board-sep" />
-        <IconButton label="Undo (Ctrl+Z)" quiet onClick={() => harness.undo()}>
-          <UndoIcon size={16} />
-        </IconButton>
-        <IconButton label="Redo (Ctrl+Shift+Z)" quiet onClick={() => harness.redo()}>
-          <RedoIcon size={16} />
-        </IconButton>
-        <span className="board-sep" />
-        <IconButton label="Fit the board (Ctrl+0)" quiet onClick={() => editor?.fit()}>
-          <FitIcon size={16} />
-        </IconButton>
-        <IconButton
-          label="Snap to the grid (Alt held skips snapping)"
-          quiet
-          on={gridSnap}
-          onClick={() => {
-            editor?.setSnapping({ grid: !gridSnap });
-            setGridSnap(!gridSnap);
-          }}
-        >
-          <GridIcon size={16} />
-        </IconButton>
-        <span className="board-sep" />
-        <Menu
-          align="left"
-          trigger={(open, isOpen) => (
-            <IconButton label="Export" quiet on={isOpen} disabled={!editor || editor.scene.size === 0} onClick={open}>
-              <DownloadIcon size={16} />
-            </IconButton>
-          )}
-          items={[
-            { id: "png", label: selected ? "PNG of the selection" : "PNG of the board", onSelect: () => void exportAs("image.v1") },
-            { id: "svg", label: selected ? "SVG of the selection" : "SVG of the board", onSelect: () => void exportAs("svg.v1") },
-          ]}
-        />
-        <span className="board-zoom ls-tabular ls-small ls-muted">{Math.round(zoom * 100)}%</span>
-        <span className="board-status ls-small ls-faint">
-          {editor ? `${editor.scene.size} shape${editor.scene.size === 1 ? "" : "s"}` : ""}
-          {selected ? ` · ${selection.length} selected` : ""}
-          {note ? ` · ${note}` : ""}
-        </span>
-      </div>
       <div ref={host} className="board-host" tabIndex={0} aria-label="The board">
         <canvas ref={canvas} />
       </div>
+
+      <div className="palette" role="toolbar" aria-label="Board tools" aria-orientation="vertical">
+        {PALETTE.map(([t, label, Icon]) => (
+          <Btn key={t} label={label} className={`palette-btn${tool === t ? " on" : ""}`} aria-pressed={tool === t} onClick={() => editor?.setTool(t, t === "ink")}>
+            <Icon size={18} />
+          </Btn>
+        ))}
+      </div>
+
+      {selected && (
+        <div className="selbar" role="toolbar" aria-label="The selection">
+          {FILLS.map((f: Fill) => (
+            <Btn key={f} label={`Colour: ${f}`} className="swatch" style={{ background: LIGHT.palette[f].fill }} onClick={() => editor?.setFill(f)} />
+          ))}
+          <span className="selbar-sep" />
+          <Btn label={anyLocked ? "Unlock" : "Lock"} className="selbar-btn" onClick={() => editor?.setLocked(!anyLocked)}>
+            {anyLocked ? <UnlockIcon size={16} /> : <LockIcon size={16} />}
+          </Btn>
+          <Btn label="Bring to front (])" className="selbar-btn" onClick={() => editor?.order("front")}>
+            <LayersIcon size={16} />
+          </Btn>
+          <Btn label="Delete (Del)" className="selbar-btn" disabled={anyLocked} onClick={() => editor?.deleteSelection()}>
+            <TrashIcon size={16} />
+          </Btn>
+        </div>
+      )}
+
+      <div className="zoom" role="toolbar" aria-label="Zoom">
+        <Btn label="Zoom out" onClick={() => editor?.zoomBy(1 / 1.2)}>
+          <MinusIcon size={16} />
+        </Btn>
+        <Btn label="Back to 100%" className="zoom-level ls-tabular" onClick={() => editor?.zoomTo(1)}>
+          {Math.round(zoom * 100)}%
+        </Btn>
+        <Btn label="Zoom in" onClick={() => editor?.zoomBy(1.2)}>
+          <PlusIcon size={16} />
+        </Btn>
+        <span className="selbar-sep" />
+        <Btn label="Fit the board (Ctrl+0)" onClick={() => editor?.fit()}>
+          <FitIcon size={16} />
+        </Btn>
+      </div>
+
+      {note && (
+        <div className="board-note" role="status">
+          {note}
+        </div>
+      )}
     </div>
   );
 }

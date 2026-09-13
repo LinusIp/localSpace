@@ -1,24 +1,40 @@
-/* The whiteboard surface's own layout; the tokens and controls come from
+/* The whiteboard surface's own layout (the app screens, 4): the canvas
+   fills the frame and the controls float over it. The tokens come from
    @localspace/ui's stylesheet, which the harness page links. */
 
 html, body, #root { height: 100%; margin: 0; }
-body { font-family: var(--ls-font-sans, system-ui, sans-serif); font-size: 14px; color: var(--ls-ink, #1c1f1d); background: var(--ls-page, #f5f7f6); }
+body { font-family: var(--ls-font-sans, system-ui, sans-serif); font-size: 14px; color: var(--ls-ink, #1c1e20); background: var(--ls-page, #faf9f8); }
 
-.board { display: flex; flex-direction: column; height: 100%; }
-.board-toolbar {
+.board { position: relative; height: 100%; overflow: hidden; }
+.board-host { position: absolute; inset: 0; overflow: hidden; outline: none; }
+.board-host canvas { display: block; }
+
+/* The floating groups share one surface: white, a hairline, a soft shadow. */
+.palette, .selbar, .zoom {
+  position: absolute;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--ls-line, #e3e7e4);
+  box-sizing: border-box;
   background: var(--ls-surface, #fff);
-  flex-shrink: 0;
-  flex-wrap: wrap;
+  border: 1px solid var(--ls-line, #e6e4e1);
+  box-shadow: 0 2px 4px rgba(28, 30, 32, 0.05), 0 10px 26px rgba(28, 30, 32, 0.07);
 }
-.board-sep { width: 1px; height: 20px; margin: 0 6px; background: var(--ls-line, #e3e7e4); }
-.board-swatch { width: 16px; height: 16px; margin: 0 2px; border: 1px solid rgba(28, 31, 29, 0.2); border-radius: 4px; padding: 0; cursor: pointer; }
-.board-swatch:disabled { opacity: 0.35; cursor: not-allowed; }
-.board-zoom { min-width: 44px; text-align: right; margin-left: 4px; }
-.board-status { margin-left: auto; padding-right: 4px; }
-.board-host { position: relative; flex: 1; min-height: 0; overflow: hidden; outline: none; }
-.board-host canvas { display: block; }
+.palette { left: 22px; top: 50%; transform: translateY(-50%); width: 48px; flex-direction: column; gap: 2px; padding: 6px; border-radius: 13px; }
+.palette-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: 9px; background: transparent; color: var(--ls-ink-soft, #43464a); cursor: pointer; padding: 0; }
+.palette-btn:hover { background: var(--ls-hover, #efedea); color: var(--ls-ink, #1c1e20); }
+.palette-btn.on { background: var(--ls-ink, #1c1e20); color: #fff; }
+
+.selbar { left: 50%; top: 16px; transform: translateX(-50%); height: 40px; gap: 4px; padding: 0 8px; border-radius: 11px; }
+.swatch { width: 18px; height: 18px; margin: 0 1px; border: 1px solid rgba(28, 30, 32, 0.14); border-radius: 6px; padding: 0; cursor: pointer; }
+.swatch:hover { border-color: var(--ls-ink, #1c1e20); }
+.selbar-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--ls-line, #e6e4e1); }
+.selbar-btn, .pill-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--ls-ink-soft, #43464a); cursor: pointer; padding: 0; }
+.selbar-btn:hover, .pill-btn:hover { background: var(--ls-hover, #efedea); color: var(--ls-ink, #1c1e20); }
+.selbar-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.zoom { right: 22px; bottom: 22px; height: 38px; gap: 2px; padding: 0 6px; border-radius: 11px; }
+.zoom-level { min-width: 48px; height: 30px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 13px; font-weight: 600; color: var(--ls-ink, #1c1e20); cursor: pointer; padding: 0 4px; }
+.zoom-level:hover { background: var(--ls-hover, #efedea); }
+
+.board-note { position: absolute; z-index: 2; left: 50%; bottom: 22px; transform: translateX(-50%); max-width: min(480px, calc(100% - 200px)); padding: 7px 13px; border-radius: 9px; background: var(--ls-ink, #1c1e20); color: #fff; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
