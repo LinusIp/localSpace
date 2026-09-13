@@ -363,6 +363,8 @@ It runs as a native process. Its stated reason: {reason}"
             E::TaskChanged(task) => self.task = Some(task),
             // The egui client holds no replica: a sync message is for a frame's.
             E::DocPatch { .. } => {}
+            // Nor a board of its own: who is on one is the web shell's to show.
+            E::Presence { .. } => {}
             E::DocChanged { doc } => {
                 // Core is authoritative. Ask it for the projection every open
                 // surface reads, rather than trying to keep a second copy in step.

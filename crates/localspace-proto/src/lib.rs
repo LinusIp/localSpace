@@ -930,6 +930,17 @@ pub enum Request {
         payload: Vec<u8>,
     },
 
+    // --- presence ---
+    /// Which board this window of the shell shows, or none when it leaves
+    /// it: the people on a board see one another (the app screens' board).
+    /// `peer` names the window, one to sixty-four letters or digits, so two
+    /// windows of one person are two announcements. A window announces
+    /// again every so often; one that stops is forgotten after a while.
+    Presence {
+        board: Option<HarnessId>,
+        peer: String,
+    },
+
     // --- documents ---
     OpenDoc {
         harness: HarnessId,
@@ -1423,6 +1434,18 @@ pub enum Event {
     ConversationChanged {
         current: String,
     },
+    /// Who has a board open, sent to everyone on it whenever that changes.
+    Presence {
+        board: HarnessId,
+        people: Vec<Present>,
+    },
+}
+
+/// A person on a board: who, and the name to show.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct Present {
+    pub user: String,
+    pub name: String,
 }
 
 #[derive(

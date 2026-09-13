@@ -38,6 +38,7 @@ export type { ModelInfo } from "./ModelInfo";
 export type { NetworkMode } from "./NetworkMode";
 export type { NoticeLevel } from "./NoticeLevel";
 export type { Placement } from "./Placement";
+export type { Present } from "./Present";
 export type { Principal } from "./Principal";
 export type { Request } from "./Request";
 export type { ResourceSummary } from "./ResourceSummary";

@@ -29,6 +29,7 @@ pub mod manifest;
 pub mod model;
 pub mod models;
 pub mod planner;
+pub mod presence;
 pub mod profile;
 pub mod prompt;
 pub mod registry;
@@ -104,6 +105,9 @@ pub struct Config {
     /// How long a signed-in session lives, hard (deployment §3.3
     /// `session_ttl`, 12 hours by default).
     pub session_ttl_ms: u64,
+    /// How long a shell window stays on a board after its last word
+    /// (`Request::Presence`); windows announce every twenty seconds.
+    pub presence_ttl_ms: u64,
 }
 
 impl Config {
@@ -123,6 +127,7 @@ impl Config {
             models_dir: None,
             llama_server: None,
             session_ttl_ms: 12 * 60 * 60 * 1000,
+            presence_ttl_ms: 45_000,
         }
     }
 
@@ -291,6 +296,9 @@ pub struct Core {
     /// Bumped on every sync message; a replica's `seen` is its value then.
     sync_clock: u64,
 
+    /// Who has which board open, by shell window.
+    presence: presence::Table,
+
     events: Option<Sink>,
     /// Whose request is being handled: the user the per-user fields belong to.
     active: Caller,
@@ -392,6 +400,7 @@ impl Core {
             break_glass: None,
             sync_states: HashMap::new(),
             sync_clock: 0,
+            presence: presence::Table::default(),
             events: None,
             next_approval: 1,
             active: Caller::local(&cfg.user),
@@ -505,6 +514,17 @@ impl Core {
             groups: self.active.groups.clone(),
             break_glass: self.break_glass.clone(),
         }
+    }
+
+    /// The name shown for a user: the directory's, else the id itself.
+    fn display_name(&self, user: &str) -> String {
+        self.directory
+            .user(user)
+            .ok()
+            .flatten()
+            .map(|r| r.name)
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or_else(|| user.to_string())
     }
 
     fn actor(&self) -> Actor {
@@ -3351,6 +3371,54 @@ impl Core {
                         message: format!("{e:#}"),
                     },
                 }
+            }
+
+            R::Presence { board, peer } => {
+                if peer.is_empty()
+                    || peer.len() > 64
+                    || !peer.chars().all(|c| c.is_ascii_alphanumeric())
+                {
+                    return proto::Response::Error {
+                        message: "a window is named by one to sixty-four letters or digits".into(),
+                    };
+                }
+                if let Some(harness) = &board {
+                    let Some(doc) = self.doc_for(harness) else {
+                        return proto::Response::Error {
+                            message: format!("no harness `{harness}`"),
+                        };
+                    };
+                    if let Err(denied) = self.access.check(&self.identity(), &doc, Level::View) {
+                        return proto::Response::Error {
+                            message: denied.to_string(),
+                        };
+                    }
+                }
+                let now = std::time::Instant::now();
+                let ttl = std::time::Duration::from_millis(self.cfg.presence_ttl_ms);
+                let user = self.active.user.clone();
+                let workspace = self.workspace.clone();
+                let changed =
+                    self.presence
+                        .announce(&peer, &user, &workspace, board.as_deref(), now, ttl);
+                for place in changed {
+                    let users = self.presence.users_at(&place);
+                    let people: Vec<proto::Present> = users
+                        .iter()
+                        .map(|u| proto::Present {
+                            user: u.clone(),
+                            name: self.display_name(u),
+                        })
+                        .collect();
+                    let ev = proto::Event::Presence {
+                        board: place.board.clone(),
+                        people,
+                    };
+                    for u in &users {
+                        self.emit_to(To::User(u.clone()), ev.clone());
+                    }
+                }
+                proto::Response::Ok
             }
 
             R::OpenDoc { harness } => {
