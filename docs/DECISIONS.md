@@ -64,6 +64,10 @@ What changed, in the order asked:
   .NET, Haskell, CodeQL, cached Docker images: about 20 GB) before
   building, and prints the disk after the build so the margin is known.
 
+- **A superseded run is cancelled.** `concurrency` per branch with
+  `cancel-in-progress`: a second push while the first is still building
+  stops the first. The gate is about the head of the branch.
+
 Green CI is commit 10's gate (`docs/PILOT-1.md`, Phase A): nothing in
 Phase B starts on top of unverified commits.
 

@@ -202,9 +202,9 @@ review latency included, hardware excluded.
 - **Gate:** two users in two browsers on one server see different personal
   workspaces and the same shared board; a viewer's edit is rejected
   server-side; every request of the above is in the audit log with the
-  right actor; the CI's Linux job runs the whole suite (this is where the
-  first CI run lands, so budget a few days of friction for the runner:
-  Tauri's system libraries, the wasm target, the e2e's browser).
+  right actor; the CI's Linux job runs the whole suite, green (the first
+  fifteen runs were red: the runner's disk and a test that assumed a GPU,
+  not Tauri's libraries; `docs/DECISIONS.md`, 2026-09-13).
 
 ### Phase B — retrieval end to end (4 weeks)
 
@@ -312,11 +312,13 @@ I would move it:
   install on the partner's machine finds things — drivers, a proxy, a CA,
   clock skew, a firewall — and that week is on the calendar whoever owns
   it.
-- **CI has never run.** The first Linux run is in Phase A's gate and will
-  cost days: the Tauri shell's system libraries, the wasm target, the e2e's
-  browser, the Windows split if the shell will not build on Linux (the
-  answer of 2026-09-11). It is in the estimate as friction, not as a task,
-  because it cannot be planned closer than that.
+- **CI's first fifteen runs were red**, all in the rust job and none of
+  them Tauri: the runner's disk filled under a full-debug test build of the
+  workspace, and three engine tests assumed a GPU. Read from the logs and
+  fixed on 2026-09-13 (`docs/DECISIONS.md`): a check job that gates every
+  Rust build, a build cache, line-table debug info, and room made on the
+  runner's disk. Green CI is commit 10's gate. The Windows split of
+  2026-09-11 stays the fallback if the shell ever stops building on Linux.
 - **The model is a dependency, not a task.** A real model cannot be
   exercised on this laptop. If the server arrives after Phase D starts,
   Phase D stretches by exactly that gap; the W32 trip's evals may also
@@ -347,7 +349,7 @@ and a guide written earlier would be rewritten.
 | The partner's hardware is a W32-class box, not the §12.1 floor | Team mode: one interactive stream, `per_user_concurrent = 1`, queuing shown; 10 users, not 30 | Stated in the guide and the acceptance list (question 7) |
 | usearch's C++ build fails on the runner | Reported, not worked around; a pure-Rust HNSW is the user's call | Tried in Phase B's first days |
 | The W32 evals fail on the reference model | Step 5 reopens for tool descriptions and front doors | A week, inside Phase B or C, from the whiteboard's own tests |
-| CI's first run | Days of runner friction | In Phase A's gate; the Rust job splits if the shell will not build on Linux |
+| CI's runner | Fifteen red runs before the causes were read: disk, and a GPU assumption in a test | Fixed 2026-09-13 (check job, cache, line-table debug info, freed disk); the Rust job splits only if the shell stops building on Linux |
 | Smart App Control on the build laptop | Hours lost to refused binaries | Known and written down; nothing in the product depends on it |
 | Local accounts stay on after the pilot | Weak identity in production | The banner never goes away while `provider = "local"`; the guide says to move to OIDC |
 

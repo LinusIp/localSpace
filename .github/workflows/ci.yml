@@ -33,14 +33,21 @@ on:
 permissions:
   contents: read
 
+# A push supersedes the run of the push before it on the same branch: the
+# older run is cancelled rather than finished for nothing.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
   RUST_BACKTRACE: "1"
-  # Full debug info filled the runner's disk: runs 9, 11 and 12 died of
-  # "No space left on device" while building the tests (a full-debug target
-  # of this workspace measures 59 GB on the build machine, 13 GB of it debug
-  # info). Line tables keep `panicked at file:line` and backtraces readable.
+  # Full debug info filled the runner's disk: runs 2 to 12, 14 and 15 died
+  # of "No space left on device" while building the tests (a full-debug
+  # target of this workspace measures 59 GB on the build machine, 13 GB of
+  # it debug info). Line tables keep `panicked at file:line` and backtraces
+  # readable.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
