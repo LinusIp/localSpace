@@ -83,6 +83,9 @@ pub struct ServerConfig {
     pub insecure: bool,
     /// The largest upload or artifact (deployment §3.3 `max_upload_mb`).
     pub max_upload_mb: u64,
+    /// `[organisation] name`: the sign-in page, the tab title and the
+    /// invitations show it. Absent until the settings name one.
+    pub organisation: Option<String>,
     /// The network policy Core starts with (deployment §3.3 `[network]`).
     pub gateway: localspace_core::gateway::GatewayConfig,
 }
@@ -109,6 +112,7 @@ impl Default for ServerConfig {
             trusted_proxies: Vec::new(),
             insecure: false,
             max_upload_mb: 200,
+            organisation: None,
             gateway: localspace_core::gateway::GatewayConfig::default(),
         }
     }

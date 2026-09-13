@@ -296,11 +296,16 @@ async fn as_system(
 /// `GET /api/v1/auth/mode`: which sign-in this server uses, for the sign-in
 /// page before anyone is signed in. Public, and says nothing else.
 pub async fn mode(State(server): State<Arc<Server>>) -> Response {
-    Json(serde_json::json!({
-        "mode": if server.cfg.personal { "personal" } else { "organisation" },
-        "provider": "local",
-        "local_accounts": !server.cfg.personal,
-    }))
+    Json(localspace_proto::AuthMode {
+        mode: if server.cfg.personal {
+            localspace_proto::Topology::Personal
+        } else {
+            localspace_proto::Topology::Organisation
+        },
+        provider: "local".into(),
+        local_accounts: !server.cfg.personal,
+        organisation: server.cfg.organisation.clone(),
+    })
     .into_response()
 }
 

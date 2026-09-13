@@ -90,6 +90,7 @@ const HONOURED: &[(&str, &[&str])] = &[
     ),
     ("harnesses", &["registry", "catalogs"]),
     ("audit", &["sink"]),
+    ("organisation", &["name"]),
 ];
 
 /// Keys the specification has that this release does not honour, with the
@@ -205,6 +206,8 @@ struct File {
     harnesses: Harnesses,
     #[serde(default)]
     audit: Audit,
+    #[serde(default)]
+    organisation: Organisation,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -278,6 +281,15 @@ struct Audit {
     sink: Option<Vec<String>>,
 }
 
+/// `[organisation] name`: shown on the sign-in page, in the tab title and
+/// on invitations. Set at install; when absent the pages leave the
+/// organisation unnamed rather than guess.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Organisation {
+    name: Option<String>,
+}
+
 /// The file's text to a server configuration, or the one reason it is not.
 pub fn parse(text: &str, path: &Path) -> Result<ServerConfig> {
     let table: toml::Table = text
@@ -292,6 +304,18 @@ pub fn parse(text: &str, path: &Path) -> Result<ServerConfig> {
 fn apply(file: File, path: &Path) -> Result<ServerConfig> {
     let mut cfg = ServerConfig::default();
     let at = path.display();
+
+    // [organisation]
+    if let Some(name) = file.organisation.name {
+        let name = name.trim();
+        if name.is_empty() {
+            bail!("{at}: [organisation] name is empty; leave the key out until the name is known");
+        }
+        if name.chars().count() > 80 {
+            bail!("{at}: [organisation] name is longer than 80 characters");
+        }
+        cfg.organisation = Some(name.to_string());
+    }
 
     // [server]
     if let Some(bind) = file.server.bind {
@@ -557,6 +581,22 @@ sink = ["local"]
             Some("http://searxng.corp.example:8080")
         );
         assert_eq!(cfg.registry, vec![catalog]);
+    }
+
+    #[test]
+    fn the_organisation_s_name_is_taken_trimmed_and_an_empty_one_is_refused() {
+        let cfg = parse(
+            "[organisation]\nname = \" Meridian Bank \"\n",
+            Path::new("t.toml"),
+        )
+        .unwrap();
+        assert_eq!(cfg.organisation.as_deref(), Some("Meridian Bank"));
+        assert_eq!(parse("", Path::new("t.toml")).unwrap().organisation, None);
+        assert!(refused("[organisation]\nname = \"  \"\n").contains("leave the key out"));
+        assert!(
+            refused("[organisation]\nnam = \"x\"\n")
+                .contains("`organisation.nam` is not a setting")
+        );
     }
 
     #[test]

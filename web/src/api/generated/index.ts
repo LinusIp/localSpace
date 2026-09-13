@@ -5,6 +5,7 @@ export type { AgentWrites } from "./AgentWrites";
 export type { ApprovalKind } from "./ApprovalKind";
 export type { Artifact } from "./Artifact";
 export type { ArtifactFile } from "./ArtifactFile";
+export type { AuthMode } from "./AuthMode";
 export type { Author } from "./Author";
 export type { Body } from "./Body";
 export type { CapabilityHit } from "./CapabilityHit";

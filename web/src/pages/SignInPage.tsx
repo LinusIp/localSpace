@@ -10,6 +10,7 @@ import { useSession } from "../store";
 export function SignInPage() {
   const { authMode, signIn } = useSession();
   const organisation = authMode?.mode !== "personal";
+  const organisationName = authMode?.organisation ?? null;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
@@ -35,6 +36,7 @@ export function SignInPage() {
     <div className="auth">
       <div className="auth-column">
         <img src="/brand/localspace-lockup.png" alt="localSpace" style={{ width: 224, height: "auto", display: "block" }} />
+        {organisationName && <div className="auth-org">{organisationName}</div>}
         <form className="auth-card" onSubmit={submit}>
           <div className="auth-title">Sign in</div>
           <div className="auth-sub">{organisation ? "Use your work email address." : "Use the token this computer's app printed at start."}</div>

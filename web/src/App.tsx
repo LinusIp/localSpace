@@ -52,6 +52,12 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The tab is named after the organisation when the settings name one.
+  useEffect(() => {
+    const name = session.authMode?.organisation;
+    document.title = name ? `localSpace · ${name}` : "localSpace";
+  }, [session.authMode]);
+
   if (invite) {
     return (
       <InvitePage

@@ -10,6 +10,7 @@ import { useSession } from "../store";
 
 export function InvitePage({ token, onDone }: { token: string; onDone: () => void }) {
   const signIn = useSession((s) => s.signIn);
+  const organisationName = useSession((s) => s.authMode?.organisation ?? null);
   const [status, setStatus] = useState<InviteStatus | null | "unreachable">(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -95,6 +96,7 @@ export function InvitePage({ token, onDone }: { token: string; onDone: () => voi
     <div className="auth">
       <div className="auth-column">
         <img src="/brand/localspace-lockup.png" alt="localSpace" style={{ width: 224, height: "auto", display: "block" }} />
+        {organisationName && <div className="auth-org">{organisationName}</div>}
         <div className="auth-card">{body}</div>
         <div className="auth-promise">
           <ShieldIcon size={15} className="ls-accent" />

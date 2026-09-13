@@ -249,6 +249,7 @@ button {
 
 .auth { height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--ls-page); }
 .auth-column { display: flex; flex-direction: column; align-items: center; gap: 26px; width: 412px; max-width: calc(100vw - 32px); }
+.auth-org { font-size: 15px; font-weight: 600; color: var(--ls-ink-soft); margin-top: -8px; }
 .auth-card { width: 100%; box-sizing: border-box; background: var(--ls-surface); border: 1px solid var(--ls-line); border-radius: 16px; padding: 34px 34px 30px; box-shadow: 0 1px 2px rgba(28, 30, 32, 0.04), 0 8px 24px rgba(28, 30, 32, 0.05); }
 .auth-title { font-size: 20px; font-weight: 600; letter-spacing: -0.2px; }
 .auth-sub { font-size: 14px; color: var(--ls-muted); margin-top: 5px; }

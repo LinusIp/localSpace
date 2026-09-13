@@ -45,7 +45,8 @@ export const logout = () =>
 export const me = () => fetch("/api/v1/me", { credentials: "same-origin" }).then((r) => parse<Me>(r));
 
 /** Which sign-in this server uses, before anyone is signed in. */
-export type AuthMode = { mode: "personal" | "organisation"; provider: string; local_accounts: boolean };
+import type { AuthMode } from "./generated";
+export type { AuthMode };
 export const authMode = () => fetch("/api/v1/auth/mode", { credentials: "same-origin" }).then((r) => parse<AuthMode>(r));
 
 /** Organisation mode: an email and a password. The answer is the account, or one sentence. */

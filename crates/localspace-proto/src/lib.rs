@@ -523,6 +523,18 @@ pub struct Me {
     pub harness_api: String,
 }
 
+/// What `GET /api/v1/auth/mode` answers before anyone is signed in: how
+/// this server signs people in, and the organisation's name when the
+/// settings give one (`[organisation] name`, set at install).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct AuthMode {
+    pub mode: Topology,
+    pub provider: String,
+    pub local_accounts: bool,
+    /// Absent until it is set; the pages then leave the organisation unnamed.
+    pub organisation: Option<String>,
+}
+
 /// A user of an organisation server as the admin pages see them (deployment
 /// §4): never the password hash.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]

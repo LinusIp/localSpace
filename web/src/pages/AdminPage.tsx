@@ -88,7 +88,8 @@ function LinkDialog({ invite, onClose, what }: { invite: Invite | null; onClose:
 }
 
 function People() {
-  const { me, users, refreshUsers, createUser, setUserRoles, disableUser, resetPassword, unlockUser, revokeSessions } = useSession();
+  const { me, authMode, users, refreshUsers, createUser, setUserRoles, disableUser, resetPassword, unlockUser, revokeSessions } = useSession();
+  const organisationName = authMode?.organisation ?? null;
   const [inviting, setInviting] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -129,7 +130,7 @@ function People() {
       <div className="page-head">
         <div>
           <h1 className="page-title">People</h1>
-          <div className="page-sub">Who can sign in to localSpace here.</div>
+          <div className="page-sub">{organisationName ? `Who can sign in to localSpace at ${organisationName}.` : "Who can sign in to localSpace."}</div>
         </div>
         <div className="ls-row ls-gap-2">
           {searching ? (
