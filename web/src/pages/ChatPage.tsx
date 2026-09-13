@@ -1,95 +1,157 @@
-// The chat harness's page (v2 §8): the conversation with the agent, its tool
-// calls as they happen, approvals it asks for, and the composer.
+// The chat (screens 2 and 3): a greeting and three things to try until the
+// first message, then the conversation. Tool calls appear as what they did,
+// in words; anything that needs the person's say-so appears as a card.
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Card, ChatIcon, CheckIcon, ClipIcon, CloseIcon, IconButton, SendIcon, SlidersIcon, SpinnerIcon, StopIcon } from "@localspace/ui";
+import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ClipIcon, CloseIcon, SpinnerIcon, StopIcon } from "@localspace/ui";
 import type { ChatMessage, ToolCallRecord } from "../api/generated";
-import { outcomeLine, useSession } from "../store";
+import { initialsOf, outcomeLine, useSession } from "../store";
 import type { LiveToolCall } from "../store";
 import { Markdown } from "../components/Markdown";
 import { Mark } from "../components/Mark";
-import { RightPanel } from "../components/RightPanel";
-import { Conversations } from "../components/Conversations";
-import { Panels } from "../components/Panels";
+import { TopBar } from "../components/TopBar";
+import { greeting } from "../lib/time";
+import { modelLabel } from "../lib/models";
 
 export function ChatPage() {
-  const { transcript, streaming, busy, liveCalls, approvals, environment, panels, details } = useSession();
+  const { conversations, currentConversation, transcript, streaming } = useSession();
   const shown = transcript.filter((m) => m.role === "user" || m.role === "assistant");
-  const title = shown.find((m) => m.role === "user")?.content.slice(0, 60) ?? "New Chat";
+  const empty = shown.length === 0 && !streaming;
+  const title = conversations.find((c) => c.id === currentConversation)?.title;
+  return (
+    <>
+      <TopBar title={empty ? undefined : title} bordered={!empty} />
+      <Conversation />
+    </>
+  );
+}
+
+/** The conversation itself: the page's body, and the board's drawer. */
+export function Conversation({ compact }: { compact?: boolean }) {
+  const { transcript, streaming, busy, liveCalls, approvals } = useSession();
+  const shown = transcript.filter((m) => m.role === "user" || m.role === "assistant");
   const bottom = useRef<HTMLDivElement>(null);
-  // With a panel open the chat becomes a column beside it and the details
-  // column steps aside until asked for; nothing about it is lost.
-  const withPanels = panels.length > 0;
+  const [draft, setDraft] = useState("");
+  const empty = shown.length === 0 && !streaming;
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
   }, [shown.length, streaming, liveCalls.length]);
 
-  return (
-    <div className="page-flex">
-      <Card className={`chat-column ${withPanels ? "chat-beside" : "chat-alone"}`}>
-        {!withPanels && <Conversations />}
-        <div className="ls-col ls-grow">
-          <div className="chat-head">
-            <span className="ls-muted">
-              <ChatIcon size={18} />
-            </span>
-            <h1 className="ls-truncate">{title}</h1>
-            {environment?.focus && <span className="ls-ml-auto ls-small ls-faint">focus: {environment.focus}</span>}
+  if (empty) {
+    return (
+      <div className="chat">
+        <div className="chat-hero">
+          <Hero compact={compact} onStarter={setDraft} />
+          <div className="composer-column">
+            <Composer draft={draft} onDraft={setDraft} placeholder="Ask anything…" />
+            <Footnote />
           </div>
-
-          <div className="chat-scroll">
-            {shown.length === 0 && !streaming && (
-              <div className="ls-empty">
-                <Mark size={40} />
-                <p className="ls-mt-4 ls-muted">
-                  {environment?.model
-                    ? "Ask for something. The agent works through the harnesses installed here."
-                    : "No model is loaded yet. Choose one in Models, then ask for something."}
-                </p>
-              </div>
-            )}
-            <div className="chat-thread">
-              {shown.map((m, i) => (
-                <Message key={i} message={m} />
-              ))}
-              {(streaming || (busy && liveCalls.length > 0)) && (
-                <div className="chat-message">
-                  <Avatar />
-                  <div className="ls-bubble">
-                    {liveCalls.map((c) => (
-                      <LiveCall key={c.id} call={c} />
-                    ))}
-                    {streaming ? (
-                      <Markdown text={streaming} />
-                    ) : (
-                      <span className="ls-row ls-gap-2 ls-muted">
-                        <SpinnerIcon size={14} className="ls-spin" /> working…
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-              {approvals.map((a) => (
-                <ApprovalCard key={a.id} id={a.id} kind={a.kind} prompt={a.prompt} />
-              ))}
-              <div ref={bottom} />
-            </div>
-          </div>
-
-          <Composer />
         </div>
-      </Card>
-      {withPanels && <Panels />}
-      {(!withPanels || details) && <RightPanel />}
+      </div>
+    );
+  }
+
+  return (
+    <div className="chat">
+      <div className="chat-scroll">
+        <div className="chat-thread">
+          {shown.map((m, i) => (
+            <Message key={i} message={m} />
+          ))}
+          {(streaming || (busy && liveCalls.length > 0)) && (
+            <div className="message">
+              <AssistantAvatar />
+              <div className="message-body">
+                {liveCalls.map((c) => (
+                  <LiveWork key={c.id} call={c} />
+                ))}
+                {streaming ? (
+                  <div className="prose-chat">
+                    <Markdown text={streaming} />
+                  </div>
+                ) : (
+                  <span className="message-work">
+                    <SpinnerIcon size={14} className="ls-spin" /> Thinking…
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+          {approvals.map((a) => (
+            <ApprovalCard key={a.id} id={a.id} kind={a.kind} prompt={a.prompt} />
+          ))}
+          <div ref={bottom} />
+        </div>
+      </div>
+      <div className="chat-composer">
+        <div className="composer-column">
+          <Composer draft={draft} onDraft={setDraft} placeholder="Ask a follow-up…" />
+        </div>
+      </div>
     </div>
   );
 }
 
-function Avatar() {
+function Hero({ compact, onStarter }: { compact?: boolean; onStarter: (text: string) => void }) {
+  const { me, environment } = useSession();
+  const first = (me?.name || me?.user || "").trim().split(/\s+/)[0] ?? "";
+  const boardInstalled = environment?.harnesses.some((h) => h.id === "io.localspace.whiteboard") ?? false;
+  const starters = [
+    { title: "Summarise text", body: "Paste a document's text and ask for the key points.", text: "Summarise the key points of the following text:\n\n" },
+    { title: "Draft a reply", body: "Paste a message and say how to answer it.", text: "Draft a reply to the following message. Keep it short and polite:\n\n" },
+    boardInstalled
+      ? { title: "Plan on the board", body: "Ask for a plan and it goes onto your whiteboard as notes.", text: "Put a plan for this on the whiteboard as sticky notes: " }
+      : { title: "Explain something", body: "Ask a question in your own words.", text: "Explain, in plain words: " },
+  ];
   return (
-    <span className="chat-avatar">
-      <Mark size={24} />
+    <>
+      <div>
+        <div className="hero-title">
+          {greeting()}
+          {first ? `, ${first}` : ""}
+        </div>
+        <div className="hero-sub">What would you like to do?</div>
+      </div>
+      {!compact && (
+        <div className="starters">
+          {starters.map((s) => (
+            <button key={s.title} type="button" className="starter" onClick={() => onStarter(s.text)}>
+              <ArrowUpIcon size={19} className="ls-accent" style={{ transform: "rotate(45deg)" }} />
+              <div className="starter-title">{s.title}</div>
+              <div className="starter-body">{s.body}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function Footnote() {
+  const { me, environment } = useSession();
+  if (!environment?.model) return null;
+  const where = environment.engine.running
+    ? me?.topology === "organisation"
+      ? "Answers come from the model running on your organisation's server."
+      : "Answers come from the model running on this computer."
+    : "Answers come from the model chosen in Settings.";
+  return <div className="composer-note">{where}</div>;
+}
+
+function AssistantAvatar() {
+  return (
+    <span className="avatar small soft" aria-hidden="true">
+      <Mark size={16} color="#1D7A55" />
+    </span>
+  );
+}
+
+function PersonAvatar() {
+  const me = useSession((s) => s.me);
+  return (
+    <span className="avatar small" aria-hidden="true">
+      {initialsOf(me?.name || me?.email || me?.user)}
     </span>
   );
 }
@@ -97,45 +159,59 @@ function Avatar() {
 function Message({ message }: { message: ChatMessage }) {
   if (message.role === "user") {
     return (
-      <div className="ls-row ls-end">
-        <div className="ls-bubble-user">{message.content}</div>
+      <div className="message">
+        <PersonAvatar />
+        <div className="message-body user ls-pre">{message.content}</div>
       </div>
     );
   }
   return (
-    <div className="chat-message">
-      <Avatar />
-      <div className="ls-bubble">
+    <div className="message">
+      <AssistantAvatar />
+      <div className="message-body">
         {message.tool_calls.map((c) => (
-          <ToolCall key={c.id} call={c} />
+          <Work key={c.id} call={c} />
         ))}
-        {message.content && <Markdown text={message.content} />}
+        {message.content && (
+          <div className="prose-chat">
+            <Markdown text={message.content} />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function ToolCall({ call }: { call: ToolCallRecord }) {
+/** What a tool call did, in the words Core gave back; never the tool's name. */
+function workLine(tool: string, outcome: ToolCallRecord["outcome"] | null): string {
+  if (!outcome) return "Working…";
+  if ("ok" in outcome) {
+    const summary = outcome.ok.diff_summary.trim();
+    return summary ? summary.charAt(0).toUpperCase() + summary.slice(1) : "Done";
+  }
+  const line = outcomeLine(outcome);
+  return line.charAt(0).toUpperCase() + line.slice(1) || tool;
+}
+
+function Work({ call }: { call: ToolCallRecord }) {
   const ok = "ok" in call.outcome;
   return (
-    <div className="chat-call">
+    <div className="message-work">
       <span className={ok ? "ls-accent" : "ls-danger"}>{ok ? <CheckIcon size={14} /> : <CloseIcon size={14} />}</span>
-      <span className="ls-mono">{call.tool}</span>
-      <span className="ls-muted">{outcomeLine(call.outcome)}</span>
+      {workLine(call.tool, call.outcome)}
     </div>
   );
 }
 
-function LiveCall({ call }: { call: LiveToolCall }) {
+function LiveWork({ call }: { call: LiveToolCall }) {
   return (
-    <div className="chat-call">
+    <div className="message-work">
       {call.outcome ? (
         <span className={"ok" in call.outcome ? "ls-accent" : "ls-danger"}>{"ok" in call.outcome ? <CheckIcon size={14} /> : <CloseIcon size={14} />}</span>
       ) : (
-        <SpinnerIcon size={14} className="ls-spin ls-muted" />
+        <SpinnerIcon size={14} className="ls-spin" />
       )}
-      <span className="ls-mono">{call.tool}</span>
-      <span className="ls-muted">{call.outcome ? outcomeLine(call.outcome) : "running"}</span>
+      {workLine(call.tool, call.outcome)}
     </div>
   );
 }
@@ -143,68 +219,87 @@ function LiveCall({ call }: { call: LiveToolCall }) {
 function ApprovalCard({ id, kind, prompt }: { id: string; kind: string; prompt: string }) {
   const approve = useSession((s) => s.approve);
   return (
-    <div className="chat-approval">
-      <div className="chat-approval-kind">{kind.replace("_", " ")}</div>
+    <div className="approval">
+      <div className="approval-kind">{kind === "tool_confirm" ? "The assistant asks" : kind.replace("_", " ")}</div>
       <p className="ls-mt-1" style={{ marginBottom: 0 }}>
         {prompt}
       </p>
       <div className="ls-row ls-gap-2 ls-mt-3">
-        <Button kind="primary" onClick={() => void approve(id, true)}>
+        <button type="button" className="btn solid" onClick={() => void approve(id, true)}>
           Allow
-        </Button>
-        <Button onClick={() => void approve(id, false)}>Deny</Button>
+        </button>
+        <button type="button" className="btn" onClick={() => void approve(id, false)}>
+          Don't allow
+        </button>
       </div>
     </div>
   );
 }
 
-function Composer() {
-  const { busy, send, cancel, go, environment } = useSession();
-  const [text, setText] = useState("");
+function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (text: string) => void; placeholder: string }) {
+  const { busy, send, cancel, environment, catalogModels, goSettings } = useSession();
   const box = useRef<HTMLTextAreaElement>(null);
+  const model = environment?.model ?? null;
+
+  // A starter puts words in the box; the cursor follows them.
+  useEffect(() => {
+    if (draft && box.current) {
+      box.current.focus();
+      box.current.setSelectionRange(draft.length, draft.length);
+    }
+  }, [draft]);
+
+  // The box grows with the text, to a limit the stylesheet sets.
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+  }, [draft]);
 
   const submit = () => {
-    const trimmed = text.trim();
-    if (!trimmed || busy) return;
-    setText("");
+    const trimmed = draft.trim();
+    if (!trimmed || busy || !model) return;
+    onDraft("");
     void send(trimmed);
   };
 
   return (
-    <div className="composer-wrap">
-      <div className="ls-composer">
-        <IconButton label="Attach" quiet disabled title="Attaching files arrives with retrieval and upload, build step 6">
-          <ClipIcon size={18} />
-        </IconButton>
-        <textarea
-          ref={box}
-          rows={1}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          placeholder={environment?.model ? "Type your message…" : "Choose a model in Models first, then type here"}
-          style={{ minHeight: 36, padding: "8px 0" }}
-        />
-        <IconButton label="Model settings" quiet onClick={() => go("models")}>
-          <SlidersIcon size={18} />
-        </IconButton>
-        {busy ? (
-          <button type="button" className="send-button stop" onClick={() => void cancel()} title="Stop this turn" aria-label="Stop">
-            <StopIcon size={16} />
+    <div className="composer-card">
+      <textarea
+        ref={box}
+        rows={1}
+        value={draft}
+        onChange={(e) => onDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        placeholder={model ? placeholder : "Choose a model in Settings first, then ask here"}
+        aria-label="Message"
+        autoFocus
+      />
+      <div className="composer-row">
+        <button type="button" className="composer-attach" disabled title="Attaching files comes with document search, later this year.">
+          <ClipIcon size={17} /> Attach a file
+        </button>
+        <div className="ls-row ls-gap-2">
+          <button type="button" className="model-chip" onClick={() => goSettings("assistant")} title="Choose the assistant">
+            {modelLabel(model?.id, catalogModels)}
+            <ChevronDownIcon size={13} className="ls-faint" />
           </button>
-        ) : (
-          <button type="button" className="send-button" onClick={submit} disabled={!text.trim()} aria-label="Send">
-            <SendIcon size={16} />
-          </button>
-        )}
-      </div>
-      <div className="ls-mt-1 ls-tiny ls-faint" style={{ padding: "0 4px" }}>
-        Enter sends, Shift+Enter adds a line.
+          {busy ? (
+            <button type="button" className="send stop" onClick={() => void cancel()} title="Stop" aria-label="Stop">
+              <StopIcon size={16} />
+            </button>
+          ) : (
+            <button type="button" className="send" onClick={submit} disabled={!draft.trim() || !model} aria-label="Send">
+              <ArrowUpIcon size={17} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

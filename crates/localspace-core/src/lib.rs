@@ -63,6 +63,10 @@ use std::sync::{Arc, Mutex, RwLock};
 /// things (deployment §4.3; Directive 5: one plain sentence).
 pub const READ_ONLY_REASON: &str = "Your account can read here but not change anything.";
 
+/// What the shell may remember per user, server-side, across their devices
+/// (the shell answers of 2026-09-12: the rail's state lives with the user).
+pub const PREFERENCE_KEYS: &[&str] = &["rail_collapsed"];
+
 pub const CORE_TOOLS: &[&str] = &[
     "find_capability",
     "web.search",
@@ -2748,6 +2752,18 @@ impl Core {
         proto::Response::Environment(self.environment())
     }
 
+    /// The shell's remembered state for the active user.
+    fn preferences_response(&self) -> proto::Response {
+        match self.store.preferences(&self.active.user) {
+            Ok(pairs) => proto::Response::Preferences {
+                values: pairs.into_iter().collect(),
+            },
+            Err(e) => proto::Response::Error {
+                message: format!("{e:#}"),
+            },
+        }
+    }
+
     fn user_infos(&self) -> Vec<proto::UserInfo> {
         let now = dag::now_ms();
         self.directory
@@ -3083,6 +3099,26 @@ impl Core {
             },
 
             R::ListConversations => self.conversations_response(),
+
+            R::GetPreferences => self.preferences_response(),
+            R::SetPreference { key, value } => {
+                if !PREFERENCE_KEYS.contains(&key.as_str()) {
+                    return proto::Response::Error {
+                        message: format!("`{key}` is not something the shell remembers"),
+                    };
+                }
+                if value.chars().count() > 200 {
+                    return proto::Response::Error {
+                        message: "a preference is at most 200 characters".into(),
+                    };
+                }
+                if let Err(e) = self.store.set_preference(&self.active.user, &key, &value) {
+                    return proto::Response::Error {
+                        message: format!("{e:#}"),
+                    };
+                }
+                self.preferences_response()
+            }
 
             R::NewConversation => {
                 self.record_conversation();

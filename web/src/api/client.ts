@@ -44,6 +44,23 @@ export const logout = () =>
 
 export const me = () => fetch("/api/v1/me", { credentials: "same-origin" }).then((r) => parse<Me>(r));
 
+/** Which sign-in this server uses, before anyone is signed in. */
+export type AuthMode = { mode: "personal" | "organisation"; provider: string; local_accounts: boolean };
+export const authMode = () => fetch("/api/v1/auth/mode", { credentials: "same-origin" }).then((r) => parse<AuthMode>(r));
+
+/** Organisation mode: an email and a password. The answer is the account, or one sentence. */
+export const loginWithPassword = (email: string, password: string) =>
+  fetch("/api/v1/auth/login", json({ email, password })).then((r) => parse<{ user: string }>(r));
+
+/** A one-time link, looked at without being spent: for whom, or whether it is the first administrator's. */
+export type InviteStatus = { valid: boolean; email: string | null; name: string | null; first_admin: boolean };
+export const inviteStatus = (token: string) =>
+  fetch(`/api/v1/auth/invite/${encodeURIComponent(token)}`, { credentials: "same-origin" }).then((r) => parse<InviteStatus>(r));
+
+/** Spend a one-time link on a password, and sign in. The first administrator's link takes a name and an email too. */
+export const setPassword = (body: { token: string; password: string; email?: string; name?: string }) =>
+  fetch("/api/v1/auth/set-password", json(body)).then((r) => parse<{ user: string }>(r));
+
 /**
  * A grant to show one `web` view in an iframe: the URL on the harness's own
  * origin, valid for this user (v2 §6.3).

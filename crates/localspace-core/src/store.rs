@@ -251,6 +251,37 @@ impl Store {
             .map(|g| String::from_utf8_lossy(g.value()).to_string()))
     }
 
+    /// The shell's remembered state for a user: small strings under fixed
+    /// keys, kept beside their workspace.
+    pub fn preferences(&self, user: &str) -> Result<Vec<(String, String)>> {
+        let prefix = scoped(user, "", "pref:");
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(USER_STATE)?;
+        let mut out = Vec::new();
+        for entry in t.range(prefix.as_str()..)? {
+            let (k, v) = entry?;
+            let Some(key) = k.value().strip_prefix(prefix.as_str()) else {
+                break;
+            };
+            out.push((
+                key.to_string(),
+                String::from_utf8_lossy(v.value()).into_owned(),
+            ));
+        }
+        Ok(out)
+    }
+
+    pub fn set_preference(&self, user: &str, key: &str, value: &str) -> Result<()> {
+        let full = scoped(user, "", &format!("pref:{key}"));
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(USER_STATE)?;
+            t.insert(full.as_str(), value.as_bytes())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
     pub fn set_current_workspace(&self, user: &str, workspace: &str) -> Result<()> {
         let key = scoped(user, "", "workspace");
         let txn = self.db.begin_write()?;

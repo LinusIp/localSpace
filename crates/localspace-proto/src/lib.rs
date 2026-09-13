@@ -1143,6 +1143,15 @@ pub enum Request {
     },
     /// The chat harness keeps several conversations (v2 §8); the transcript is the current one.
     ListConversations,
+
+    // --- the shell's own state, per user, across their devices ---
+    /// What the shell remembers for this user: a fixed set of keys.
+    GetPreferences,
+    /// Set one; a key outside the set is refused.
+    SetPreference {
+        key: String,
+        value: String,
+    },
     NewConversation,
     SelectConversation {
         id: String,
@@ -1243,6 +1252,10 @@ pub enum Response {
     },
     Users(Vec<UserInfo>),
     Workspaces(Vec<WorkspaceInfo>),
+    /// The shell's remembered state for the caller.
+    Preferences {
+        values: std::collections::BTreeMap<String, String>,
+    },
     Invite(Invite),
     SignedIn {
         /// The session id, for the cookie. Only its hash is stored.

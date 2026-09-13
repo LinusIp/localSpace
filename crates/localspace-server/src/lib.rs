@@ -332,6 +332,7 @@ pub fn router(server: Arc<Server>) -> Router {
     let signing_in = Router::new()
         .route("/login", post(auth::login))
         .route("/logout", post(auth::logout))
+        .route("/auth/mode", get(auth::mode))
         .route("/auth/login", post(auth::login_with_password))
         .route("/auth/invite/{token}", get(auth::invite_status))
         .route("/auth/set-password", post(auth::set_password));

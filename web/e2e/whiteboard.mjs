@@ -50,22 +50,22 @@ try {
   });
   page.on("pageerror", (e) => console.log(`  [pageerror] ${e.message.slice(0, 200)}`));
   await page.goto(`${origin}/?token=${token}`);
-  await page.getByRole("button", { name: "Library", exact: true }).click();
+  await page.getByRole("button", { name: "Store", exact: true }).click();
 
   // 1. Install from the catalog, unless it is installed already.
   const installed = (await api("/environment")).environment.harnesses.some((h) => h.id === "io.localspace.whiteboard");
   if (!installed) {
     step("installing the whiteboard from the catalog");
-    const row = page.locator("li", { hasText: "io.localspace.whiteboard" }).first();
-    await row.getByRole("button", { name: /Install/ }).click();
+    const tile = page.locator(".tile", { hasText: "Whiteboard" }).first();
+    await tile.getByRole("button", { name: "Install", exact: true }).click();
     await until("the install", async () => (await api("/environment")).environment.harnesses.some((h) => h.id === "io.localspace.whiteboard"));
   } else {
     step("the whiteboard is already installed");
   }
 
-  // 2. Open the board as a panel beside the chat.
-  await page.getByRole("button", { name: "Tools", exact: true }).click();
-  await page.getByTitle(/Open the web view "web"/).click();
+  // 2. Open the board: the workspace's Whiteboard, in the rail.
+  await until("the rail to list the whiteboard", async () => (await page.getByRole("button", { name: "Whiteboard", exact: true }).count()) > 0);
+  await page.getByRole("button", { name: "Whiteboard", exact: true }).first().click();
   const frameEl = page.locator("iframe[title='Board']");
   await frameEl.waitFor({ state: "visible", timeout: 15000 });
   const src = await frameEl.getAttribute("src");
@@ -247,8 +247,8 @@ try {
   const page2 = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   try {
     await page2.goto(`${origin}/?token=${token}`);
-    await page2.getByRole("button", { name: "Tools", exact: true }).click();
-    await page2.getByTitle(/Open the web view "web"/).click();
+    await until("the second window's rail to list the whiteboard", async () => (await page2.getByRole("button", { name: "Whiteboard", exact: true }).count()) > 0);
+    await page2.getByRole("button", { name: "Whiteboard", exact: true }).first().click();
     const frameEl2 = page2.locator("iframe[title='Board']");
     await frameEl2.waitFor({ state: "visible", timeout: 15000 });
     const frame2 = await (await frameEl2.elementHandle()).contentFrame();
@@ -299,7 +299,7 @@ try {
   // What the shell and Core say at the moment of a failure, so a run that
   // fails explains itself.
   if (page) {
-    const toasts = await page.locator(".ls-toast, [role=alert], [role=status]").allInnerTexts().catch(() => []);
+    const toasts = await page.locator(".toast, [role=alert], [role=status]").allInnerTexts().catch(() => []);
     console.log(`  shell toasts: ${JSON.stringify(toasts)}`);
   }
   for (const c of (await history().catch(() => [])).slice(0, 8)) console.log(`  commit ${c.id} <- ${c.parent} ${c.tool} ${c.author} ${JSON.stringify(c.diff_summary)}`);

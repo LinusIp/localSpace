@@ -4,6 +4,77 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-13, the shell as built against the app screens (Phase A, commit 9)
+
+The UI reference is the user's design canvas "localSpace App Screens"
+(seven 1440×900 artboards: sign in; first run; an answer with sources;
+the whiteboard; the Store; Settings; Admin → People), sent on 2026-09-13
+with the instruction to follow it. Directives 1–3 and 5 and the desktop
+additions of 2026-09-12 hold; the screens are how they look.
+
+- **Palette, type and shape from the screens:** page `#FAF9F8`, rail
+  `#F4F2EF`, ink `#1C1E20`, one green `#1D7A55`; Figtree, vendored
+  into the bundle under the SIL Open Font License (`web/public/fonts`),
+  never fetched from anywhere; radii 9 and 14. The tokens stay in
+  `@localspace/ui`'s stylesheet, and the surfaces read them through the
+  `--color-*` names, so the whiteboard's chrome follows.
+- **The rail** is 248 px with the mark, New chat, Chats, the workspace's
+  pages (each installed tool with a page, Documents, Store) and Admin
+  (organisation administrators only), Settings and Help at the bottom. It
+  collapses to 56 px of icons with Ctrl/Cmd+B or the toggle, and the
+  choice is kept with the user on the server (`GetPreferences` /
+  `SetPreference`, a fixed set of keys, `rail_collapsed` the first). On
+  the board it is icons by default and opens for that visit only.
+- **The top bar carries two things always:** the network as a word
+  (Offline; Online, asks first; Online) and, only when the assistant is
+  not ready, why (Starting up…; Reconnecting…; No model — choose one in
+  Settings / ask your administrator), plus the person's initials. No
+  URL, port, endpoint, token count or model filename appears anywhere a
+  member can see; those live under Settings → Advanced, which a member of
+  an organisation cannot open.
+- **The chat** opens on a greeting by first name and the time of day,
+  three things to try (each puts words in the box; the third is "Plan on
+  the board" when the whiteboard is installed, "Explain something"
+  otherwise), the composer with Attach a file (present and disabled,
+  saying that files come with document search), the assistant's human
+  name as a chip that opens Settings → Assistant, and the footnote naming
+  where answers come from. Tool calls show as what they did, in Core's
+  words, never a tool's name. Sources under an answer wait for retrieval
+  (Phase B): nothing is drawn that is not there.
+- **The board** fills the page; the harness's surface is the board; the
+  shell adds the title (the document's own when it has one), "All changes
+  saved" / "Saving…" from the writes in flight, the zoom, and the chat as
+  a drawer on the right. Presence and Share come with Phase C.
+- **The Store** lists the catalog's tools as icon, name, one sentence and
+  one button; what a tool is made of sits behind Details; a widened
+  capability is asked about in a dialog, not a browser prompt; nothing is
+  listed that is not in the catalog.
+- **Settings** has General, Assistant, Network, Tools and About, and
+  Advanced as one collapsed row. Assistant lists the models on the server
+  by their catalog titles with a reason each (the answer to the open
+  question of 2026-09-13: **the catalog names them**; an administrator's
+  own names and descriptions can come with the admin pages of Phase C);
+  whoever may add a model does it there in plain words. Advanced holds
+  the endpoint form (personal mode only), the engine and its log,
+  diagnostics (the turn's tools, the task ledger, the prompt preview, the
+  trace), history with undo/redo/drop, the environment lock, and running
+  a tool by hand.
+- **Sign in** is email and password in an organisation, the token on a
+  personal computer opened by hand (the app signs its own window in). A
+  one-time link at `/invite/<token>` sets a password; the first
+  administrator's asks for name and email too. **Admin → People** is the
+  table of the screen with the roles as words (Administrator, Member,
+  Can view only), "Invitation sent" until a password is set, and a menu
+  per person: role, a new link, unlock, sign out everywhere, disable.
+  **Admin → Workspaces** makes shared workspaces and sets each member's
+  level in words. The count line says "N people": there is no licence and
+  no seat cap in Pilot 1, so no "of 20". Administrators see a banner while
+  sign-in is by local accounts.
+- **Help** is a page of four short answers and where to turn ("Ask your IT
+  team"); a fuller guide comes with Phase D.
+- The gate walk (`web/e2e/whiteboard.mjs`) now drives the Store tile and
+  the Whiteboard item in the rail, and passes.
+
 ## 2026-09-13, the one binary and its settings file (Phase A, commit 8: four answers)
 
 Deployment §3.1–3.3, §4.1, §9.1; Pilot 1 (`docs/PILOT-1.md`) answer 27 and

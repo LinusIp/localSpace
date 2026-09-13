@@ -293,6 +293,17 @@ async fn as_system(
         })
 }
 
+/// `GET /api/v1/auth/mode`: which sign-in this server uses, for the sign-in
+/// page before anyone is signed in. Public, and says nothing else.
+pub async fn mode(State(server): State<Arc<Server>>) -> Response {
+    Json(serde_json::json!({
+        "mode": if server.cfg.personal { "personal" } else { "organisation" },
+        "provider": "local",
+        "local_accounts": !server.cfg.personal,
+    }))
+    .into_response()
+}
+
 /// `POST /api/v1/auth/login {email, password}`: organisation mode's sign-in.
 /// A wrong email, a wrong password and a locked account get one sentence.
 pub async fn login_with_password(

@@ -46,6 +46,7 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
   const redo = useSession((s) => s.redo);
   const reportZoom = useSession((s) => s.reportZoom);
   const refreshTask = useSession((s) => s.refreshTask);
+  const noteWrite = useSession((s) => s.noteWrite);
   const { harness, view } = panel;
 
   // A grant for this view, from the server: the URL on the harness origin.
@@ -128,7 +129,10 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
           const name = peer.current;
           if (!id || !name) break;
           const bytes = message.message instanceof Uint8Array ? Array.from(message.message) : message.message;
-          void call({ doc_sync: { doc: id, peer: name, message: bytes } }).catch((err: unknown) => failed(`${panel.title} could not sync its document`, err));
+          noteWrite(1);
+          void call({ doc_sync: { doc: id, peer: name, message: bytes } })
+            .catch((err: unknown) => failed(`${panel.title} could not sync its document`, err))
+            .finally(() => noteWrite(-1));
           break;
         }
         case "write": {
@@ -136,6 +140,7 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
           // back stamped with this write's number, so it can tell a document
           // read before the write from one that reflects it.
           const seq = typeof message.seq === "number" ? message.seq : 0;
+          noteWrite(1);
           void call({
             write_doc: { harness, view, doc: message.doc as never, commit: message.commit !== false },
           })
@@ -144,7 +149,8 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
               const doc = await fetchDoc();
               post({ type: "doc", doc, written: written.current });
             })
-            .catch((err: unknown) => failed(`${panel.title} could not write its document`, err));
+            .catch((err: unknown) => failed(`${panel.title} could not write its document`, err))
+            .finally(() => noteWrite(-1));
           break;
         }
         case "send": {
@@ -221,7 +227,7 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
       window.removeEventListener("message", onMessage);
       for (const f of off) f();
     };
-  }, [target, harness, view, panel.key, panel.title, active, notify, trace, undo, redo, reportZoom, refreshTask]);
+  }, [target, harness, view, panel.key, panel.title, active, notify, trace, undo, redo, reportZoom, refreshTask, noteWrite]);
 
   // Focus follows the active tab.
   useEffect(() => {

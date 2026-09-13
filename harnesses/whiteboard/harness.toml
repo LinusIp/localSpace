@@ -3,6 +3,7 @@ id = "io.localspace.whiteboard"
 version = "1.2.0"
 api = "^1.0"
 title = "Whiteboard"
+description = "An endless canvas for notes, diagrams and planning together. Ask for a plan and it lands on the board; move, connect and colour it yourself."
 publisher = "localSpace"
 tier = "wasm"
 

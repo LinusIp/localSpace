@@ -1,36 +1,50 @@
-import { Card, SectionTitle } from "@localspace/ui";
+// Help: short, in the words of the screens, with one place to turn.
+
+import { useSession } from "../store";
+import { TopBar } from "../components/TopBar";
 
 export function HelpPage() {
+  const { me, environment } = useSession();
+  const organisation = me?.topology === "organisation";
+  const board = environment?.harnesses.some((h) => h.id === "io.localspace.whiteboard") ?? false;
   return (
-    <div className="page">
-      <Card className="ls-pad-6" style={{ maxWidth: "48rem", lineHeight: 1.6 }}>
-        <SectionTitle>How this works</SectionTitle>
-        <p>
-          localSpace runs an agent over <em>harnesses</em>: installable tools with their own documents, each declaring exactly what it may touch.
-          Nothing leaves this machine unless the network mode allows it, and every change a tool makes is a commit you can undo.
+    <>
+      <TopBar />
+      <div className="page">
+        <h1 className="page-title">Help</h1>
+        <div className="page-sub">{organisation ? "localSpace runs on your organisation's own server. Nothing you type leaves your network." : "localSpace runs on this computer."}</div>
+        <div className="row-list" style={{ maxWidth: 660 }}>
+          <div className="row-item">
+            <div className="row-main">
+              <div className="row-title">Ask in your own words</div>
+              <div className="row-body">Type what you want in the box and press Enter. Shift+Enter adds a line. The assistant answers, and asks you before it does anything that needs your say-so.</div>
+            </div>
+          </div>
+          {board && (
+            <div className="row-item">
+              <div className="row-main">
+                <div className="row-title">The whiteboard</div>
+                <div className="row-body">Open Whiteboard in the sidebar. Notes, shapes and arrows are yours to move; ask the assistant for a plan and it puts one on the board. Ctrl+Z undoes, Ctrl+Shift+Z redoes.</div>
+              </div>
+            </div>
+          )}
+          <div className="row-item">
+            <div className="row-main">
+              <div className="row-title">Choosing the assistant</div>
+              <div className="row-body">Settings → Assistant lists what is available and what each is good for. Settings → Network says whether the assistant may reach the internet.</div>
+            </div>
+          </div>
+          <div className="row-item">
+            <div className="row-main">
+              <div className="row-title">If something is wrong</div>
+              <div className="row-body">{organisation ? "Ask your IT team. They can see the server, add people, and send you a new sign-in link." : "Settings → Advanced shows what the app knows about itself."}</div>
+            </div>
+          </div>
+        </div>
+        <p className="ls-small ls-faint" style={{ marginTop: 22 }}>
+          localSpace {me?.version ?? ""}
         </p>
-        <h3 className="ls-mt-4 ls-medium">Getting a model</h3>
-        <p>
-          Open <strong>Models</strong> and choose one from the catalog, or connect an OpenAI-compatible endpoint, for example a running{" "}
-          <span className="ls-mono">llama-server</span>. The top bar shows <strong>Ready</strong> once one is selected.
-        </p>
-        <h3 className="ls-mt-4 ls-medium">Chat</h3>
-        <p>
-          Enter sends, Shift+Enter adds a line. Tool calls appear inline as they run; anything that needs your say-so appears as an approval card.{" "}
-          <strong>Stop</strong> cancels the turn.
-        </p>
-        <h3 className="ls-mt-4 ls-medium">Tools, Agents, History</h3>
-        <p>
-          <strong>Tools</strong> shows what the model can reach this turn and why, lets you run a tool yourself, and opens a harness's views as panels
-          beside the chat. <strong>Agents</strong> shows the task ledger and the exact prompt the model will see. <strong>History</strong> is the version
-          DAG: undo, redo, or drop an agent's whole run.
-        </p>
-        <h3 className="ls-mt-4 ls-medium">Library</h3>
-        <p>
-          Only chat ships in the box; harnesses come from the catalog the server was started with and are installed from there. Installing one that asks
-          for wider capabilities than before shows the difference and asks first.
-        </p>
-      </Card>
-    </div>
+      </div>
+    </>
   );
 }
