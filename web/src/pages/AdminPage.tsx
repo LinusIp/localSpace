@@ -2,9 +2,9 @@
 // organisation server. Every action here is one request Core checks.
 
 import { useEffect, useState } from "react";
-import { Dialog, Menu, MoreIcon, PlusIcon } from "@localspace/ui";
+import { Dialog, Menu, MoreIcon, PlusIcon, SearchIcon } from "@localspace/ui";
 import type { AccessLevel, Invite, UserInfo, UserRole, WorkspaceInfo } from "../api/generated";
-import { initialsOf, useSession } from "../store";
+import { avatarColour, initialsOf, useSession } from "../store";
 import type { AdminPane } from "../store";
 import { TopBar } from "../components/TopBar";
 import { whenLabel } from "../lib/time";
@@ -31,30 +31,20 @@ function roleOf(user: UserInfo): { role: UserRole; label: string } {
   return ROLES.find((r) => user.roles.includes(r.role)) ?? ROLES[1];
 }
 
-const AVATAR_COLOURS = ["#1D7A55", "#8A5A2B", "#3E5C8A", "#6B4E8A", "#8A3E4E"];
-function colourFor(id: string): string {
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return AVATAR_COLOURS[h % AVATAR_COLOURS.length];
-}
-
 export function AdminPage() {
   const { adminPane, goAdmin } = useSession();
   return (
     <>
       <TopBar />
-      <div className="settings">
-        <nav className="subnav" aria-label="Admin">
-          <div className="subnav-title">Admin</div>
-          <div className="ls-col" style={{ gap: 2 }}>
-            {PANES.map((p) => (
-              <button key={p.id} type="button" className={`sub${adminPane === p.id ? " on" : ""}`} onClick={() => goAdmin(p.id)}>
-                {p.label}
-              </button>
-            ))}
-          </div>
+      <div className="page">
+        <nav className="tabs-quiet" aria-label="Admin">
+          {PANES.map((p) => (
+            <button key={p.id} type="button" className={`tab-quiet${adminPane === p.id ? " on" : ""}`} aria-current={adminPane === p.id ? "page" : undefined} onClick={() => goAdmin(p.id)}>
+              {p.label}
+            </button>
+          ))}
         </nav>
-        <div className="pane" style={{ padding: "8px 48px 40px" }}>{adminPane === "people" ? <People /> : <Workspaces />}</div>
+        {adminPane === "people" ? <People /> : <Workspaces />}
       </div>
     </>
   );
@@ -106,6 +96,7 @@ function People() {
   const [error, setError] = useState<string | null>(null);
   const [link, setLink] = useState<{ invite: Invite; what: string } | null>(null);
   const [search, setSearch] = useState("");
+  const [searching, setSearching] = useState(false);
   // The clock the "locked" pills are read against; refreshed with the list.
   const [now, setNow] = useState(() => Date.now());
 
@@ -141,7 +132,24 @@ function People() {
           <div className="page-sub">Who can sign in to localSpace here.</div>
         </div>
         <div className="ls-row ls-gap-2">
-          <input className="input" style={{ height: 36, width: 220, fontSize: 14 }} placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search people" />
+          {searching ? (
+            <input
+              className="input"
+              style={{ height: 36, width: 240, fontSize: 14 }}
+              placeholder="Name or email"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onBlur={() => {
+                if (!search.trim()) setSearching(false);
+              }}
+              aria-label="Search people"
+              autoFocus
+            />
+          ) : (
+            <button type="button" className="btn tall" onClick={() => setSearching(true)}>
+              <SearchIcon size={16} /> Search
+            </button>
+          )}
           <button type="button" className="btn solid tall" onClick={() => setInviting(true)}>
             <PlusIcon size={16} /> Invite people
           </button>
@@ -166,7 +174,7 @@ function People() {
                 <tr key={u.id}>
                   <td>
                     <div className="person">
-                      <span className="avatar small" style={{ background: u.disabled ? "#c4c1bc" : colourFor(u.id) }} aria-hidden="true">
+                      <span className="avatar small" style={{ background: u.disabled || !u.has_password ? "#c4c1bc" : avatarColour(u.id) }} aria-hidden="true">
                         {initialsOf(u.name || u.email)}
                       </span>
                       <div>
@@ -374,7 +382,7 @@ function WorkspaceCard({ workspace, users }: { workspace: WorkspaceInfo; users: 
               <tr key={m.principal.user}>
                 <td>
                   <div className="person">
-                    <span className="avatar small" style={{ background: colourFor(m.principal.user) }} aria-hidden="true">
+                    <span className="avatar small" style={{ background: avatarColour(m.principal.user) }} aria-hidden="true">
                       {initialsOf(u?.name || u?.email || m.principal.user)}
                     </span>
                     <div>

@@ -235,12 +235,12 @@ try {
   await until("the two notes to go", async () => !(await doc()).shapes.some((s) => s.id === noteA || s.id === noteB), 20000);
   step("a note dropped 5 px off another's left edge came to rest on it, with a guide drawn; with Alt held it stayed 5 px off");
 
-  // 8. Zoom from the shell's top bar reaches the frame, and the frame reports back.
+  // 8. The zoom control on the board zooms the editor, and says so.
   const z0 = (await state()).zoom;
-  await page.getByRole("button", { name: "Zoom in" }).click();
+  await frame.getByRole("button", { name: "Zoom in" }).click();
   await until("the frame to zoom", async () => Math.abs((await state()).zoom - z0) > 0.01);
-  const label = await page.locator("button", { hasText: /^\d+%$/ }).first().innerText();
-  step(`zoom from the top bar: ${label} in the shell, ${((await state()).zoom * 100).toFixed(0)}% in the frame`);
+  const label = await frame.locator("button", { hasText: /^\d+%$/ }).first().innerText();
+  step(`zoom from the board's control: ${label} shown, ${((await state()).zoom * 100).toFixed(0)}% in the editor`);
 
   // 9. The same board in a second window: two replicas of one document, each
   // with its own sync state in Core; an edit in either window reaches the other.
@@ -263,9 +263,9 @@ try {
     await page2.close();
   }
 
-  // 10. Export (6.0): a PNG and an SVG of the board from the toolbar land
-  // as artifacts pinned to the board's head, as documents of their own, and
-  // download as attachments with their bytes intact.
+  // 10. Export (6.0): a PNG and an SVG of the board from the bar's Export
+  // menu land as artifacts pinned to the board's head, as documents of
+  // their own, and download as attachments with their bytes intact.
   const boardDoc = (await api("/docs/io.localspace.whiteboard")).doc_json.doc;
   const boardHead = (await history()).find((c) => c.doc === boardDoc).id;
   const artifactOf = async (kind) => (await api("/task")).task.artifacts.find((a) => a.kind === kind && a.fields.commit === boardHead && a.file) ?? null;
@@ -273,16 +273,16 @@ try {
     const r = await fetch(`${origin}/api/v1/documents/${encodeURIComponent(id)}/content`, { headers: { Authorization: `Bearer ${token}` } });
     return { status: r.status, type: r.headers.get("content-type"), disposition: r.headers.get("content-disposition") ?? "", sniff: r.headers.get("x-content-type-options"), bytes: new Uint8Array(await r.arrayBuffer()) };
   };
-  await frame.getByRole("button", { name: "Export" }).click();
-  await frame.getByRole("menuitem", { name: /PNG/ }).click();
+  await page.getByRole("button", { name: /^Export/ }).click();
+  await page.getByRole("menuitem", { name: /PNG/ }).click();
   const png = await until("the PNG artifact", () => artifactOf("image.v1"), 30000);
   const gotPng = await download(png.doc);
   const pngMagic = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   if (gotPng.status !== 200 || gotPng.type !== "image/png" || !gotPng.disposition.startsWith("attachment;") || gotPng.sniff !== "nosniff" || !pngMagic.every((b, i) => gotPng.bytes[i] === b) || gotPng.bytes.length !== png.file.bytes) {
     throw new Error(`the PNG download is wrong: ${JSON.stringify({ ...gotPng, bytes: gotPng.bytes.length, expected: png.file.bytes })}`);
   }
-  await frame.getByRole("button", { name: "Export" }).click();
-  await frame.getByRole("menuitem", { name: /SVG/ }).click();
+  await page.getByRole("button", { name: /^Export/ }).click();
+  await page.getByRole("menuitem", { name: /SVG/ }).click();
   const svg = await until("the SVG artifact", () => artifactOf("svg.v1"), 30000);
   const gotSvg = await download(svg.doc);
   const svgText = new TextDecoder().decode(gotSvg.bytes);
@@ -292,7 +292,7 @@ try {
   const listed = (await request("list_documents")).documents.documents;
   for (const d of [png.doc, svg.doc]) if (!listed.some((x) => x.id === d)) throw new Error(`${d} is not in the document listing`);
   if (!png.file.name.endsWith(`-${boardHead.slice(0, 7)}.png`)) throw new Error(`the PNG is not named after the board's head: ${png.file.name}`);
-  step(`export from the toolbar: ${png.file.name} (${png.file.bytes} bytes) and ${svg.file.name}, pinned to ${boardHead.slice(0, 7)}, listed, downloaded as attachments`);
+  step(`export from the bar: ${png.file.name} (${png.file.bytes} bytes) and ${svg.file.name}, pinned to ${boardHead.slice(0, 7)}, listed, downloaded as attachments`);
 
   console.log(`PASS${agentAdded ? ` (agent added ${agentAdded})` : ""}`);
 } catch (err) {

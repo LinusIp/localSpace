@@ -22,6 +22,11 @@ export default function App() {
     const m = /^\/invite\/([0-9a-f]+)\/?$/.exec(location.pathname);
     return m ? m[1] : null;
   });
+  // A shared link to a board: opened once the shell is up, then the address is plain again.
+  const [boardLink] = useState<string | null>(() => {
+    const m = /^\/board\/([^/]+)\/?$/.exec(location.pathname);
+    return m ? decodeURIComponent(m[1]) : null;
+  });
 
   // A token in the URL is the desktop app signing its window in. It is
   // exchanged for the cookie and removed from the address at once.
@@ -62,17 +67,23 @@ export default function App() {
     return <div className="auth ls-muted">Connecting…</div>;
   }
   if (!session.me) return <SignInPage />;
-  return <Shell />;
+  return <Shell boardLink={boardLink} />;
 }
 
-function Shell() {
+function Shell({ boardLink }: { boardLink: string | null }) {
   const { me, page, onEvent, setLive, refreshEnvironment, refreshTranscript, refreshModels, refreshModelCatalog, refreshTask, refreshConversations, loadPreferences, notices } = useSession();
 
   // The event stream keeps everything current while the shell is open; the
   // first state is fetched outright.
   useEffect(() => {
     const stop = events(onEvent, setLive);
-    void refreshEnvironment();
+    void refreshEnvironment().then(() => {
+      if (!boardLink) return;
+      history.replaceState(null, "", "/");
+      const s = useSession.get();
+      if (s.environment?.harnesses.some((h) => h.id === boardLink)) s.openBoard(boardLink);
+      else s.notify("warn", "That board is not in this workspace.");
+    });
     void refreshTranscript();
     void refreshModels();
     void refreshModelCatalog();

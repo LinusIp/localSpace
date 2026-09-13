@@ -8,7 +8,7 @@
 import { build } from "vite";
 import { resolve } from "node:path";
 import { createRequire } from "node:module";
-import { copyFileSync, existsSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 
 const root = process.cwd();
 const outDir = resolve(root, "dist/_localspace");
@@ -97,6 +97,19 @@ shim("react-dom-client.js", "__domClient", "react-dom/client");
 for (const file of readdirSync(outDir)) {
   const m = /^(ui)-[A-Za-z0-9_-]+\.css$/.exec(file);
   if (m) renameSync(resolve(outDir, file), resolve(outDir, `${m[1]}.css`));
+}
+
+// The stylesheet's fonts go beside it under the library's name: a harness
+// origin serves flat names under `_localspace/` and nothing else, and the
+// board draws its text in the same face as the shell.
+const uiCss = resolve(outDir, "ui.css");
+if (existsSync(uiCss)) {
+  const text = readFileSync(uiCss, "utf8").replace(/url\((["']?)\/fonts\/([A-Za-z0-9._-]+)\1\)/g, (_, _q, file) => {
+    copyFileSync(resolve(root, "public/fonts", file), resolve(outDir, `ui-${file}`));
+    return `url("./ui-${file}")`;
+  });
+  writeFileSync(uiCss, text);
+  console.log("fonts beside ui.css");
 }
 
 // Automerge's WebAssembly, a file of its own: the slim build fetches it from

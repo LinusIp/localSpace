@@ -37,7 +37,7 @@ button {
 .chip.quiet { background: var(--ls-page); }
 
 .avatar { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; border: 0; padding: 0; background: var(--ls-ink); color: #fff; font-size: 12.5px; font-weight: 600; cursor: pointer; }
-.avatar.small { width: 29px; height: 29px; font-size: 11.5px; }
+.avatar.small { width: 31px; height: 31px; font-size: 12px; }
 .avatar.soft { background: var(--ls-accent-soft); border: 1px solid var(--ls-accent-line); color: var(--ls-accent); }
 
 /* -- the rail ------------------------------------------------------------ */
@@ -127,10 +127,14 @@ button {
 .board-stage { flex: 1 1 auto; min-width: 0; position: relative; display: flex; flex-direction: column; }
 .board-layer { position: absolute; inset: 0; }
 .board-status { font-size: 12.5px; color: var(--ls-faint); }
-.board-zoom { display: inline-flex; align-items: center; gap: 2px; height: 32px; padding: 0 4px; border: 1px solid var(--ls-line); border-radius: 9px; background: var(--ls-surface); }
-.board-zoom button { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 28px; border: 0; background: transparent; color: var(--ls-ink-soft); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 6px; }
-.board-zoom button:hover { background: var(--ls-page); }
-.drawer-tab { position: absolute; right: 0; top: 64px; z-index: 3; width: 38px; height: 132px; border: 1px solid var(--ls-line); border-right: 0; border-radius: 11px 0 0 11px; background: var(--ls-surface); box-shadow: -2px 0 10px rgba(28, 30, 32, 0.04); display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+.board-bar .btn { height: 32px; font-size: 13.5px; }
+.board-bar .btn:not(.solid) { font-weight: 500; }
+.board-bar .btn svg { color: var(--ls-faint); }
+.stack { display: inline-flex; align-items: center; }
+.stack .avatar { width: 28px; height: 28px; font-size: 11px; border: 2px solid var(--ls-surface); cursor: default; }
+.stack .avatar + .avatar { margin-left: -8px; }
+.stack .avatar.more { background: var(--ls-hover); color: var(--ls-ink-soft); }
+.drawer-tab { position: absolute; right: 0; top: 120px; z-index: 3; width: 38px; height: 132px; border: 1px solid var(--ls-line); border-right: 0; border-radius: 11px 0 0 11px; background: var(--ls-surface); box-shadow: -2px 0 10px rgba(28, 30, 32, 0.04); display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
 .drawer-tab span { transform: rotate(90deg); white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--ls-ink-soft); display: flex; align-items: center; gap: 7px; }
 .drawer { width: 420px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--ls-line); background: var(--ls-page); }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 12px 0 18px; border-bottom: 1px solid var(--ls-line); font-weight: 600; font-size: 14px; }
@@ -170,6 +174,7 @@ button {
 .btn { height: 34px; padding: 0 15px; border: 1px solid var(--ls-line-strong); border-radius: 9px; background: var(--ls-surface); font: inherit; font-size: 13.5px; font-weight: 600; color: var(--ls-ink); display: inline-flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap; }
 .btn:hover { background: var(--ls-page); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn.on { background: var(--ls-page); }
 .btn.solid { background: var(--ls-accent); border-color: var(--ls-accent); color: #fff; }
 .btn.solid:hover { background: var(--ls-accent-strong); }
 .btn.danger { color: var(--ls-danger); }
@@ -226,6 +231,10 @@ button {
 
 /* -- admin --------------------------------------------------------------------- */
 
+.tabs-quiet { display: flex; gap: 18px; margin-bottom: 14px; }
+.tab-quiet { border: 0; background: transparent; padding: 0; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--ls-faint); cursor: pointer; }
+.tab-quiet:hover { color: var(--ls-ink-soft); }
+.tab-quiet.on { color: var(--ls-ink); }
 .table-card { margin-top: 24px; background: var(--ls-surface); border: 1px solid var(--ls-line); border-radius: 14px; overflow: hidden; }
 .table { width: 100%; border-collapse: collapse; text-align: left; }
 .table th { font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--ls-faint); padding: 16px 16px 10px; }

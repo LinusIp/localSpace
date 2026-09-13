@@ -23,6 +23,7 @@ import type {
   ModelInfo,
   NetworkMode,
   NoticeLevel,
+  Present,
   SurfaceKind,
   Task,
   ToolOutcome,
@@ -46,6 +47,9 @@ export type Panel = {
 
 /** v2 §6.1: the shell keeps at most this many views open. */
 export const MAX_PANELS = 6;
+
+/** This window's name in Core's presence: two windows of one person are two announcements. */
+const PEER = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
 
 export type Page = "chat" | "board" | "documents" | "store" | "settings" | "admin" | "help";
 export type SettingsPane = "general" | "assistant" | "network" | "tools" | "about" | "advanced";
@@ -100,6 +104,8 @@ export type Session = {
   boardRailOpen: boolean;
   users: UserInfo[];
   workspaces: WorkspaceInfo[];
+  /** Who has each board open, from Core, for the boards this window was told about. */
+  present: Record<string, Present[]>;
 
   signIn: (me: Me) => void;
   signOut: () => void;
@@ -121,6 +127,8 @@ export type Session = {
   reportZoom: (key: string, zoom: number) => void;
   setRail: (collapsed: boolean) => Promise<void>;
   loadPreferences: () => Promise<void>;
+  /** Tell Core which board this window shows, or that it left; the people on it hear. */
+  announcePresence: (board: string | null) => Promise<void>;
 
   refreshEnvironment: () => Promise<void>;
   refreshTranscript: () => Promise<void>;
@@ -198,6 +206,7 @@ const EMPTY = {
   currentConversation: "",
   board: null,
   panels: [] as Panel[],
+  present: {} as Record<string, Present[]>,
   chatBeside: false,
   pendingWrites: 0,
   users: [] as UserInfo[],
@@ -306,6 +315,15 @@ export const useSession = createStore<Session>((set, get) => {
       set({ railCollapsed: collapsed });
       await attempt(() => call({ set_preference: { key: "rail_collapsed", value: collapsed ? "true" : "false" } }));
     },
+    announcePresence: async (board) => {
+      // Quietly: a window announces every twenty seconds, and a server that
+      // is away for one of them is back for the next.
+      try {
+        await call({ presence: { board, peer: PEER } });
+      } catch {
+        // the next announcement tries again
+      }
+    },
     loadPreferences: async () => {
       await attempt(async () => {
         const preferences = pick(await call("get_preferences"), "preferences");
@@ -358,6 +376,9 @@ export const useSession = createStore<Session>((set, get) => {
           ),
         }));
         if (stage === "done" || stage.startsWith("failed")) void get().refreshModelCatalog();
+      } else if ("presence" in event) {
+        const { board, people } = event.presence;
+        set((s) => ({ present: { ...s.present, [board]: people } }));
       } else if ("conversation_changed" in event) {
         // This or another client switched, created or deleted one.
         set({ currentConversation: event.conversation_changed.current, streaming: "", liveCalls: [] });
@@ -626,6 +647,14 @@ export function outcomeLine(outcome: ToolOutcome): string {
 }
 
 /** The initials shown for a person: two letters from their name, or their email. */
+/** The colours the screens give people's initials, one per person, the same everywhere they appear. */
+const AVATAR_COLOURS = ["#1D7A55", "#8A5A2B", "#3E5C8A", "#6B4E8A", "#8A3E4E"];
+export function avatarColour(id: string): string {
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return AVATAR_COLOURS[h % AVATAR_COLOURS.length];
+}
+
 export function initialsOf(name: string | null | undefined, fallback = "?"): string {
   const parts = (name ?? "")
     .replace(/@.*$/, "")

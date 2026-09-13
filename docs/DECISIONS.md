@@ -4,6 +4,77 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-13, the board and the People page as built against the app screens (Phase A, commit 9, continued)
+
+The user sent the board and the Admin → People artboards again: "the
+canvas must look like this and the team section too". What changed, and
+what each thing on the screen is backed by, because every claim on a
+screen has to be true:
+
+- **The board's bar.** White, 56 px, a hairline under it: back, the
+  board's name, "All changes saved" or "Saving…", and on the right the
+  network chip, the people on the board, Export and Share. The zoom left
+  the bar for the board itself.
+- **The people on the board are presence, not decoration.** Core keeps who
+  has which board open (`Request::Presence { board, peer }`,
+  `Event::Presence { board, people }`,
+  `crates/localspace-core/src/presence.rs`). A window of the shell
+  announces the board it shows every twenty seconds and nothing when it
+  leaves; a window quiet for forty-five seconds is forgotten
+  (`Config.presence_ttl_ms`); a window may announce only a board it may
+  read; only the people on a board are told who is on it; the same person
+  in two windows counts once; a board in another workspace is another
+  place. The avatars are those people in order of arrival, their initials
+  in the colour the People page gives them. A personal workstation shows
+  none: there is nobody else. Another person's cursor with their name (the
+  artboard's "Bek") needs a cursor channel and stays in Phase C.
+- **Share is a link and who can open it.** In a shared workspace the
+  dialog says everyone in the workspace can open the board and how many
+  people that is, and copies `/board/<harness>`, which the shell opens
+  after sign-in (`web/src/App.tsx`). It gives nobody new a way in and says
+  so. A personal workspace has no Share: it takes no members.
+- **Export** in the bar asks the surface for a PNG or an SVG by command;
+  the surface renders and hands the file to Core as before, and the shell
+  says what was exported. The surface's own copy of that note went, for
+  the package's size limit (below).
+- **Inside the frame the tools float.** A palette on the left (select,
+  sticky note, rectangle, ellipse, connector, text, pen, frame; panning is
+  the space bar, the middle button or H), the zoom control bottom right,
+  and a bar above the board for the selection (colours, lock, bring to
+  front, delete) only while something is selected. Undo and redo are
+  Ctrl+Z and Ctrl+Shift+Z: the artboard has no buttons for them, and the
+  package's size limit left no room for any. The board fits itself to the
+  frame once the frame has a size; a frame opened in a hidden tab has none
+  at first, and a fit to nothing was the smallest zoom there is.
+- **The notes and the connectors.** A note is a pastel card with no border
+  and a soft shadow, 196 × 108 by default; its first line is its title in
+  bold and the rest its body (`Scene.stickyLayout`); the colours are the
+  artboard's (yellow #FBE8A6, blue #CDE3F5, red #F6D2CF, green #D9EFDF;
+  amber and grey in the same key). A connector between two shapes leaves
+  the middle of the side that faces the other and curves
+  (`Scene.arrowCurve`), grey #9A9DA1 at 2.2 px with a 9 px head; towards
+  a free end it is straight. The selection is a 1.6 px green outline five
+  pixels out with corner handles; the page is dotted. The SVG export draws
+  the same, and the tests of the canvas package say so.
+- **The board's text is Figtree.** The frame's stylesheet now carries its
+  fonts beside it under `_localspace/` (`web/scripts/build-libs.mjs`), the
+  only place a harness origin serves shared files from; the canvas
+  measures and draws in the same face, and draws again when the font
+  arrives.
+- **The whiteboard package is 1.3.0**: its web surface changed, and a
+  package whose content changes gets a new version (2026-09-11). Its
+  bundle first measured 4.7 KB gzipped against the 4.5 KB limit of
+  2026-09-10 (`web/size-limits.json`); with the duplicate export note gone
+  it is 4.57 KB, inside the limit, which stays where it was.
+- **People (Admin).** No side column: People and Workspaces are two quiet
+  tabs above the heading; Search is a button that opens the field; the
+  rest of the table was the artboard's already. Two things the artboard
+  says that the product cannot say truthfully stay out: "at Meridian Bank"
+  needs an organisation name the configuration does not carry, so the
+  line reads "here"; "4 of 20 seats used" needs a seat cap Pilot 1 does
+  not have (2026-09-13, the shell as built), so the count reads "N
+  people". Both are questions to the user, still open.
+
 ## 2026-09-13, CI: what fifteen red runs were, and the pipeline that replaces it
 
 Every run of the workflow since the first push failed, all of them in the
