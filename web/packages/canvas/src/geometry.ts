@@ -76,6 +76,32 @@ export function centre(b: Box): Point {
   return { x: b.x + b.w / 2, y: b.y + b.h / 2 };
 }
 
+/** The midpoint of the side of `b` that faces `target`: left or right when the offset is mostly sideways, else top or bottom. */
+export function sideTowards(b: Box, target: Point): Point {
+  const c = centre(b);
+  const dx = target.x - c.x;
+  const dy = target.y - c.y;
+  if (Math.abs(dx) >= Math.abs(dy)) return { x: dx >= 0 ? b.x + b.w : b.x, y: c.y };
+  return { x: c.x, y: dy >= 0 ? b.y + b.h : b.y };
+}
+
+/** The point at `t` along the cubic Bézier a–c1–c2–b. */
+export function cubicPoint(a: Point, c1: Point, c2: Point, b: Point, t: number): Point {
+  const u = 1 - t;
+  const w0 = u * u * u;
+  const w1 = 3 * u * u * t;
+  const w2 = 3 * u * t * t;
+  const w3 = t * t * t;
+  return { x: w0 * a.x + w1 * c1.x + w2 * c2.x + w3 * b.x, y: w0 * a.y + w1 * c1.y + w2 * c2.y + w3 * b.y };
+}
+
+/** `steps` segments along the cubic a–c1–c2–b, both ends included: the curve as a polyline. */
+export function cubicPoints(a: Point, c1: Point, c2: Point, b: Point, steps = 16): Point[] {
+  const out: Point[] = [];
+  for (let i = 0; i <= steps; i++) out.push(cubicPoint(a, c1, c2, b, i / steps));
+  return out;
+}
+
 export function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }

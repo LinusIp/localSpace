@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Scene } from "./scene.ts";
+import { cubicPoint } from "./geometry.ts";
 import { hitHandle, hitTest, nodesWithin } from "./hit.ts";
 import { FixedMeasurer } from "./text.ts";
 import type { Node } from "./model.ts";
@@ -64,6 +65,56 @@ test("an arrow follows the shapes it joins and lets go of one that is deleted", 
   const arrow = s.get("arrow") as Node;
   assert.equal(arrow.to, null);
   assert.deepEqual(arrow.end, [800, 55], "the free end stays where b's edge was");
+});
+
+test("a connector between two shapes leaves the side that faces the other and curves; a free end is straight", () => {
+  const s = new Scene(new FixedMeasurer());
+  s.set(sticky("a", 0, 0));
+  s.set(sticky("b", 400, 200));
+  s.set(sticky("below", 0, 400));
+  s.set({ ...sticky("side", 0, 0, 5), kind: "arrow", w: 0, h: 0, fill: "grey", from: "a", to: "b" });
+  s.set({ ...sticky("down", 0, 0, 6), kind: "arrow", w: 0, h: 0, fill: "grey", from: "a", to: "below" });
+  s.set({ ...sticky("free", 0, 0, 7), kind: "arrow", w: 0, h: 0, fill: "grey", from: "a", to: null, end: [300, 300] });
+
+  // Side by side: from the middle of a's right side to the middle of b's left side, as an S.
+  const side = s.arrowCurve(s.get("side") as Node);
+  assert.ok(side);
+  assert.deepEqual(side.a, { x: 130, y: 55 });
+  assert.deepEqual(side.b, { x: 400, y: 255 });
+  assert.deepEqual(side.c1, { x: 265, y: 55 }, "leaves a level");
+  assert.deepEqual(side.c2, { x: 265, y: 255 }, "arrives level");
+  // The curve is what is hit, not the chord between its ends.
+  const onCurve = cubicPoint(side.a, side.c1, side.c2, side.b, 0.25);
+  assert.equal(hitTest(s, onCurve, 0)?.id, "side");
+  assert.equal(hitTest(s, { x: 197.5, y: 105 }, 0), null, "a quarter of the way along the chord is off the curve");
+
+  // One above the other: from the middle of a's bottom to the middle of below's top, straight down.
+  const down = s.arrowCurve(s.get("down") as Node);
+  assert.ok(down);
+  assert.deepEqual(down.a, { x: 65, y: 110 });
+  assert.deepEqual(down.b, { x: 65, y: 400 });
+  assert.deepEqual(down.c1, { x: 65, y: 255 });
+  assert.deepEqual(down.c2, { x: 65, y: 255 });
+  assert.equal(hitTest(s, { x: 65, y: 300 }, 0)?.id, "down");
+
+  // A free end: no curve, and the shape's edge towards the end point.
+  assert.equal(s.arrowCurve(s.get("free") as Node), null);
+  const [start, end] = s.endpoints(s.get("free") as Node);
+  assert.deepEqual(end, { x: 300, y: 300 });
+  assert.ok(start.x > 65 && start.y > 55, `leaves a towards the end: ${JSON.stringify(start)}`);
+});
+
+test("a note's first line is its title and the rest its body, wrapped inside the padding", () => {
+  const s = new Scene(new FixedMeasurer(8));
+  const note = { ...sticky("n", 0, 0), w: 196, text: "Research\nInterview six customers before we commit to the date" };
+  s.set(note);
+  const l = s.stickyLayout(note);
+  assert.deepEqual(l.title.lines, ["Research"]);
+  assert.ok(l.body);
+  // 196 - 28 of padding = 168 px, 21 characters a line at 8 px.
+  assert.equal(l.body.lines[0], "Interview six");
+  assert.equal(l.body.lineHeight, 13.5 * 1.45);
+  assert.equal(s.stickyLayout({ ...note, text: "Title only" }).body, null);
 });
 
 test("marquee selection takes only what lies fully inside", () => {

@@ -81,15 +81,19 @@ test("an SVG has every kind in place, text wrapped as the canvas wraps it, and n
   assert.ok(svg.includes(`font-family="${SVG_FONT}"`));
   assert.ok(svg.endsWith("</svg>"));
 
-  // The background, the frame and its title, a sticky, a white rect with
-  // its colour chip, an ellipse, an arrow with a head and a label, a stroke.
-  assert.equal((svg.match(/<rect /g) ?? []).length, 1 + 1 + 1 + 1 + 1 + 1 + 1 + 2, svg);
+  // Rects: the background, the frame, the sticky, the white rect and its
+  // colour chip, the clips around the two texts that wrap and the label
+  // that does not, and the connector's own label.
+  assert.equal((svg.match(/<rect /g) ?? []).length, 9, svg);
   assert.ok(svg.includes(">Risks</text>"));
-  assert.ok(svg.includes('rx="6" fill="#fdf6d8" stroke="#a88a17"'), "the sticky's fill and stroke");
-  assert.ok(svg.includes('rx="10" fill="#ffffff" stroke="#2f6fcb"'), "a white rect with the blue stroke");
-  assert.ok(svg.includes('width="14" height="14" fill="#e8f0fb"'), "the blue chip");
+  assert.ok(svg.includes('rx="4" fill="#fbe8a6"/>'), "the sticky's pastel fill, no border");
+  assert.ok(svg.includes('rx="10" fill="#ffffff" stroke="#3e6fa8"'), "a white rect with the blue stroke");
+  assert.ok(svg.includes('width="14" height="14" fill="#cde3f5"'), "the blue chip");
   assert.equal((svg.match(/<ellipse /g) ?? []).length, 1);
-  assert.equal((svg.match(/<line /g) ?? []).length, 1);
+  // The connector joins two shapes: a curve in the connector grey, not a line.
+  assert.equal((svg.match(/<line /g) ?? []).length, 0);
+  assert.equal((svg.match(/<path d="M /g) ?? []).length, 1);
+  assert.ok(svg.includes('stroke="#9a9da1" stroke-width="2.2"'), "the connector's colour and width");
   assert.equal((svg.match(/<polygon /g) ?? []).length, 1);
   assert.ok(svg.includes('text-anchor="middle" xml:space="preserve">leads to</text>'));
   assert.equal((svg.match(/<polyline /g) ?? []).length, 1);
@@ -98,12 +102,12 @@ test("an SVG has every kind in place, text wrapped as the canvas wraps it, and n
   // Text: escaped, one positioned tspan per wrapped line, the size written.
   assert.ok(svg.includes("&lt;new&gt;") && svg.includes("&amp;"), "escaped");
   assert.ok(!svg.includes("<new>"));
-  const stickyLayout = s.textLayout(s.get("a")!);
-  assert.ok(stickyLayout.lines.length > 1, "the fixture wraps");
+  const stickyLayout = s.stickyLayout(s.get("a")!);
+  assert.ok(stickyLayout.title.lines.length > 1, "the fixture wraps");
+  assert.equal(stickyLayout.body, null, "one paragraph: a title and no body");
   const stickyText = svg.slice(svg.indexOf('<clipPath id="clip1">'), svg.indexOf("</text>", svg.indexOf('<clipPath id="clip1">')));
-  assert.equal((stickyText.match(/<tspan /g) ?? []).length, stickyLayout.lines.length);
-  assert.ok(stickyText.includes('font-size="13"'));
-  assert.ok(stickyText.includes("line-height:16.9px"), "13px at 1.3, written short");
+  assert.equal((stickyText.match(/<tspan /g) ?? []).length, stickyLayout.title.lines.length);
+  assert.ok(stickyText.includes('font-size="13.5" font-weight="600"'), "the title, in bold");
   const labelIndex = svg.indexOf('font-size="20"');
   assert.ok(labelIndex > 0, "the label at its own size");
   assert.equal((svg.slice(labelIndex, svg.indexOf("</text>", labelIndex)).match(/<tspan /g) ?? []).length, 2, "one tspan per line of the label");

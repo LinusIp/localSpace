@@ -6,7 +6,8 @@
 
 export { Editor, TOOLS, simplify } from "./editor.ts";
 export type { Cause, Change, EditorEvents, EditorOptions, Snapping, Tool } from "./editor.ts";
-export { Scene, TEXT_PADDING } from "./scene.ts";
+export { Scene, STICKY_LINE_HEIGHT, STICKY_PADDING, STICKY_SIZE, TEXT_PADDING } from "./scene.ts";
+export type { Curve, StickyLayout } from "./scene.ts";
 export { Renderer, LIGHT } from "./render.ts";
 export type { Overlay, Palette, Theme, Viewport } from "./render.ts";
 export { RTree } from "./rtree.ts";

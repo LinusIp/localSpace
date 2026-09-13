@@ -1,14 +1,6 @@
 // Hit-testing: what is under a board point, and which handle of a selection.
 
-import {
-  containsPoint,
-  distanceToPolyline,
-  distanceToSegment,
-  ellipseContains,
-  expand,
-  type Box,
-  type Point,
-} from "./geometry.ts";
+import { containsPoint, distanceToPolyline, ellipseContains, expand, type Box, type Point } from "./geometry.ts";
 import type { Node } from "./model.ts";
 import type { Scene } from "./scene.ts";
 
@@ -58,10 +50,8 @@ export function nodeHit(scene: Scene, n: Node, p: Point, tolerance: number): boo
       return containsPoint(expand(b, tolerance), p);
     case "ellipse":
       return ellipseContains(expand(b, tolerance), p);
-    case "arrow": {
-      const [a, c] = scene.endpoints(n);
-      return distanceToSegment(p, a, c) <= tolerance + 3;
-    }
+    case "arrow":
+      return distanceToPolyline(p, scene.arrowPoints(n)) <= tolerance + 3;
     case "ink": {
       const pts = (n.points ?? []).map(([x, y]) => ({ x, y }));
       return distanceToPolyline(p, pts) <= tolerance + 3;

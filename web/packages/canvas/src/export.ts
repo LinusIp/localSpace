@@ -7,14 +7,19 @@
 // or anything else that is the editor's rather than the board's.
 
 import type { Box } from "./geometry.ts";
-import { unionAll } from "./geometry.ts";
+import { cubicPoint, unionAll } from "./geometry.ts";
 import type { Node } from "./model.ts";
 import { LIGHT, Renderer, type Theme } from "./render.ts";
-import { Scene, TEXT_PADDING } from "./scene.ts";
+import { STICKY_PADDING, STICKY_SIZE, Scene, TEXT_PADDING } from "./scene.ts";
 import { fontFor, type Layout } from "./text.ts";
 
 /** A real fallback stack, written into every SVG, so the text is set the same way elsewhere. */
-export const SVG_FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+export const SVG_FONT = "Figtree, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+/** Connectors: their width, and the length of the head. */
+const CONNECTOR_WIDTH = 2.2;
+const HEAD = 9;
+/** The gap between a note's title and its body. */
+const TITLE_GAP = 5;
 /** Board units of room around the content. */
 export const EXPORT_PADDING = 24;
 /** Device pixels per board unit in a PNG. */
@@ -79,10 +84,11 @@ export function toSvg(scene: Scene, nodes: readonly Node[], options: ExportOptio
   );
   out.push(`<rect x="${fmt(box.x)}" y="${fmt(box.y)}" width="${w}" height="${h}" fill="${theme.background}"/>`);
 
-  const text = (x: number, top: number, size: number, colour: string, layout: Layout, clip?: string): void => {
+  const text = (x: number, top: number, size: number, colour: string, layout: Layout, clip?: string, weight?: number): void => {
     const clipAttr = clip ? ` clip-path="url(#${clip})"` : "";
+    const weightAttr = weight ? ` font-weight="${weight}"` : "";
     out.push(
-      `<text font-size="${fmt(size)}" fill="${colour}" style="line-height:${fmt(layout.lineHeight)}px" xml:space="preserve"${clipAttr}>`,
+      `<text font-size="${fmt(size)}"${weightAttr} fill="${colour}" style="line-height:${fmt(layout.lineHeight)}px" xml:space="preserve"${clipAttr}>`,
     );
     layout.lines.forEach((line, i) => {
       out.push(`<tspan x="${fmt(x)}" y="${fmt(top + i * layout.lineHeight + size * BASELINE)}">${esc(line)}</tspan>`);
@@ -101,24 +107,37 @@ export function toSvg(scene: Scene, nodes: readonly Node[], options: ExportOptio
         );
         break;
       }
-      case "sticky":
+      case "sticky": {
+        // A note: a pastel card without a border; its first line is the title.
+        const r = Math.min(4, n.w / 2, n.h / 2);
+        out.push(`<rect x="${fmt(n.x)}" y="${fmt(n.y)}" width="${fmt(n.w)}" height="${fmt(n.h)}" rx="${fmt(r)}" fill="${p.fill}"/>`);
+        if (n.text) {
+          clips += 1;
+          const id = `clip${clips}`;
+          out.push(`<clipPath id="${id}"><rect x="${fmt(n.x)}" y="${fmt(n.y)}" width="${fmt(n.w)}" height="${fmt(n.h)}"/></clipPath>`);
+          const l = scene.stickyLayout(n);
+          const x = n.x + STICKY_PADDING;
+          const top = n.y + STICKY_PADDING;
+          text(x, top, STICKY_SIZE, theme.ink, l.title, id, 600);
+          if (l.body) text(x, top + l.title.height + TITLE_GAP, STICKY_SIZE, theme.ink, l.body, id);
+        }
+        break;
+      }
       case "rect":
       case "ellipse": {
-        const fill = n.kind === "sticky" ? p.fill : "#ffffff";
+        const fill = "#ffffff";
         if (n.kind === "ellipse") {
           out.push(
             `<ellipse cx="${fmt(n.x + n.w / 2)}" cy="${fmt(n.y + n.h / 2)}" rx="${fmt(n.w / 2)}" ry="${fmt(n.h / 2)}" fill="${fill}" stroke="${p.stroke}" stroke-width="1.4"/>`,
           );
         } else {
-          const r = Math.min(n.kind === "sticky" ? 6 : 10, n.w / 2, n.h / 2);
+          const r = Math.min(10, n.w / 2, n.h / 2);
           out.push(
             `<rect x="${fmt(n.x)}" y="${fmt(n.y)}" width="${fmt(n.w)}" height="${fmt(n.h)}" rx="${fmt(r)}" fill="${fill}" stroke="${p.stroke}" stroke-width="1.4"/>`,
           );
         }
-        if (n.kind !== "sticky") {
-          // The colour chip: what the fill means on a white shape.
-          out.push(`<rect x="${fmt(n.x + 10)}" y="${fmt(n.y + 10)}" width="14" height="14" fill="${p.fill}" stroke="${p.stroke}" stroke-width="1"/>`);
-        }
+        // The colour chip: what the fill means on a white shape.
+        out.push(`<rect x="${fmt(n.x + 10)}" y="${fmt(n.y + 10)}" width="14" height="14" fill="${p.fill}" stroke="${p.stroke}" stroke-width="1"/>`);
         if (n.text) {
           clips += 1;
           const id = `clip${clips}`;
@@ -133,18 +152,28 @@ export function toSvg(scene: Scene, nodes: readonly Node[], options: ExportOptio
         break;
       }
       case "arrow": {
+        // A connector: grey unless given a colour, a curve between two shapes.
         const [a, b] = scene.endpoints(n);
-        out.push(
-          `<line x1="${fmt(a.x)}" y1="${fmt(a.y)}" x2="${fmt(b.x)}" y2="${fmt(b.y)}" stroke="${p.stroke}" stroke-width="1.6" stroke-linecap="round"/>`,
-        );
-        const angle = Math.atan2(b.y - a.y, b.x - a.x);
-        const size = 10;
-        const p1 = { x: b.x - size * Math.cos(angle - 0.45), y: b.y - size * Math.sin(angle - 0.45) };
-        const p2 = { x: b.x - size * Math.cos(angle + 0.45), y: b.y - size * Math.sin(angle + 0.45) };
-        out.push(`<polygon points="${fmt(b.x)},${fmt(b.y)} ${fmt(p1.x)},${fmt(p1.y)} ${fmt(p2.x)},${fmt(p2.y)}" fill="${p.stroke}"/>`);
+        const curve = scene.arrowCurve(n);
+        const colour = n.fill === "grey" ? theme.connector : p.stroke;
+        if (curve) {
+          out.push(
+            `<path d="M ${fmt(a.x)} ${fmt(a.y)} C ${fmt(curve.c1.x)} ${fmt(curve.c1.y)} ${fmt(curve.c2.x)} ${fmt(curve.c2.y)} ${fmt(b.x)} ${fmt(b.y)}" fill="none" stroke="${colour}" stroke-width="${fmt(CONNECTOR_WIDTH)}" stroke-linecap="round"/>`,
+          );
+        } else {
+          out.push(
+            `<line x1="${fmt(a.x)}" y1="${fmt(a.y)}" x2="${fmt(b.x)}" y2="${fmt(b.y)}" stroke="${colour}" stroke-width="${fmt(CONNECTOR_WIDTH)}" stroke-linecap="round"/>`,
+          );
+        }
+        const from = curve ? curve.c2 : a;
+        const angle = Math.atan2(b.y - from.y, b.x - from.x);
+        const p1 = { x: b.x - HEAD * Math.cos(angle - 0.5), y: b.y - HEAD * Math.sin(angle - 0.5) };
+        const p2 = { x: b.x - HEAD * Math.cos(angle + 0.5), y: b.y - HEAD * Math.sin(angle + 0.5) };
+        out.push(`<polygon points="${fmt(b.x)},${fmt(b.y)} ${fmt(p1.x)},${fmt(p1.y)} ${fmt(p2.x)},${fmt(p2.y)}" fill="${colour}"/>`);
         if (n.text) {
-          const mx = (a.x + b.x) / 2;
-          const my = (a.y + b.y) / 2;
+          const mid = curve ? cubicPoint(a, curve.c1, curve.c2, b, 0.5) : { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          const mx = mid.x;
+          const my = mid.y;
           const width = scene.measurer.width(n.text, fontFor(12)) + 8;
           out.push(`<rect x="${fmt(mx - width / 2)}" y="${fmt(my - 9)}" width="${fmt(width)}" height="18" fill="${theme.background}"/>`);
           out.push(

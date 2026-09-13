@@ -1,12 +1,15 @@
 // Drawing the scene on a 2D canvas: only what the camera shows, less at a
 // distance, batched where the eye cannot tell the order, with the
-// selection on top in screen space.
+// selection on top in screen space. The look is the app screens' board
+// (the UI reference of 2026-09-13): a dotted page, pastel notes without a
+// border whose first line is their title, grey connectors that curve
+// between the notes they join, a green selection with corner handles.
 
 import { visible, type Camera } from "./camera.ts";
-import { expand, type Box, type Point } from "./geometry.ts";
-import { HANDLES, handlePoint } from "./hit.ts";
+import { cubicPoint, expand, type Box, type Point } from "./geometry.ts";
+import { handlePoint } from "./hit.ts";
 import type { Fill, Node } from "./model.ts";
-import { TEXT_PADDING, type Scene } from "./scene.ts";
+import { STICKY_PADDING, STICKY_SIZE, TEXT_PADDING, type Scene } from "./scene.ts";
 import { GRID, type Guide } from "./snap.ts";
 import { fontFor } from "./text.ts";
 
@@ -20,31 +23,37 @@ export interface Theme {
   grid: string;
   ink: string;
   muted: string;
+  /** Connectors between shapes, when their colour is the default grey. */
+  connector: string;
   selection: string;
   /** Snapping guides. */
   guide: string;
   frame: string;
+  /** The soft shadow under a note. */
+  shadow: string;
   fontFamily: string;
   palette: Record<Fill, Palette>;
 }
 
 export const LIGHT: Theme = {
-  background: "#f5f7f6",
-  grid: "#d9dedb",
-  ink: "#1c1f1d",
-  muted: "#5f6763",
-  selection: "#1f9d5b",
+  background: "#faf9f8",
+  grid: "#dedbd6",
+  ink: "#1c1e20",
+  muted: "#6b6e72",
+  connector: "#9a9da1",
+  selection: "#1d7a55",
   guide: "#d6336c",
-  frame: "#cfd5d1",
-  fontFamily: "system-ui, sans-serif",
+  frame: "#dcd9d5",
+  shadow: "rgba(28, 30, 32, 0.10)",
+  fontFamily: '"Figtree", system-ui, -apple-system, "Segoe UI", sans-serif',
   palette: {
-    red: { fill: "#fbe9e9", stroke: "#c73e3e" },
-    amber: { fill: "#fbf3e4", stroke: "#b7791f" },
-    green: { fill: "#e8f6ee", stroke: "#1f9d5b" },
-    blue: { fill: "#e8f0fb", stroke: "#2f6fcb" },
-    yellow: { fill: "#fdf6d8", stroke: "#a88a17" },
-    grey: { fill: "#eef0ef", stroke: "#5f6763" },
-    none: { fill: "transparent", stroke: "#1c1f1d" },
+    red: { fill: "#f6d2cf", stroke: "#b8574d" },
+    amber: { fill: "#f8ddb5", stroke: "#a8712a" },
+    green: { fill: "#d9efdf", stroke: "#1d7a55" },
+    blue: { fill: "#cde3f5", stroke: "#3e6fa8" },
+    yellow: { fill: "#fbe8a6", stroke: "#a88a17" },
+    grey: { fill: "#e9e7e3", stroke: "#6b6e72" },
+    none: { fill: "transparent", stroke: "#1c1e20" },
   },
 };
 
@@ -73,6 +82,16 @@ const TEXT_MIN_PX = 3;
 const DETAIL_MIN_PX = 14;
 /** Below this zoom, arrows are lines without heads and strokes are batched. */
 const HEAD_MIN_DETAIL = 0.35;
+/** Below this many screen pixels of height, a note is drawn without its shadow. */
+const SHADOW_MIN_PX = 40;
+/** Connectors: their width in board units at full detail, and the head's length. */
+const CONNECTOR_WIDTH = 2.2;
+const HEAD = 9;
+/** The gap between a note's title and its body, in board units. */
+const TITLE_GAP = 5;
+/** The selection sits this far outside the shape, in screen pixels. */
+const SELECTION_INSET = 5;
+const HANDLE = 9;
 
 export class Renderer {
   private readonly ctx: CanvasRenderingContext2D;
@@ -89,6 +108,11 @@ export class Renderer {
 
   setTheme(theme: Theme): void {
     this.theme = theme;
+    this.drawn.version = -1;
+  }
+
+  /** Forget the last frame, so the next `draw` paints whatever changed outside the scene: a font that arrived. */
+  invalidate(): void {
     this.drawn.version = -1;
   }
 
@@ -148,7 +172,7 @@ export class Renderer {
     this.lastDrawn = this.nodes(scene, nodes, z * dpr, overlay.editing ?? null);
 
     if (overlay.ink && overlay.ink.length > 1) this.polyline(overlay.ink, theme.palette.blue.stroke, 2 / z);
-    if (overlay.arrow) this.arrowLine(overlay.arrow[0], overlay.arrow[1], theme.muted, 1.5 / z, true);
+    if (overlay.arrow) this.arrowLine(overlay.arrow[0], overlay.arrow[1], theme.connector, CONNECTOR_WIDTH / z, true);
 
     // Screen space: the selection, one pixel wide whatever the zoom.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -157,7 +181,7 @@ export class Renderer {
     if (overlay.marquee) {
       const m = overlay.marquee;
       ctx.strokeStyle = theme.selection;
-      ctx.fillStyle = "rgba(31, 157, 91, 0.08)";
+      ctx.fillStyle = "rgba(29, 122, 85, 0.08)";
       ctx.lineWidth = 1;
       const sx = (m.x - camera.x) * z;
       const sy = (m.y - camera.y) * z;
@@ -223,8 +247,7 @@ export class Renderer {
             break;
           }
           const [a, b] = scene.endpoints(n);
-          const p = theme.palette[n.fill] ?? theme.palette.grey;
-          const path = into(lines, p.stroke);
+          const path = into(lines, this.connectorColour(n));
           path.moveTo(a.x, a.y);
           path.lineTo(b.x, b.y);
           break;
@@ -266,6 +289,8 @@ export class Renderer {
     for (const n of detailed) {
       switch (n.kind) {
         case "sticky":
+          this.sticky(scene, n, detail, n.id === editing);
+          break;
         case "rect":
         case "ellipse":
           this.shape(scene, n, detail, n.id === editing);
@@ -300,7 +325,12 @@ export class Renderer {
     return nodes.length;
   }
 
-  /** The selection outlines and handles, in screen space (transform already set). */
+  /** A connector is grey unless it was given a colour. */
+  private connectorColour(n: Node): string {
+    return n.fill === "grey" ? this.theme.connector : (this.theme.palette[n.fill] ?? this.theme.palette.grey).stroke;
+  }
+
+  /** The selection outlines and corner handles, in screen space (transform already set). */
   private selection(scene: Scene, camera: Camera, selection: ReadonlySet<string>): void {
     const { ctx, theme } = this;
     const z = camera.z;
@@ -308,21 +338,25 @@ export class Renderer {
       const b = scene.bounds(id);
       const n = scene.get(id);
       if (!b || !n) continue;
-      const sx = (b.x - camera.x) * z;
-      const sy = (b.y - camera.y) * z;
-      const sw = b.w * z;
-      const sh = b.h * z;
+      const box = {
+        x: (b.x - camera.x) * z - SELECTION_INSET,
+        y: (b.y - camera.y) * z - SELECTION_INSET,
+        w: b.w * z + SELECTION_INSET * 2,
+        h: b.h * z + SELECTION_INSET * 2,
+      };
       ctx.strokeStyle = theme.selection;
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1.6;
       ctx.setLineDash(n.locked ? [4, 3] : []);
-      ctx.strokeRect(sx - 2, sy - 2, sw + 4, sh + 4);
+      this.roundRect(box.x, box.y, box.w, box.h, 6);
+      ctx.stroke();
       ctx.setLineDash([]);
       if (selection.size === 1 && !n.locked && n.kind !== "arrow" && n.kind !== "ink") {
-        ctx.fillStyle = "#ffffff";
-        for (const hnd of HANDLES) {
-          const p = handlePoint({ x: sx, y: sy, w: sw, h: sh }, hnd);
-          ctx.fillRect(p.x - 4, p.y - 4, 8, 8);
-          ctx.strokeRect(p.x - 4, p.y - 4, 8, 8);
+        for (const hnd of ["nw", "ne", "se", "sw"] as const) {
+          const p = handlePoint(box, hnd);
+          ctx.fillStyle = "#ffffff";
+          this.roundRect(p.x - HANDLE / 2, p.y - HANDLE / 2, HANDLE, HANDLE, 2);
+          ctx.fill();
+          ctx.stroke();
         }
       }
     }
@@ -350,6 +384,7 @@ export class Renderer {
     ctx.stroke(path);
   }
 
+  /** The page's dots, one at every grid point the camera shows. */
   private grid(view: Box, camera: Camera, w: number, h: number): void {
     const z = camera.z;
     const step = GRID * z;
@@ -360,40 +395,81 @@ export class Renderer {
     const cols = Math.ceil(w / step) + 1;
     const rows = Math.ceil(h / step) + 1;
     if (cols * rows > 6000) return;
+    const r = 1.2;
     const dots = new Path2D();
     for (let i = 0; i < cols; i++) {
       const sx = (x0 + i * GRID - camera.x) * z;
       for (let j = 0; j < rows; j++) {
         const sy = (y0 + j * GRID - camera.y) * z;
-        dots.rect(sx - 0.75, sy - 0.75, 1.5, 1.5);
+        dots.moveTo(sx + r, sy);
+        dots.arc(sx, sy, r, 0, Math.PI * 2);
       }
     }
     ctx.fillStyle = theme.grid;
     ctx.fill(dots);
   }
 
+  /** A note: a pastel card without a border, its first line the title in bold, the rest below. */
+  private sticky(scene: Scene, n: Node, detail: number, quiet: boolean): void {
+    const { ctx, theme } = this;
+    const p = theme.palette[n.fill] ?? theme.palette.yellow;
+    ctx.save();
+    if (n.h * detail >= SHADOW_MIN_PX) {
+      ctx.shadowColor = theme.shadow;
+      ctx.shadowBlur = 5 * detail;
+      ctx.shadowOffsetY = 2 * detail;
+    }
+    ctx.fillStyle = p.fill;
+    this.roundRect(n.x, n.y, n.w, n.h, 4);
+    ctx.fill();
+    ctx.restore();
+    if (!n.text || quiet || STICKY_SIZE * detail < TEXT_MIN_PX) return;
+    const l = scene.stickyLayout(n);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(n.x, n.y, n.w, n.h);
+    ctx.clip();
+    ctx.fillStyle = theme.ink;
+    ctx.textBaseline = "top";
+    const x = n.x + STICKY_PADDING;
+    let y = n.y + STICKY_PADDING;
+    ctx.font = fontFor(STICKY_SIZE, theme.fontFamily, 600);
+    for (const line of l.title.lines) {
+      ctx.fillText(line, x, y);
+      y += l.title.lineHeight;
+    }
+    if (l.body) {
+      y += TITLE_GAP;
+      ctx.font = fontFor(STICKY_SIZE, theme.fontFamily);
+      for (const line of l.body.lines) {
+        ctx.fillText(line, x, y);
+        y += l.body.lineHeight;
+      }
+    }
+    ctx.restore();
+  }
+
+  /** A rectangle or an ellipse: white, outlined in its colour, with the colour as a chip. */
   private shape(scene: Scene, n: Node, detail: number, quiet: boolean): void {
     const { ctx, theme } = this;
     const p = theme.palette[n.fill] ?? theme.palette.grey;
-    ctx.fillStyle = n.kind === "sticky" ? p.fill : "#ffffff";
+    ctx.fillStyle = "#ffffff";
     if (n.kind === "ellipse") {
       ctx.beginPath();
       ctx.ellipse(n.x + n.w / 2, n.y + n.h / 2, n.w / 2, n.h / 2, 0, 0, Math.PI * 2);
     } else {
-      this.roundRect(n.x, n.y, n.w, n.h, n.kind === "sticky" ? 6 : 10);
+      this.roundRect(n.x, n.y, n.w, n.h, 10);
     }
     ctx.fill();
     ctx.strokeStyle = p.stroke;
     ctx.lineWidth = 1.4;
     ctx.stroke();
-    if (n.kind !== "sticky") {
-      // The colour chip: what the fill means on a white shape.
-      ctx.fillStyle = p.fill;
-      ctx.fillRect(n.x + 10, n.y + 10, 14, 14);
-      ctx.strokeStyle = p.stroke;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(n.x + 10, n.y + 10, 14, 14);
-    }
+    // The colour chip: what the fill means on a white shape.
+    ctx.fillStyle = p.fill;
+    ctx.fillRect(n.x + 10, n.y + 10, 14, 14);
+    ctx.strokeStyle = p.stroke;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(n.x + 10, n.y + 10, 14, 14);
     if (n.text && !quiet && 13 * detail >= TEXT_MIN_PX) {
       const l = scene.textLayout(n);
       ctx.save();
@@ -424,24 +500,46 @@ export class Renderer {
     }
   }
 
+  /** A connector: curved between the two shapes it joins, straight to a free end, with a head at its end. */
   private arrow(scene: Scene, n: Node, detail: number): void {
     const { ctx, theme } = this;
     const [a, b] = scene.endpoints(n);
-    const p = theme.palette[n.fill] ?? theme.palette.grey;
-    this.arrowLine(a, b, p.stroke, 1.6, true);
+    const curve = scene.arrowCurve(n);
+    const colour = this.connectorColour(n);
+    ctx.strokeStyle = colour;
+    ctx.fillStyle = colour;
+    ctx.lineWidth = CONNECTOR_WIDTH;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    if (curve) ctx.bezierCurveTo(curve.c1.x, curve.c1.y, curve.c2.x, curve.c2.y, b.x, b.y);
+    else ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    this.head(curve ? curve.c2 : a, b);
     if (n.text && 12 * detail >= TEXT_MIN_PX) {
-      const mx = (a.x + b.x) / 2;
-      const my = (a.y + b.y) / 2;
+      const mid = curve ? cubicPoint(a, curve.c1, curve.c2, b, 0.5) : { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       ctx.font = fontFor(12, theme.fontFamily);
       const w = ctx.measureText(n.text).width + 8;
       ctx.fillStyle = theme.background;
-      ctx.fillRect(mx - w / 2, my - 9, w, 18);
+      ctx.fillRect(mid.x - w / 2, mid.y - 9, w, 18);
       ctx.fillStyle = theme.muted;
       ctx.textBaseline = "middle";
       ctx.textAlign = "center";
-      ctx.fillText(n.text, mx, my);
+      ctx.fillText(n.text, mid.x, mid.y);
       ctx.textAlign = "start";
     }
+  }
+
+  /** A filled head at `b`, pointing away from `from`. */
+  private head(from: Point, b: Point): void {
+    const { ctx } = this;
+    const angle = Math.atan2(b.y - from.y, b.x - from.x);
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - HEAD * Math.cos(angle - 0.5), b.y - HEAD * Math.sin(angle - 0.5));
+    ctx.lineTo(b.x - HEAD * Math.cos(angle + 0.5), b.y - HEAD * Math.sin(angle + 0.5));
+    ctx.closePath();
+    ctx.fill();
   }
 
   private arrowLine(a: Point, b: Point, colour: string, width: number, head: boolean): void {
@@ -454,15 +552,7 @@ export class Renderer {
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
     ctx.stroke();
-    if (!head) return;
-    const angle = Math.atan2(b.y - a.y, b.x - a.x);
-    const size = 10;
-    ctx.beginPath();
-    ctx.moveTo(b.x, b.y);
-    ctx.lineTo(b.x - size * Math.cos(angle - 0.45), b.y - size * Math.sin(angle - 0.45));
-    ctx.lineTo(b.x - size * Math.cos(angle + 0.45), b.y - size * Math.sin(angle + 0.45));
-    ctx.closePath();
-    ctx.fill();
+    if (head) this.head(a, b);
   }
 
   private polyline(pts: readonly Point[], colour: string, width: number): void {

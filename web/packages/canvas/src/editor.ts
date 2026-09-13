@@ -7,7 +7,7 @@ import { centre, containsPoint, distance, fromPoints, newId, unionAll, type Box,
 import { hitHandle, hitTest, nodesWithin, type Handle } from "./hit.ts";
 import { DEFAULTS, cloneNode, type Fill, type Kind, type Node } from "./model.ts";
 import { LIGHT, Renderer, type Theme } from "./render.ts";
-import { Scene } from "./scene.ts";
+import { STICKY_LINE_HEIGHT, STICKY_PADDING, STICKY_SIZE, Scene, TEXT_PADDING } from "./scene.ts";
 import { GRID, snapMove, snapReach, snapResize, snapTargets, type Guide, type SnapTargets, type Snapped } from "./snap.ts";
 import { CanvasMeasurer, FixedMeasurer, type TextMeasurer } from "./text.ts";
 
@@ -52,7 +52,7 @@ type Drag =
   | { kind: "ink"; points: Point[] };
 
 const HIT_PX = 6;
-const HANDLE_PX = 7;
+const HANDLE_PX = 10;
 const MIN_SIZE = 20;
 
 /** What a move or a resize comes to rest on. Alt held skips both. */
@@ -74,6 +74,7 @@ export class Editor {
   private readonly canvas: HTMLCanvasElement;
   private readonly host: HTMLElement;
   private readonly renderer: Renderer;
+  private readonly theme: Theme;
   private listeners = new Map<keyof EditorEvents, Set<(...args: never[]) => void>>();
   private drag: Drag | null = null;
   private overlay: { marquee?: Box | null; ink?: Point[] | null; arrow?: [Point, Point] | null; guides?: Guide[] | null } = {};
@@ -94,8 +95,9 @@ export class Editor {
     const ctx = this.canvas.getContext("2d");
     if (!ctx) throw new Error("the canvas has no 2D context");
     const measurer = options.measurer ?? (typeof document === "undefined" ? new FixedMeasurer() : new CanvasMeasurer(ctx));
-    this.scene = new Scene(measurer);
-    this.renderer = new Renderer(ctx, options.theme ?? LIGHT);
+    this.theme = options.theme ?? LIGHT;
+    this.scene = new Scene(measurer, this.theme.fontFamily);
+    this.renderer = new Renderer(ctx, this.theme);
     this.host.tabIndex = this.host.tabIndex < 0 ? 0 : this.host.tabIndex;
     this.host.style.touchAction = "none";
     this.host.style.outline = "none";
@@ -359,7 +361,9 @@ export class Editor {
     ta.value = n.text;
     ta.setAttribute("aria-label", "Shape text");
     ta.style.cssText =
-      "position:absolute;margin:0;border:0;padding:0;resize:none;overflow:hidden;background:transparent;color:inherit;outline:none;font-family:system-ui,sans-serif;line-height:1.3;box-sizing:border-box;z-index:2";
+      "position:absolute;margin:0;border:0;padding:0;resize:none;overflow:hidden;background:transparent;color:inherit;outline:none;box-sizing:border-box;z-index:2";
+    ta.style.fontFamily = this.theme.fontFamily;
+    ta.style.lineHeight = n.kind === "sticky" ? String(STICKY_LINE_HEIGHT) : "1.3";
     ta.addEventListener("keydown", (e) => {
       e.stopPropagation();
       if (e.key === "Escape" || (e.key === "Enter" && (e.ctrlKey || e.metaKey))) {
@@ -417,9 +421,10 @@ export class Editor {
     if (!n) return;
     const z = this.camera.z;
     const p = toScreen(this.camera, { x: n.x, y: n.y });
-    const size = (n.kind === "text" ? (n.size ?? 16) : 13) * z;
-    const pad = 8 * z;
-    const top = n.kind === "text" ? pad : 30 * z;
+    const sticky = n.kind === "sticky";
+    const size = (n.kind === "text" ? (n.size ?? 16) : sticky ? STICKY_SIZE : 13) * z;
+    const pad = (sticky ? STICKY_PADDING : TEXT_PADDING) * z;
+    const top = n.kind === "text" || sticky ? pad : 30 * z;
     ta.style.left = `${p.x + pad}px`;
     ta.style.top = `${p.y + top}px`;
     ta.style.width = `${Math.max(8, n.w * z - pad * 2)}px`;
@@ -952,6 +957,12 @@ export class Editor {
     this.canvas.height = Math.round(h * dpr);
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
+    this.render();
+  }
+
+  /** Draw again although nothing in the scene changed: a font arrived, the page's colours changed. */
+  refresh(): void {
+    this.renderer.invalidate();
     this.render();
   }
 

@@ -60,7 +60,7 @@ export interface DocFrame {
 }
 
 export const DEFAULTS: Record<Kind, { w: number; h: number; fill: Fill }> = {
-  sticky: { w: 130, h: 110, fill: "yellow" },
+  sticky: { w: 196, h: 108, fill: "yellow" },
   rect: { w: 160, h: 90, fill: "grey" },
   ellipse: { w: 160, h: 90, fill: "grey" },
   text: { w: 120, h: 26, fill: "none" },
