@@ -139,6 +139,17 @@ What changed, in the order asked:
   `cancel-in-progress`: a second push while the first is still building
   stops the first. The gate is about the head of the branch.
 
+- **The first green runs.** Run 17 (2026-09-13, 83da035) was the first
+  with a green rust job on Linux, cold: clippy 16 minutes, the tests 32,
+  the job 53 against its 60-minute timeout; the disk step freed 24 GB and
+  the line-table build left 26 GB spare with an 11 GB target. Its browser
+  walk failed on the walk's own reading of a fresh board, which has no
+  shapes yet (fixed, 6bfebd1). Run 18, on the cache run 17 saved, was the
+  first green run: check 21 seconds, rust 6 minutes 16 seconds, web 67
+  seconds, the walk 3 minutes 25 seconds, about ten minutes in all. The
+  rust timeout stays at 60 minutes: a cold build needs most of it, a warm
+  one a tenth.
+
 Green CI is commit 10's gate (`docs/PILOT-1.md`, Phase A): nothing in
 Phase B starts on top of unverified commits.
 
