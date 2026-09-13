@@ -51,6 +51,19 @@ changed.
   running server's surface stays the HTTP API alone. Both commands take
   `--config` (the file names the data directory) or `--data <dir>`; both
   refuse, naming the fact, while the server holds the database.
+- **As built (commit 8, second of three).** The link is a one-time token
+  like any other, marked as the first administrator's and bound to no
+  account; `GET /api/v1/auth/invite/{token}` answers `first_admin: true`
+  so the page asks for a name and an email as well as a password, and
+  `POST /api/v1/auth/set-password` takes them; a user's own link ignores
+  them. Minting again while there is still nobody kills the earlier link,
+  so only the newest — the one in the file and the log — opens. The file's
+  text names the 24 hours and what to do after them. Accepting the link
+  deletes the file; a start with accounts already there deletes a stale
+  one. `admin bootstrap` and `admin reset-password` audit what they did
+  as the actor `operator` and, without a settings file, print the link
+  without an address in front of it and say so. The `--bootstrap-admin`
+  flag is gone.
 
 ## 2026-09-13, the audit writer as built (Phase A, commit 7)
 

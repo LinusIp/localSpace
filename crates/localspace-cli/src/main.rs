@@ -4,6 +4,7 @@
 //! `localspace.toml` (deployment §3.3); the command line carries only what
 //! is decided at the moment of running.
 
+mod admin;
 mod settings;
 
 use anyhow::Result;
@@ -27,6 +28,8 @@ struct Cli {
 enum Command {
     /// Run the server: an organisation's, or one workstation's with --personal.
     Serve(ServeArgs),
+    /// The operations that run with the service stopped: bootstrap, reset-password.
+    Admin(admin::AdminArgs),
 }
 
 #[derive(Args)]
@@ -53,6 +56,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Serve(args) => serve(args),
+        Command::Admin(args) => admin::run(args),
     }
 }
 

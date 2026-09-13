@@ -74,9 +74,6 @@ pub struct ServerConfig {
     /// The address users open, for the links the server prints; the bind
     /// address when unset.
     pub public_url: Option<String>,
-    /// Make the first administrator of a server with no accounts and print
-    /// their one-time link at start (`localspace admin bootstrap`).
-    pub bootstrap_admin: Option<String>,
     /// How TLS reaches this server (deployment §3.3 `tls`).
     pub tls: Tls,
     /// The proxies whose `X-Forwarded-For` is believed (deployment §3.3
@@ -108,7 +105,6 @@ impl Default for ServerConfig {
             surface_hosts: surfaces::DEFAULT_HOSTS.into(),
             session_ttl_ms: 12 * 60 * 60 * 1000,
             public_url: None,
-            bootstrap_admin: None,
             tls: Tls::None,
             trusted_proxies: Vec::new(),
             insecure: false,
@@ -269,18 +265,13 @@ impl Server {
         cfg
     }
 
-    /// The first administrator of a server with no accounts, and the link
-    /// that sets their password. `None` when accounts exist already.
-    pub async fn bootstrap(&self, email: &str) -> anyhow::Result<Option<proto::Invite>> {
+    /// The first administrator's one-time link, minted by the server itself
+    /// while there are no accounts at all (the fourth answer of 2026-09-13).
+    /// `None` when accounts exist.
+    pub async fn mint_first_admin(&self) -> anyhow::Result<Option<proto::Invite>> {
         let session = self.core().await?;
         match session
-            .call_as(
-                &Caller::system(),
-                proto::Request::Bootstrap {
-                    email: email.to_string(),
-                    name: String::new(),
-                },
-            )
+            .call_as(&Caller::system(), proto::Request::Bootstrap)
             .await?
         {
             proto::Response::Invite(invite) => Ok(Some(invite)),
@@ -417,20 +408,35 @@ pub async fn start(cfg: ServerConfig) -> anyhow::Result<Running> {
         std::fs::create_dir_all(data).ok();
         std::fs::write(data.join("token"), &server.token).ok();
     }
-    if let Some(email) = server.cfg.bootstrap_admin.clone() {
-        match server.bootstrap(&email).await? {
+    if !server.cfg.personal {
+        // The first administrator's link: minted here while there is nobody,
+        // logged, and written where only the service user reads it; the
+        // file goes once the link is used, or here when it is stale.
+        match server.mint_first_admin().await? {
             Some(invite) => {
                 let link = server.invite_link(&invite.token, &addr);
-                tracing::info!(
-                    "the first administrator, {}, sets their password at {link} (valid 24 hours)",
-                    invite.email
-                );
-                println!(
-                    "Administrator {}: open {link} within 24 hours to set a password.",
-                    invite.email
-                );
+                let written = server
+                    .cfg
+                    .data
+                    .as_deref()
+                    .map(|dir| localspace_core::identity::write_first_admin_link(dir, &link));
+                match written {
+                    Some(Ok(path)) => tracing::info!(
+                        "first administrator: open {link} within 24 hours (also in {})",
+                        path.display()
+                    ),
+                    Some(Err(e)) => tracing::warn!(
+                        "first administrator: open {link} within 24 hours; the file could not \
+                         be written: {e:#}"
+                    ),
+                    None => tracing::info!("first administrator: open {link} within 24 hours"),
+                }
             }
-            None => tracing::info!("accounts exist already; --bootstrap-admin did nothing"),
+            None => {
+                if let Some(dir) = server.cfg.data.as_deref() {
+                    localspace_core::identity::remove_first_admin_link(dir);
+                }
+            }
         }
     }
     tracing::info!("localspace serve listening on http://{addr}");

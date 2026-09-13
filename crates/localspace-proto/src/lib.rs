@@ -609,10 +609,14 @@ pub struct WorkspaceInfo {
 /// makes the link from its own origin and shows it to the admin once.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct Invite {
+    /// Empty for the first administrator's link: the account is made when
+    /// the link is used.
     pub user: String,
     pub email: String,
     pub token: String,
     pub expires_ms: u64,
+    #[serde(default)]
+    pub first_admin: bool,
 }
 
 /// One agent run's ledger. Rendered into every prompt regardless of which
@@ -1053,10 +1057,7 @@ pub enum Request {
 
     /// The server's own: the first administrator of a server with no
     /// accounts, from `localspace admin bootstrap`.
-    Bootstrap {
-        email: String,
-        name: String,
-    },
+    Bootstrap,
     /// The server's own requests, never a client's: signing in and out.
     Login {
         email: String,
@@ -1073,6 +1074,12 @@ pub enum Request {
         password: String,
         ip: String,
         user_agent: String,
+        /// The first administrator's link asks who they are; other links
+        /// know already and ignore these.
+        #[serde(default)]
+        email: Option<String>,
+        #[serde(default)]
+        name: Option<String>,
     },
     InviteStatus {
         token: String,
@@ -1247,6 +1254,10 @@ pub enum Response {
         valid: bool,
         email: Option<String>,
         name: Option<String>,
+        /// The first administrator's link: the page asks for a name and an
+        /// email as well as a password.
+        #[serde(default)]
+        first_admin: bool,
     },
     Error {
         message: String,

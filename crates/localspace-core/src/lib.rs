@@ -2788,44 +2788,27 @@ impl Core {
             document: String::new(),
         };
         match req {
-            R::Bootstrap { email, name } => {
-                match self.directory.is_empty() {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        return proto::Response::Error {
-                            message: "this server has accounts already; an administrator makes the next one".into(),
-                        };
-                    }
-                    Err(e) => {
-                        return proto::Response::Error {
-                            message: format!("{e:#}"),
-                        };
-                    }
+            R::Bootstrap => match self.directory.bootstrap_invite(now) {
+                Ok(token) => {
+                    let _ = self.audit.append(
+                        Self::auth_actor("system", ""),
+                        no_scope,
+                        "user.first_admin_link",
+                        serde_json::json!({}),
+                        "ok",
+                    );
+                    proto::Response::Invite(proto::Invite {
+                        user: String::new(),
+                        email: String::new(),
+                        token,
+                        expires_ms: now + identity::INVITE_TTL_MS,
+                        first_admin: true,
+                    })
                 }
-                match self
-                    .directory
-                    .create_user(&email, &name, vec![proto::UserRole::Admin], now)
-                {
-                    Ok((user, token)) => {
-                        let _ = self.audit.append(
-                            Self::auth_actor("system", ""),
-                            no_scope,
-                            "user.bootstrap",
-                            serde_json::json!({"user": user.id, "email": user.email}),
-                            "ok",
-                        );
-                        proto::Response::Invite(proto::Invite {
-                            user: user.id,
-                            email: user.email,
-                            token,
-                            expires_ms: now + identity::INVITE_TTL_MS,
-                        })
-                    }
-                    Err(e) => proto::Response::Error {
-                        message: format!("{e:#}"),
-                    },
-                }
-            }
+                Err(e) => proto::Response::Error {
+                    message: format!("{e:#}"),
+                },
+            },
             R::Login {
                 email,
                 password,
@@ -2895,36 +2878,86 @@ impl Core {
                 password,
                 ip,
                 user_agent,
-            } => match self
-                .directory
-                .set_password(&token, &password, &ip, &user_agent, now)
-            {
-                Ok(signed) => {
-                    let _ = self.audit.append(
-                        Self::auth_actor(&signed.user.id, &ip),
-                        no_scope,
-                        "auth.password_set",
-                        serde_json::json!({"email": signed.user.email}),
-                        "ok",
-                    );
-                    proto::Response::SignedIn {
-                        session: signed.session,
-                        expires_ms: signed.expires_ms,
-                        user: identity::info(&signed.user, None),
-                    }
+                email,
+                name,
+            } => {
+                if matches!(
+                    self.directory.invite_status(&token, now),
+                    Ok(identity::InviteStatus::FirstAdmin)
+                ) {
+                    let (Some(email), Some(name)) = (email, name) else {
+                        return proto::Response::Error {
+                            message: "Give your name and your work email address.".into(),
+                        };
+                    };
+                    return match self.directory.accept_first_admin(
+                        &token,
+                        &email,
+                        &name,
+                        &password,
+                        &ip,
+                        &user_agent,
+                        now,
+                    ) {
+                        Ok(signed) => {
+                            if let Some(dir) = &self.cfg.data_dir {
+                                identity::remove_first_admin_link(dir);
+                            }
+                            let _ = self.audit.append(
+                                Self::auth_actor(&signed.user.id, &ip),
+                                no_scope,
+                                "user.first_admin",
+                                serde_json::json!({"email": signed.user.email}),
+                                "ok",
+                            );
+                            proto::Response::SignedIn {
+                                session: signed.session,
+                                expires_ms: signed.expires_ms,
+                                user: identity::info(&signed.user, None),
+                            }
+                        }
+                        Err(message) => proto::Response::Error { message },
+                    };
                 }
-                Err(message) => proto::Response::Error { message },
-            },
-            R::InviteStatus { token } => match self.directory.invite_user(&token, now) {
-                Ok(Some(user)) => proto::Response::InviteStatus {
+                match self
+                    .directory
+                    .set_password(&token, &password, &ip, &user_agent, now)
+                {
+                    Ok(signed) => {
+                        let _ = self.audit.append(
+                            Self::auth_actor(&signed.user.id, &ip),
+                            no_scope,
+                            "auth.password_set",
+                            serde_json::json!({"email": signed.user.email}),
+                            "ok",
+                        );
+                        proto::Response::SignedIn {
+                            session: signed.session,
+                            expires_ms: signed.expires_ms,
+                            user: identity::info(&signed.user, None),
+                        }
+                    }
+                    Err(message) => proto::Response::Error { message },
+                }
+            }
+            R::InviteStatus { token } => match self.directory.invite_status(&token, now) {
+                Ok(identity::InviteStatus::ForUser(user)) => proto::Response::InviteStatus {
                     valid: true,
                     email: Some(user.email),
                     name: Some(user.name),
+                    first_admin: false,
                 },
-                Ok(None) => proto::Response::InviteStatus {
+                Ok(identity::InviteStatus::FirstAdmin) => proto::Response::InviteStatus {
+                    valid: true,
+                    email: None,
+                    name: None,
+                    first_admin: true,
+                },
+                Ok(identity::InviteStatus::Dead) => proto::Response::InviteStatus {
                     valid: false,
                     email: None,
                     name: None,
+                    first_admin: false,
                 },
                 Err(e) => proto::Response::Error {
                     message: format!("{e:#}"),
@@ -3675,6 +3708,7 @@ impl Core {
                                 email: user.email,
                                 token,
                                 expires_ms: now + identity::INVITE_TTL_MS,
+                                first_admin: false,
                             })
                         }
                         Err(e) => proto::Response::Error {
@@ -3744,6 +3778,7 @@ impl Core {
                                 email,
                                 token,
                                 expires_ms: now + identity::INVITE_TTL_MS,
+                                first_admin: false,
                             })
                         }
                         Err(e) => proto::Response::Error {
@@ -3961,7 +3996,7 @@ impl Core {
                 proto::Response::Ok
             }
 
-            R::Bootstrap { .. }
+            R::Bootstrap
             | R::Login { .. }
             | R::Logout { .. }
             | R::SetPassword { .. }

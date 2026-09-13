@@ -875,27 +875,22 @@ async fn an_organisation_signs_in_with_email_and_password_from_the_first_admin_s
         StatusCode::UNAUTHORIZED
     );
 
-    // The first administrator comes from bootstrap, once.
+    // The first administrator's link is minted by the server itself while
+    // there is nobody, and asks who they are, since the server knows none.
     let invite = server
-        .bootstrap("root@example.com")
+        .mint_first_admin()
         .await
         .unwrap()
         .expect("no accounts yet");
-    assert!(
-        server
-            .bootstrap("again@example.com")
-            .await
-            .unwrap()
-            .is_none(),
-        "only when there are no accounts"
-    );
+    assert!(invite.first_admin);
     let link = server.invite_link(&invite.token, &"127.0.0.1:8443".parse().unwrap());
     assert_eq!(
         link,
         format!("http://127.0.0.1:8443/invite/{}", invite.token)
     );
 
-    // The link is checked without being spent, then spent on a password.
+    // The link is checked without being spent, then spent on a name, an
+    // email and a password.
     let status = body_json(
         send(
             &app,
@@ -905,12 +900,33 @@ async fn an_organisation_signs_in_with_email_and_password_from_the_first_admin_s
     )
     .await;
     assert_eq!(status["valid"], true);
-    assert_eq!(status["email"], "root@example.com");
+    assert_eq!(status["first_admin"], true);
+    assert!(status["email"].is_null());
+    let nameless = send(
+        &app,
+        post_json(
+            "/api/v1/auth/set-password",
+            format!(
+                r#"{{"token":"{}","password":"a root password of length"}}"#,
+                invite.token
+            ),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(
+        nameless.status(),
+        StatusCode::BAD_REQUEST,
+        "the first administrator gives a name and an email"
+    );
     let short = send(
         &app,
         post_json(
             "/api/v1/auth/set-password",
-            format!(r#"{{"token":"{}","password":"short"}}"#, invite.token),
+            format!(
+                r#"{{"token":"{}","password":"short","email":"root@example.com","name":"Root"}}"#,
+                invite.token
+            ),
             None,
         ),
     )
@@ -925,7 +941,7 @@ async fn an_organisation_signs_in_with_email_and_password_from_the_first_admin_s
         post_json(
             "/api/v1/auth/set-password",
             format!(
-                r#"{{"token":"{}","password":"a root password of length"}}"#,
+                r#"{{"token":"{}","password":"a root password of length","email":"Root@Example.com","name":"Root"}}"#,
                 invite.token
             ),
             None,
@@ -933,6 +949,10 @@ async fn an_organisation_signs_in_with_email_and_password_from_the_first_admin_s
     )
     .await;
     assert_eq!(set.status(), StatusCode::OK);
+    assert!(
+        server.mint_first_admin().await.unwrap().is_none(),
+        "only while there are no accounts"
+    );
     let root_cookie = cookie_of(&set);
     assert!(root_cookie.starts_with("ls_session="), "{root_cookie}");
     let spent = body_json(
@@ -1164,4 +1184,57 @@ async fn an_organisation_signs_in_with_email_and_password_from_the_first_admin_s
         send(&app, get_with("/readyz", None)).await.status(),
         StatusCode::OK
     );
+}
+
+#[tokio::test]
+async fn the_first_administrator_s_link_is_written_at_start_and_deleted_when_used() {
+    let Some(_) = harness_dir() else { return };
+    let data = tempfile::tempdir().unwrap();
+    let running = localspace_server::start(organisation(data.path()))
+        .await
+        .unwrap();
+    let path = data.path().join("first-admin-link.txt");
+    let text = std::fs::read_to_string(&path).expect("the link file is written at start");
+    let token = text
+        .lines()
+        .find_map(|l| {
+            l.trim()
+                .rsplit_once("/invite/")
+                .map(|(_, t)| t.trim().to_string())
+        })
+        .expect("a link in the file");
+    assert!(
+        text.contains(&format!("http://{}/invite/{token}", running.addr)),
+        "{text}"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "readable by the service user alone");
+    }
+
+    // Used: the administrator exists, the file is gone.
+    let session = running.server.core().await.unwrap();
+    let signed = session
+        .call_as(
+            &localspace_core::Caller::system(),
+            proto::Request::SetPassword {
+                token,
+                password: "a root password of length".into(),
+                ip: "10.0.0.1".into(),
+                user_agent: "test".into(),
+                email: Some("root@example.com".into()),
+                name: Some("Root".into()),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(
+        matches!(signed, proto::Response::SignedIn { .. }),
+        "{signed:?}"
+    );
+    assert!(!path.exists(), "the file goes when the link is used");
+    assert!(running.server.mint_first_admin().await.unwrap().is_none());
+    running.task.abort();
 }

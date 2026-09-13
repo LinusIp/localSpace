@@ -4,4 +4,9 @@
  * A one-time link's token, single-use, expiring in 24 hours. The shell
  * makes the link from its own origin and shows it to the admin once.
  */
-export type Invite = { user: string, email: string, token: string, expires_ms: number, };
+export type Invite = { 
+/**
+ * Empty for the first administrator's link: the account is made when
+ * the link is used.
+ */
+user: string, email: string, token: string, expires_ms: number, first_admin: boolean, };

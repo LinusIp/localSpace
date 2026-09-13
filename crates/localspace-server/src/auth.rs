@@ -208,6 +208,11 @@ pub struct EmailLogin {
 pub struct SetPassword {
     pub token: String,
     pub password: String,
+    /// The first administrator's link asks who they are.
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 async fn body<T: serde::de::DeserializeOwned>(
@@ -325,9 +330,18 @@ pub async fn invite_status(
     Path(token): Path<String>,
 ) -> Response {
     match as_system(&server, proto::Request::InviteStatus { token }).await {
-        Ok(proto::Response::InviteStatus { valid, email, name }) => {
-            Json(serde_json::json!({"valid": valid, "email": email, "name": name})).into_response()
-        }
+        Ok(proto::Response::InviteStatus {
+            valid,
+            email,
+            name,
+            first_admin,
+        }) => Json(serde_json::json!({
+            "valid": valid,
+            "email": email,
+            "name": name,
+            "first_admin": first_admin,
+        }))
+        .into_response(),
         Ok(other) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("unexpected answer: {other:?}")})),
@@ -351,6 +365,8 @@ pub async fn set_password(State(server): State<Arc<Server>>, request: Request<Bo
             password: set.password,
             ip,
             user_agent,
+            email: set.email,
+            name: set.name,
         },
     )
     .await

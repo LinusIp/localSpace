@@ -17,6 +17,7 @@ use argon2::password_hash::rand_core::{OsRng, RngCore};
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::{Algorithm, Argon2, Params, Version};
 use localspace_proto as proto;
+use std::path::{Path, PathBuf};
 
 /// The shortest password a user may set; nothing else is required of it.
 pub const MIN_PASSWORD_CHARS: usize = 12;
@@ -41,6 +42,64 @@ pub fn is_common_password(password: &str) -> bool {
 }
 /// How long a one-time link lives.
 pub const INVITE_TTL_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// Where the first administrator's link is written, under the data
+/// directory, for the service user alone (the fourth answer of 2026-09-13).
+pub const FIRST_ADMIN_LINK_FILE: &str = "first-admin-link.txt";
+
+pub fn first_admin_link_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(FIRST_ADMIN_LINK_FILE)
+}
+
+/// Write the first administrator's link where only the service user reads
+/// it: mode 0600 on Unix; the data directory's own permissions elsewhere.
+pub fn write_first_admin_link(data_dir: &Path, link: &str) -> Result<PathBuf> {
+    std::fs::create_dir_all(data_dir)
+        .with_context(|| format!("creating {}", data_dir.display()))?;
+    let path = first_admin_link_path(data_dir);
+    let text = format!(
+        "Open this link within 24 hours to become the first administrator of localSpace:\n\n\
+         {link}\n\n\
+         This file is deleted when the link is used. A link older than 24 hours is dead:\n\
+         restart the service for a new one, or run `localspace admin bootstrap` with the\n\
+         service stopped.\n"
+    );
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&path)
+        .with_context(|| format!("writing {}", path.display()))?;
+    std::io::Write::write_all(&mut file, text.as_bytes())
+        .with_context(|| format!("writing {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("protecting {}", path.display()))?;
+    }
+    Ok(path)
+}
+
+/// The link's file goes when the link is used, or when it is stale.
+pub fn remove_first_admin_link(data_dir: &Path) {
+    let _ = std::fs::remove_file(first_admin_link_path(data_dir));
+}
+
+/// What a one-time link is, without spending it.
+#[derive(Debug, Clone)]
+pub enum InviteStatus {
+    /// Used, expired, replaced, or never issued.
+    Dead,
+    /// A first or reset password for this account.
+    ForUser(UserRecord),
+    /// The first administrator's: the account is made when it is used.
+    FirstAdmin,
+}
 /// Consecutive failures that lock an account.
 pub const ACCOUNT_FAILURES: u32 = 5;
 /// An account's first lock; each further round doubles it.
@@ -137,6 +196,22 @@ pub fn normalise_email(email: &str) -> String {
     email.trim().to_ascii_lowercase()
 }
 
+/// A local account with no password yet.
+fn fresh_user(email: String, name: &str, roles: Vec<proto::UserRole>, now_ms: u64) -> UserRecord {
+    UserRecord {
+        id: format!("u_{}", uuid::Uuid::new_v4().simple()),
+        email,
+        name: name.trim().to_string(),
+        roles,
+        provider: "local".into(),
+        password_hash: None,
+        disabled: false,
+        created_ms: now_ms,
+        last_login_ms: None,
+        password_set_ms: None,
+    }
+}
+
 pub fn password_acceptable(password: &str) -> std::result::Result<(), String> {
     let length = password.chars().count();
     if length < MIN_PASSWORD_CHARS {
@@ -185,21 +260,112 @@ impl Directory {
         if self.store.user_by_email(&email)?.is_some() {
             anyhow::bail!("there is already an account for {email}");
         }
-        let user = UserRecord {
-            id: format!("u_{}", uuid::Uuid::new_v4().simple()),
-            email,
-            name: name.trim().to_string(),
-            roles,
-            provider: "local".into(),
-            password_hash: None,
-            disabled: false,
-            created_ms: now_ms,
-            last_login_ms: None,
-            password_set_ms: None,
-        };
+        let user = fresh_user(email, name, roles, now_ms);
         self.store.put_user(&user)?;
         let token = self.invite(&user.id, now_ms)?;
         Ok((user, token))
+    }
+
+    /// The first administrator's one-time link, while there are no accounts
+    /// at all (the fourth answer of 2026-09-13). Minting it again kills the
+    /// earlier one, so only the newest link — the one in the file and the
+    /// log — opens.
+    pub fn bootstrap_invite(&self, now_ms: u64) -> Result<String> {
+        if !self.is_empty()? {
+            anyhow::bail!("this server has accounts already; an administrator makes the next one");
+        }
+        for (key, mut invite) in self.store.invites()? {
+            if invite.first_admin && invite.used_ms.is_none() {
+                invite.used_ms = Some(now_ms);
+                self.store.put_invite(&key, &invite)?;
+            }
+        }
+        let token = random_token();
+        self.store.put_invite(
+            &key_of(&token),
+            &InviteRecord {
+                user: String::new(),
+                created_ms: now_ms,
+                expires_ms: now_ms + INVITE_TTL_MS,
+                used_ms: None,
+                first_admin: true,
+            },
+        )?;
+        Ok(token)
+    }
+
+    /// Spend the first administrator's link: the account is made from the
+    /// name and email given, with the password, and signed in.
+    #[allow(clippy::too_many_arguments)]
+    pub fn accept_first_admin(
+        &self,
+        token: &str,
+        email: &str,
+        name: &str,
+        password: &str,
+        ip: &str,
+        user_agent: &str,
+        now_ms: u64,
+    ) -> std::result::Result<SignedIn, String> {
+        let key = key_of(token);
+        let invite = self
+            .store
+            .get_invite(&key)
+            .map_err(|e| format!("{e:#}"))?
+            .filter(|i| i.first_admin && i.used_ms.is_none() && i.expires_ms > now_ms)
+            .ok_or_else(|| {
+                "This link has been used or has expired. Restart the service for a new one."
+                    .to_string()
+            })?;
+        if !self.is_empty().map_err(|e| format!("{e:#}"))? {
+            return Err("This server has an administrator already.".into());
+        }
+        let email = normalise_email(email);
+        if email.is_empty() || !email.contains('@') {
+            return Err("Give your work email address.".into());
+        }
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("Give your name.".into());
+        }
+        password_acceptable(password)?;
+        let hash = hash_password(password).map_err(|e| format!("{e:#}"))?;
+        let mut user = fresh_user(email, name, vec![proto::UserRole::Admin], now_ms);
+        user.password_hash = Some(hash);
+        user.password_set_ms = Some(now_ms);
+        user.last_login_ms = Some(now_ms);
+        self.store.put_user(&user).map_err(|e| format!("{e:#}"))?;
+        let mut invite = invite;
+        invite.used_ms = Some(now_ms);
+        invite.user = user.id.clone();
+        self.store
+            .put_invite(&key, &invite)
+            .map_err(|e| format!("{e:#}"))?;
+        self.start_session(user, ip, user_agent, now_ms)
+            .map_err(|e| format!("{e:#}"))
+    }
+
+    /// What a token is, without spending it.
+    pub fn invite_status(&self, token: &str, now_ms: u64) -> Result<InviteStatus> {
+        let Some(invite) = self.store.get_invite(&key_of(token))? else {
+            return Ok(InviteStatus::Dead);
+        };
+        if invite.used_ms.is_some() || invite.expires_ms <= now_ms {
+            return Ok(InviteStatus::Dead);
+        }
+        if invite.first_admin {
+            return Ok(if self.is_empty()? {
+                InviteStatus::FirstAdmin
+            } else {
+                InviteStatus::Dead
+            });
+        }
+        Ok(
+            match self.store.get_user(&invite.user)?.filter(|u| !u.disabled) {
+                Some(user) => InviteStatus::ForUser(user),
+                None => InviteStatus::Dead,
+            },
+        )
     }
 
     pub fn users(&self) -> Result<Vec<UserRecord>> {
@@ -272,6 +438,7 @@ impl Directory {
                 created_ms: now_ms,
                 expires_ms: now_ms + INVITE_TTL_MS,
                 used_ms: None,
+                first_admin: false,
             },
         )?;
         Ok(token)

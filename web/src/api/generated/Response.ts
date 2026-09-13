@@ -29,4 +29,9 @@ memory_mb: number, } } | { "widget_view": { root: Widget, } } | { "surface_file"
 /**
  * The session id, for the cookie. Only its hash is stored.
  */
-session: string, expires_ms: number, user: UserInfo, } } | { "invite_status": { valid: boolean, email: string | null, name: string | null, } } | { "error": { message: string, } };
+session: string, expires_ms: number, user: UserInfo, } } | { "invite_status": { valid: boolean, email: string | null, name: string | null, 
+/**
+ * The first administrator's link: the page asks for a name and an
+ * email as well as a password.
+ */
+first_admin: boolean, } } | { "error": { message: string, } };

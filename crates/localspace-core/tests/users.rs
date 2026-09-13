@@ -428,6 +428,8 @@ fn signing_in_is_the_server_s_request_and_never_a_client_s() {
             password: "a long enough password".into(),
             ip: "10.0.0.5".into(),
             user_agent: "test".into(),
+            email: None,
+            name: None,
         },
     ) {
         proto::Response::SignedIn { session, user, .. } => {

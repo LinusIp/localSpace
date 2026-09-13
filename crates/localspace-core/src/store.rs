@@ -113,10 +113,15 @@ pub struct SessionRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct InviteRecord {
+    /// The account the link is for; empty for the first administrator's,
+    /// whose account is made when the link is used.
     pub user: String,
     pub created_ms: u64,
     pub expires_ms: u64,
     pub used_ms: Option<u64>,
+    /// The first administrator's link (the fourth answer of 2026-09-13).
+    #[serde(default)]
+    pub first_admin: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -358,6 +363,18 @@ impl Store {
             Some(g) => Ok(Some(serde_json::from_slice(g.value())?)),
             None => Ok(None),
         }
+    }
+
+    /// Every one-time link, by its key.
+    pub fn invites(&self) -> Result<Vec<(String, InviteRecord)>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(INVITES)?;
+        let mut out = Vec::new();
+        for entry in t.iter()? {
+            let (k, v) = entry?;
+            out.push((k.value().to_string(), serde_json::from_slice(v.value())?));
+        }
+        Ok(out)
     }
 
     pub fn get_lock(&self, key: &str) -> Result<Option<LockRecord>> {
