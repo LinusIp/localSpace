@@ -36,7 +36,10 @@ fn the_rail_is_remembered_per_user_across_a_restart_and_only_known_keys_are_kept
     let ben = member("ben");
     {
         let mut core = core(data.path());
-        assert!(values(&mut core, &anna).is_empty(), "nothing remembered yet");
+        assert!(
+            values(&mut core, &anna).is_empty(),
+            "nothing remembered yet"
+        );
         match core.handle_as(
             &anna,
             proto::Request::SetPreference {
@@ -44,7 +47,10 @@ fn the_rail_is_remembered_per_user_across_a_restart_and_only_known_keys_are_kept
                 value: "true".into(),
             },
         ) {
-            proto::Response::Preferences { values } => assert_eq!(values.get("rail_collapsed").map(String::as_str), Some("true")),
+            proto::Response::Preferences { values } => assert_eq!(
+                values.get("rail_collapsed").map(String::as_str),
+                Some("true")
+            ),
             other => panic!("{other:?}"),
         }
         assert!(values(&mut core, &ben).is_empty(), "Ben's rail is his own");
@@ -55,7 +61,9 @@ fn the_rail_is_remembered_per_user_across_a_restart_and_only_known_keys_are_kept
                 value: "green".into(),
             },
         ) {
-            proto::Response::Error { message } => assert!(message.contains("favourite_colour"), "{message}"),
+            proto::Response::Error { message } => {
+                assert!(message.contains("favourite_colour"), "{message}")
+            }
             other => panic!("an unknown key was kept: {other:?}"),
         }
         match core.handle_as(
@@ -70,6 +78,11 @@ fn the_rail_is_remembered_per_user_across_a_restart_and_only_known_keys_are_kept
         }
     }
     let mut core = core(data.path());
-    assert_eq!(values(&mut core, &anna).get("rail_collapsed").map(String::as_str), Some("true"));
+    assert_eq!(
+        values(&mut core, &anna)
+            .get("rail_collapsed")
+            .map(String::as_str),
+        Some("true")
+    );
     assert!(values(&mut core, &ben).is_empty());
 }
