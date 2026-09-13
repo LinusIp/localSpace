@@ -5,12 +5,21 @@
 //! is decided at the moment of running.
 
 mod admin;
+mod ops;
+mod output;
 mod settings;
 
 use anyhow::Result;
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use localspace_core::profile;
 use std::path::PathBuf;
+
+/// The build behind `--version`: packaging sets `LOCALSPACE_BUILD_ID` to
+/// the commit it built from; a build without it says so.
+const BUILD_ID: &str = match option_env!("LOCALSPACE_BUILD_ID") {
+    Some(id) => id,
+    None => "local build",
+};
 
 #[derive(Parser)]
 #[command(
@@ -30,6 +39,16 @@ enum Command {
     Serve(ServeArgs),
     /// The operations that run with the service stopped: bootstrap, reset-password.
     Admin(admin::AdminArgs),
+    /// Report the hardware profile and what will run on it.
+    Doctor(ops::DoctorArgs),
+    /// Report the efficiency budgets for this machine, on a scratch Core.
+    Bench(ops::Common),
+    /// Run a harness's agent-compatibility suite, on a scratch Core.
+    Evals(ops::EvalsArgs),
+    /// Invoke one tool on the data, the same way the agent would.
+    Call(ops::CallArgs),
+    /// The audit log: verify its hash chain across every file.
+    Audit(ops::AuditArgs),
 }
 
 #[derive(Args)]
@@ -53,10 +72,19 @@ struct ServeArgs {
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    // `--version` names the build as well as the version, once per process.
+    let long_version: &'static str =
+        Box::leak(format!("{} ({BUILD_ID})", env!("CARGO_PKG_VERSION")).into_boxed_str());
+    let matches = Cli::command().long_version(long_version).get_matches();
+    let cli = Cli::from_arg_matches(&matches)?;
     match cli.command {
         Command::Serve(args) => serve(args),
         Command::Admin(args) => admin::run(args),
+        Command::Doctor(args) => ops::doctor(args),
+        Command::Bench(common) => ops::bench(common),
+        Command::Evals(args) => ops::evals(args),
+        Command::Call(args) => ops::call(args),
+        Command::Audit(args) => ops::audit(args),
     }
 }
 

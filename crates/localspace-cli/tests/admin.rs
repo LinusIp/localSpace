@@ -7,12 +7,17 @@ use std::process::Command;
 
 const BIN: &str = env!("CARGO_BIN_EXE_localspace");
 
+/// Which build is under test, for the message when it does not start.
+fn build_id() -> &'static str {
+    option_env!("LOCALSPACE_BUILD_ID").unwrap_or("local build")
+}
+
 fn admin(args: &[&str]) -> (i32, String, String) {
     let output = Command::new(BIN)
         .arg("admin")
         .args(args)
         .output()
-        .expect("the binary runs");
+        .unwrap_or_else(|e| panic!("the binary ({}) did not run: {e}", build_id()));
     (
         output.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&output.stdout).into_owned(),

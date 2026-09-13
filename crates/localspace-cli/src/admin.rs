@@ -72,22 +72,12 @@ fn locate(args: &AdminArgs) -> Result<Where> {
 fn open_store(root: &Path) -> Result<Store> {
     match Store::open(root) {
         Ok(store) => Ok(store),
-        Err(e) => {
-            let text = format!("{e:#}").to_lowercase();
-            if text.contains("lock")
-                || text.contains("already open")
-                || text.contains("being used by another process")
-                || text.contains("os error 32")
-                || text.contains("os error 33")
-            {
-                bail!(
-                    "the database under {} is held by a running server. Stop the service first \
-                     (`systemctl stop localspace`), run this again, then start it.",
-                    root.display()
-                );
-            }
-            Err(e)
-        }
+        Err(e) if crate::ops::held_by_server(&e) => bail!(
+            "the database under {} is held by a running server. Stop the service first \
+             (`systemctl stop localspace`), run this again, then start it.",
+            root.display()
+        ),
+        Err(e) => Err(e),
     }
 }
 

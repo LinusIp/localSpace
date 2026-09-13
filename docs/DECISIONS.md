@@ -64,6 +64,20 @@ changed.
   as the actor `operator` and, without a settings file, print the link
   without an address in front of it and say so. The `--bootstrap-admin`
   flag is gone.
+- **As built (commit 8, third of three).** `doctor`, `bench`, `evals`,
+  `call` and `audit verify` moved from the egui crate into the one
+  binary; the egui crate keeps the GUI alone under `localspace-desktop`.
+  Every command reads the same settings file as `serve`. `bench` and
+  `evals` run on a scratch Core in memory, with the harnesses installed
+  from the catalogs the file names (`[harnesses] catalogs`) for that run
+  only, so a measurement or a test never touches the data; a widened
+  capability is approved for the run, and the output says so. `call`
+  acts on the data the settings name, as the organisation's operator or,
+  with `--personal`, as the workstation's user, and meets a running
+  server the way the admin commands do. Command operands (`evals
+  <harness>`, `call <tool> [json]`, `--email`, `--data` for the
+  offline commands) are the command's own, not deployment settings; the
+  five flags of answer 2 remain the only settings on the command line.
 
 ## 2026-09-13, the audit writer as built (Phase A, commit 7)
 

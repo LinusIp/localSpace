@@ -1,14 +1,13 @@
 #![deny(unsafe_code)]
 //! `localspace-desktop` — the egui Client and Core in one process over the `InProcess` transport.
 //!
-//! The same binary also carries the two commands an operator needs before a GUI
-//! is any use: `doctor`, which identifies the hardware profile and says what will
-//! run on it, and `bench`, which reports the efficiency budgets for this machine.
+//! The operator's commands — `doctor`, `bench`, `evals`, `call`, `audit` —
+//! live in the `localspace` binary (the `localspace-cli` crate).
 
 mod output;
 
 use anyhow::Result;
-use localspace_core::{Config, Core, planner, profile, transport};
+use localspace_core::{Config, Core, transport};
 use localspace_proto as proto;
 use output::{err, out};
 use std::path::PathBuf;
@@ -51,18 +50,10 @@ struct Args {
     llama_server: Option<PathBuf>,
     user: String,
     organisation: bool,
-    allow_below_floor: bool,
 }
 
 enum Command {
     Run,
-    Doctor,
-    Bench,
-    Evals(String),
-    /// Invoke one tool by name, the same way the agent would.
-    Call(String, String),
-    /// Walk the audit log's chain across its files: `audit verify`.
-    Audit(String),
     Help,
 }
 
@@ -76,20 +67,10 @@ fn parse_args() -> Args {
         llama_server: None,
         user: whoami(),
         organisation: false,
-        allow_below_floor: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
-            "doctor" => args.command = Command::Doctor,
-            "bench" => args.command = Command::Bench,
-            "evals" => args.command = Command::Evals(it.next().unwrap_or_default()),
-            "call" => {
-                let tool = it.next().unwrap_or_default();
-                let params = it.next().unwrap_or_else(|| "{}".into());
-                args.command = Command::Call(tool, params);
-            }
-            "audit" => args.command = Command::Audit(it.next().unwrap_or_default()),
             "-h" | "--help" | "help" => args.command = Command::Help,
             "--harnesses" => args.harnesses = it.next().map(PathBuf::from),
             "--data" => args.data = it.next().map(PathBuf::from),
@@ -98,7 +79,6 @@ fn parse_args() -> Args {
             "--llama-server" => args.llama_server = it.next().map(PathBuf::from),
             "--user" => args.user = it.next().unwrap_or_else(whoami),
             "--organisation" | "--organization" => args.organisation = true,
-            "--allow-below-floor" => args.allow_below_floor = true,
             other => err!("ignoring unknown argument `{other}`"),
         }
     }
@@ -161,11 +141,6 @@ fn main() -> Result<()> {
             print_help();
             Ok(())
         }
-        Command::Doctor => doctor(&args),
-        Command::Bench => bench(&args),
-        Command::Evals(harness) => evals(&args, harness),
-        Command::Call(tool, params) => call(&args, tool, params),
-        Command::Audit(sub) => audit(&args, sub),
         Command::Run => run_gui(args),
     }
 }
@@ -173,81 +148,14 @@ fn main() -> Result<()> {
 /// `localspace audit verify --data <dir>` — walks every file of the audit log
 /// in order and checks each record's hash against the one before it, across
 /// files (deployment §10.1). Exit 1 at the first broken or unreadable link.
-fn audit(args: &Args, sub: &str) -> Result<()> {
-    if sub != "verify" {
-        err!("audit: the one command is `verify`");
-        std::process::exit(2);
-    }
-    let Some(data) = &args.data else {
-        err!("audit verify needs --data <dir>: the directory the data is kept in");
-        std::process::exit(2);
-    };
-    let dir = data.join("audit");
-    match localspace_core::audit::verify_dir(&dir) {
-        Ok(report) => {
-            match (&report.first_day, &report.last_day) {
-                (Some(first), Some(last)) if report.records > 0 => out!(
-                    "audit: {} record(s) in {} file(s), {first} to {last}; the chain is intact",
-                    report.records,
-                    report.files
-                ),
-                _ => out!("audit: no records in {}", dir.display()),
-            }
-            Ok(())
-        }
-        Err(e) => {
-            err!("audit: {e}");
-            std::process::exit(1);
-        }
-    }
-}
-
-/// `localspace call <tool> '<json>'` — the same path the agent takes, so a script
-/// and an agent cannot diverge: permission check, schema validation, confirmation
-/// gate, DAG commit.
-fn call(args: &Args, tool: &str, params: &str) -> Result<()> {
-    let params: serde_json::Value =
-        serde_json::from_str(params).map_err(|e| anyhow::anyhow!("params must be JSON: {e}"))?;
-    let mut core = Core::new(config(args))?;
-    match core.handle(proto::Request::CallTool {
-        tool: tool.to_string(),
-        params: proto::Json(params),
-    }) {
-        proto::Response::ToolResult(outcome) => match outcome {
-            proto::ToolOutcome::Ok {
-                diff_summary,
-                commit,
-                ..
-            } => {
-                out!("ok: {diff_summary}");
-                if let Some(c) = commit {
-                    out!("commit {c}");
-                }
-                Ok(())
-            }
-            other => {
-                err!("{other:?}");
-                std::process::exit(1);
-            }
-        },
-        other => {
-            err!("{other:?}");
-            std::process::exit(1);
-        }
-    }
-}
-
 fn print_help() {
     out!(
         "localspace-desktop — the egui client, with Core in the same process
 
 USAGE:
     localspace-desktop [OPTIONS]         open the egui Client
-    localspace-desktop doctor            report the hardware profile and what will run on it
-    localspace-desktop bench             report the efficiency budgets for this machine
-    localspace-desktop evals <harness id>  run a harness's agent-compatibility suite
-    localspace-desktop call <tool> '<json>'  invoke one tool, the same way the agent would
-    localspace-desktop audit verify --data <dir>  walk the audit log's hash chain across its files
+
+    doctor, bench, evals, call and audit are commands of the `localspace` binary.
 
 OPTIONS:
     --harnesses <dir>     directory of harness packages to install at start
@@ -255,169 +163,8 @@ OPTIONS:
     --registry <dir>      a catalog the Marketplace lists: a registry, or an offline bundle
     --user <name>         the environment's user
     --organisation        apply organisation policy (Tier B off by default)
-    --allow-below-floor   proceed on hardware under the supported floor
 "
     );
-}
-
-fn doctor(args: &Args) -> Result<()> {
-    let machine = profile::Machine::detect();
-    let tier = machine.tier();
-    let model_profile = profile::ModelProfile::for_tier(tier);
-
-    out!("machine   {}", machine.describe());
-    out!("profile   {}", model_profile.name);
-    out!(
-        "budgets   tools {} tokens, working set {} tokens, {} prompt tokens per agent step",
-        model_profile.tool_budget_tokens,
-        model_profile.working_set_tokens,
-        model_profile.prompt_tokens_per_step
-    );
-    out!();
-
-    out!("reference models on this machine:");
-    for map in [
-        planner::reference_moe_100b_q4(),
-        planner::reference_dense_70b_fp8(),
-    ] {
-        let plan = planner::plan(
-            &map,
-            &machine,
-            &planner::PlanRequest {
-                context_len: model_profile.working_set_tokens as u32,
-                reservations: vec![
-                    planner::Reservation::gb("harness pool", 6.0),
-                    planner::Reservation::gb("draft model", 2.0),
-                    planner::Reservation::gb("utility model", 2.5),
-                ],
-                ..Default::default()
-            },
-        );
-        out!("  {:<28} {}", map.model_id, plan.summary());
-        for note in &plan.notes {
-            out!("      - {note}");
-        }
-    }
-    out!();
-
-    match tier {
-        profile::HardwareTier::BelowFloor => {
-            out!("verdict   below the supported floor (W32: 32 GB VRAM, 64 GB RAM, 16 cores).");
-            out!("          The Client and every harness still run; a large local model will not.");
-            out!("          Point the model picker at any OpenAI-compatible endpoint instead.");
-            if !args.allow_below_floor {
-                out!("          `serve` would refuse here without --allow-below-floor.");
-            }
-        }
-        profile::HardwareTier::W32 | profile::HardwareTier::W96 => {
-            out!("verdict   workstation profile. `serve` runs in team mode (<= 10 users).");
-        }
-        profile::HardwareTier::S => {
-            out!("verdict   server profile. `serve` is supported here.");
-        }
-    }
-    Ok(())
-}
-
-fn bench(args: &Args) -> Result<()> {
-    let mut core = Core::new(config(args))?;
-    let machine = profile::Machine::detect();
-    let started = std::time::Instant::now();
-
-    // Exercise the paths the budgets in §16.5 are about, without a model: the
-    // active set, the grammar cache, the context providers and a DAG commit.
-    let active = core.active_set();
-    let blocks = core.context_blocks();
-    let elapsed = started.elapsed();
-
-    out!("machine                       {}", machine.describe());
-    out!(
-        "harnesses installed           {}",
-        core.environment().harnesses.len()
-    );
-    out!(
-        "active tool set               {} tools, ~{} of {} tokens",
-        active.tools.len(),
-        active.token_estimate,
-        active.budget
-    );
-    out!("grammar                       {}", active.grammar_hash);
-    out!("context blocks                {}", blocks.len());
-    out!(
-        "provider cache hit rate       {:.0}%",
-        core.provider_cache_hit_rate() * 100.0
-    );
-    out!(
-        "turn assembly                 {:.2} ms",
-        elapsed.as_secs_f32() * 1000.0
-    );
-
-    // §1.2: the app itself is budgeted at 50 MB private RSS, Client and Core
-    // each. This process is both, with the harnesses instantiated, so it is the
-    // honest upper bound — and it is printed whether or not it fits.
-    let footprint = localspace_core::footprint::Footprint::measure();
-    out!("app footprint (this process)  {}", footprint.describe());
-    let resident = core
-        .environment()
-        .harnesses
-        .iter()
-        .filter(|h| h.loaded)
-        .count();
-    out!(
-        "harness logic resident        {resident} of {} (idle instances unload after their declared idle_unload)",
-        core.environment().harnesses.len()
-    );
-
-    // Run it again: everything below should now be served from cache.
-    let started = std::time::Instant::now();
-    core.active_set();
-    core.context_blocks();
-    out!(
-        "turn assembly (cached)        {:.2} ms, provider hit rate {:.0}%",
-        started.elapsed().as_secs_f32() * 1000.0,
-        core.provider_cache_hit_rate() * 100.0
-    );
-    out!();
-    out!("Budgets that need a loaded model (prompt-cache hit rate, decode tok/s,");
-    out!("draft acceptance, utility-model share) are reported by `serve`'s /metrics.");
-    Ok(())
-}
-
-fn evals(args: &Args, harness: &str) -> Result<()> {
-    let mut core = Core::new(config(args))?;
-    match core.handle(proto::Request::RunEvals {
-        harness: harness.to_string(),
-    }) {
-        proto::Response::Evals(report) => {
-            out!(
-                "{}: {}/{} passed on {}",
-                report.harness,
-                report.passed,
-                report.total,
-                report.model
-            );
-            for case in &report.cases {
-                out!(
-                    "  [{}] {} — {}",
-                    if case.passed { "pass" } else { "FAIL" },
-                    case.name,
-                    case.detail
-                );
-            }
-            if report.passed < report.total {
-                std::process::exit(1);
-            }
-            Ok(())
-        }
-        proto::Response::Error { message } => {
-            err!("{message}");
-            std::process::exit(1);
-        }
-        other => {
-            err!("unexpected response: {other:?}");
-            std::process::exit(1);
-        }
-    }
 }
 
 fn run_gui(args: Args) -> Result<()> {

@@ -10,6 +10,11 @@ use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_localspace");
 
+/// Which build is under test, for the message when it does not start.
+fn build_id() -> &'static str {
+    option_env!("LOCALSPACE_BUILD_ID").unwrap_or("local build")
+}
+
 fn write(dir: &Path, text: &str) -> std::path::PathBuf {
     let path = dir.join("localspace.toml");
     std::fs::write(&path, text).unwrap();
@@ -24,7 +29,7 @@ fn serve(config: &Path, extra: &[&str]) -> (i32, String, String) {
         .arg(config)
         .args(extra)
         .output()
-        .expect("the binary runs");
+        .unwrap_or_else(|e| panic!("the binary ({}) did not run: {e}", build_id()));
     (
         output.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -101,7 +106,7 @@ public_url = "http://ai.example.test"
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("the binary runs");
+        .unwrap_or_else(|e| panic!("the binary ({}) did not run: {e}", build_id()));
     let mut running = Running(child);
     let stdout = running.0.stdout.take().expect("stdout is piped");
     let (tx, rx) = std::sync::mpsc::channel();

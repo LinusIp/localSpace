@@ -175,6 +175,24 @@ fn upload_limit(cfg: &ServerConfig) -> usize {
         .saturating_mul(1024 * 1024)
 }
 
+/// Core's configuration from the server's: the one mapping, shared with the
+/// commands that build a Core beside the server (`bench`, `evals`, `call`).
+pub fn core_config(cfg: &ServerConfig) -> Config {
+    let mut core = if cfg.personal {
+        Config::personal(&cfg.user)
+    } else {
+        Config::organisation("operator")
+    };
+    core.harness_dir = cfg.harnesses.clone();
+    core.catalog_dirs = cfg.registry.clone();
+    core.models_dir = cfg.models.clone();
+    core.llama_server = cfg.llama_server.clone();
+    core.data_dir = cfg.data.clone();
+    core.session_ttl_ms = cfg.session_ttl_ms;
+    core.gateway = cfg.gateway.clone();
+    core
+}
+
 pub fn whoami() -> String {
     std::env::var("USERNAME")
         .or_else(|_| std::env::var("USER"))
@@ -250,19 +268,7 @@ impl Server {
     }
 
     fn core_config(&self) -> Config {
-        let mut cfg = if self.cfg.personal {
-            Config::personal(&self.cfg.user)
-        } else {
-            Config::organisation("operator")
-        };
-        cfg.harness_dir = self.cfg.harnesses.clone();
-        cfg.catalog_dirs = self.cfg.registry.clone();
-        cfg.models_dir = self.cfg.models.clone();
-        cfg.llama_server = self.cfg.llama_server.clone();
-        cfg.data_dir = self.cfg.data.clone();
-        cfg.session_ttl_ms = self.cfg.session_ttl_ms;
-        cfg.gateway = self.cfg.gateway.clone();
-        cfg
+        core_config(&self.cfg)
     }
 
     /// The first administrator's one-time link, minted by the server itself
