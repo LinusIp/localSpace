@@ -17,7 +17,11 @@ const headers = { Authorization: `Bearer ${token}`, "content-type": "application
 const api = async (path) => (await fetch(`${origin}/api/v1${path}`, { headers })).json();
 const request = async (body) => (await fetch(`${origin}/api/v1/request`, { method: "POST", headers, body: JSON.stringify(body) })).json();
 const history = async () => (await api("/history?limit=50")).history.commits;
-const doc = async () => (await api("/docs/io.localspace.whiteboard")).doc_json.json;
+// The board's document; on a fresh server it has no shapes or frames yet.
+const doc = async () => {
+  const json = (await api("/docs/io.localspace.whiteboard")).doc_json?.json ?? {};
+  return { ...json, shapes: Array.isArray(json.shapes) ? json.shapes : [], frames: Array.isArray(json.frames) ? json.frames : [] };
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (what, check, ms = 15000) => {
   const start = Date.now();
@@ -304,7 +308,8 @@ try {
   }
   for (const c of (await history().catch(() => [])).slice(0, 8)) console.log(`  commit ${c.id} <- ${c.parent} ${c.tool} ${c.author} ${JSON.stringify(c.diff_summary)}`);
   const d = await doc().catch(() => null);
-  if (d) console.log(`  Core: ${d.shapes.length} shapes; with the note text: ${d.shapes.filter((s) => (s.text ?? "").includes("edited live on the own canvas")).map((s) => s.id).join(", ") || "none"}`);
+  const shapes = Array.isArray(d?.shapes) ? d.shapes : [];
+  if (d) console.log(`  Core: ${shapes.length} shapes; with the note text: ${shapes.filter((s) => (s.text ?? "").includes("edited live on the own canvas")).map((s) => s.id).join(", ") || "none"}`);
   throw err;
 } finally {
   await browser.close();
