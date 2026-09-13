@@ -68,6 +68,50 @@ fn add_member(
     }
 }
 
+#[test]
+fn a_read_only_account_cannot_write_a_board_through_a_surface_even_its_own() {
+    let Some(cfg) = config() else {
+        eprintln!("skipping: the whiteboard is not built");
+        return;
+    };
+    let mut core = Core::new(cfg).expect("creating Core");
+    let carla = with_role("carla", proto::UserRole::Viewer);
+    // Her own personal workspace: she owns its documents, and still may not
+    // change them, because her account is read-only wherever it is.
+    let doc = match core.handle_as(
+        &carla,
+        proto::Request::GetDocJson {
+            harness: WHITEBOARD.into(),
+        },
+    ) {
+        proto::Response::DocJson { doc, .. } => doc,
+        other => panic!("GetDocJson failed: {other:?}"),
+    };
+    match core.handle_as(
+        &carla,
+        proto::Request::WriteDoc {
+            harness: WHITEBOARD.into(),
+            view: "web".into(),
+            doc: proto::Json(json!({"shapes": []})),
+            commit: true,
+        },
+    ) {
+        proto::Response::Error { message } => assert_eq!(message, READ_ONLY_REASON),
+        other => panic!("a viewer's write went through: {other:?}"),
+    }
+    match core.handle_as(
+        &carla,
+        proto::Request::DocSync {
+            doc,
+            peer: "w1".into(),
+            message: vec![0],
+        },
+    ) {
+        proto::Response::Error { message } => assert_eq!(message, READ_ONLY_REASON),
+        other => panic!("a viewer's sync went through: {other:?}"),
+    }
+}
+
 fn select(core: &mut Core, who: &Caller, workspace: &str, reason: Option<&str>) {
     match core.handle_as(
         who,

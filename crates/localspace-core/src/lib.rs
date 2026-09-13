@@ -1575,6 +1575,21 @@ impl Core {
         }
     }
 
+    /// A read-only account writing a document through a surface: refused
+    /// before the access level is looked at, and audited like a tool call.
+    fn refuse_read_only_write(&mut self, doc: &str) -> proto::Response {
+        let _ = self.audit.append(
+            self.actor(),
+            self.scope(doc),
+            "document.write",
+            serde_json::json!({"why": "read-only account"}),
+            "denied",
+        );
+        proto::Response::Error {
+            message: READ_ONLY_REASON.into(),
+        }
+    }
+
     /// Run the harness and commit whatever it changed.
     fn execute(
         &mut self,
@@ -3510,6 +3525,10 @@ impl Core {
                         message: format!("`{harness}` has no document"),
                     };
                 };
+                // A read-only account changes nothing, its own board included.
+                if self.active.is_viewer() {
+                    return self.refuse_read_only_write(&doc_id);
+                }
                 if let Err(denied) = self.access.check(&self.identity(), &doc_id, Level::Edit) {
                     return proto::Response::Error {
                         message: denied.to_string(),
@@ -3546,7 +3565,11 @@ impl Core {
 
             R::DocSync { doc, peer, message } => {
                 // A `view` member receives sync messages but their outgoing
-                // changes are rejected here, server-side.
+                // changes are rejected here, server-side; a read-only account's
+                // before the level is looked at.
+                if self.active.is_viewer() {
+                    return self.refuse_read_only_write(&doc);
+                }
                 if let Err(denied) = self.access.check(&self.identity(), &doc, Level::Edit) {
                     return proto::Response::Error {
                         message: denied.to_string(),
