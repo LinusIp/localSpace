@@ -4,6 +4,69 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-13, CI: what fifteen red runs were, and the pipeline that replaces it
+
+Every run of the workflow since the first push failed, all of them in the
+rust job, each between 29 and 56 minutes except run 13. The causes, read
+from the logs (`gh run view <id> --log-failed`) rather than guessed:
+
+- **Run 13, the fast one (2 min): rustfmt.** `cargo fmt --check` on
+  `crates/localspace-core/tests/preferences.rs`, a file formatted after it
+  was staged. Fixed in 16acda1.
+- **Run 12 (56 min): the runner ran out of disk during `cargo test
+  --workspace`.** The job shows no failed step because the runner itself
+  could no longer write its log ("No space left on device" from the
+  runner's worker, in the job's annotations), 37 minutes into the tests
+  step, after clippy had passed. Runs 2 to 11, 14 and 15 are the same cause
+  wearing three faces: `No space left on device (os error 28)` from rustc
+  and cargo while building the tests (runs 2, 5, 9); `ld terminated with
+  signal 7 [Bus error]` while linking a test or the `localspace` binary,
+  the linker writing a memory-mapped output on a full disk (runs 2, 5, 11,
+  15); and the runner's own log failing, which leaves the job without a
+  failed step (runs 3, 4, 6, 12, 14).
+- **Run 1 (29 min), the only run that reached the tests: three tests in
+  `crates/localspace-core/tests/engine.rs` assumed a GPU.** They built
+  their Core with `Config::personal`, which detects the machine; the runner
+  has none, the planner's verdict for the stub model was "does not fit"
+  instead of "resident", and `LoadModel` was refused. They now describe a
+  W32-class machine (a 32 GB GPU, 64 GB of RAM, 16 cores) and the W32
+  profile in the test, so the verdict is the same on every host; what they
+  test is the sidecar path, not the planner.
+- **Not the cause: Tauri's system libraries.** With the five packages the
+  job installs, clippy over the whole workspace, shell included, passed on
+  Linux in run 12 (16 minutes), and no run reports an error from the
+  shell's build; the failures came after it, out of disk. The shell stays on
+  Linux. The split of 2026-09-11 (Core and the server on Linux, the shell on
+  a Windows runner) remains the fallback if it ever stops building there;
+  Core and the server never leave Linux.
+
+What changed, in the order asked:
+
+- **Cheap before expensive.** A `check` job (rustfmt over the workspace and
+  the harness crates; oxlint; `tsc -b` for the app, and the type checks of
+  the canvas package and the whiteboard surface) gates `web` and `rust`,
+  and `e2e` needs both. Every job has a timeout: check 10, web 30, rust 60,
+  e2e 45 minutes. The check job's commands take under a minute on the
+  build machine; a commit that fails them costs about two minutes of CI.
+- **A warm build.** `Swatinem/rust-cache` replaces `actions/cache` in the
+  rust and e2e jobs: the first action in the workflow not written by
+  GitHub, on the user's instruction, pinned to commit 6323deb (v2.9.2)
+  rather than a moving tag, with `cache-on-failure` so a red test still
+  warms the next run. It caches the workspace target and the two harness
+  crates' targets.
+- **Disk.** The test build carries line-table debug info only
+  (`CARGO_PROFILE_DEV_DEBUG=line-tables-only`; `panicked at file:line` and
+  backtraces stay readable). A full-debug target of this workspace measures
+  59 GB on the build machine, 13 GB of it debug-info files and 23 GB
+  libraries, with 17 integration-test executables that each link Core and
+  its engines (wasmtime, Automerge, redb). The rust job also removes
+  toolchains the runner image ships and this build never uses (Android,
+  .NET, Haskell, CodeQL, cached Docker images: about 20 GB) before
+  building, and prints the disk after the build so the margin is known.
+
+Green CI is commit 10's gate (`docs/PILOT-1.md`, Phase A): nothing in
+Phase B starts on top of unverified commits.
+
 ## 2026-09-13, the shell as built against the app screens (Phase A, commit 9)
 
 The UI reference is the user's design canvas "localSpace App Screens"
