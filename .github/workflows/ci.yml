@@ -2,14 +2,21 @@
 # that can be measured on a runner are checks that fail on regression
 # (CLAUDE.md, "How you work"; docs/DECISIONS.md, answer 6 to the step-5
 # report). The toolchains come from rustup and setup-node on the runner;
-# the only actions used are GitHub's own. Nothing here downloads a browser
-# or a model: the end-to-end walk drives the Chrome already on the runner
-# and runs without an agent.
+# the actions are GitHub's own plus Swatinem/rust-cache, pinned to a commit
+# (docs/DECISIONS.md, 2026-09-13). Nothing here downloads a browser or a
+# model: the end-to-end walk drives the Chrome already on the runner and
+# runs without an agent.
+#
+# Cheap before expensive: `check` (formatting, lint, types) gates every job
+# that builds Rust, and every job has a timeout, so a broken commit costs
+# minutes rather than an hour.
 #
 # Runners are pinned labels, never a moving alias. Core and the server always
-# build and test on Linux, which is what organisations deploy: if the Tauri
-# shell cannot build here, the rust job splits into Core and the server on
-# Linux and the desktop shell on Windows (docs/DECISIONS.md, 2026-09-11).
+# build and test on Linux, which is what organisations deploy. The Tauri
+# shell builds there too, with the packages below (run 12 of this workflow
+# type-checked the whole workspace on Linux); if that ever stops, the rust
+# job splits into Core and the server on Linux and the desktop shell on
+# Windows (docs/DECISIONS.md, 2026-09-11).
 
 name: ci
 
@@ -29,10 +36,49 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+  # Full debug info filled the runner's disk: runs 9, 11 and 12 died of
+  # "No space left on device" while building the tests (a full-debug target
+  # of this workspace measures 59 GB on the build machine, 13 GB of it debug
+  # info). Line tables keep `panicked at file:line` and backtraces readable.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
+  check:
+    name: check (format, lint, types)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: rustfmt, the workspace and the harness crates
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          rustup default stable
+          cargo fmt --all -- --check
+          for crate in harnesses/*-logic; do (cd "$crate" && cargo fmt -- --check); done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm run lint
+        working-directory: web
+      - name: types, the app and its build config
+        run: npm run typecheck
+        working-directory: web
+      - name: types, the canvas package
+        run: npm run typecheck:packages
+        working-directory: web
+      - name: types, the whiteboard surface
+        run: npm run typecheck:whiteboard
+        working-directory: web
+
   web:
-    name: web (lint, types, tests, build, sizes, frame times)
+    name: web (tests, build, sizes, frame times)
+    needs: check
+    timeout-minutes: 30
     strategy:
       matrix:
         # The frame-time baseline names this label; change both together.
@@ -49,9 +95,6 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck:packages
-      - run: npm run typecheck:whiteboard
       - run: npm test
       - run: npm run build
       - run: npm run build:whiteboard
@@ -75,10 +118,21 @@ jobs:
           if-no-files-found: ignore
 
   rust:
-    name: rust (format, clippy, tests)
+    name: rust (clippy, tests) on Linux
+    needs: check
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - name: room on the runner's disk
+        # The image ships toolchains this build never touches: about 20 GB
+        # of Android, .NET, Haskell, CodeQL and Docker images, and the debug
+        # build of the tests needs the room.
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force > /dev/null
+          df -h / | tail -1
       - name: toolchain
         run: |
           rustup toolchain install stable --profile minimal --component clippy,rustfmt
@@ -93,18 +147,13 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-            harnesses/*/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-      - name: rustfmt
-        run: |
-          cargo fmt --all -- --check
-          for crate in harnesses/*-logic; do (cd "$crate" && cargo fmt -- --check); done
+          workspaces: |
+            . -> target
+            harnesses/whiteboard-logic -> target
+            harnesses/planner-logic -> target
+          cache-on-failure: true
       - name: the web bundle the shell embeds, and the harness packages the tests load
         run: |
           (cd web && npm ci && npm run build)
@@ -113,11 +162,17 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings --force-warn clippy::unwrap_used
       - name: tests
         run: cargo test --workspace
+      - name: the disk after the build
+        if: always()
+        run: |
+          df -h / | tail -1
+          du -sh target harnesses/*/target 2>/dev/null || true
 
   e2e:
     name: the step-5 gate, end to end in a browser
     runs-on: ubuntu-24.04
     needs: [web, rust]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: toolchain
@@ -130,14 +185,13 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-            harnesses/*/target
-          key: cargo-e2e-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          workspaces: |
+            . -> target
+            harnesses/whiteboard-logic -> target
+            harnesses/planner-logic -> target
+          cache-on-failure: true
       - name: build the shell, the harness packages and the server
         run: |
           (cd web && npm ci && npm run build)
@@ -168,6 +222,7 @@ jobs:
     name: the canvas gate on W32, from its recorded measurement
     if: github.event_name == 'workflow_dispatch' && inputs.w32_gate
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
