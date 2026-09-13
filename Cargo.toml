@@ -6,6 +6,7 @@ members = [
     "crates/localspace-client",
     "crates/localspace-desktop",
     "crates/localspace-server",
+    "crates/localspace-cli",
     "crates/localspace-shell",
     "crates/localspace-surface-sdk",
     "crates/localspace-harness-sdk",
@@ -59,6 +60,8 @@ tower-http = { version = "0.6", features = ["fs", "cors"] }
 
 # --- misc ---
 uuid = { version = "1", features = ["v4", "serde"] }
+# The one binary's command line (Phase A, answer 1: the derive API).
+clap = { version = "4", features = ["derive"] }
 # Password hashing for local accounts (Pilot 1, Phase A, answer 3): argon2id.
 argon2 = { version = "0.5", features = ["std"] }
 time = { version = "0.3", features = ["formatting", "parsing", "serde", "macros"] }

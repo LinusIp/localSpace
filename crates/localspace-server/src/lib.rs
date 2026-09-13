@@ -9,6 +9,7 @@
 
 pub mod api;
 pub mod auth;
+pub mod net;
 pub mod openapi;
 pub mod session;
 pub mod surfaces;
@@ -26,6 +27,21 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
+pub use net::Cidr;
+
+/// How TLS reaches this server (deployment §3.3 `tls`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Tls {
+    /// None: right on loopback, refused anywhere else without `--insecure`.
+    None,
+    /// A reverse proxy terminates TLS and forwards plain HTTP; its addresses
+    /// are in `trusted_proxies`, and their `X-Forwarded-For` is believed.
+    BehindProxy,
+    /// A certificate and key of the server's own. Not built in this release:
+    /// `preflight` refuses it rather than ignore it.
+    Native { cert: PathBuf, key: PathBuf },
+}
 
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
@@ -61,6 +77,17 @@ pub struct ServerConfig {
     /// Make the first administrator of a server with no accounts and print
     /// their one-time link at start (`localspace admin bootstrap`).
     pub bootstrap_admin: Option<String>,
+    /// How TLS reaches this server (deployment §3.3 `tls`).
+    pub tls: Tls,
+    /// The proxies whose `X-Forwarded-For` is believed (deployment §3.3
+    /// `trusted_proxies`); the connection's address otherwise.
+    pub trusted_proxies: Vec<Cidr>,
+    /// Serve plaintext off loopback anyway (`--insecure`). Logged loudly.
+    pub insecure: bool,
+    /// The largest upload or artifact (deployment §3.3 `max_upload_mb`).
+    pub max_upload_mb: u64,
+    /// The network policy Core starts with (deployment §3.3 `[network]`).
+    pub gateway: localspace_core::gateway::GatewayConfig,
 }
 
 impl Default for ServerConfig {
@@ -82,8 +109,74 @@ impl Default for ServerConfig {
             session_ttl_ms: 12 * 60 * 60 * 1000,
             public_url: None,
             bootstrap_admin: None,
+            tls: Tls::None,
+            trusted_proxies: Vec::new(),
+            insecure: false,
+            max_upload_mb: 200,
+            gateway: localspace_core::gateway::GatewayConfig::default(),
         }
     }
+}
+
+/// The checks before a socket opens (Pilot 1, the answers of 2026-09-13).
+/// `Err` is the one message the operator reads; `Ok` carries what to log
+/// loudly. Nothing here is skipped by any caller: `start` runs it.
+pub fn preflight(cfg: &ServerConfig) -> Result<Vec<String>, String> {
+    let mut warnings = Vec::new();
+    if let Tls::Native { .. } = cfg.tls {
+        return Err(
+            "TLS termination is not built in yet; put localSpace behind a reverse proxy \
+                    and set [server] tls = \"behind-proxy\" and trusted_proxies."
+                .into(),
+        );
+    }
+    if cfg.tls == Tls::BehindProxy {
+        if cfg.trusted_proxies.is_empty() {
+            return Err(
+                "[server] tls = \"behind-proxy\" needs trusted_proxies: the proxies whose \
+                        X-Forwarded-For is believed. Without them anyone could claim any address."
+                    .into(),
+            );
+        }
+        if cfg.public_url.is_none() {
+            return Err(
+                "[server] public_url is not set: the address users open, which a server \
+                        behind a proxy cannot know by itself."
+                    .into(),
+            );
+        }
+    }
+    if !net::binds_loopback(&cfg.bind) {
+        if cfg.public_url.is_none() {
+            return Err(format!(
+                "[server] public_url is not set: the address users open, needed for the links the \
+                 server prints when it listens on {}.",
+                cfg.bind
+            ));
+        }
+        if cfg.tls != Tls::BehindProxy {
+            if !cfg.insecure {
+                return Err(format!(
+                    "localspace serve refuses to serve plaintext off loopback: bind is {}. \
+                     Terminate TLS in a reverse proxy and set [server] tls = \"behind-proxy\" and \
+                     trusted_proxies, or pass --insecure to serve plaintext anyway (logged).",
+                    cfg.bind
+                ));
+            }
+            warnings.push(format!(
+                "INSECURE: serving plaintext on {} because --insecure was passed. Every password \
+                 and document crosses the network unencrypted. Not for a company's documents.",
+                cfg.bind
+            ));
+        }
+    }
+    Ok(warnings)
+}
+
+fn upload_limit(cfg: &ServerConfig) -> usize {
+    usize::try_from(cfg.max_upload_mb)
+        .unwrap_or(usize::MAX)
+        .saturating_mul(1024 * 1024)
 }
 
 pub fn whoami() -> String {
@@ -114,6 +207,15 @@ impl Server {
             .token
             .take()
             .unwrap_or_else(|| uuid::Uuid::new_v4().simple().to_string());
+        // A site users open over https gets cookies the browser sends only
+        // over https, whatever the caller said.
+        if cfg
+            .public_url
+            .as_deref()
+            .is_some_and(|url| url.starts_with("https://"))
+        {
+            cfg.secure_cookies = true;
+        }
         Arc::new(Server {
             core: Mutex::new(None),
             creating: tokio::sync::Mutex::new(()),
@@ -163,6 +265,7 @@ impl Server {
         cfg.llama_server = self.cfg.llama_server.clone();
         cfg.data_dir = self.cfg.data.clone();
         cfg.session_ttl_ms = self.cfg.session_ttl_ms;
+        cfg.gateway = self.cfg.gateway.clone();
         cfg
     }
 
@@ -250,9 +353,9 @@ pub fn router(server: Arc<Server>) -> Router {
         .route("/documents/{id}/content", get(api::document_content))
         .route(
             "/artifacts",
-            post(api::produce_artifact).layer(axum::extract::DefaultBodyLimit::max(
-                localspace_core::MAX_ARTIFACT_BYTES,
-            )),
+            post(api::produce_artifact).layer(axum::extract::DefaultBodyLimit::max(upload_limit(
+                &server.cfg,
+            ))),
         )
         .route("/surfaces", post(surfaces::open))
         .route_layer(axum::middleware::from_fn_with_state(
@@ -302,6 +405,9 @@ pub struct Running {
 /// Bind and serve in the background. The desktop shell uses this with
 /// `bind = "127.0.0.1:0"` and opens its window on the address returned.
 pub async fn start(cfg: ServerConfig) -> anyhow::Result<Running> {
+    for warning in preflight(&cfg).map_err(|refusal| anyhow::anyhow!("{refusal}"))? {
+        tracing::warn!("{warning}");
+    }
     let server = Server::new(cfg);
     let app = router(server.clone());
     let listener = tokio::net::TcpListener::bind(&server.cfg.bind).await?;

@@ -1,0 +1,29 @@
+[package]
+name = "localspace-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The localspace binary: serve, and the commands an operator runs beside it."
+
+[[bin]]
+name = "localspace"
+path = "src/main.rs"
+
+[dependencies]
+localspace-proto = { path = "../localspace-proto" }
+localspace-core = { path = "../localspace-core" }
+localspace-server = { path = "../localspace-server" }
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

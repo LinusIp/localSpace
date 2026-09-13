@@ -25,8 +25,9 @@ follows alone, and the acceptance list that decides "installed".
 - **The audit log**, hash-chained, written locally; SIEM export optional.
 - **Network modes and the gateway**, with the zero-connection proof: packet
   capture with a mandatory positive control.
-- **A Linux install path:** the binary, a systemd unit, TLS or behind-proxy,
-  `localspace admin bootstrap`, backup and restore, `doctor`.
+- **A Linux install path:** the binary, a systemd unit, behind-proxy TLS,
+  the first administrator's link minted at start, backup and restore,
+  `doctor`.
 - **A real model** rather than the 0.5B: whatever the partner's hardware
   holds by the planner's verdict, the reference class when it fits.
 
@@ -174,11 +175,21 @@ review latency included, hardware excluded.
   when it arrives, is a configuration change, with the guide saying
   SmartScreen warns until then. The "connect to a model server" form
   stays under Settings → Advanced in personal mode only.
-- The `localspace` binary (answer 27): `serve`, `doctor`, `bench`, `evals`,
-  `call`, `admin`; `localspace.toml` with the keys the pilot uses (answer
-  22), `--config` pointing at it. `serve` refuses to start when it binds
-  anything but loopback without TLS or `trusted_proxies`, unless
-  `--insecure` is passed and logged loudly (answer 2).
+- The `localspace` binary (answer 27; the answers of 2026-09-13 in
+  `docs/DECISIONS.md`): its own crate, `localspace-cli`, with `serve`,
+  `doctor`, `bench`, `evals`, `call`, `admin` and `audit`, no GUI linked;
+  `localspace.toml` with the keys the pilot uses (answer 22) under the
+  names of deployment §3.3, `--config` pointing at it, and no other flags
+  than `--insecure`, `--allow-below-floor`, `--personal` and `--token`.
+  `serve` refuses to start when it binds anything but loopback without
+  `tls = "behind-proxy"` and `trusted_proxies`, unless `--insecure` is
+  passed and logged loudly (answer 2); a `tls = { cert, key }` value is
+  refused with the supported path named, as is every key or value the
+  release does not honour. With no users at all, `serve` mints the first
+  administrator's one-time link itself, logs it and writes it to
+  `<root>/first-admin-link.txt` for the service user alone, deleting the
+  file once it is used; `admin bootstrap` and `admin reset-password` are
+  the offline paths, run with the service stopped.
 - Documents get ids of their own and a table naming their workspace,
   harness, title and creator, so a workspace holds several per harness
   while the UI shows one (answer 12); existing data migrates forward once,
@@ -397,10 +408,16 @@ decision to start with local accounts.
 5. **Start it.** `sudo systemctl enable --now localspace`, then `localspace
    doctor --running` to see it answer on `/readyz` with the model loaded and
    the index open.
-6. **The first admin.** `sudo -u localspace localspace admin bootstrap
-   --email you@corp.example` prints a one-time link. Open it, set the
-   password, and you are the admin. The screen carries a banner until the
-   provider is OIDC: local accounts are for pilots.
+6. **The first admin.** With no users yet, the service has minted a
+   one-time link at start and written it to
+   `/var/lib/localspace/first-admin-link.txt` (also in its log):
+   `sudo cat /var/lib/localspace/first-admin-link.txt`. Open it, give your
+   name, email and a password, and you are the admin; the file is deleted
+   once the link is used. A link older than 24 hours is dead: restart the
+   service for a new one, or run `sudo -u localspace localspace admin
+   bootstrap --config /etc/localspace/localspace.toml` with the service
+   stopped. The screen carries a banner until the provider is OIDC: local
+   accounts are for pilots.
 7. **Users and a workspace.** In the app, Admin → Users → Add creates a user
    and prints their one-time link; Admin → Workspaces → New makes the shared
    workspace and adds members with their level. Each user also has a
@@ -436,9 +453,9 @@ installed. Each line is a test with a yes or no; the engineer watches.
    working sign-in in under an hour, without a call to the vendor.
 2. `localspace doctor` is green, or every red line is one the partner has
    accepted in writing (the volume-encryption line among them).
-3. The first admin was made with `admin bootstrap`; two more users were
-   made in the app; each signs in in their own browser and sees their own
-   personal workspace.
+3. The first admin was made from the link the service minted at start;
+   two more users were made in the app; each signs in in their own browser
+   and sees their own personal workspace.
 3a. The Store lists the whiteboard with what it does; the admin installs
    it there and it appears in every member's rail; nothing was pre-seeded.
 4. Two users co-edit the shared workspace's board in two browsers; edits

@@ -4,6 +4,54 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-13, the one binary and its settings file (Phase A, commit 8: four answers)
+
+Deployment §3.1–3.3, §4.1, §9.1; Pilot 1 (`docs/PILOT-1.md`) answer 27 and
+the install guide. Answered on 2026-09-13, as recommended, with the fourth
+changed.
+
+- **A new crate, `localspace-cli`, owns the `localspace` binary** (answer 1;
+  deployment §3.1 promises one binary by that name). It carries `serve`,
+  `doctor`, `bench`, `evals`, `call`, `admin` and `audit`, and links no
+  GUI toolkit: a headless Linux server does not carry one. The egui crate
+  keeps a binary name of its own, `localspace-desktop`, until it is
+  archived; the Tauri shell stays `localspace-app`.
+- **Everything a deployment sets lives in `localspace.toml`**, under the
+  names of deployment §3.3 (answer 2). Flags are limited to `--config`,
+  `--insecure`, `--allow-below-floor`, `--personal` and `--token`, and a
+  flag overrides the file. The file is `--config`'s, else
+  `/etc/localspace/localspace.toml` when it exists (on Windows
+  `%ProgramData%\localSpace\localspace.toml`), else defaults.
+- **A `tls = { cert, key }` value refuses to start** (answer 3): native TLS
+  termination is not built yet, and a key that is set, believed and
+  ignored would serve a company's documents in plaintext. The message
+  names the supported path: "TLS termination is not built in yet; put
+  localSpace behind a reverse proxy and set `tls = "behind-proxy"` and
+  `trusted_proxies`." The same rule holds for every key: **a key or value
+  this release does not honour is refused at start, never ignored** — an
+  `oidc` provider, `at-rest` encryption, a non-local audit sink, an online
+  registry, a retention or limit the code does not enforce. Unknown keys
+  are errors that name the key and the file.
+- **The first administrator's link is minted by the server itself**
+  (answer 4, changed from the plan's `admin bootstrap` after start).
+  When `serve` starts in organisation mode and there are no users at all,
+  it mints a one-time link, logs it, and writes it to
+  `<storage.root>/first-admin-link.txt`, readable only by the service user
+  (mode 0600 on Linux; the data directory's own permissions on Windows),
+  and deletes the file once the link is used. The link asks for the
+  administrator's name, email and password, since the server knows none
+  of them yet. The install guide becomes "start the service, open the link
+  from that file" — no second command. There is no authenticated admin
+  channel to a running server in Phase A: that is new privileged surface
+  for one rare operation. `localspace admin bootstrap` stays as the
+  **offline** path for minting a new link with the service stopped, and
+  password recovery for a locked-out administrator,
+  `localspace admin reset-password --email`, runs offline too — a few
+  seconds of downtime is acceptable for a break-glass operation, and the
+  running server's surface stays the HTTP API alone. Both commands take
+  `--config` (the file names the data directory) or `--data <dir>`; both
+  refuse, naming the fact, while the server holds the database.
+
 ## 2026-09-13, the audit writer as built (Phase A, commit 7)
 
 Deployment §10.1 ("append-only, hash-chained, daily rotated, verifiable

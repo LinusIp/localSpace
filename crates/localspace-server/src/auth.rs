@@ -56,13 +56,20 @@ pub struct TokenQuery {
     pub token: Option<String>,
 }
 
-/// The address the request came from, when the listener recorded one; the
-/// tests' requests have none. `trusted_proxies` and `X-Forwarded-For` come
-/// with the settings file.
-pub fn client_ip(extensions: &axum::http::Extensions) -> String {
-    extensions
+/// The address a request carries: the connection's, or behind a trusted
+/// proxy (deployment §3.3 `trusted_proxies`) the client `X-Forwarded-For`
+/// names. The tests' requests have no connection and get none.
+pub fn client_ip(
+    server: &Server,
+    extensions: &axum::http::Extensions,
+    headers: &HeaderMap,
+) -> String {
+    let peer = extensions
         .get::<ConnectInfo<SocketAddr>>()
-        .map(|c| c.0.ip().to_string())
+        .map(|c| c.0.ip());
+    let forwarded = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok());
+    crate::net::client_ip(peer, forwarded, &server.cfg.trusted_proxies)
+        .map(|ip| ip.to_string())
         .unwrap_or_default()
 }
 
@@ -114,7 +121,7 @@ pub async fn require(
     mut request: Request<Body>,
     next: Next,
 ) -> Response {
-    let ip = client_ip(request.extensions());
+    let ip = client_ip(&server, request.extensions(), request.headers());
     match authenticate(&server, request.headers(), query.token.as_deref(), &ip).await {
         Some(caller) => {
             request.extensions_mut().insert(caller);
@@ -204,10 +211,11 @@ pub struct SetPassword {
 }
 
 async fn body<T: serde::de::DeserializeOwned>(
+    server: &Server,
     request: Request<Body>,
 ) -> Result<(T, String, String), Box<Response>> {
     let (parts, body) = request.into_parts();
-    let ip = client_ip(&parts.extensions);
+    let ip = client_ip(server, &parts.extensions, &parts.headers);
     let agent = user_agent(&parts.headers);
     let bytes = axum::body::to_bytes(body, BODY_LIMIT)
         .await
@@ -289,7 +297,7 @@ pub async fn login_with_password(
     if server.cfg.personal {
         return unauthorised("This server signs in with its token.");
     }
-    let (login, ip, user_agent) = match body::<EmailLogin>(request).await {
+    let (login, ip, user_agent) = match body::<EmailLogin>(&server, request).await {
         Ok(read) => read,
         Err(response) => return *response,
     };
@@ -332,7 +340,7 @@ pub async fn invite_status(
 /// `POST /api/v1/auth/set-password {token, password}`: spend a one-time
 /// link on a password and sign in.
 pub async fn set_password(State(server): State<Arc<Server>>, request: Request<Body>) -> Response {
-    let (set, ip, user_agent) = match body::<SetPassword>(request).await {
+    let (set, ip, user_agent) = match body::<SetPassword>(&server, request).await {
         Ok(read) => read,
         Err(response) => return *response,
     };

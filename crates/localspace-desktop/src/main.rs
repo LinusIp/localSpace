@@ -1,5 +1,5 @@
 #![deny(unsafe_code)]
-//! `localspace` — Core and Client in one process over the `InProcess` transport.
+//! `localspace-desktop` — the egui Client and Core in one process over the `InProcess` transport.
 //!
 //! The same binary also carries the two commands an operator needs before a GUI
 //! is any use: `doctor`, which identifies the hardware profile and says what will
@@ -239,15 +239,15 @@ fn call(args: &Args, tool: &str, params: &str) -> Result<()> {
 
 fn print_help() {
     out!(
-        "localspace — a local agent workspace built from harnesses
+        "localspace-desktop — the egui client, with Core in the same process
 
 USAGE:
-    localspace [OPTIONS]                 open the desktop Client
-    localspace doctor                    report the hardware profile and what will run on it
-    localspace bench                     report the efficiency budgets for this machine
-    localspace evals <harness id>        run a harness's agent-compatibility suite
-    localspace call <tool> '<json>'      invoke one tool, the same way the agent would
-    localspace audit verify --data <dir> walk the audit log's hash chain across its files
+    localspace-desktop [OPTIONS]         open the egui Client
+    localspace-desktop doctor            report the hardware profile and what will run on it
+    localspace-desktop bench             report the efficiency budgets for this machine
+    localspace-desktop evals <harness id>  run a harness's agent-compatibility suite
+    localspace-desktop call <tool> '<json>'  invoke one tool, the same way the agent would
+    localspace-desktop audit verify --data <dir>  walk the audit log's hash chain across its files
 
 OPTIONS:
     --harnesses <dir>     directory of harness packages to install at start

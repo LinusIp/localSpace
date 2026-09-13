@@ -3,10 +3,10 @@ name = "localspace-desktop"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "localspace binary: Core + Client in one process over the InProcess transport."
+description = "The egui desktop client with Core in one process, until it is archived; the localspace binary is the cli crate."
 
 [[bin]]
-name = "localspace"
+name = "localspace-desktop"
 path = "src/main.rs"
 
 [dependencies]
