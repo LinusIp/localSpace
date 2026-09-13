@@ -4,6 +4,51 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-13, the organisation's name, seats, cursors, and Phase A's gate (commit 10)
+
+The user's answers to the three questions of the board and People work, and
+the walk that closes Phase A's gate:
+
+- **`[organisation] name` is a setting** (answer 1; deployment §3.3 gains
+  the key). Set at install: the install guide's minimal file opens with it.
+  It is shown on the sign-in page, in the browser tab's title
+  ("localSpace · Meridian Bank"), on the invitation page and on the People
+  page ("Who can sign in to localSpace at Meridian Bank."). When it is not
+  set the phrase is dropped, not replaced: "Who can sign in to localSpace."
+  and a plain "localSpace" tab, because "here" reads like a placeholder
+  someone forgot. An empty value is refused at start like any other bad
+  setting. The name travels in `GET /api/v1/auth/mode`, whose answer is now
+  a contract type, `proto::AuthMode`, generated for the client like `Me`.
+- **No seat cap in Pilot 1** (answer 2). The People page says "3 people",
+  never a number the product cannot enforce. When the entitlement of the
+  marketplace spec (§5) is built, its seat field stays in the data model so a
+  cap later is a display change, not a schema change; nothing of it exists
+  in code yet, so nothing was added.
+- **Named cursors stay in Phase C** (answer 3); presence landed early and the
+  cursor channel is the remaining half.
+- **Phase A's gate runs in CI: `web/e2e/org.mjs`.** On an organisation server
+  started on an empty data directory whose settings name the organisation:
+  the first administrator is made from the link in `first-admin-link.txt`;
+  two more people are invited, a member and a read-only account; each of
+  the three starts in a personal workspace of their own; the member signs
+  in through the sign-in page, which names the organisation, as does the
+  tab; the administrator and the member open the same shared board in two
+  browsers and each sees the other on it; a note made and typed by one
+  reaches the other and a change comes back; the read-only account is
+  refused from the API and from the board itself, in the shared workspace
+  and on her own personal board; the member, lowered to "can view" on the
+  workspace, is refused the same way by the access level; and the audit log
+  holds each of those under the right person, denials included. The CI job
+  then stops the server and runs `localspace audit verify` over the log.
+- **A read-only account changes nothing through a surface either.** The
+  walk found that `WriteDoc` and `DocSync` looked only at the access level,
+  so a read-only account could edit the board of its own personal
+  workspace, which it owns. Both now refuse a viewer before the level is
+  looked at, audited as `document.write` denied with the same one sentence
+  the tools give, and `roles.rs` has the negative test. Producing an
+  artifact (an export) is not gated by role; whether a read-only account may
+  export a board it can see is a **question** for the user.
+
 ## 2026-09-13, the board and the People page as built against the app screens (Phase A, commit 9, continued)
 
 The user sent the board and the Admin → People artboards again: "the

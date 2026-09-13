@@ -204,7 +204,9 @@ review latency included, hardware excluded.
   server-side; every request of the above is in the audit log with the
   right actor; the CI's Linux job runs the whole suite, green (the first
   fifteen runs were red: the runner's disk and a test that assumed a GPU,
-  not Tauri's libraries; `docs/DECISIONS.md`, 2026-09-13).
+  not Tauri's libraries; `docs/DECISIONS.md`, 2026-09-13). The walk is
+  `web/e2e/org.mjs`, run by CI against an organisation server on an empty
+  data directory, with `localspace audit verify` after it.
 
 ### Phase B — retrieval end to end (4 weeks)
 
@@ -378,6 +380,9 @@ decision to start with local accounts.
    a systemd unit. It does not start anything.
 2. **Edit `/etc/localspace/localspace.toml`.** The minimal file is:
    ```toml
+   [organisation]
+   name = "Corp Example"       # the sign-in page, the tab title and the invitations show it
+
    [server]
    bind = "0.0.0.0:8443"
    public_url = "https://ai.corp.example"
