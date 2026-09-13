@@ -5,6 +5,7 @@
 //! shell hears every state change, `UnloadModel` stops it — and a crash is
 //! restarted.
 
+use localspace_core::profile::{Machine, ModelProfile};
 use localspace_core::{Config, Core};
 use localspace_proto as proto;
 use std::path::{Path, PathBuf};
@@ -31,9 +32,29 @@ fn data_dir_with_model(dir: &Path) -> PathBuf {
     catalog
 }
 
+/// The machine these tests describe, instead of the one they run on: a
+/// W32-class workstation, so the planner calls the stub model "resident" and
+/// puts its layers on the GPU wherever the tests run. Detection on a runner
+/// without a GPU made the verdict "does not fit" and refused the load; what
+/// is under test here is the sidecar path, not the planner.
+fn described_machine() -> Machine {
+    Machine {
+        gpus: vec![32],
+        ram_gb: 64,
+        cores: 16,
+        nvme_gbps: 6.0,
+        pcie_gbps: 25.0,
+        avx512: false,
+        amx: false,
+        unified_memory: false,
+    }
+}
+
 fn core_with_fake_engine(dir: &Path) -> (Core, Arc<Mutex<Vec<proto::Event>>>) {
     let catalog = data_dir_with_model(dir);
     let mut cfg = Config::personal("tester");
+    cfg.machine = described_machine();
+    cfg.profile = ModelProfile::w32();
     cfg.data_dir = Some(dir.to_path_buf());
     cfg.models_dir = Some(catalog);
     cfg.llama_server = Some(PathBuf::from(FAKE));
