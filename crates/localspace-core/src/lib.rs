@@ -1575,6 +1575,26 @@ impl Core {
         }
     }
 
+    /// The document Ctrl+Z reaches: the most recently changed document in
+    /// the caller's workspace that they may edit. Never another workspace's,
+    /// never the environment's lock, and nothing for a read-only account.
+    fn undoable_doc(&self) -> Option<proto::DocId> {
+        if self.active.is_viewer() {
+            return None;
+        }
+        let identity = self.identity();
+        let recent = self.dag.history(200).ok()?;
+        recent.into_iter().map(|c| c.doc).find(|doc| {
+            doc != lock::LOCK_DOC
+                && self
+                    .access
+                    .document(doc)
+                    .map(|m| m.workspace == self.workspace)
+                    .unwrap_or(false)
+                && self.access.check(&identity, doc, Level::Edit).is_ok()
+        })
+    }
+
     /// A read-only account writing a document through a surface: refused
     /// before the access level is looked at, and audited like a tool call.
     fn refuse_read_only_write(&mut self, doc: &str) -> proto::Response {
@@ -3023,6 +3043,11 @@ impl Core {
     fn handle_inner(&mut self, req: proto::Request) -> proto::Response {
         use proto::Request as R;
         self.tick();
+        if let Some(event) = admin_only(&req)
+            && let Some(refused) = self.require_admin(event)
+        {
+            return refused;
+        }
         match req {
             R::GetEnvironment => proto::Response::Environment(self.environment()),
 
@@ -3334,6 +3359,11 @@ impl Core {
                         message: format!("no harness `{harness}`"),
                     };
                 };
+                if let Err(denied) = self.access.check(&self.identity(), &doc_id, Level::View) {
+                    return proto::Response::Error {
+                        message: denied.to_string(),
+                    };
+                }
                 let doc = self.docs.json(&doc_id).unwrap_or(J::Null);
                 let services = self.services();
                 let (result, over_budget) = {
@@ -3356,10 +3386,29 @@ impl Core {
                 }
                 match result {
                     Ok((reply, doc_out)) => {
-                        if let Some(next) = doc_out
-                            && let Ok(changes) = self.docs.apply_json(&doc_id, &next)
-                            && !changes.is_empty()
-                        {
+                        if let Some(next) = doc_out {
+                            // The logic wants the document changed: that is a
+                            // write by the caller, checked like any other.
+                            if self.active.is_viewer() {
+                                return self.refuse_read_only_write(&doc_id);
+                            }
+                            if let Err(denied) =
+                                self.access.check(&self.identity(), &doc_id, Level::Edit)
+                            {
+                                let _ = self.audit.append(
+                                    self.actor(),
+                                    self.scope(&doc_id),
+                                    "document.write",
+                                    serde_json::json!({"why": denied.to_string()}),
+                                    "denied",
+                                );
+                                return proto::Response::Error {
+                                    message: denied.to_string(),
+                                };
+                            }
+                            if let Ok(changes) = self.docs.apply_json(&doc_id, &next)
+                                && !changes.is_empty()
+                            {
                             let snapshot = self.docs.snapshot(&doc_id).unwrap_or_default();
                             let _ = self.dag.commit(
                                 &doc_id,
@@ -3372,6 +3421,7 @@ impl Core {
                                 None,
                             );
                             self.doc_changed(&doc_id);
+                            }
                         }
                         if !reply.is_empty() {
                             self.emit(proto::Event::HarnessMessage {
@@ -3413,9 +3463,12 @@ impl Core {
                 let ttl = std::time::Duration::from_millis(self.cfg.presence_ttl_ms);
                 let user = self.active.user.clone();
                 let workspace = self.workspace.clone();
+                // A window's name is its own only together with its person:
+                // nobody evicts another's window by guessing its name.
+                let window = format!("{user}\u{1f}{peer}");
                 let changed =
                     self.presence
-                        .announce(&peer, &user, &workspace, board.as_deref(), now, ttl);
+                        .announce(&window, &user, &workspace, board.as_deref(), now, ttl);
                 for place in changed {
                     let users = self.presence.users_at(&place);
                     let people: Vec<proto::Present> = users
@@ -3632,21 +3685,36 @@ impl Core {
                 proto::Response::Ok
             }
 
-            R::GetHistory { limit } => match self.dag.history(limit) {
-                Ok(commits) => proto::Response::History { commits },
+            R::GetHistory { limit } => match self.dag.history(limit.saturating_mul(8).max(200)) {
+                Ok(commits) => {
+                    // Each person sees the history of what they may see: the
+                    // documents they hold `view` on, and the environment's
+                    // lock when they administer it.
+                    let identity = self.identity();
+                    let admin = self.active.is_admin();
+                    let commits = commits
+                        .into_iter()
+                        .filter(|c| {
+                            if c.doc == lock::LOCK_DOC {
+                                admin
+                            } else {
+                                self.access.check(&identity, &c.doc, Level::View).is_ok()
+                            }
+                        })
+                        .take(limit)
+                        .collect();
+                    proto::Response::History { commits }
+                }
                 Err(e) => proto::Response::Error {
                     message: format!("{e:#}"),
                 },
             },
 
             R::Undo => {
-                let doc = match self.dag.last_touched_doc() {
-                    Ok(Some(d)) => d,
-                    _ => {
-                        return proto::Response::Error {
-                            message: "nothing to undo".into(),
-                        };
-                    }
+                let Some(doc) = self.undoable_doc() else {
+                    return proto::Response::Error {
+                        message: "nothing to undo".into(),
+                    };
                 };
                 match self.dag.undo(&doc) {
                     Ok(r) => self.apply_revert(r),
@@ -3657,13 +3725,10 @@ impl Core {
             }
 
             R::Redo => {
-                let doc = match self.dag.last_touched_doc() {
-                    Ok(Some(d)) => d,
-                    _ => {
-                        return proto::Response::Error {
-                            message: "nothing to redo".into(),
-                        };
-                    }
+                let Some(doc) = self.undoable_doc() else {
+                    return proto::Response::Error {
+                        message: "nothing to redo".into(),
+                    };
                 };
                 match self.dag.redo(&doc) {
                     Ok(r) => self.apply_revert(r),
@@ -3673,18 +3738,48 @@ impl Core {
                 }
             }
 
-            R::DropRun { run } => match self.dag.drop_run(&run) {
-                Ok(reverts) => {
-                    for r in reverts {
-                        self.apply_revert(r);
-                    }
-                    self.proposals.retain(|p| p.run != run);
-                    proto::Response::Ok
+            R::DropRun { run } => {
+                // Dropping a run reverts every document it touched: the caller
+                // holds `edit` on each of them, and a read-only account drops
+                // nothing.
+                if self.active.is_viewer() {
+                    return proto::Response::Error {
+                        message: READ_ONLY_REASON.into(),
+                    };
                 }
-                Err(e) => proto::Response::Error {
-                    message: format!("{e:#}"),
-                },
-            },
+                let identity = self.identity();
+                let touched: Vec<proto::DocId> = match self.dag.history(usize::MAX) {
+                    Ok(all) => all
+                        .into_iter()
+                        .filter(|c| c.run.as_deref() == Some(run.as_str()))
+                        .map(|c| c.doc)
+                        .collect(),
+                    Err(e) => {
+                        return proto::Response::Error {
+                            message: format!("{e:#}"),
+                        };
+                    }
+                };
+                for doc in &touched {
+                    if let Err(denied) = self.access.check(&identity, doc, Level::Edit) {
+                        return proto::Response::Error {
+                            message: denied.to_string(),
+                        };
+                    }
+                }
+                match self.dag.drop_run(&run) {
+                    Ok(reverts) => {
+                        for r in reverts {
+                            self.apply_revert(r);
+                        }
+                        self.proposals.retain(|p| p.run != run);
+                        proto::Response::Ok
+                    }
+                    Err(e) => proto::Response::Error {
+                        message: format!("{e:#}"),
+                    },
+                }
+            }
 
             R::ListCatalog => {
                 // The installed directory is scanned too, so a package already
@@ -3717,6 +3812,26 @@ impl Core {
                     Some((b, m)) => (b.to_string(), m.to_string()),
                     None => ("http://localhost:1234/v1".to_string(), id.clone()),
                 };
+                // The worker reaches out through the same door as everything
+                // else: an endpoint the network mode does not allow is refused.
+                match self.gateway.lock().unwrap().check(&base) {
+                    Egress::Allowed => {}
+                    Egress::NeedsApproval(_) => {
+                        return proto::Response::Error {
+                            message: format!(
+                                "`{base}` is not approved under the current network mode; approve it under Network first"
+                            ),
+                        };
+                    }
+                    Egress::Denied(why) => return proto::Response::Error { message: why },
+                }
+                let _ = self.audit.append(
+                    self.actor(),
+                    self.scope(""),
+                    "model.select",
+                    serde_json::json!({"endpoint": base, "model": model}),
+                    "ok",
+                );
                 let worker = model::OpenAiWorker::new(&base, &model);
                 self.router.write().unwrap().chat = Some(Arc::new(worker));
                 self.broadcast_environment();
@@ -3816,6 +3931,9 @@ impl Core {
             },
             R::CreateUser { email, name, roles } => match self.require_admin("user.create") {
                 Some(refused) => refused,
+                None if roles.is_empty() => proto::Response::Error {
+                    message: "an account has at least one role: administrator, member, or can view only".into(),
+                },
                 None => {
                     let now = dag::now_ms();
                     match self
@@ -3846,6 +3964,9 @@ impl Core {
             },
             R::SetUserRoles { user, roles } => match self.require_admin("user.roles") {
                 Some(refused) => refused,
+                None if roles.is_empty() => proto::Response::Error {
+                    message: "an account has at least one role: administrator, member, or can view only".into(),
+                },
                 None => match self.directory.set_roles(&user, roles.clone()) {
                     Ok(_) => {
                         let _ = self.audit.append(
@@ -3989,6 +4110,9 @@ impl Core {
                 level,
             } => match self.require_workspace_owner(&workspace, "workspace.member") {
                 Some(refused) => refused,
+                None if matches!(principal, proto::Principal::Workspace) => proto::Response::Error {
+                    message: "a workspace's members are people and groups; \"everyone in the workspace\" is not one of them".into(),
+                },
                 None => {
                     let principal = acl_principal(&principal);
                     let level = acl_level(level);
@@ -4248,6 +4372,30 @@ fn proto_level(level: Level) -> proto::AccessLevel {
         Level::Edit => proto::AccessLevel::Edit,
         Level::Owner => proto::AccessLevel::Owner,
     }
+}
+
+/// The requests that change or read what is shared by everyone on the
+/// server: the installed set, the network mode, the model and its engine,
+/// the operator's diagnostics. Only an administrator makes them (deployment
+/// §4.3); the one user of a personal workstation is its administrator. The
+/// name is the audit event a refusal is recorded under.
+fn admin_only(req: &proto::Request) -> Option<&'static str> {
+    use proto::Request as R;
+    Some(match req {
+        R::SetNetworkMode { .. } => "network.mode",
+        R::SetHarnessEnabled { .. } => "harness.enable",
+        R::InstallHarness { .. } | R::ApproveInstall { .. } => "harness.install",
+        R::UninstallHarness { .. } => "harness.uninstall",
+        R::DownloadModel { .. } => "model.download",
+        R::LoadModel { .. } => "model.load",
+        R::UnloadModel => "model.unload",
+        R::ImportModel { .. } => "model.import",
+        R::SelectModel { .. } => "model.select",
+        R::EngineLog { .. } => "engine.log",
+        R::PreviewContext { .. } => "context.preview",
+        R::RunEvals { .. } => "evals.run",
+        _ => return None,
+    })
 }
 
 fn acl_principal(principal: &proto::Principal) -> acl::Principal {

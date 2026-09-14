@@ -4,6 +4,102 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-14, builds on the laptop: four jobs, line tables, one suite at a time
+
+The user's machine went to 100% disk with memory at the ceiling during the
+review's test runs: cargo ran one rustc or linker per core, each taking
+gigabytes while it linked one of the seventeen integration-test executables,
+and Windows paged the rest. Four changes, by the user: `.cargo/config.toml`
+caps cargo at four jobs; the workspace's `dev` profile carries line-table
+debug info only, the same setting CI has had since 2026-09-13 (59 GB to
+11 GB of target); the whole workspace is not tested locally any more, only
+the suites being worked on, with CI doing the rest warm in about six
+minutes; and an editor's rust-analyzer gets its own target directory. The
+stale target directory, 95 GB, was removed. `docs/BUILD.md` says the same.
+
+## 2026-09-13, the fresh-eyes review of who sees what, and what was fixed at once
+
+Before Phase B builds retrieval's ACL pre-filter on it, the code that
+decides who sees what was reviewed as its own task by a reviewer who had
+not written it: the access control, the directory (argon2, lockout,
+sessions, links), the audit chain, the exposure of tools, the request
+dispatch, the server's cookies and origins, the settings. Twenty-seven
+findings came back; the five high ones were confirmed by reading the code
+paths again. The ones that violate what the documents already say (every
+mutating call permission-checked in Core, `CLAUDE.md`; shared state the
+administrator's, deployment §4.3; a tightened document never wider than
+its workspace, §6.1) were fixed the same day, each with a negative test.
+The ones that are decisions are questions to the user, listed at the end.
+
+Fixed:
+
+- **A surface message to harness logic wrote without a check.** The logic
+  may hand back a document; it was applied and committed whoever asked.
+  Now the caller must hold `view` to reach the logic at all and `edit` for
+  the document to change; a read-only account is refused as for any write;
+  refusals are audited as `document.write` denied. (`roles.rs`: a `view`
+  member's message carrying a whole document changes nothing.)
+- **History was everyone's.** `GetHistory` returned every commit of every
+  workspace with the tools' arguments in them. It now returns the commits
+  of documents the caller holds `view` on, and the environment's lock only
+  to administrators.
+- **Undo, redo and dropping a run reached anyone's document.** Undo and
+  redo now act on the most recently changed document in the caller's own
+  workspace that they may edit, never the environment's lock; dropping a
+  run requires `edit` on every document the run touched; a read-only
+  account does neither.
+- **Anyone could point the model at any URL.** `SelectModel` is an
+  administrator's request, the endpoint goes through the gateway's check
+  like any other egress, and the choice is audited.
+- **Shared state had no administrator's gate.** In one place before the
+  dispatch, the requests that change or read what is shared by everyone
+  (network mode, install, approve, uninstall, enable, model download, load,
+  unload, import, select, the engine log, the context preview, evals) are
+  the administrator's; the one user of a personal workstation is its
+  administrator, so nothing changes there. The Store shows members no
+  Install and the network pane no choice, saying who decides.
+- **A member removed from a workspace kept a tightened document's level.**
+  The level held on a document is now the workspace's level capped by the
+  tightening, never the tightening alone; "everyone in the workspace" in a
+  tightening means the members, and is refused as a member itself.
+- **Smaller ones.** An account has at least one role (an empty list was a
+  full member). A presence window is keyed by its person together with its
+  name, so nobody evicts another's window by guessing the name. A failed
+  sign-in verifies a decoy hash when there is no account or no password, so
+  its timing says nothing about who exists. A package id is lower-case
+  reverse-DNS and never a path (`../..` was a valid id before). The session
+  id is read from the cookie or the Authorization header only; the query
+  form is the WebSocket upgrade's alone. A trusted-proxy range of every
+  address is refused at start.
+
+Held sound by the review, for the record: session ids and their rotation,
+the cookie's flags, argon2id and its parameters, one-time links, break-glass
+scope and its clearing, the isolation of per-user state, surface origins and
+their CSP, CSRF posture, the audit chain within and across files, the
+settings whitelist, and the offline administration commands.
+
+Open, as **questions** to the user (each a design decision the documents do
+not settle, or a change beyond a day):
+
+1. Should an administrator need break-glass to change another workspace's
+   members and document access (today only entering it needs a reason)?
+2. Proposal mode: the agent still commits to the shared head; the spec's
+   branch the requester sees first — Pilot 1 or later?
+3. Lockout and rate limiting: per account and address instead of per
+   account, and a request-rate limit in the server layer before Core.
+4. May a read-only account export a board it can see (producing an artifact
+   document)?
+5. A Content-Security-Policy and HSTS on the shell origin (deployment §9.2
+   names them; the harness origins have theirs).
+6. The audit log: anchor its head outside the files so a truncated tail is
+   caught, and fail an action when its record cannot be written.
+7. Commits carry the author's kind, not the user; audit surface writes and
+   document reads by user.
+8. The lows the review lists that remain: invite tokens in GET paths and
+   logs, a token-use race, unpurged lock and session rows, a revoked
+   session's socket living up to thirty seconds, export documents keyed by
+   content hash, one user's egress approval applying to all.
+
 ## 2026-09-13, the organisation's name, seats, cursors, and Phase A's gate (commit 10)
 
 The user's answers to the three questions of the board and People work, and

@@ -215,6 +215,35 @@ fn a_window_that_falls_silent_is_forgotten() {
 }
 
 #[test]
+fn a_window_is_its_person_s_and_nobody_else_leaves_with_its_name() {
+    let Some((mut core, events)) = core(45_000) else {
+        eprintln!("skipping: the whiteboard is not built");
+        return;
+    };
+    let root = caller("root", proto::UserRole::Admin);
+    let anna = caller("anna", proto::UserRole::Member);
+    let bek = caller("bek", proto::UserRole::Member);
+    let team = create(&mut core, &root, "Team");
+    add_member(&mut core, &root, &team, "anna");
+    add_member(&mut core, &root, &team, "bek");
+    select(&mut core, &anna, &team);
+    select(&mut core, &bek, &team);
+    announce(&mut core, &anna, "w1", Some(WHITEBOARD));
+    // Bek says a window named like Anna's has left: his own, not hers.
+    announce(&mut core, &bek, "w1", None);
+    assert_eq!(
+        last_list(&events, "anna").as_deref(),
+        Some(&["anna".to_string()][..])
+    );
+    announce(&mut core, &bek, "w1", Some(WHITEBOARD));
+    assert_eq!(
+        last_list(&events, "anna").map(|l| l.len()),
+        Some(2),
+        "two people, two windows of the same name"
+    );
+}
+
+#[test]
 fn another_workspace_s_board_is_another_place_and_an_outsider_cannot_announce_it() {
     let Some((mut core, events)) = core(45_000) else {
         eprintln!("skipping: the whiteboard is not built");

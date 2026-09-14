@@ -201,11 +201,15 @@ mod tests {
             "Ben heard nothing of Anna's turn"
         );
 
-        // A shared change: everyone is told their view is stale, and only
-        // the caller gets the environment itself.
+        // A shared change, which is an administrator's to make: everyone is
+        // told their view is stale, and only the caller gets the environment.
+        let ben_the_admin = Caller {
+            roles: vec![proto::UserRole::Admin],
+            ..member("ben")
+        };
         session
             .call_as(
-                &ben,
+                &ben_the_admin,
                 proto::Request::SetNetworkMode {
                     mode: proto::NetworkMode::Airgapped,
                 },
