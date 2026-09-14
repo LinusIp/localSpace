@@ -67,6 +67,19 @@ async fn the_api_is_closed_without_the_token_and_open_with_it() {
         .unwrap();
     assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
 
+    // The token in the address is not a way in: only the WebSocket upgrade
+    // reads it there.
+    let in_the_address = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/environment?token=secret-1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(in_the_address.status(), StatusCode::UNAUTHORIZED);
+
     let login = app
         .clone()
         .oneshot(

@@ -350,6 +350,12 @@ fn apply(file: File, path: &Path) -> Result<ServerConfig> {
         let cidr: Cidr = range
             .parse()
             .map_err(|e| anyhow::anyhow!("{at}: [server] trusted_proxies: {e}"))?;
+        if cidr.is_everything() {
+            bail!(
+                "{at}: [server] trusted_proxies: `{range}` trusts every address, so any client \
+                 could name its own; list the proxies' own ranges"
+            );
+        }
         cfg.trusted_proxies.push(cidr);
     }
     if let Some(mb) = file.server.max_upload_mb {
@@ -597,6 +603,12 @@ sink = ["local"]
             refused("[organisation]\nnam = \"x\"\n")
                 .contains("`organisation.nam` is not a setting")
         );
+    }
+
+    #[test]
+    fn a_proxy_range_that_is_every_address_is_refused() {
+        assert!(refused("[server]\ntrusted_proxies = [\"0.0.0.0/0\"]\n").contains("every address"));
+        assert!(refused("[server]\ntrusted_proxies = [\"::/0\"]\n").contains("every address"));
     }
 
     #[test]

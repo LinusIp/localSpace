@@ -117,12 +117,14 @@ pub async fn authenticate(
 /// which the handlers then find in the request's extensions.
 pub async fn require(
     State(server): State<Arc<Server>>,
-    Query(query): Query<TokenQuery>,
     mut request: Request<Body>,
     next: Next,
 ) -> Response {
+    // A session id rides in the cookie or the Authorization header, never
+    // in the address, where proxies log it: the query form is the WebSocket
+    // upgrade's alone, which a browser cannot give a header.
     let ip = client_ip(&server, request.extensions(), request.headers());
-    match authenticate(&server, request.headers(), query.token.as_deref(), &ip).await {
+    match authenticate(&server, request.headers(), None, &ip).await {
         Some(caller) => {
             request.extensions_mut().insert(caller);
             next.run(request).await

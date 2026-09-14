@@ -50,6 +50,11 @@ impl std::fmt::Display for Cidr {
 }
 
 impl Cidr {
+    /// `0.0.0.0/0` or `::/0`: every address, which no list of proxies means.
+    pub fn is_everything(&self) -> bool {
+        self.prefix == 0
+    }
+
     pub fn contains(&self, ip: IpAddr) -> bool {
         let ip = ip.to_canonical();
         ip.is_ipv4() == self.network.is_ipv4() && mask(ip, self.prefix) == self.network
