@@ -68,11 +68,14 @@ impl Identity {
         self
     }
 
+    /// Whether a principal names this identity. "Everyone in the workspace"
+    /// is not answered here, where no workspace is in sight: `AccessControl`
+    /// resolves it against the workspace's own members.
     fn matches(&self, p: &Principal) -> bool {
         match p {
             Principal::User(u) => *u == self.user,
             Principal::Group(g) => self.groups.iter().any(|x| x == g),
-            Principal::Workspace => true,
+            Principal::Workspace => false,
         }
     }
 }
@@ -266,14 +269,25 @@ impl AccessControl {
         self.documents.get(id)
     }
 
-    /// The ACL a document answers to: its own tightening, else its workspace's.
-    fn effective(&self, meta: &DocumentMeta) -> Option<Acl> {
+    /// What an identity holds on a document: its level in the workspace,
+    /// capped by the document's own tightening when it has one. A tightening
+    /// never gives what the workspace does not, and someone the workspace no
+    /// longer holds holds nothing here either, whatever an older tightening
+    /// says. "Everyone in the workspace" in a tightening means the members.
+    fn held(&self, meta: &DocumentMeta, id: &Identity) -> Option<Level> {
+        let ws = self.workspaces.get(&meta.workspace)?;
+        let in_workspace = ws.level_of(id)?;
         match &meta.acl {
-            Some(own) => Some(own.clone()),
-            None => self
-                .workspaces
-                .get(&meta.workspace)
-                .map(|w| w.default_acl.clone()),
+            None => Some(in_workspace),
+            Some(own) => {
+                let tightened = own
+                    .entries
+                    .iter()
+                    .filter(|(p, _)| matches!(p, Principal::Workspace) || id.matches(p))
+                    .map(|(_, l)| *l)
+                    .max()?;
+                Some(tightened.min(in_workspace))
+            }
         }
     }
 
@@ -289,7 +303,7 @@ impl AccessControl {
         }
         let held = match &id.break_glass {
             Some(glass) if glass.workspace == meta.workspace => Some(Level::Owner),
-            _ => self.effective(meta).and_then(|acl| acl.level_for(id)),
+            _ => self.held(meta, id),
         };
         match held {
             Some(l) if l >= need => Ok(l),
@@ -304,10 +318,7 @@ impl AccessControl {
             .values()
             .filter(|d| {
                 matches!(&id.break_glass, Some(glass) if glass.workspace == d.workspace)
-                    || self
-                        .effective(d)
-                        .map(|acl| acl.allows(id, Level::View))
-                        .unwrap_or(false)
+                    || self.held(d, id).is_some()
             })
             .collect()
     }
@@ -387,6 +398,11 @@ mod tests {
         let mut ac = AccessControl::new();
         ac.add_workspace(Workspace::personal("anna"));
         ac.add_workspace(Workspace::shared("ws_finance", "Finance", "finance-team"));
+        // The CFO is a member of the workspace: a tightening can only narrow
+        // what the workspace gives, never name someone it does not hold.
+        ac.workspace_mut("ws_finance")
+            .unwrap()
+            .set_member(Principal::User("cfo".into()), Level::Owner);
         ac.add_document("d_personal", "ws_anna", "Anna's board", None);
         ac.add_document("d_shared", "ws_finance", "Q4 board", None);
         ac.add_document(
@@ -463,6 +479,10 @@ mod tests {
     #[test]
     fn a_view_member_can_read_but_not_write() {
         let mut ac = setup();
+        // Dana edits in the workspace; this one document is tightened to view.
+        ac.workspace_mut("ws_finance")
+            .unwrap()
+            .set_member(Principal::User("dana".into()), Level::Edit);
         ac.add_document(
             "d_ro",
             "ws_finance",
@@ -472,6 +492,43 @@ mod tests {
         let dana = Identity::user("dana");
         assert!(ac.check(&dana, "d_ro", Level::View).is_ok());
         assert!(ac.check(&dana, "d_ro", Level::Edit).is_err());
+    }
+
+    #[test]
+    fn someone_the_workspace_no_longer_holds_holds_nothing_on_a_tightened_document() {
+        let mut ac = setup();
+        let cfo = Identity::user("cfo");
+        assert_eq!(ac.check(&cfo, "d_tight", Level::Owner), Ok(Level::Owner));
+        ac.workspace_mut("ws_finance")
+            .unwrap()
+            .remove_member(&Principal::User("cfo".into()));
+        assert!(
+            ac.check(&cfo, "d_tight", Level::View).is_err(),
+            "the tightening still names the CFO, and gives nothing without the workspace"
+        );
+        assert!(!ac.visible_documents(&cfo).iter().any(|d| d.id == "d_tight"));
+    }
+
+    #[test]
+    fn everyone_in_the_workspace_in_a_tightening_means_its_members() {
+        let mut ac = setup();
+        ac.add_document(
+            "d_team",
+            "ws_finance",
+            "Team notes",
+            Some(Acl::default().grant(Principal::Workspace, Level::View)),
+        );
+        let bob = Identity::user("bob").in_group("finance-team");
+        let carl = Identity::user("carl");
+        assert_eq!(ac.check(&bob, "d_team", Level::View), Ok(Level::View));
+        assert!(
+            ac.check(&bob, "d_team", Level::Edit).is_err(),
+            "view is what the tightening gives"
+        );
+        assert!(
+            ac.check(&carl, "d_team", Level::View).is_err(),
+            "not a member: not everyone"
+        );
     }
 
     #[test]

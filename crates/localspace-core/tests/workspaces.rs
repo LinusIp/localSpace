@@ -456,6 +456,100 @@ fn workspaces_members_and_the_workspace_a_user_was_in_survive_a_restart() {
 }
 
 #[test]
+fn a_member_removed_from_the_workspace_loses_a_tightened_document_too() {
+    let Some(cfg) = config(None) else { return };
+    let mut core = Core::new(cfg).unwrap();
+    let root = admin("root");
+    let anna = member("anna");
+    let ben = member("ben");
+    let team = create(&mut core, &root, "Team");
+    for who in ["anna", "ben"] {
+        assert!(matches!(
+            set_member(&mut core, &root, &team, who, proto::AccessLevel::Edit),
+            proto::Response::Workspaces(_)
+        ));
+    }
+    for who in [&anna, &ben] {
+        assert!(matches!(
+            select(&mut core, who, &team, None),
+            proto::Response::Environment(_)
+        ));
+    }
+    let (doc, _) = board(&mut core, &anna).unwrap();
+    // Tightened to the two of them by name.
+    let tightened = core.handle_as(
+        &root,
+        proto::Request::SetDocumentAccess {
+            doc: doc.clone(),
+            members: Some(vec![
+                proto::Member {
+                    principal: proto::Principal::User("anna".into()),
+                    level: proto::AccessLevel::Edit,
+                },
+                proto::Member {
+                    principal: proto::Principal::User("ben".into()),
+                    level: proto::AccessLevel::Edit,
+                },
+            ]),
+        },
+    );
+    assert!(
+        !matches!(tightened, proto::Response::Error { .. }),
+        "{tightened:?}"
+    );
+    assert!(matches!(
+        add_sticky(&mut core, &ben, "while a member"),
+        proto::ToolOutcome::Ok { .. }
+    ));
+
+    // Root removes Ben from the workspace: the tightening names him still,
+    // and gives him nothing, because the workspace no longer does.
+    assert!(matches!(
+        core.handle_as(
+            &root,
+            proto::Request::RemoveMember {
+                workspace: team.clone(),
+                principal: proto::Principal::User("ben".into()),
+            }
+        ),
+        proto::Response::Workspaces(_)
+    ));
+    assert!(matches!(
+        add_sticky(&mut core, &ben, "after"),
+        proto::ToolOutcome::Denied { .. }
+    ));
+    assert!(board(&mut core, &ben).is_err(), "Ben still reads the board");
+    assert!(board(&mut core, &anna).is_ok(), "Anna lost the board too");
+}
+
+#[test]
+fn everyone_in_the_workspace_is_not_a_member_one_can_add() {
+    let Some(cfg) = config(None) else { return };
+    let mut core = Core::new(cfg).unwrap();
+    let root = admin("root");
+    let outsider = member("olga");
+    let team = create(&mut core, &root, "Team");
+    match core.handle_as(
+        &root,
+        proto::Request::SetMember {
+            workspace: team.clone(),
+            principal: proto::Principal::Workspace,
+            level: proto::AccessLevel::Owner,
+        },
+    ) {
+        proto::Response::Error { message } => {
+            assert!(message.contains("people and groups"), "{message}")
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    // Nobody got in by it.
+    assert!(matches!(
+        select(&mut core, &outsider, &team, None),
+        proto::Response::Error { .. }
+    ));
+}
+
+#[test]
 fn a_personal_workspace_takes_no_members() {
     let Some(cfg) = config(None) else { return };
     let mut core = Core::new(cfg).unwrap();
