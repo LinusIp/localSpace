@@ -169,6 +169,14 @@ pub fn hash_password(password: &str) -> Result<String> {
         .to_string())
 }
 
+/// A hash nothing matches, verified against when there is no account or no
+/// password to check, so a failed sign-in costs the same whatever the
+/// reason and the time it takes says nothing about who exists.
+fn decoy_hash() -> &'static str {
+    static DECOY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    DECOY.get_or_init(|| hash_password("not anyone's password").unwrap_or_default())
+}
+
 /// Whether a password matches a stored hash. A hash that does not parse is
 /// no match.
 pub fn verify_password(password: &str, phc: &str) -> bool {
@@ -509,6 +517,7 @@ impl Directory {
         }
         let email = normalise_email(email);
         let Some(user) = self.store.user_by_email(&email)? else {
+            let _ = verify_password(password, decoy_hash());
             self.count_address_failure(ip, now_ms)?;
             return Ok(Err(LoginFailure::NoSuchUser));
         };
@@ -517,8 +526,14 @@ impl Directory {
             return Ok(Err(LoginFailure::AccountLocked { until_ms: until }));
         }
         let outcome = match (&user.password_hash, user.disabled) {
-            (_, true) => Err(LoginFailure::Disabled),
-            (None, _) => Err(LoginFailure::NoPasswordYet),
+            (_, true) => {
+                let _ = verify_password(password, decoy_hash());
+                Err(LoginFailure::Disabled)
+            }
+            (None, _) => {
+                let _ = verify_password(password, decoy_hash());
+                Err(LoginFailure::NoPasswordYet)
+            }
             (Some(hash), false) if verify_password(password, hash) => Ok(()),
             (Some(_), false) => Err(LoginFailure::WrongPassword),
         };

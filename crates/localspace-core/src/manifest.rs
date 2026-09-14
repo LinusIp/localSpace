@@ -743,9 +743,10 @@ impl Manifest {
 
     /// Install-time gate. Core rejects a package here rather than at first use.
     pub fn validate(&self) -> Result<()> {
-        if !self.harness.id.contains('.') {
+        if !is_package_id(&self.harness.id) {
             bail!(
-                "harness id `{}` is not reverse-DNS (expected e.g. io.localspace.whiteboard)",
+                "harness id `{}` is not reverse-DNS: lower-case letters, digits and dashes in at \
+                 least two dot-separated parts (e.g. io.localspace.whiteboard)",
                 self.harness.id
             );
         }
@@ -913,9 +914,44 @@ fn parse_semver(s: &str) -> (u32, u32, u32) {
     (a, b, c)
 }
 
+/// A package id: reverse-DNS, and nothing a path could be made of.
+pub fn is_package_id(id: &str) -> bool {
+    let parts: Vec<&str> = id.split('.').collect();
+    parts.len() >= 2
+        && parts.iter().all(|p| {
+            !p.is_empty()
+                && p.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_package_id_is_reverse_dns_and_never_a_path() {
+        assert!(is_package_id("io.localspace.whiteboard"));
+        assert!(is_package_id("acme-corp.tools.v2"));
+        for bad in [
+            "..",
+            "../..",
+            "whiteboard",
+            "io.localspace.White",
+            "io..x",
+            "a/b.c",
+            ".io.x",
+            "io.x.",
+        ] {
+            assert!(!is_package_id(bad), "{bad}");
+        }
+        let escaped = WHITEBOARD.replace("io.localspace.whiteboard", "../..");
+        let why = Manifest::parse(&escaped)
+            .and_then(|m| m.validate())
+            .expect_err("an id that is a path is refused")
+            .to_string();
+        assert!(why.contains("reverse-DNS"), "{why}");
+    }
 
     const WHITEBOARD: &str = r#"
 [harness]
