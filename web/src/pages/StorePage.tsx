@@ -19,6 +19,9 @@ function firstSentence(text: string): string {
 
 export function StorePage() {
   const { me, catalog, environment, refreshCatalog, install, approveInstall, uninstall, openBoard } = useSession();
+  // What installs onto a server is the administrator's to decide; on a
+  // personal computer the one person is its administrator.
+  const mayChange = me?.topology !== "organisation" || (me?.roles.includes("admin") ?? false);
   const [prompt, setPrompt] = useState<InstallPrompt | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -55,6 +58,7 @@ export function StorePage() {
                 entry={e}
                 installed={environment?.harnesses.some((h) => h.id === e.id) ?? e.installed}
                 busy={busy === e.id}
+                mayChange={mayChange}
                 onInstall={() => void add(e)}
                 onOpen={() => openBoard(e.id)}
                 onRemove={() => void uninstall(e.id)}
@@ -104,7 +108,7 @@ export function StorePage() {
   );
 }
 
-function Tile({ entry, installed, busy, onInstall, onOpen, onRemove }: { entry: CatalogEntry; installed: boolean; busy: boolean; onInstall: () => void; onOpen: () => void; onRemove: () => void }) {
+function Tile({ entry, installed, busy, mayChange, onInstall, onOpen, onRemove }: { entry: CatalogEntry; installed: boolean; busy: boolean; mayChange: boolean; onInstall: () => void; onOpen: () => void; onRemove: () => void }) {
   const [open, setOpen] = useState(false);
   const blocked = entry.blocked !== null;
   const canOpen = installed && entry.doc_kind === "crdt";
@@ -133,10 +137,12 @@ function Tile({ entry, installed, busy, onInstall, onOpen, onRemove }: { entry: 
           ) : (
             <span className="ls-small ls-faint">Ready in the chat</span>
           )
-        ) : (
+        ) : mayChange ? (
           <button type="button" className="btn solid" onClick={onInstall} disabled={busy}>
             {busy ? "Installing…" : "Install"}
           </button>
+        ) : (
+          <span className="ls-small ls-faint">Your administrator adds tools.</span>
         )}
         <button type="button" className="link" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
           {open ? "Hide details" : "Details"}
@@ -185,7 +191,7 @@ function Tile({ entry, installed, busy, onInstall, onOpen, onRemove }: { entry: 
           )}
           {installed && (
             <dd style={{ marginTop: 12 }}>
-              <button type="button" className="btn danger" onClick={onRemove}>
+              <button type="button" className="btn danger" onClick={onRemove} disabled={!mayChange} title={mayChange ? undefined : "Only administrators remove tools from the server."}>
                 Remove from this workspace
               </button>
             </dd>

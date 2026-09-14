@@ -247,16 +247,18 @@ function NetworkPane() {
   const { me, environment, setNetwork } = useSession();
   const ceiling = environment?.network_ceiling ?? "airgapped";
   const organisation = me?.topology === "organisation";
+  // The mode is the server's, one for everyone: the administrator sets it.
+  const admin = !organisation || (me?.roles.includes("admin") ?? false);
   return (
     <>
       <h1 className="pane-title">Network</h1>
-      <div className="pane-sub">Whether the assistant may reach the internet.</div>
+      <div className="pane-sub">{admin ? "Whether the assistant may reach the internet." : "Whether the assistant may reach the internet. Your administrator sets this for the whole server."}</div>
       <div className="options">
         {MODES.map((m) => {
           const allowed = rank(m.mode) <= rank(ceiling);
           const on = environment?.network === m.mode;
           return (
-            <button key={m.mode} type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} disabled={!allowed} onClick={() => void setNetwork(m.mode)} title={allowed ? undefined : "Your administrator has not allowed this."}>
+            <button key={m.mode} type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} disabled={!allowed || !admin} onClick={() => void setNetwork(m.mode)} title={!admin ? "Only administrators change this." : allowed ? undefined : "Your administrator has not allowed this."}>
               <span className={`radio${on ? " on" : ""}`} />
               <span style={{ flex: 1 }}>
                 <span className="opt-title">{m.title}</span>
