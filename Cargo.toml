@@ -71,6 +71,13 @@ ureq = { version = "3", features = ["json"] }
 # dependencies — Cranelift, wgpu, egui — are built optimised. Without this a
 # `cargo run` JIT-compiles wasm with an unoptimised compiler, which is the
 # difference between a two-second and a twenty-second startup.
+# Line tables keep `panicked at file:line` and backtraces readable and cut the
+# debug build from 59 GB to 11 GB, and the linkers' memory with it; CI sets the
+# same (docs/DECISIONS.md, 2026-09-14). For a session that needs a debugger's
+# variables, `CARGO_PROFILE_DEV_DEBUG=full` for that build.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 opt-level = 3
 

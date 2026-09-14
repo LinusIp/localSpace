@@ -1,0 +1,5 @@
+# Builds on a 16 GB laptop: cargo would otherwise run one rustc or linker per
+# core, each taking gigabytes while it links a test binary, and Windows pages
+# the rest to disk (docs/DECISIONS.md, 2026-09-14). CI sets its own.
+[build]
+jobs = 4

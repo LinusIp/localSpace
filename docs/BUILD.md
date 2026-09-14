@@ -99,6 +99,18 @@ install from. An offline bundle is just a `--registry` directory copied across.
 
 ## When it feels slow
 
+The workspace is heavy to build on a 16 GB machine: seventeen integration-test
+executables each link Core, wasmtime, Automerge and redb, and one linker can
+take gigabytes. So `.cargo/config.toml` caps cargo at four jobs and the `dev`
+profile carries line-table debug info only (a full-debug target is 59 GB; with
+line tables, 11 GB). Run the one or two suites you are working on, for
+instance `cargo test -p localspace-core --test roles`; leave
+`cargo test --workspace` to CI, which does it warm in about six minutes. If an
+editor runs rust-analyzer on the same checkout, give it its own target
+directory (`rust-analyzer.cargo.targetDir: true`), or the two builds keep
+invalidating each other. Never run a build beside a test server and a
+headless browser. `cargo clean` when the target directory has grown stale.
+
 See [PERFORMANCE.md](PERFORMANCE.md): `LOCALSPACE_PERF=1` prints per-second frame
 costs and gaps, `LOCALSPACE_PERF_SPIN=1` measures the ceiling of the display path,
 and the `gpu:` line names the adapter in use.
