@@ -175,7 +175,6 @@ mod tests {
         let core = Core::new(Config::personal("anna")).unwrap();
         let session = Session::spawn(core);
         let anna = member("anna");
-        let ben = member("ben");
         let mut for_anna = session.subscribe("anna");
         let mut for_ben = session.subscribe("ben");
 
