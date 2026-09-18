@@ -1,6 +1,7 @@
 {
   "bundle": {
     "targets": ["nsis"],
+    "publisher": "localLabs",
     "shortDescription": "A private AI workstation that runs on this computer.",
     "resources": {
       "../../dist/package/web/": "web/",
@@ -14,7 +15,9 @@
       "webviewInstallMode": { "type": "skip" },
       "nsis": {
         "installMode": "currentUser",
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "template": "../../packaging/windows/installer.nsi",
+        "installerHooks": "../../packaging/windows/hooks.nsh"
       }
     }
   }

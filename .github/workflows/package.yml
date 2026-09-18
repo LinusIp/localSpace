@@ -10,8 +10,9 @@
 # lets an unsigned build through, how the engine behaves on a real GPU, and
 # what a person sees. Those are the dry run's, on a real machine.
 #
-# Started by hand or by a version tag: a Windows runner costs double minutes
-# and nothing here changes what `ci` decides about a commit.
+# Started by hand, by a version tag, and once a day until the laptop test: a
+# Windows runner costs double minutes, and nothing here changes what `ci`
+# decides about a commit.
 
 name: package
 
@@ -19,6 +20,10 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+  # Once a day until the laptop test, so that the cache is never cold when a
+  # rebuild matters (docs/DECISIONS.md, 2026-09-18): a cold run is 81 minutes.
+  schedule:
+    - cron: "30 1 * * *"
 
 permissions:
   contents: read
@@ -76,7 +81,7 @@ jobs:
           $setup = Get-ChildItem dist/windows/*-setup.exe | Select-Object -First 1
           $installer = Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait -PassThru
           if ($installer.ExitCode -ne 0) { throw "the installer exited with $($installer.ExitCode)" }
-          $dir = Join-Path $env:LOCALAPPDATA 'localSpace'
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\localSpace'
           Get-ChildItem $dir | Format-Table Name, Length
           $expected = 'localspace-app.exe', 'localspace.exe', 'uninstall.exe', 'README.txt', 'web\index.html',
             'engine\llama-server.exe', 'engine\ggml-vulkan.dll', 'licences\llama.cpp.txt', 'registry'
@@ -102,7 +107,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           # No flags: the folder a tester's first start makes for itself.
-          $data = Join-Path $env:LOCALAPPDATA 'io.localspace.app\data'
+          $data = Join-Path $env:LOCALAPPDATA 'localSpace'
           if (Test-Path $data) { throw "$data exists before the first start" }
           $log = Join-Path $data 'logs\app.log'
           $exe = Join-Path $env:INSTALL_DIR 'localspace-app.exe'
@@ -152,7 +157,7 @@ jobs:
           }
           if (Test-Path (Join-Path $env:INSTALL_DIR 'localspace-app.exe')) { throw "the uninstaller left the program behind" }
           # "Delete the application data" was not asked for, so it stays.
-          if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'io.localspace.app\data\db'))) { throw "the data went with the program" }
+          if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'localSpace\db'))) { throw "the data went with the program" }
       - uses: actions/upload-artifact@v4
         with:
           name: localSpace-windows-${{ env.LOCALSPACE_BUILD_ID }}

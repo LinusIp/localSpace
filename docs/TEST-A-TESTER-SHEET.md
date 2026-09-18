@@ -63,7 +63,7 @@ Open **Task Manager** (press Ctrl+Shift+Esc) and choose **Performance**.
 - Anything that stopped you, word for word if there was a message.
 
 If someone asks you for "the log": paste
-`%LOCALAPPDATA%\io.localspace.app\data\logs` into the address bar of File
+`%LOCALAPPDATA%\localSpace\logs` into the address bar of File
 Explorer and send the file `app.log`.
 
 ### Afterwards

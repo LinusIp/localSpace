@@ -19,11 +19,14 @@ use localspace_server::{Running, ServerConfig};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
-use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 /// A log this size is moved aside at the next start, so it never grows
 /// without bound on a machine nobody looks at.
 const LOG_LIMIT_BYTES: u64 = 5 * 1024 * 1024;
+
+/// Where Microsoft offers the part of Windows the window is drawn with.
+const WEBVIEW2_PAGE: &str = "https://developer.microsoft.com/microsoft-edge/webview2/";
 
 /// The build a log belongs to: packaging sets `LOCALSPACE_BUILD_ID` to the
 /// commit, as it does for the command line.
@@ -65,7 +68,11 @@ fn main() -> anyhow::Result<()> {
                             Ok(()) => tracing::info!("the window is open"),
                             Err(e) => {
                                 tracing::error!("the window could not be opened: {e:#}");
-                                fail(app, no_window(&e, log.as_deref()));
+                                if webview2_present() {
+                                    fail(app, no_window(&e, log.as_deref()));
+                                } else {
+                                    fail_without_webview2(app);
+                                }
                             }
                         }
                     }
@@ -136,17 +143,69 @@ fn no_start(error: &anyhow::Error, log: Option<&Path>) -> String {
 }
 
 fn no_window(error: &anyhow::Error, log: Option<&Path>) -> String {
-    let hint = if cfg!(windows) {
-        "\n\nlocalSpace shows its window with Microsoft Edge WebView2, which is part of \
-         Windows 11 and of an up-to-date Windows 10. If it is missing from this computer, \
-         install \"WebView2 Runtime\" from Microsoft and start localSpace again."
-    } else {
-        ""
-    };
     format!(
-        "localSpace could not open its window.\n\n{error:#}{hint}{}",
+        "localSpace could not open its window.\n\n{error:#}{}",
         where_the_log_is(log)
     )
+}
+
+/// The one failure a person can fix themselves, so the dialog is not a dead
+/// end: it says what is missing in plain words and its button opens
+/// Microsoft's page in their browser. The installer does not fetch WebView2
+/// (docs/DECISIONS.md, 2026-09-18): Windows 11 always has it.
+fn fail_without_webview2(app: &tauri::App) {
+    app.dialog()
+        .message(
+            "localSpace shows its window with a part of Windows called Microsoft Edge \
+             WebView2, and this computer does not have it.\n\nIt is free and comes from \
+             Microsoft. On Microsoft's page, find \"Evergreen Bootstrapper\", choose \
+             Download, run the file it gives you, then start localSpace again.",
+        )
+        .title("localSpace")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Open Microsoft's page".into(),
+            "Close".into(),
+        ))
+        .show(|open| {
+            if open {
+                // The person's own browser, at their click.
+                let _ = localspace_core::child::command("explorer")
+                    .arg(WEBVIEW2_PAGE)
+                    .spawn();
+            }
+            std::process::exit(1)
+        });
+}
+
+/// Whether the WebView2 runtime is installed, asked where Microsoft documents
+/// it: a version under one of three registry keys. Only consulted after the
+/// window has failed to open, so a wrong "missing" can never block a working
+/// computer; anywhere but Windows the answer is yes.
+fn webview2_present() -> bool {
+    if !cfg!(windows) {
+        return true;
+    }
+    const CLIENT: &str = r"Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
+    [
+        format!(r"HKLM\SOFTWARE\WOW6432Node\{CLIENT}"),
+        format!(r"HKLM\SOFTWARE\{CLIENT}"),
+        format!(r"HKCU\Software\{CLIENT}"),
+    ]
+    .iter()
+    .any(|key| {
+        localspace_core::child::command("reg")
+            .args(["query", key, "/v", "pv"])
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+            .and_then(|text| {
+                text.lines()
+                    .find_map(|line| line.split("REG_SZ").nth(1).map(|v| v.trim().to_string()))
+            })
+            .is_some_and(|version| !version.is_empty() && version != "0.0.0.0")
+    })
 }
 
 fn where_the_log_is(log: Option<&Path>) -> String {
@@ -250,16 +309,15 @@ fn config() -> ServerConfig {
     cfg
 }
 
-/// `%LOCALAPPDATA%\io.localspace.app\data` on Windows,
-/// `$XDG_DATA_HOME/localspace` or `~/.localspace` elsewhere: where the user's
-/// environment lives when the command line says nothing. On Windows that is
-/// the application's own data folder, beside the webview's: the installer
-/// puts the program in `%LOCALAPPDATA%\localSpace`, which must not also hold
-/// the data, and its uninstaller's "delete the application data" removes
-/// exactly this folder and nothing else.
+/// `%LOCALAPPDATA%\localSpace` on Windows, `$XDG_DATA_HOME/localspace` or
+/// `~/.localspace` elsewhere: where the user's environment lives when the
+/// command line says nothing. A name a person can read, with no identifier in
+/// it; the installer puts the program elsewhere
+/// (`%LOCALAPPDATA%\Programs\localSpace`), and its "delete the application
+/// data" removes this folder (docs/DECISIONS.md, 2026-09-18).
 fn default_data_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("LOCALAPPDATA") {
-        return Some(PathBuf::from(dir).join("io.localspace.app").join("data"));
+        return Some(PathBuf::from(dir).join("localSpace"));
     }
     if let Ok(dir) = std::env::var("XDG_DATA_HOME") {
         return Some(PathBuf::from(dir).join("localspace"));

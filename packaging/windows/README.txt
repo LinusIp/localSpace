@@ -26,9 +26,9 @@ Windows setting for this; tell the person running the test.
 Where things are
 ----------------
 Your conversations, boards and downloaded models:
-    %LOCALAPPDATA%\io.localspace.app\data
+    %LOCALAPPDATA%\localSpace
 The log, if someone asks you for it:
-    %LOCALAPPDATA%\io.localspace.app\data\logs\app.log
+    %LOCALAPPDATA%\localSpace\logs\app.log
 
 Paste either line into the address bar of File Explorer to go there.
 

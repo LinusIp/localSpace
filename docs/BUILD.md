@@ -223,13 +223,20 @@ the files the engine needs are kept. Moving to another release means changing
 the pin and reading the keep list again; the script says when a listed file
 is missing.
 
-The installer is per-user (`%LOCALAPPDATA%\localSpace`, no administrator
-prompt) and asks nothing but the usual folder page. It does not download
-WebView2: Windows 11 and an up-to-date Windows 10 have it, and the app says so
-in a dialog when it is missing. The person's data is not in the program's
-folder but in `%LOCALAPPDATA%\io.localspace.app\data`, which the uninstaller
-removes only when "Delete the application data" is ticked. The app writes
-`logs\app.log` there in a release build, since it has no console.
+The installer is per-user (`%LOCALAPPDATA%\Programs\localSpace`, no
+administrator prompt) and asks nothing but the usual folder page. It does not
+download WebView2: Windows 11 always has it, and when it is missing the app's
+dialog says what to install and opens Microsoft's page. The person's data is
+in `%LOCALAPPDATA%\localSpace`, which the uninstaller removes only when
+"Delete the application data" is ticked. The app writes `logs\app.log`
+there in a release build, since it has no console.
+
+tauri-cli's stock installer puts a per-user program in
+`%LOCALAPPDATA%\<product>`, which is where the data lives, and has no setting
+for it. So `packaging/windows/installer.nsi` is a copy of tauri-cli 2.11.4's
+template with that one line changed (its header says from which upstream
+file), and `packaging/windows/hooks.nsh` makes the uninstaller's checkbox
+remove the data folder. Take the copy again when the tauri-cli pin moves.
 
 **Not signed yet.** Until the certificate exists, SmartScreen warns and Smart
 App Control, where it is on, refuses the installer and the zip's executables
