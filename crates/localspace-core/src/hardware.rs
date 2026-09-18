@@ -9,8 +9,8 @@
 //! for a machine without a usable GPU divides by it.
 //!
 //! Detection never fails: what cannot be seen is absent or zero, a card that
-//! is not in the table is "capability unknown" and planned for
-//! conservatively, and a machine with no GPU runs on its processor.
+//! is not in the table is "capability unknown" and promised nothing it
+//! cannot be shown to do, and a machine with no GPU runs on its processor.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -50,8 +50,12 @@ pub struct Gpu {
     pub name: String,
     pub vendor: Vendor,
     pub total_mib: u64,
-    /// Free when asked, with the desktop and everything else running.
+    /// What the engine may use of it: a budget the driver gives each
+    /// process, which does not shrink when another program fills the card.
     pub free_mib: u64,
+    /// What other programs hold of the card right now, where the operating
+    /// system says (Windows' performance counters); `None` where it does not.
+    pub used_by_others_mib: Option<u64>,
     /// Shares the system's memory instead of having its own.
     pub integrated: bool,
     /// Memory bandwidth in GB/s when the card is one the table knows.
@@ -129,11 +133,12 @@ impl Hardware {
         match (&self.gpu_listing, self.gpu()) {
             (GpuListing::Listed, Some(gpu)) if gpu.integrated => notes.push(
                 "This computer's graphics share the system memory, so localSpace expects the \
-                 speed of the processor and starts conservatively."
+                 speed of the processor and starts carefully."
                     .into(),
             ),
-            (GpuListing::Listed, Some(gpu)) if !gpu.known() => notes
-                .push("GPU detected, capability unknown \u{2014} starting conservatively.".into()),
+            (GpuListing::Listed, Some(gpu)) if !gpu.known() => {
+                notes.push("GPU detected, capability unknown \u{2014} starting carefully.".into())
+            }
             (GpuListing::Listed, Some(_)) => {}
             (GpuListing::Listed, None) => notes.push(
                 "localSpace will run the model on the processor. If this computer has a \
@@ -229,6 +234,7 @@ pub fn parse_devices(text: &str) -> Vec<Gpu> {
             vendor,
             total_mib,
             free_mib,
+            used_by_others_mib: None,
             integrated,
             bandwidth_gbps: if integrated {
                 None
@@ -308,7 +314,6 @@ fn is_integrated(name: &str, vendor: Vendor) -> bool {
 
 #[derive(Deserialize)]
 struct GpuTable {
-    unknown_discrete_gbps: f32,
     gpus: Vec<GpuEntry>,
 }
 
@@ -321,10 +326,7 @@ struct GpuEntry {
 
 impl GpuTable {
     fn built_in() -> GpuTable {
-        serde_json::from_str(GPU_TABLE).unwrap_or(GpuTable {
-            unknown_discrete_gbps: 128.0,
-            gpus: Vec::new(),
-        })
+        serde_json::from_str(GPU_TABLE).unwrap_or(GpuTable { gpus: Vec::new() })
     }
 
     /// The longest entry whose words stand together in the name. A laptop
@@ -346,12 +348,6 @@ impl GpuTable {
             .max_by_key(|(len, _)| *len)
             .map(|(_, gbps)| gbps)
     }
-}
-
-/// What the estimate assumes for a card it does not know: the slowest
-/// memory a card of the last years shipped with.
-pub fn unknown_discrete_gbps() -> f32 {
-    GpuTable::built_in().unknown_discrete_gbps
 }
 
 /// Ask the engine for its devices. It is given a time limit and no window.
@@ -404,6 +400,10 @@ pub fn detect(engine: Option<&Path>, storage: Option<&Path>) -> Hardware {
         },
     };
     let system = system_facts(storage);
+    let mut gpus = gpus;
+    for gpu in &mut gpus {
+        gpu.used_by_others_mib = system.held_of(&gpu.name);
+    }
     Hardware {
         gpus,
         gpu_listing,
@@ -425,6 +425,60 @@ struct SystemFacts {
     ram_free_mib: u64,
     disk_free_mib: Option<u64>,
     cpu: Option<String>,
+    /// Each graphics adapter by the name its driver gives it, with the MiB
+    /// of its own memory in use by every program together. Windows only.
+    adapters: Vec<(String, u64)>,
+}
+
+impl SystemFacts {
+    /// What is held of the card the engine calls `name`. Asked before
+    /// anything of localSpace's is on the card, so all of it is other
+    /// programs'. `None` where the operating system does not say, or when
+    /// two cards share the name and the figure could be the other one's.
+    fn held_of(&self, name: &str) -> Option<u64> {
+        let mut matching = self
+            .adapters
+            .iter()
+            .filter(|(adapter, _)| adapter.trim().eq_ignore_ascii_case(name.trim()));
+        let first = matching.next()?;
+        matching.next().is_none().then_some(first.1)
+    }
+}
+
+/// What the running engine holds of the graphics memory, in MiB: its own on
+/// the card, and "shared", which is system memory standing in for the card.
+/// A large shared figure is a model that loaded and will crawl. Windows
+/// only (elsewhere a card that is asked for too much refuses, and the load
+/// fails instead); read once after a load, never while a person waits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EngineGraphicsMemory {
+    pub dedicated_mib: u64,
+    pub shared_mib: u64,
+}
+
+#[cfg(target_os = "windows")]
+pub fn engine_graphics_memory(pid: u32) -> Option<EngineGraphicsMemory> {
+    let script = format!(
+        "$rows = @(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUProcessMemory \
+         -ErrorAction SilentlyContinue | Where-Object {{ $_.Name -like 'pid_{pid}_*' }}); \
+         if ($rows.Count -gt 0) {{ @{{ \
+         dedicated = ($rows | Measure-Object -Property DedicatedUsage -Sum).Sum; \
+         shared = ($rows | Measure-Object -Property SharedUsage -Sum).Sum }} | ConvertTo-Json -Compress }}"
+    );
+    let out = crate::child::command("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .ok()?;
+    let json = serde_json::from_slice::<serde_json::Value>(&out.stdout).ok()?;
+    Some(EngineGraphicsMemory {
+        dedicated_mib: json["dedicated"].as_f64()? as u64 / 1024 / 1024,
+        shared_mib: json["shared"].as_f64()? as u64 / 1024 / 1024,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn engine_graphics_memory(_pid: u32) -> Option<EngineGraphicsMemory> {
+    None
 }
 
 #[cfg(target_os = "windows")]
@@ -449,12 +503,24 @@ fn system_facts(storage: Option<&Path>) -> SystemFacts {
             })
         })
         .unwrap_or('C');
+    // The adapters: Windows counts each one's memory in use under its LUID
+    // (classes whose names are the same in every language, unlike the
+    // counters'), and the registry says which name a LUID carries.
     let script = format!(
         "$os = Get-CimInstance Win32_OperatingSystem; \
          $cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name; \
          $free = ([System.IO.DriveInfo]::new('{drive}:\\')).AvailableFreeSpace; \
+         $used = @{{}}; \
+         Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory \
+         -ErrorAction SilentlyContinue | ForEach-Object {{ $used[$_.Name.ToLower()] = $_.DedicatedUsage }}; \
+         $adapters = @(); \
+         Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\DirectX' -ErrorAction SilentlyContinue | ForEach-Object {{ \
+         $p = Get-ItemProperty $_.PSPath; \
+         if ($p.Description -and $p.AdapterLuid) {{ \
+         $key = ('luid_0x{{0:x8}}_0x{{1:x8}}_phys_0' -f (($p.AdapterLuid -shr 32) -band 0xffffffff), ($p.AdapterLuid -band 0xffffffff)); \
+         if ($used.ContainsKey($key)) {{ $adapters += @{{ name = $p.Description; used = $used[$key] }} }} }} }}; \
          @{{ total_kb = $os.TotalVisibleMemorySize; free_kb = $os.FreePhysicalMemory; \
-         cpu = $cpu; disk_free = $free }} | ConvertTo-Json -Compress"
+         cpu = $cpu; disk_free = $free; adapters = @($adapters) }} | ConvertTo-Json -Compress -Depth 4"
     );
     let Ok(out) = crate::child::command("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
@@ -470,6 +536,18 @@ fn system_facts(storage: Option<&Path>) -> SystemFacts {
         ram_free_mib: json["free_kb"].as_u64().unwrap_or(0) / 1024,
         disk_free_mib: json["disk_free"].as_u64().map(|b| b / 1024 / 1024),
         cpu: json["cpu"].as_str().map(|s| s.trim().to_string()),
+        adapters: json["adapters"]
+            .as_array()
+            .map(|adapters| {
+                adapters
+                    .iter()
+                    .filter_map(|a| {
+                        let used = a["used"].as_f64()? as u64 / 1024 / 1024;
+                        Some((a["name"].as_str()?.to_string(), used))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }
 
@@ -510,6 +588,7 @@ fn system_facts(storage: Option<&Path>) -> SystemFacts {
         ram_free_mib: kb("MemAvailable:") / 1024,
         disk_free_mib,
         cpu,
+        adapters: Vec::new(),
     }
 }
 
@@ -687,9 +766,8 @@ mod tests {
         };
         assert_eq!(
             hardware.notes(),
-            ["GPU detected, capability unknown \u{2014} starting conservatively."]
+            ["GPU detected, capability unknown \u{2014} starting carefully."]
         );
-        assert!(unknown_discrete_gbps() > 0.0);
     }
 
     #[test]
@@ -761,6 +839,38 @@ mod tests {
         assert!(hardware.cores >= 1);
         assert!(hardware.ram_bandwidth_gbps > 0.0);
         assert!(!hardware.sentence().is_empty());
+    }
+
+    #[test]
+    fn what_is_held_of_a_card_is_found_by_its_name_and_never_guessed() {
+        let facts = SystemFacts {
+            adapters: vec![
+                ("NVIDIA GeForce RTX 3050 Ti Laptop GPU".into(), 50),
+                ("AMD Radeon(TM) Graphics".into(), 300),
+            ],
+            ..SystemFacts::default()
+        };
+        assert_eq!(
+            facts.held_of("NVIDIA GeForce RTX 3050 Ti Laptop GPU"),
+            Some(50)
+        );
+        assert_eq!(
+            facts.held_of(" nvidia geforce rtx 3050 ti laptop gpu "),
+            Some(50)
+        );
+        assert_eq!(facts.held_of("NVIDIA GeForce RTX 4060"), None);
+        let twins = SystemFacts {
+            adapters: vec![
+                ("NVIDIA RTX A4000".into(), 10),
+                ("NVIDIA RTX A4000".into(), 9000),
+            ],
+            ..SystemFacts::default()
+        };
+        assert_eq!(
+            twins.held_of("NVIDIA RTX A4000"),
+            None,
+            "which of the two is not known"
+        );
     }
 
     #[test]

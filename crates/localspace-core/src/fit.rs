@@ -45,9 +45,11 @@ const GPU_TOKEN_OVERHEAD_S: f64 = 0.0052;
 /// copied it (a copy reads and writes each byte): measured on a Ryzen 7 6800H.
 const READ_PER_COPY: f64 = 2.0;
 
-/// Faster than this reads as fluent (about twice the speed of reading);
-/// slower still works, and is said to be slow.
-const RUNS_WELL_TOKENS_PER_SECOND: f32 = 10.0;
+/// The lines between the verdicts, in tokens a second. **Provisional**: the
+/// ten laptops of the first test calibrate them, and revising them after it
+/// is the expected thing (docs/DECISIONS.md, 2026-09-18, answer 5).
+const RUNS_WELL_TOKENS_PER_SECOND: f32 = 15.0;
+const WORKS_TOKENS_PER_SECOND: f32 = 5.0;
 /// English runs at about three words to four tokens.
 const WORDS_PER_TOKEN: f32 = 0.75;
 /// The shown range reaches this far below the estimate.
@@ -70,17 +72,19 @@ pub struct Shape {
 #[serde(rename_all = "snake_case")]
 pub enum Verdict {
     RunsWell,
-    RunsSlowly,
+    Works,
+    TooSlow,
     WillNotFit,
 }
 
 impl Verdict {
-    /// The three words a person reads.
+    /// What a person reads. A slow model is shown with its verdict, never hidden.
     pub fn label(self) -> &'static str {
         match self {
-            Verdict::RunsWell => "runs well",
-            Verdict::RunsSlowly => "runs slowly",
-            Verdict::WillNotFit => "will not fit",
+            Verdict::RunsWell => "Runs well \u{2014} faster than you read",
+            Verdict::Works => "Works, slower than reading pace",
+            Verdict::TooSlow => "Too slow for everyday use",
+            Verdict::WillNotFit => "Will not fit on this computer",
         }
     }
 }
@@ -102,6 +106,10 @@ pub struct Fit {
     pub tokens_per_second: f32,
     /// What is displayed: a range of words a second, rounded down.
     pub words_per_second: (u32, u32),
+    /// The card is not one the table knows, so the speed is what the
+    /// processor alone would do and is shown as "at least": no figure is
+    /// given that cannot be supported.
+    pub at_least: bool,
     /// One plain sentence on where the model sits.
     pub placement: String,
 }
@@ -113,6 +121,7 @@ impl Fit {
         match (self.verdict, self.words_per_second) {
             (Verdict::WillNotFit, _) => String::new(),
             (_, (_, 0)) => "less than one word a second".into(),
+            (_, (_, high)) if self.at_least => format!("at least {high} words a second"),
             (_, (0, high)) => format!("up to {high} words a second"),
             (_, (low, high)) if low == high => format!("about {high} words a second"),
             (_, (low, high)) => format!("about {low} to {high} words a second"),
@@ -127,11 +136,19 @@ pub struct Ask {
     pub kv_quantized: bool,
 }
 
-/// The card's memory this plan may use, in MiB: what is free by the smaller
-/// of two measures, less the margin.
-fn usable_gpu_mib(total_mib: u64, free_mib: u64) -> u64 {
-    let margin = GPU_MARGIN_FLOOR_MIB.max((total_mib as f64 * GPU_MARGIN_SHARE) as u64);
-    free_mib.min(total_mib).saturating_sub(margin)
+/// The card's memory this plan may use, in MiB: the **smaller** of the
+/// budget the driver gives the engine and the card's total less what other
+/// programs hold, and the margin off that. Planning against the larger of
+/// two numbers is how a model loads and crawls.
+fn usable_gpu_mib(gpu: &crate::hardware::Gpu) -> u64 {
+    let margin = GPU_MARGIN_FLOOR_MIB.max((gpu.total_mib as f64 * GPU_MARGIN_SHARE) as u64);
+    let not_held = gpu
+        .total_mib
+        .saturating_sub(gpu.used_by_others_mib.unwrap_or(0));
+    gpu.free_mib
+        .min(gpu.total_mib)
+        .min(not_held)
+        .saturating_sub(margin)
 }
 
 fn usable_ram_mib(hardware: &Hardware) -> u64 {
@@ -159,7 +176,7 @@ pub fn fit(shape: &Shape, hardware: &Hardware, ask: Ask, gpu_layer_cap: Option<u
     let card = hardware.gpu().filter(|gpu| !gpu.integrated);
     let mut gpu_layers = 0u32;
     if let Some(gpu) = card {
-        let usable = usable_gpu_mib(gpu.total_mib, gpu.free_mib) * MIB;
+        let usable = usable_gpu_mib(gpu) * MIB;
         let fixed = GPU_COMPUTE_MIB * MIB;
         if usable > fixed {
             let each = per_layer + kv_per_layer;
@@ -182,18 +199,23 @@ pub fn fit(shape: &Shape, hardware: &Hardware, ask: Ask, gpu_layer_cap: Option<u
 
     let fits = ram_bytes / MIB <= usable_ram_mib(hardware);
 
-    // The roofline, part by part.
-    let share_on_card = on_card as f64 / layers_total as f64;
+    // The roofline, part by part. A card the table does not know gets no
+    // figure of its own: the layers still go to it, and the speed promised
+    // is what the processor alone would do.
+    let at_least = card.is_some_and(|gpu| on_card > 0 && gpu.bandwidth_gbps.is_none());
+    let share_on_card = if at_least {
+        0.0
+    } else {
+        on_card as f64 / layers_total as f64
+    };
     let active = shape.active_bytes as f64;
     let mut seconds = 0.0_f64;
-    if let (Some(gpu), true) = (card, on_card > 0) {
+    if let (Some(gpu), true) = (card, share_on_card > 0.0) {
         let efficiency = match gpu.backend {
             Backend::Cuda => CUDA_EFFICIENCY,
             Backend::Vulkan | Backend::Other => VULKAN_EFFICIENCY,
         };
-        let bandwidth = gpu
-            .bandwidth_gbps
-            .unwrap_or_else(crate::hardware::unknown_discrete_gbps) as f64;
+        let bandwidth = gpu.bandwidth_gbps.unwrap_or(1.0) as f64;
         seconds += active * share_on_card / (bandwidth * efficiency * 1e9);
         seconds += GPU_TOKEN_OVERHEAD_S * share_on_card;
     }
@@ -209,8 +231,10 @@ pub fn fit(shape: &Shape, hardware: &Hardware, ask: Ask, gpu_layer_cap: Option<u
         Verdict::WillNotFit
     } else if tokens_per_second >= RUNS_WELL_TOKENS_PER_SECOND {
         Verdict::RunsWell
+    } else if tokens_per_second >= WORKS_TOKENS_PER_SECOND {
+        Verdict::Works
     } else {
-        Verdict::RunsSlowly
+        Verdict::TooSlow
     };
     let words = tokens_per_second * WORDS_PER_TOKEN;
     let placement = if !fits {
@@ -237,6 +261,7 @@ pub fn fit(shape: &Shape, hardware: &Hardware, ask: Ask, gpu_layer_cap: Option<u
         verdict,
         tokens_per_second,
         words_per_second: (round_down(words * RANGE_LOW), round_down(words)),
+        at_least,
         placement,
     }
 }
@@ -269,6 +294,7 @@ mod tests {
                 vendor: Vendor::Nvidia,
                 total_mib: 3962,
                 free_mib: 3367,
+                used_by_others_mib: Some(29),
                 integrated: false,
                 bandwidth_gbps: Some(192.0),
             }],
@@ -396,6 +422,9 @@ mod tests {
         assert_eq!(plan.gpu_layers, 0);
         assert_eq!(plan.verdict, Verdict::RunsWell);
         assert!(plan.placement.contains("on the processor"));
+        // The same machine with a 7.6B model: it works, and is said to be slower.
+        let larger = fit(&qwen_7b(), &without_a_card(laptop_3050ti()), ASK, None);
+        assert_eq!(larger.verdict, Verdict::Works);
     }
 
     #[test]
@@ -410,13 +439,31 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_card_is_planned_at_the_conservative_figure() {
+    fn an_unknown_card_is_used_and_promised_only_what_the_processor_would_do() {
         let mut unknown = laptop_3050ti();
         unknown.gpus[0].bandwidth_gbps = None;
         let plan = fit(&qwen_3b(), &unknown, ASK, None);
         let known = fit(&qwen_3b(), &laptop_3050ti(), ASK, None);
-        assert_eq!(plan.gpu_layers, known.gpu_layers, "it is still used");
-        assert!(plan.tokens_per_second < known.tokens_per_second);
+        assert_eq!(
+            plan.gpu_layers, known.gpu_layers,
+            "its layers still go to it"
+        );
+        let processor = fit(&qwen_3b(), &without_a_card(laptop_3050ti()), ASK, None);
+        assert_eq!(plan.tokens_per_second, processor.tokens_per_second);
+        assert!(plan.at_least);
+        assert_eq!(plan.speed_in_words(), "at least 10 words a second");
+        assert!(!known.at_least);
+    }
+
+    #[test]
+    fn what_other_programs_hold_of_the_card_is_not_planned_with() {
+        let idle = fit(&qwen_7b(), &laptop_3050ti(), ASK, None);
+        let mut busy = laptop_3050ti();
+        // A game holds 2 GB: the driver's budget for the engine does not say so.
+        busy.gpus[0].used_by_others_mib = Some(2048);
+        let plan = fit(&qwen_7b(), &busy, ASK, None);
+        assert!(plan.gpu_layers < idle.gpu_layers, "{plan:?}");
+        assert!(plan.gpu_mib <= 3962 - 2048 - 384, "{plan:?}");
     }
 
     #[test]
@@ -437,7 +484,8 @@ mod tests {
         let mut modest = without_a_card(laptop_3050ti());
         modest.ram_bandwidth_gbps = 8.0;
         let plan = fit(&qwen_7b(), &modest, ASK, None);
-        assert_eq!(plan.verdict, Verdict::RunsSlowly);
+        assert_eq!(plan.verdict, Verdict::TooSlow, "shown, never hidden");
+        assert_eq!(plan.verdict.label(), "Too slow for everyday use");
         assert_eq!(plan.speed_in_words(), "about 1 to 2 words a second");
     }
 

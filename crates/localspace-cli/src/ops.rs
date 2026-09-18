@@ -127,13 +127,17 @@ fn describe_computer(cfg: &localspace_server::ServerConfig) {
         let speed = match (gpu.integrated, gpu.bandwidth_gbps) {
             (true, _) => "shares the system memory".to_string(),
             (false, Some(gbps)) => format!("{gbps:.0} GB/s"),
-            (false, None) => format!(
-                "not a card the table knows, planned at {:.0} GB/s",
-                hardware::unknown_discrete_gbps()
-            ),
+            (false, None) => {
+                "not a card the table knows: used, and promised only the processor's speed"
+                    .to_string()
+            }
+        };
+        let held = match gpu.used_by_others_mib {
+            Some(mib) => format!("{mib} MiB held by other programs"),
+            None => "what other programs hold is not known".to_string(),
         };
         out!(
-            "graphics  {} {}: {} MiB, {} MiB free; {speed}{}",
+            "graphics  {} {}: {} MiB, of which the engine may use {} MiB; {held}; {speed}{}",
             gpu.device,
             gpu.name,
             gpu.total_mib,
