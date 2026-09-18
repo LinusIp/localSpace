@@ -152,7 +152,7 @@ fn detect_ram_gb() -> Option<u32> {
     }
     #[cfg(target_os = "macos")]
     {
-        let out = std::process::Command::new("sysctl")
+        let out = crate::child::command("sysctl")
             .args(["-n", "hw.memsize"])
             .output()
             .ok()?;
@@ -161,7 +161,7 @@ fn detect_ram_gb() -> Option<u32> {
     }
     #[cfg(target_os = "windows")]
     {
-        let out = std::process::Command::new("powershell")
+        let out = crate::child::command("powershell")
             .args([
                 "-NoProfile",
                 "-Command",
@@ -179,7 +179,7 @@ fn detect_ram_gb() -> Option<u32> {
 }
 
 fn detect_gpus() -> Vec<u32> {
-    let Ok(out) = std::process::Command::new("nvidia-smi")
+    let Ok(out) = crate::child::command("nvidia-smi")
         .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
         .output()
     else {

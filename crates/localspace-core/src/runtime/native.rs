@@ -17,7 +17,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value as J, json};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Stdio};
 
 /// `_meta` keys used to carry the harness document alongside a standard MCP call.
 const META_DOC: &str = "localspace/doc";
@@ -41,7 +41,7 @@ impl NativeHarness {
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
-        let mut child = Command::new(program)
+        let mut child = crate::child::command(program)
             .args(args)
             .current_dir(&dir)
             .env_clear()

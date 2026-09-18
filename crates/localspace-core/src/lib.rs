@@ -9,6 +9,7 @@ pub mod acl;
 pub mod agent;
 pub mod audit;
 pub mod catalog;
+pub mod child;
 pub mod context;
 pub mod conversations;
 pub mod dag;

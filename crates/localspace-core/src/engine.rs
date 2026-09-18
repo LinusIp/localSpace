@@ -14,7 +14,7 @@ use localspace_proto as proto;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -302,7 +302,7 @@ fn spawn(spec: &Spec) -> Result<Child> {
     let log = File::create(&spec.log_path)
         .with_context(|| format!("creating {}", spec.log_path.display()))?;
     let err = log.try_clone()?;
-    Command::new(&spec.binary)
+    crate::child::command(&spec.binary)
         .args(&spec.args)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
