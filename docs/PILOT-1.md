@@ -357,6 +357,11 @@ and a guide written earlier would be rewritten.
 
 ## 9. The install guide (draft)
 
+**Superseded on 2026-09-18** by [DEPLOYMENT-GUIDE.md](DEPLOYMENT-GUIDE.md),
+the user's guide for both ways of running localSpace, which is the target
+state and carries the list of what the build does not do yet. This draft is
+kept for the record.
+
 Written for a sysadmin who has installed a service from a tarball before
 and has never seen localSpace. Every command below exists by the end of
 Phase D; the guide ships in the tarball as `INSTALL.md` and is tested by

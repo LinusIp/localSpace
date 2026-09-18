@@ -4,6 +4,122 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-18, the plan for the two tests, and the nine answers
+
+The requirement changed on 2026-09-18: *the software must run a model on any
+hardware* (the instructions for the builder, second version, which replace
+the DGX Spark plan of the same day). The builder's four answers went back
+with measurements from the development laptop; the user's rulings on them
+("answers, and the plan for the two tests") are recorded here before any of
+the build order's code.
+
+**The plan.**
+
+- **Test A, ten gaming laptops in personal mode, is Friday 25 September**,
+  Monday 28 the slip day. **Test B, a server with thin desktop clients, is
+  Wednesday 30 September or Thursday 1 October.** If only one fits, Test A
+  wins: ten people are booked, and it is the direct proof of the governing
+  requirement.
+- **Order:** item 1 (the Windows installer with the pinned upstream engine),
+  item 2 (the hardware check as the first run), item 3 (computed layer
+  offload), the reduced item 4 (tiny and small entries, the honest verdict,
+  downloads that resume and verify). **A dry run on Thursday 24th:** the
+  finished package installed on a Windows machine that is not the
+  development machine, from the artefact and the instructions the testers
+  get; half a day, with whatever it finds. Items 5, 6 and 7 do not start
+  until Test A is done.
+- **No slack.** If something slips, what gives is the number of testers or
+  the number of catalog entries, never the honesty of the verdict and never
+  the packaging.
+- **A report at the end of each day:** what landed, what moved, whether
+  Friday is still real; if it stops being real, that is said on Tuesday, not
+  Thursday.
+
+**Cut until after the tests:** whiteboard group one; the signed index, the
+registry fetch and the publishing mechanism; the Linux tarball, which moves
+to Test B; building llama.cpp ourselves.
+
+**A deferral with a date, not a change of direction:** the model list stays
+compiled into Core for Test A. "The catalog is data, not code" stands. Making
+it a signed, versioned index that Core fetches or imports is **due as the
+first item after Test A** (from 2026-09-28). The pasted Hugging Face repo id
+is kept only if it costs half a day or less on top of the reduced item 4;
+the builder decides on the estimate and says which way it went; if cut, it
+comes right after the index.
+
+**The nine answers.**
+
+1. **Test B's server** is assumed to be x86-64 Linux with an NVIDIA GPU, and
+   that is all that is built for. No aarch64 work. If it turns out to be a
+   DGX Spark, that is an explicit change and Test B moves.
+2. **The engine in the installer** is the upstream llama.cpp Vulkan release,
+   repackaged, pinned by SHA-256: the exact tag and digest are recorded
+   here with the code, the digest is verified at build time, and a mismatch
+   fails the build. Our own build comes after the tests; in-house first is
+   sequenced, not abandoned. The repackaged binaries carry our signature
+   like our own.
+3. **The hardware floor** becomes a plain-words statement in personal mode,
+   never a refusal: say what the machine can expect and let the person go
+   on. In server mode the gate stays, with `--allow-below-floor`: an
+   administrator putting a company on an inadequate box deserves a stop.
+4. **The certificate** is a cloud signing service, not a USB token (Azure
+   Trusted Signing if eligible, a cloud-HSM OV certificate otherwise), so CI
+   can sign. The user is obtaining it; it is on the critical path.
+5. **`rcgen` and `tokio-rustls` are approved** for the self-signed
+   certificate and native TLS (item 6).
+6. **The pin lives in the app's Rust side**, which holds the pinned
+   connection while the WebView talks to it over loopback. Installing a
+   certificate machine-wide on an employee's computer is refused outright.
+7. **The index signature** is decided with the item; when it comes back,
+   `ed25519-dalek` is preferred over `ring` (pure Rust, no C toolchain,
+   cross-compiles cleanly).
+8. **Downloads:** the 7.6B model (4.7 GB) for item 3's verification against
+   the 4 GB card, yes; the CUDA build, no: it would change no decision this
+   week.
+9. **Dates:** as above.
+
+**On the findings.**
+
+- **The speed estimate carries a measured efficiency factor per backend**
+  (Vulkan, CUDA, CPU), not one constant: qwen2.5-3b Q4_K_M on the RTX 3050
+  Ti Laptop reached 42.5 tok/s, 46 % of the bandwidth roofline, so an
+  uncalibrated estimate promises twice what people get. **What is displayed
+  is rounded down and shown as a range or a floor**, never as one number
+  with a decimal. The layer-share model for partial offload (25.9 predicted,
+  25.0 measured) is good enough to ship; the whole-GPU case is calibrated
+  the same way.
+- **Loading is not evidence of fitting.** On Windows a Vulkan allocation
+  spills into shared system memory instead of failing, and the model then
+  crawls. Item 3 computes from *measured free* VRAM (3,367 of 3,962 MiB on
+  that laptop, not the 4 GB on the box), then **verifies after load** that
+  the VRAM in use matches the plan, and backs off a layer at a time when it
+  does not.
+- **The GPU device is pinned explicitly** on hybrid laptops; a machine with
+  only an integrated GPU takes the conservative path and is told so
+  plainly.
+- **macOS is out of scope for both tests;** Metal is the answer when it
+  arrives.
+
+**Smart App Control is the biggest risk to Test A.** Where it is on, an
+unsigned executable is refused outright, with no "run anyway". So: the
+certificate is the real fix and signs everything, the repackaged engine
+included; **a portable zip is built as well as the installer**; a one-page
+instruction sheet covers the SmartScreen click-through and what to do on a
+hard block; the testers are asked in advance for GPU, VRAM, RAM and whether
+Smart App Control is on. On the development machine the setting is the
+user's decision (it cannot be turned back on without reinstalling Windows);
+until then the installer is verified in CI and the parts that stay
+unverified are named.
+
+**The deployment guide** is `docs/DEPLOYMENT-GUIDE.md`, the user's document,
+and it is the **target state**, not a description of today: the list of
+mismatches at its head is the definition of the gap. The guide follows the
+build: no command is implemented merely because the guide names it, and when
+an item lands the guide changes in the same commit. It supersedes the draft
+in `docs/PILOT-1.md` §9. One correction to the instructions: no
+`[[models.worker]]` entry exists; what exists, and what Test B uses, is an
+administrator pointing Core at an external endpoint at runtime.
+
 ## 2026-09-18, the seven questions of the review, decided by the user
 
 The fresh-eyes review of 2026-09-13 left eight questions; the user answered
