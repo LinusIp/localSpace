@@ -4,6 +4,75 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-18, the answers after day 1
+
+The user's rulings on the six questions of the first daily report, two
+approvals, and direction for the four days left ("answers after day 1").
+
+**Direction.** The day gained on item 1 is kept, not spent: items 2 to 4
+depend on hardware the builder does not have and on a calibration still
+being derived. The two fixes made unasked (the console windows, the engine's
+key) were right; from here, **what is neither needed for Friday nor a
+security problem goes on a list for the week after**
+(`docs/AFTER-TEST-A.md`). The `package` workflow **runs at least once a
+day** until Friday, so that its cache is never cold when a rebuild matters.
+
+1. **The folders on Windows.** The program goes to
+   `%LOCALAPPDATA%\Programs\localSpace`, the standard place for a per-user
+   install; the person's data stays in `%LOCALAPPDATA%\localSpace` (the
+   ruling of 2026-09-09 stands), and that is the folder "Delete the
+   application data" removes. No bundle identifier anywhere a person can
+   see: `io.localspace.app\data`, built the day before on the builder's
+   recommendation, is withdrawn. *What it took:* tauri-cli's stock installer
+   puts a per-user program in `%LOCALAPPDATA%\<product>` and offers no
+   setting for it, so `packaging/windows/installer.nsi` is a copy of
+   tauri-cli 2.11.4's template (upstream SHA-256 `20f4ecc7…fa079`) with
+   **one line changed**, the default folder; and
+   `packaging/windows/hooks.nsh` makes the uninstaller's checkbox remove
+   `%LOCALAPPDATA%\localSpace`, through the hook the template offers for it.
+   The copy is re-taken when the tauri-cli pin moves.
+   **Free disk is checked on the drive the models go to**, stated on the
+   first-run screen, and a download that will not fit is refused **before it
+   starts**, with a sentence that names the drive. A choosable model folder
+   is the proper fix and waits until after the test.
+2. **WebView2 is not downloaded by the installer** (`skip` stays): Windows
+   11 always has it, and a download during the install is a network call in
+   a product that sells not making them. The condition: when it is missing
+   the app's dialog says what to install in plain words and has a button
+   that opens Microsoft's page. The Windows version is among the screening
+   questions, so a Windows 10 machine is handled deliberately.
+3. **Smart App Control stays on** on the development machine: it is the
+   only machine there is with it on, and a signed build has to be proven
+   against it. The retries it costs are accepted.
+4. **The installer's folder page is acceptable.** "No configuration
+   questions" meant no ports, no model choices, no server addresses: nothing
+   that takes a judgment the person cannot make. Removing the page is polish
+   for after the test.
+5. **Four verdicts, provisional.** *Runs well — faster than you read* from
+   15 tokens a second; *Works, slower than reading pace* from 5 to 15; *Too
+   slow for everyday use* below 5, shown and never hidden; *Will not fit on
+   this computer* when memory cannot hold it. **The numbers are provisional:
+   Friday's ten laptops calibrate them**, and revising them afterwards is the
+   expected thing, not a reversal. (They replace the two-way line at 10 of
+   the day before.)
+6. **The publisher is `localLabs`** until the certificate is issued, then
+   the certificate's legal subject exactly.
+
+**Approved: live graphics memory from Windows' performance counters**,
+which corrects the instruction to "compute from measured free VRAM" on its
+facts (the engine's figure is a per-process budget). They are read **once at
+the first run and once after a model loads**, never on anything a person
+waits for. The plan before a load takes the **smaller** of the per-process
+budget and the card's total less what the counters show other processes
+holding, and subtracts the margin from that. **Approved: the engine's
+key**, with its negative test kept.
+
+**An unknown card is planned carefully and says so:** "GPU detected,
+capability unknown — starting carefully". It gets no figure that cannot be
+supported: the speed shown for it is what the processor alone would do, as
+"at least", and the recommendation follows from that. A tester with a modest
+model that works is a success; one with a confident wrong estimate is not.
+
 ## 2026-09-18, what the computer is and how fast a model will be: the measurements behind item 2
 
 The first half of item 2 of the build order for the two tests (the
