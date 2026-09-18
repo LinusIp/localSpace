@@ -114,6 +114,20 @@ builder, §3.1; the answers of the same day, 2 and §D).
 - **Not signed.** Signing is a configuration change when the certificate
   exists (`bundle.windows.signCommand`), and covers every executable and
   library in the package, the engine's included.
+- **Verified by the first `package` run** (35369269827, commit `0eb8b24`,
+  Windows Server 2025 runner, every step green at the first attempt): the
+  installer (`localSpace-0.1.0-0eb8b24f-windows-x64-setup.exe`, SHA-256
+  `4ce8e9f1…ec941`) and the zip (`832bbeec…fb9a`), 102 MB together; the
+  silent install laid out every file; the engine ran from the installed
+  folder and, on a machine with no GPU and no Vulkan loader, listed no
+  device and exited cleanly; the installed app made its data folder, served
+  its client one second after starting and had its window open eight
+  seconds later; a second launch gave way; the uninstaller left the data.
+  A cold run takes 81 minutes (the command line 24, tauri-cli 18, the
+  harnesses and the app 30). **Not verified by it, and owed to the dry
+  run:** SmartScreen and Smart App Control on the unsigned files, the
+  installer's pages as a person clicks through them, the app on a real GPU,
+  and a machine without WebView2.
 
 Built on the builder's recommendation and **put to the user as questions**
 the same day, each one line to change:

@@ -9,11 +9,11 @@ Naming used throughout: **Core** is what employees connect to and where all data
 > - The `localspace install`, `localspace models download` / `import`, `localspace backup` and `doctor --running` commands. The CLI today has `serve`, `admin`, `doctor`, `bench`, `evals`, `call` and `audit`.
 > - `tls = { cert, key }` — refused at start today; only `"behind-proxy"` works. `--self-signed` does not exist.
 > - `[models]` accepts only `dir`. `default`, `embedding` and `[[models.worker]]` are refused; an administrator points Core at an external endpoint at runtime instead.
-> - GPU detection is `nvidia-smi` only, so an AMD or Intel machine reports no GPU.
+> - GPU detection: `localspace doctor` now describes the computer from the engine's own device list, which covers every vendor. The catalog's verdicts and the engine's flags still come from the older `nvidia-smi` detection, so an AMD or Intel machine is still planned as if it had no GPU, until items 2 and 3 land.
 > - `-ngl 999` is hardcoded; the partial-offload path uses described rather than measured free VRAM.
 > - Downloads restart from zero and nothing is checksummed.
-> - No inference engine is included in any package — it must be placed by hand.
-> - There is no installer. Personal mode exists (the desktop app, and `serve --personal`), but only from a checkout; there is no Windows package yet.
+> - **Landed on 18 September 2026:** the Windows installer and a portable zip, with the inference engine inside (llama.cpp's Vulkan release, pinned by SHA-256). They are built by the `package` workflow and are **not signed yet**: SmartScreen warns, and Smart App Control, where it is on, refuses them outright. What §A2 says after "Run the installer" (the check of the machine, the recommendation, a download that resumes) is items 2 to 4 and is not in the build yet.
+> - There is no Linux package: §B3, building from source, is the state for a server, where the engine must still be placed by hand.
 > - `serve` refuses to start below the hardware floor without `--allow-below-floor`. In personal mode that becomes a plain-words statement rather than a refusal; in server mode the gate stays.
 >
 > Found when this guide was read against the build on 18 September 2026, and as much *not yet* as the list above:
