@@ -18,6 +18,7 @@ pub mod docs;
 pub mod engine;
 pub mod evals;
 pub mod exposure;
+pub mod fit;
 // The one module that speaks to the operating system's process accounting
 // directly (`CLAUDE.md`: unsafe only in isolated, documented modules).
 #[allow(unsafe_code)]

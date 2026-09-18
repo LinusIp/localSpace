@@ -4,6 +4,65 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-18, what the computer is and how fast a model will be: the measurements behind item 2
+
+The first half of item 2 of the build order for the two tests (the
+instructions for the builder, §3.2; the answers of the same day, §C).
+Measured on the development laptop: Ryzen 7 6800H, 16 GB DDR5, Radeon
+graphics in the processor, an RTX 3050 Ti Laptop with 4 GB, engine b10869.
+
+- **The graphics cards are the engine's own list**
+  (`llama-server --list-devices`), not `nvidia-smi`: it covers every vendor
+  through Vulkan, names the device the engine is then pinned to with
+  `--device`, and needs no new dependency. On the hybrid laptop it lists the
+  discrete card only. A processor's own graphics are told from a card by
+  name and planned as the processor; a card that is not in
+  `models/gpus.json` is "GPU detected, capability unknown — starting
+  conservatively" and planned at 128 GB/s; no device is a machine that runs
+  on its processor. Nothing in detection fails.
+- **The engine's "free" figure is a budget, not a measurement.** It stayed
+  at 3,367 MiB while another process held 2.2 GB of the same card. Live use
+  on Windows comes from the performance counters, without administrator
+  rights: `\GPU Adapter Memory(luid…)\Dedicated Usage` before a load,
+  `\GPU Process Memory(pid_<engine>…)\Dedicated Usage` and `Shared Usage`
+  after it, with the adapter's LUID found by name under
+  `HKLM\SOFTWARE\Microsoft\DirectX`. A large *shared* figure for the engine
+  is the spill into system memory the answers warn of. That is item 3's
+  verification after load.
+- **Memory bandwidth of cards is data** (`models/gpus.json`, the makers'
+  published figures, matched whole words, the longest name first, a laptop
+  part only against a laptop entry), compiled in beside the model list and
+  moving into the index with it. **The system memory's speed is measured**
+  at detection, by copying on up to eight threads for a tenth of a second:
+  19 to 21 GB/s on this machine.
+- **The speed estimate** is a roofline, part by part: the active bytes on
+  the card divided by the card's bandwidth times an efficiency, plus a fixed
+  cost a token, plus the active bytes in system memory divided by the rate
+  memory is read at. Calibrated on four measurements (tokens a second
+  generated, `llama-bench`): qwen2.5-0.5b Q4_K_M 105.6 on the card and 85.8
+  on the processor; qwen2.5-3b Q4_K_M 42.5 on the card, 25.0 with half its
+  layers there, 18.6 on the processor. They give **Vulkan 60 % of the
+  published bandwidth and 5.2 ms a token besides**, and **the processor
+  reading at 2.0 times the measured copy rate**. The estimate reproduces all
+  four within 15 %, which the tests hold it to. **CUDA is not measured**: it
+  is given Vulkan's figure, so a CUDA build placed by hand is never promised
+  more than what was measured. One machine is one calibration: the ten
+  laptops' recorded speeds are the second.
+- **What a person sees is never that number**: it is a range of *words* a
+  second (three words to four tokens), from three quarters of the estimate
+  to the estimate, each rounded down (whole words under ten, fives under
+  fifty, tens above): "about 20 to 30 words a second".
+- **The three verdicts:** *will not fit* when what stays in system memory
+  exceeds it, less a reserve (the larger of 4 GB and a quarter) for
+  everything else; *runs well* from 10 tokens a second, about twice the
+  speed of reading; *runs slowly* below, shown with its number.
+- **The margin on the card** is the larger of 384 MiB and 8 % of the card,
+  taken from the smaller of the budget and what is measured free, with
+  256 MiB for the engine's working buffers (80 MiB measured for a 3B model
+  at 8,192 tokens; to be measured again with the 7.6B). Layers are counted
+  as the engine counts them, the repeating layers and the output layer, and
+  the engine is given that number, never 999.
+
 ## 2026-09-18, the Windows package: what is in it and how it is built
 
 Item 1 of the build order for the two tests (the instructions for the
