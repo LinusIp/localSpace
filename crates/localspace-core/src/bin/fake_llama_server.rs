@@ -5,7 +5,9 @@
 //! and is not shipped as anything but a test double.
 //!
 //! `FAKE_LLAMA_LOAD_MS` delays readiness; `FAKE_LLAMA_CRASH_AFTER_MS` makes
-//! it exit after that long, so restarts can be tested.
+//! it exit after that long, so restarts can be tested. Given `LLAMA_API_KEY`,
+//! it answers 401 to anything but `/health` that does not present the key,
+//! as llama-server does.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -55,6 +57,7 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str) {
         return;
     }
     let mut content_length = 0usize;
+    let mut presented: Option<String> = None;
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line).is_err() || line == "\r\n" || line == "\n" || line.is_empty()
@@ -64,12 +67,31 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str) {
         if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
             content_length = v.trim().parse().unwrap_or(0);
         }
+        if line.to_ascii_lowercase().starts_with("authorization:") {
+            presented = line
+                .split_once(':')
+                .map(|(_, v)| v.trim().trim_start_matches("Bearer ").to_string());
+        }
     }
     let mut body = vec![0u8; content_length];
     if content_length > 0 {
         let _ = reader.read_exact(&mut body);
     }
     let path = request_line.split_whitespace().nth(1).unwrap_or("/");
+
+    if let Ok(key) = std::env::var("LLAMA_API_KEY")
+        && !path.starts_with("/health")
+        && presented.as_deref() != Some(key.as_str())
+    {
+        let json =
+            r#"{"error":{"code":401,"message":"Invalid API Key","type":"authentication_error"}}"#;
+        let _ = write!(
+            stream,
+            "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{json}",
+            json.len()
+        );
+        return;
+    }
 
     // Core's chat turns ask to stream: answer as llama-server does, in
     // server-sent events, the reply in two pieces, then the usage, then the end.

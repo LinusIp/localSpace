@@ -151,6 +151,11 @@ struct Spec {
     binary: PathBuf,
     args: Vec<String>,
     log_path: PathBuf,
+    /// The key this start of the engine answers to. Without one the engine
+    /// accepts any origin and any caller on the machine: a web page open in
+    /// a browser could find the port and use the model, or read its slots.
+    /// Handed over in the environment, so it is in no command line or log.
+    key: String,
 }
 
 struct Shared {
@@ -201,6 +206,7 @@ impl Engine {
             binary: binary.to_path_buf(),
             args,
             log_path: log_path.clone(),
+            key: crate::identity::random_token(),
         });
         let child = spawn(&spec).with_context(|| format!("starting {}", binary.display()))?;
         let shared = Arc::new(Shared {
@@ -304,6 +310,7 @@ fn spawn(spec: &Spec) -> Result<Child> {
     let err = log.try_clone()?;
     crate::child::command(&spec.binary)
         .args(&spec.args)
+        .env("LLAMA_API_KEY", &spec.key)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(err))
@@ -379,7 +386,9 @@ fn supervise(
 
         // Ready: the router gets the worker, the shell gets the news.
         {
-            let worker = OpenAiWorker::new(&base, &model).with_context_len(context_len);
+            let worker = OpenAiWorker::new(&base, &model)
+                .with_context_len(context_len)
+                .with_key(Some(spec.key.clone()));
             router.write().unwrap().chat = Some(Arc::new(worker));
         }
         *shared.status.lock().unwrap() = Status::Ready;

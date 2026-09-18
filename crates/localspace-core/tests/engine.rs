@@ -171,6 +171,35 @@ fn loading_a_model_starts_the_sidecar_and_a_chat_turn_goes_through_it() {
         other => panic!("expected the log, got {other:?}"),
     }
 
+    // The turn above went through because Core presents the key of this
+    // start. Anyone else on the machine, a web page in a browser that found
+    // the port included, is refused; only the health check is open.
+    let port: u16 = ready
+        .detail
+        .split("127.0.0.1:")
+        .nth(1)
+        .map(|rest| {
+            rest.chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+        })
+        .and_then(|digits| digits.parse().ok())
+        .expect("the engine's port in its state");
+    let without_the_key = ureq::get(&format!("http://127.0.0.1:{port}/v1/models")).call();
+    assert!(
+        matches!(without_the_key, Err(ureq::Error::StatusCode(401))),
+        "a caller without the key is refused: {without_the_key:?}"
+    );
+    assert!(
+        ureq::get(&format!("http://127.0.0.1:{port}/health"))
+            .call()
+            .is_ok()
+    );
+    assert!(
+        !log.contains("LLAMA_API_KEY"),
+        "the key is in no command line: {log}"
+    );
+
     // The catalog says it is loaded; unloading stops the process.
     match core.handle(proto::Request::ListModelCatalog) {
         proto::Response::ModelCatalog { entries } => {
