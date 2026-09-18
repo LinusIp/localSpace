@@ -37,26 +37,53 @@ pub fn binary_name() -> &'static str {
 }
 
 /// Where `llama-server` is: as given, in the environment, under the data
-/// directory, or on PATH. `None` means it is not installed, and the answer
-/// to that is a message, not a download of an executable.
+/// directory, in the package this executable came in, or on PATH. `None`
+/// means it is not installed, and the answer to that is a message, not a
+/// download of an executable.
 pub fn find_binary(given: Option<&Path>, data_dir: Option<&Path>) -> Option<PathBuf> {
+    let named = std::env::var_os("LOCALSPACE_LLAMA_SERVER").map(PathBuf::from);
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf));
+    let path = std::env::var_os("PATH");
+    candidates(
+        given,
+        named.as_deref(),
+        data_dir,
+        exe_dir.as_deref(),
+        path.as_deref(),
+    )
+    .into_iter()
+    .find(|p| p.is_file())
+}
+
+/// The places looked in, in order. One a person put there (a flag, the
+/// environment, `<data>/engines`) comes before the one the package carries in
+/// `engine/` beside the executable, so a faster build placed by hand wins; the
+/// package's comes before whatever PATH happens to hold.
+fn candidates(
+    given: Option<&Path>,
+    named: Option<&Path>,
+    data_dir: Option<&Path>,
+    exe_dir: Option<&Path>,
+    path: Option<&std::ffi::OsStr>,
+) -> Vec<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Some(p) = given {
-        candidates.push(p.to_path_buf());
-    }
-    if let Ok(p) = std::env::var("LOCALSPACE_LLAMA_SERVER") {
-        candidates.push(PathBuf::from(p));
-    }
+    candidates.extend(given.map(Path::to_path_buf));
+    candidates.extend(named.map(Path::to_path_buf));
     if let Some(d) = data_dir {
         candidates.push(d.join("engines").join(binary_name()));
         candidates.push(d.join("engines").join("llama-server").join(binary_name()));
     }
-    if let Ok(path) = std::env::var("PATH") {
-        for dir in std::env::split_paths(&path) {
+    if let Some(d) = exe_dir {
+        candidates.push(d.join("engine").join(binary_name()));
+    }
+    if let Some(path) = path {
+        for dir in std::env::split_paths(path) {
             candidates.push(dir.join(binary_name()));
         }
     }
-    candidates.into_iter().find(|p| p.is_file())
+    candidates
 }
 
 /// The flags a placement plan becomes (v2 §4.2). What the planner decided —
@@ -502,6 +529,36 @@ mod tests {
     use super::*;
     use crate::planner::{PlanRequest, plan, reference_moe_100b_q4};
     use crate::profile::Machine;
+
+    #[test]
+    fn an_engine_placed_by_hand_comes_before_the_packaged_one_and_that_before_path() {
+        let path = std::env::join_paths([Path::new("on-path")]).unwrap();
+        let found = candidates(
+            Some(Path::new("given/llama-server")),
+            Some(Path::new("named/llama-server")),
+            Some(Path::new("data")),
+            Some(Path::new("app")),
+            Some(&path),
+        );
+        let expected = [
+            PathBuf::from("given/llama-server"),
+            PathBuf::from("named/llama-server"),
+            Path::new("data").join("engines").join(binary_name()),
+            Path::new("data")
+                .join("engines")
+                .join("llama-server")
+                .join(binary_name()),
+            Path::new("app").join("engine").join(binary_name()),
+            Path::new("on-path").join(binary_name()),
+        ];
+        assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn with_nothing_said_only_the_package_and_path_are_looked_in() {
+        let found = candidates(None, None, None, Some(Path::new("app")), None);
+        assert_eq!(found, [Path::new("app").join("engine").join(binary_name())]);
+    }
 
     fn dense_map(bytes: u64, layers: u32) -> TensorMap {
         TensorMap {

@@ -404,6 +404,21 @@ pub struct Running {
     pub task: tokio::task::JoinHandle<()>,
 }
 
+impl Running {
+    /// Stop what would outlive this process: the model's sidecar. The desktop
+    /// app calls this as it exits, because a process that exits runs no
+    /// destructors and a `llama-server` left behind keeps the graphics
+    /// memory. Asked as the machine's own user, so the audit log says who.
+    pub async fn shutdown(&self) {
+        let existing = self.server.core.lock().unwrap().clone();
+        let Some(session) = existing else { return };
+        let caller = Caller::local(&self.server.cfg.user);
+        if let Err(e) = session.call_as(&caller, proto::Request::UnloadModel).await {
+            tracing::warn!("the model was not unloaded on the way out: {e}");
+        }
+    }
+}
+
 /// Bind and serve in the background. The desktop shell uses this with
 /// `bind = "127.0.0.1:0"` and opens its window on the address returned.
 pub async fn start(cfg: ServerConfig) -> anyhow::Result<Running> {

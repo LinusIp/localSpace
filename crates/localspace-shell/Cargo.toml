@@ -16,7 +16,11 @@ tauri-build = { version = "2", features = [] }
 localspace-core = { path = "../localspace-core" }
 localspace-server = { path = "../localspace-server" }
 tauri = { version = "2", features = [] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
+# Approved on 2026-09-12 (docs/DECISIONS.md, the desktop answers): a failure
+# the person can see, and one running copy.
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+tokio ={ workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
