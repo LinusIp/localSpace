@@ -4,6 +4,51 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-18, the seven questions of the review, decided by the user
+
+The fresh-eyes review of 2026-09-13 left eight questions; the user answered
+seven of them on 2026-09-18 (the instructions for the builder, §5). Items 5,
+6 and 7 are done before Phase B; the rest fold in where they sit. None of
+them is built by this commit: this is the record.
+
+1. **Break-glass for changing another workspace's members and document
+   access.** An administrator may; it always requires a typed reason; it is
+   audited as `workspace.break_glass`, the same mechanism that covers
+   entering a workspace, extended to membership and ACL edits
+   (`SetMember`, `RemoveMember`, `SetDocumentAccess`, the agent-writes
+   setting). No silent administrator override anywhere.
+2. **Proposal-mode branches.** Keep what exists: an agent's edits to a shared
+   document land where a person applies or discards them; shared workspaces
+   default to proposal mode, an owner may set direct. No richer review
+   interface before the pilot. (The review's finding that today's proposals
+   commit to the shared head and are dropped by rewinding stays on the list;
+   the decision is about scope, not about that mechanism being right.)
+3. **Per-address lockout and a request-rate limit.** Both. The lockout per
+   address on repeated failed sign-ins is thirty failures in fifteen
+   minutes, locked fifteen, which the directory already does; added to it, a
+   per-session rate limit on the chat and tool endpoints so one client
+   cannot monopolise the engine. Both audited.
+4. **A read-only account may export a board.** Viewing includes exporting
+   what one can already see; an export is not a write and creates no shared
+   state. `ProduceArtifact` stays ungated by role, and gets the test that
+   says so.
+5. **A Content-Security-Policy and HSTS on the shell origin.** Both, now,
+   before real browsers on a real network reach it, which is the server
+   test. Strict: `default-src 'self'`, `wasm-unsafe-eval` only where the
+   surfaces need it, no third-party origins; HSTS on the TLS origin.
+6. **The audit log's head is anchored outside its files.** The current
+   chain head is written to a separate small file an administrator can
+   read, so truncating the log is detectable and not only tampering within
+   it; `localspace audit verify` compares.
+7. **Commits carry the real user, not `"user"`.** The audit story and
+   per-user undo both depend on it.
+
+Still open from the review, not among the seven: the lows that remain
+(invite tokens in GET paths and logs, the token-use race, unpurged lock and
+session rows, a revoked session's socket living up to thirty seconds,
+export documents keyed by content hash, one user's egress approval applying
+to everyone).
+
 ## 2026-09-14, builds on the laptop: four jobs, line tables, one suite at a time
 
 The user's machine went to 100% disk with memory at the ceiling during the
