@@ -105,6 +105,64 @@ fn explain(error: anyhow::Error, root: Option<&std::path::Path>) -> anyhow::Erro
 // doctor
 // ---------------------------------------------------------------------------
 
+/// What the first-run screen says about this computer, and under it the
+/// figures support asks for: every card the engine lists with its memory,
+/// the system's memory and how fast it moves, the processor, the disk.
+fn describe_computer(cfg: &localspace_server::ServerConfig) {
+    use localspace_core::{engine, hardware};
+    let binary = engine::find_binary(cfg.llama_server.as_deref(), cfg.data.as_deref());
+    let found = hardware::detect(binary.as_deref(), cfg.data.as_deref());
+    out!("computer  {}", found.sentence());
+    for note in found.notes() {
+        out!("          {note}");
+    }
+    match &binary {
+        Some(path) => out!("engine    {}", path.display()),
+        None => out!("engine    not installed"),
+    }
+    if let hardware::GpuListing::Failed(why) = &found.gpu_listing {
+        out!("graphics  not listed: {why}");
+    }
+    for (index, gpu) in found.gpus.iter().enumerate() {
+        let speed = match (gpu.integrated, gpu.bandwidth_gbps) {
+            (true, _) => "shares the system memory".to_string(),
+            (false, Some(gbps)) => format!("{gbps:.0} GB/s"),
+            (false, None) => format!(
+                "not a card the table knows, planned at {:.0} GB/s",
+                hardware::unknown_discrete_gbps()
+            ),
+        };
+        out!(
+            "graphics  {} {}: {} MiB, {} MiB free; {speed}{}",
+            gpu.device,
+            gpu.name,
+            gpu.total_mib,
+            gpu.free_mib,
+            if index == 0 { "; the one used" } else { "" }
+        );
+    }
+    out!(
+        "memory    {} MiB, {} MiB free; moves at {:.0} GB/s (measured)",
+        found.ram_total_mib,
+        found.ram_free_mib,
+        found.ram_bandwidth_gbps
+    );
+    out!(
+        "processor {}; {} threads; {}",
+        found.cpu.as_deref().unwrap_or("not named"),
+        found.cores,
+        if found.cpu_features.is_empty() {
+            "no vector extensions seen".to_string()
+        } else {
+            found.cpu_features.join(" ")
+        }
+    );
+    match found.disk_free_mib {
+        Some(mib) => out!("disk      {} GB free where the models are kept", mib / 1024),
+        None => out!("disk      free space not read"),
+    }
+}
+
 pub fn doctor(args: DoctorArgs) -> Result<()> {
     let loaded = settings::load(args.common.config.as_deref())?;
     let machine = profile::Machine::detect();
@@ -115,6 +173,8 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
         Some(path) => out!("settings  {}", path.display()),
         None => out!("settings  none (the defaults)"),
     }
+    describe_computer(&loaded.config);
+    out!();
     out!("machine   {}", machine.describe());
     out!("profile   {}", model_profile.name);
     out!(

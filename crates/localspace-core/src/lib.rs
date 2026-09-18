@@ -24,6 +24,7 @@ pub mod exposure;
 pub mod footprint;
 pub mod gateway;
 pub mod grammar;
+pub mod hardware;
 pub mod identity;
 pub mod lock;
 pub mod manifest;
