@@ -1,0 +1,27 @@
+{
+  "about": "The inference engine the packages carry: llama.cpp's own Vulkan release, repackaged and pinned by SHA-256 (docs/DECISIONS.md, 2026-09-18, answer 2). scripts/fetch-engine.mjs verifies size and digest and fails the build on a mismatch. Our own build replaces this after the tests.",
+  "release": "b10869",
+  "commit": "30b6a755e29692e8bc8e072885325716a2fee70f",
+  "source": "https://github.com/ggml-org/llama.cpp/releases/download/b10869/",
+  "assets": {
+    "windows-x64": {
+      "file": "llama-b10869-bin-win-vulkan-x64.zip",
+      "bytes": 35757044,
+      "sha256": "e5506b8beb008e9214f368d3ac22fec3634d1bf3ece7e1dfd81f94ec2c3d45ba",
+      "binary": "llama-server.exe",
+      "keep": [
+        "llama-server.exe",
+        "llama-server-impl.dll",
+        "llama-common.dll",
+        "llama.dll",
+        "mtmd.dll",
+        "ggml.dll",
+        "ggml-base.dll",
+        "ggml-vulkan.dll",
+        "ggml-cpu-*.dll",
+        "libomp.dll",
+        "LICENSE-LLVM-OpenMP"
+      ]
+    }
+  }
+}

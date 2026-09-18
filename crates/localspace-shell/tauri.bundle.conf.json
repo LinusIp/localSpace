@@ -1,0 +1,21 @@
+{
+  "bundle": {
+    "targets": ["nsis"],
+    "shortDescription": "A private AI workstation that runs on this computer.",
+    "resources": {
+      "../../dist/package/web/": "web/",
+      "../../dist/package/engine/": "engine/",
+      "../../dist/package/registry/": "registry/",
+      "../../dist/package/licences/": "licences/",
+      "../../dist/package/localspace.exe": "localspace.exe",
+      "../../dist/package/README.txt": "README.txt"
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "skip" },
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

@@ -4,6 +4,73 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-18, the Windows package: what is in it and how it is built
+
+Item 1 of the build order for the two tests (the instructions for the
+builder, §3.1; the answers of the same day, 2 and §D).
+
+- **The engine's pin.** llama.cpp release **`b10869`** (commit
+  `30b6a755e29692e8bc8e072885325716a2fee70f`), asset
+  `llama-b10869-bin-win-vulkan-x64.zip`, 35,757,044 bytes, SHA-256
+  `e5506b8beb008e9214f368d3ac22fec3634d1bf3ece7e1dfd81f94ec2c3d45ba`: the
+  digest GitHub publishes for the asset, and the archive the measurements of
+  2026-09-18 were made with. `scripts/engine.json` holds the pin;
+  `scripts/fetch-engine.mjs` checks size and digest before it unpacks and
+  exits non-zero on a mismatch, with nothing unpacked (a one-byte change to
+  the archive was tried). Only the Windows asset is pinned: the Linux one is
+  pinned when the tarball is built, for the server test.
+- **What is kept of it:** `llama-server` and the libraries it loads, every
+  CPU variant, the Vulkan backend, OpenMP with its licence; 24 files,
+  98.6 MB. Left out: the other command-line tools, and the RPC backend and
+  its server, because a network backend has no place in a product whose only
+  socket is the gateway. llama.cpp's MIT licence, taken from the tag, ships
+  in `licences/`.
+- **Where Core looks for the engine:** a flag, `LOCALSPACE_LLAMA_SERVER`,
+  `<data>/engines`, then `engine/` beside its own executable, then PATH. One
+  placed by hand comes before the package's, so a faster build put under
+  `<data>/engines` wins without touching the install.
+- **The installer** is NSIS through `tauri-cli` 2.11.4 (pinned), per user
+  (no administrator prompt), from the stock template: welcome, the folder
+  with its default, finish. The folder page is the one page that shows a
+  choice; removing it means owning a copy of the template, which is not this
+  week's work. **The portable zip** holds the same files and the app.
+- **The desktop app** (the desktop answers of 2026-09-12, built now because
+  they come before an installer): one running copy, a second launch bringing
+  the first to the front (`tauri-plugin-single-instance`); a start that fails
+  says so in a dialog with where the log is (`tauri-plugin-dialog`), and Core
+  is made at launch so that an unopenable data folder is that dialog and not
+  an error on the first message; a release build logs to
+  `<data>/logs/app.log`; and closing the app unloads the model
+  (`Running::shutdown`), because a process that exits runs no destructors and
+  a `llama-server` left behind keeps the graphics memory.
+- **The `package` workflow** builds both artefacts on a Windows runner, by
+  hand or by a `v*` tag (a Windows runner costs double, and `ci` stays the
+  judge of a commit), and proves there what a runner can: the silent
+  install lays out every file; the engine and the command line run from
+  where they were put, with no GPU; the app makes its data folder, starts,
+  serves its client, opens its window; a second launch gives way; the
+  uninstaller leaves the data. It cannot prove what SmartScreen and Smart
+  App Control do, how a real GPU behaves, or what a person sees: the dry
+  run's.
+- **Not signed.** Signing is a configuration change when the certificate
+  exists (`bundle.windows.signCommand`), and covers every executable and
+  library in the package, the engine's included.
+
+Built on the builder's recommendation and **put to the user as questions**
+the same day, each one line to change:
+
+1. **The person's data moves** from `%LOCALAPPDATA%\localSpace` (the ruling
+   of 2026-09-09) to `%LOCALAPPDATA%\io.localspace.app\data`, because the
+   per-user installer puts the *program* in `%LOCALAPPDATA%\localSpace`, and
+   program and data must not share a folder. The new place is the
+   application's own data folder, beside the webview's, and exactly what the
+   uninstaller's "Delete the application data" removes. No migration: only
+   the development machine has data at the old place.
+2. **WebView2 is not downloaded by the installer** (`webviewInstallMode:
+   skip`): the other modes call Microsoft during the install, or add well over
+   100 MB to every download for a runtime Windows 11 always has. When it is
+   missing the app says so in its dialog.
+
 ## 2026-09-18, the plan for the two tests, and the nine answers
 
 The requirement changed on 2026-09-18: *the software must run a model on any

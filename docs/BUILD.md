@@ -179,8 +179,13 @@ to an Application Control policy", build it in release.
 Core starts `llama-server` itself, per model, on a loopback port, and turns the
 placement planner's plan into its flags. It looks for the binary as
 `--llama-server <path>`, then `LOCALSPACE_LLAMA_SERVER`, then
-`<data>/engines/llama-server(.exe)`, then PATH. It never downloads an
-executable: put a llama.cpp release build there yourself.
+`<data>/engines/llama-server(.exe)`, then `engine/` beside its own executable
+(what a package carries), then PATH. One placed by hand comes before the
+package's, so a faster build put under `<data>/engines` wins. Core never
+downloads an executable: in a checkout, put a llama.cpp release build there
+yourself, or let `node scripts/fetch-engine.mjs --out <data>/engines/llama-server`
+fetch the pinned one (the script empties the directory it is given, so give
+it that one and not `<data>/engines`, where the engine's logs are).
 
 The catalog is `models/catalog.json`, compiled into Core; an organisation adds
 or overrides entries with a `catalog.json` in the directory given by
@@ -188,3 +193,54 @@ or overrides entries with a `catalog.json` in the directory given by
 air-gapped environment, where a file is imported in place from the Models
 page instead. `cargo test -p localspace-core --test engine` exercises the whole
 path against `fake_llama_server`, a test double this crate builds.
+
+## The Windows package (the installer and the portable zip)
+
+What a tester installs is built by the `package` workflow
+(`.github/workflows/package.yml`, started by hand or by a `v*` tag), not on a
+laptop: what ten people run is what a commit produced. The same steps by hand,
+on Windows:
+
+```bash
+(cd web && npm ci && npm run build)
+cargo build --release -p localspace-cli
+cargo install tauri-cli --version 2.11.4 --locked
+node scripts/package.mjs          # -> dist/windows/: …-setup.exe, …-portable.zip, SHA256SUMS.txt
+```
+
+`scripts/package.mjs` lays the package out in `dist/package/` (the web
+client, the Store's catalog through `scripts/hpack.mjs`, the command line,
+the licences, and the engine), builds the NSIS installer with
+`cargo tauri build --config tauri.bundle.conf.json` in
+`crates/localspace-shell`, and zips the same files with the app as the
+portable copy. `--stage-only` stops after the layout.
+
+**The engine is llama.cpp's own Vulkan release, pinned.**
+`scripts/engine.json` names the release, the asset, its size and its SHA-256;
+`scripts/fetch-engine.mjs` downloads it (or takes `--from <archive>`), checks
+size and digest **before unpacking**, and fails the build on a mismatch. Only
+the files the engine needs are kept. Moving to another release means changing
+the pin and reading the keep list again; the script says when a listed file
+is missing.
+
+The installer is per-user (`%LOCALAPPDATA%\localSpace`, no administrator
+prompt) and asks nothing but the usual folder page. It does not download
+WebView2: Windows 11 and an up-to-date Windows 10 have it, and the app says so
+in a dialog when it is missing. The person's data is not in the program's
+folder but in `%LOCALAPPDATA%\io.localspace.app\data`, which the uninstaller
+removes only when "Delete the application data" is ticked. The app writes
+`logs\app.log` there in a release build, since it has no console.
+
+**Not signed yet.** Until the certificate exists, SmartScreen warns and Smart
+App Control, where it is on, refuses the installer and the zip's executables
+outright. Signing is a configuration change (`bundle.windows.signCommand`)
+and covers every executable and library in the package, the engine's
+included.
+
+What the workflow proves on a clean Windows runner: the installer runs
+silently and lays out every file; the engine and the command line run from
+where they were put, with no GPU (the CPU fallback's first step); the app
+makes its data folder, starts, serves its client and opens its window; a
+second launch gives way to the first; the uninstaller removes the program and
+leaves the data. What it cannot: SmartScreen and Smart App Control, a real
+GPU, and what a person sees. Those belong to a dry run on a real machine.
