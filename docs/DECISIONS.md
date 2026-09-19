@@ -4,6 +4,74 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-19, the answers after day 3: six rulings, one addition, and the order of the next day
+
+The user's answers to the evening report of 2026-09-19
+(`7-localspace-answers-day3.md`). Two corrections of the builder's stand:
+a fresh install's first prompt is 1,052 tokens, not 2,600, and the 3B's
+licence is said in the licence's own words ("Free for research and
+evaluation only, not for commercial use."), not as "personal use".
+
+- **1. The middle verdict's words change** (the provisional verdicts of the
+  answers after day 1): "Works — about as fast as you read". The old words,
+  "slower than reading pace", were false across most of their band and stood
+  on one line with "about 7 to 9 words a second". The four labels are one
+  scale of reading pace: *Runs well — faster than you read*; *Works — about
+  as fast as you read*; *Too slow for everyday use*; *Will not fit on this
+  computer*.
+- **2. A model may only be the default if it has been run through the
+  message script on some machine.** A property of the catalog, permanent,
+  not a patch for the test: "the failure mode is not a bad model, it is an
+  untested one arriving in front of a stranger." Found by running the real
+  fit over typical laptops: any laptop with 32 GB of memory was offered
+  Qwen3 30B-A3B by default, a model that has never been started through
+  Core anywhere. It stays listed and can be chosen; so does gpt-oss 120B;
+  the rule covers the next family too.
+- **3. The line for "runs well" moves from 15 to 10 tokens a second**, on
+  the measurement that moved it: on the 4 GB card the 7B runs at 13 tokens
+  a second (about ten words a second, two and a half times the pace of
+  reading) and is reliably good on the message script, where the 1.5B, the
+  default there under the old line, answers "17 × 24 = 388" and "France has
+  two capitals". The 15 was a guess and provisional; the 10 is measured.
+  Two conditions: every machine shape is probed again after the change, the
+  ones without a graphics card included, and nothing else may silently
+  become "runs well" that should not. **The principle underneath: prefer
+  the more reliable model once a model is fast enough to read along with.
+  Speed above reading pace has sharply diminishing value; correctness does
+  not.**
+- **4. `web.search` is not offered until a search service is set** (plugin
+  spec §8.1 and §8.2; answer 24). §8.1 takes the web tools away when
+  airgapped "so the model never proposes a search it can't run", and the
+  same reason holds while no service exists: ten to twenty seconds of
+  waiting for "nothing found". **Spec narrowing, authorised:** in `ask` and
+  `online` mode `web.fetch` exists as before, and `web.search` exists once a
+  search service is configured.
+- **5. A reply that is nothing but a tool call is read as the call**, in the
+  model's own shape (`name`, `arguments`) as well as Core's (`tool`,
+  `params`): only when the entire reply is a call to a tool actually on
+  offer. It is the first thing cut if the day runs out.
+- **6. The test is in English only.** All ten testers write in English; no
+  language is added to the message script and no time goes into other
+  languages. The German and Russian findings stay in the record as a known
+  limitation. The tester sheet asks for English and says other languages
+  are not part of this test; one tried anyway is an observation to write
+  down, not a failure to fix.
+- **A. The verdicts say nothing about quality, and one sentence will**: the
+  tiny band carries "Small models answer quickly but get things wrong more
+  often.", wherever such a model is recommended or listed. Not a second
+  scale: one sentence, attached to the band.
+- **B. The order:** `web.search` hidden; the default-eligible rule; the line
+  at 10 with the new words and the quality sentence in one pass, and the
+  probe of every machine shape; the catalog checked again; the two pictures
+  taken again; the tool call as text if the day has room. Thursday is the
+  dry run on a machine that is not the builder's, and nothing else: the
+  message script is run once there too, and its output read.
+- **C. Smart App Control** is flipped by the user if it blocks the package,
+  at once when told; the builder never changes it. **An organisation's
+  server that does not start its model again** stays on the list for the
+  server test, untouched this week. **The USB stick** carries the models of
+  every band a tester may be recommended, the 7B for 4 GB cards included.
+
 ## 2026-09-19, the message script: what the recommended models answer, and a word that reached a person
 
 Section C of the answers after day 2, begun the same day: a fixed script of
