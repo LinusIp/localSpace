@@ -66,6 +66,12 @@ how fast it expects it to be:
 Yours will name your own graphics card and may recommend a different model.
 **Please write down, or photograph, what this page says.**
 
+(On a few Windows 10 computers a small window appears instead, saying that
+localSpace needs a part of Windows called *Microsoft Edge WebView2*. Click
+**Open Microsoft's page**, find *Evergreen Bootstrapper* there, choose
+*Download*, run the file it gives you, and start localSpace again. Tell us
+that it happened.)
+
 **5. Click the green button, *Download and start*.** This is the long step.
 
 | What you see | How long | It is working when |
