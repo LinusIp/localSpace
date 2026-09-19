@@ -134,6 +134,15 @@ The user's answers to the second evening report of 2026-09-19
   the app is not signed yet and that this is expected of a test build, and
   names whom to contact. If a certificate arrives by Sunday, the packaging
   must be ready to use it that moment.
+  **Ready for the certificate:** `scripts/package.mjs` signs every
+  executable and library of the package, the engine's and the command
+  line's too, when `LOCALSPACE_SIGN_COMMAND` says how one file is signed
+  (JSON, in the form tauri's `signCommand` takes), and hands tauri the same
+  command for the app, the installer and the uninstaller; the `package`
+  workflow rehearses it with a throwaway certificate made on the runner
+  (`-f sign=rehearsal`) and refuses a build in which one installed program
+  file is not signed by it. Which provider the certificate comes from
+  decides the command and what the runner needs; that is the user's to say.
 - **The sheet is the product now**, and the dry run tests it as much as the
   build: every step in order, a picture where Windows interrupts, and what
   a slow step looks like so that a pause of four minutes reads as normal.

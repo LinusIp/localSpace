@@ -70,9 +70,10 @@ against, with a line in `docs/DECISIONS.md`.
   with the optional CUDA variant beside it.
 - **The Linux tarball** (due with the server test), and the engine pinned
   for Linux.
-- **Signing**: `bundle.windows.signCommand` once the certificate exists;
-  every executable and library, the engine's included; the publisher name
-  becomes the certificate's subject.
+- **Signing**: the path is built and rehearsed in CI with a throwaway
+  certificate (`docs/BUILD.md`; 2026-09-19); what is left is the real
+  certificate's own command and its provider's setup on the runner, a
+  timestamp, and the publisher name becoming the certificate's subject.
 - **Notices for what the binaries carry.** The package ships llama.cpp's and
   OpenMP's licences; the Rust and npm dependencies' notices are not
   gathered yet.

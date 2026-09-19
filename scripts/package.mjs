@@ -9,6 +9,15 @@
 //   node scripts/package.mjs --engine-from <archive>   an engine archive already on disk
 //   node scripts/package.mjs --no-harness-build        assemble the harnesses from what is already built
 //
+// Signing. LOCALSPACE_SIGN_COMMAND is what signs one file, as JSON in the form
+// tauri's `bundle.windows.signCommand` takes: {"cmd": "…", "args": ["…", "%1"]},
+// with %1 where the file goes. When it is set, **every program file of the
+// package is signed**, the engine's and the command line too and not only
+// the installer: Smart App Control judges each executable and each library
+// a program loads. tauri signs the app, the installer and the uninstaller
+// with the same command. Without it nothing is signed, which is the test
+// build (docs/DECISIONS.md, 2026-09-18 and 2026-09-19).
+//
 // Before it: `npm run build` in web/ and `cargo build --release -p
 // localspace-cli`; the harness packages it builds itself, through
 // scripts/hpack.mjs (cargo with wasm32-wasip2, and npm). The installer step needs
@@ -17,7 +26,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,6 +57,43 @@ function run(command, argv, cwd) {
   execFileSync(command, argv, { cwd, stdio: "inherit" });
 }
 
+// --- signing ------------------------------------------------------------------
+
+const signing = (() => {
+  const raw = process.env.LOCALSPACE_SIGN_COMMAND;
+  if (!raw) return undefined;
+  let command;
+  try {
+    command = JSON.parse(raw);
+  } catch {
+    fail('LOCALSPACE_SIGN_COMMAND is not JSON; it reads {"cmd": "…", "args": ["…", "%1"]}');
+  }
+  if (typeof command.cmd !== "string" || !Array.isArray(command.args) || !command.args.includes("%1")) {
+    fail('LOCALSPACE_SIGN_COMMAND needs "cmd" and "args", with "%1" where the file goes');
+  }
+  return command;
+})();
+
+/** Every executable and library under `dir`. */
+function programFiles(dir) {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) return programFiles(path);
+    return /\.(exe|dll)$/i.test(name) ? [path] : [];
+  });
+}
+
+/** The command's arguments may hold a secret: the file is named, the command is not. */
+function sign(file) {
+  console.log(`signing ${file}`);
+  execFileSync(signing.cmd, signing.args.map((arg) => (arg === "%1" ? file : arg)), { cwd: root, stdio: ["ignore", "inherit", "inherit"] });
+}
+
+function isSigned(file) {
+  const out = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", `[bool](Get-AuthenticodeSignature -LiteralPath '${file.replaceAll("'", "''")}').SignerCertificate`], { encoding: "utf8" });
+  return out.trim() === "True";
+}
+
 // --- what the package is made of -------------------------------------------
 
 const cli = join(target, "release/localspace.exe");
@@ -66,11 +112,30 @@ cpSync(join(root, "packaging/windows/README.txt"), join(stage, "README.txt"));
 cpSync(cli, join(stage, "localspace.exe"));
 run(process.execPath, [join(root, "scripts/fetch-engine.mjs"), "--platform", "windows-x64", "--out", join(stage, "engine"), ...(engineFrom ? ["--from", engineFrom] : [])], root);
 console.log(`staged in ${stage}: the client, ${packages.length} harness packages (${packages.join(", ")}), the engine, the command line`);
+if (signing) {
+  const files = programFiles(stage);
+  for (const file of files) sign(file);
+  console.log(`signed ${files.length} program files of the stage`);
+}
 if (stageOnly) process.exit(0);
 
 // --- the installer ----------------------------------------------------------
 
-run("cargo", ["tauri", "build", "--config", "tauri.bundle.conf.json"], shell);
+// With a signing command, tauri is given it too: it signs the app, the
+// installer and the uninstaller. The settings file it reads is written for
+// this build and taken away after it.
+let bundleConfig = "tauri.bundle.conf.json";
+if (signing) {
+  const settings = JSON.parse(readFileSync(join(shell, bundleConfig), "utf8"));
+  settings.bundle.windows.signCommand = signing;
+  bundleConfig = "tauri.bundle.signed.conf.json";
+  writeFileSync(join(shell, bundleConfig), JSON.stringify(settings, null, 2));
+}
+try {
+  run("cargo", ["tauri", "build", "--config", bundleConfig], shell);
+} finally {
+  if (signing) rmSync(join(shell, bundleConfig), { force: true });
+}
 const nsis = join(target, "release/bundle/nsis");
 const setups = existsSync(nsis) ? readdirSync(nsis).filter((name) => name.endsWith("-setup.exe")) : [];
 if (setups.length !== 1) fail(`expected one installer in ${nsis}, found ${setups.length}`);
@@ -80,11 +145,13 @@ mkdirSync(out, { recursive: true });
 const stem = `localSpace-${version}-${build}-windows-x64`;
 const installer = join(out, `${stem}-setup.exe`);
 cpSync(join(nsis, setups[0]), installer);
+if (signing && !isSigned(installer)) sign(installer);
 
 // --- the portable copy: the same files, no installer ------------------------
 
 const app = join(target, "release/localspace-app.exe");
 need(app, "the installer step builds it");
+if (signing && !isSigned(app)) sign(app);
 const portable = join(root, "dist/portable/localSpace");
 rmSync(dirname(portable), { recursive: true, force: true });
 mkdirSync(dirname(portable), { recursive: true });

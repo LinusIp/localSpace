@@ -15,6 +15,7 @@ registry/*/ui/*.wasm
 # web client
 web/node_modules/
 web/dist/
+crates/localspace-shell/tauri.bundle.signed.conf.json
 # tauri build output
 crates/localspace-shell/gen/
 

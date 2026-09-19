@@ -18,6 +18,12 @@ name: package
 
 on:
   workflow_dispatch:
+    inputs:
+      sign:
+        description: "none: the unsigned test build. rehearsal: sign everything with a throwaway certificate made on the runner, to prove the path a real certificate will take."
+        type: choice
+        options: [none, rehearsal]
+        default: none
   push:
     tags: ["v*"]
   # Once a day until the laptop test, so that the cache is never cold when a
@@ -71,6 +77,22 @@ jobs:
       - name: tauri-cli, pinned
         shell: bash
         run: cargo install tauri-cli --version 2.11.4 --locked
+      # A real certificate is not here yet (docs/DECISIONS.md, 2026-09-18). What
+      # it will do is rehearsed with one made on this runner and thrown away
+      # with it: every program file signed, the installer and the uninstaller
+      # too, and checked below. A real one sets LOCALSPACE_SIGN_COMMAND the
+      # same way, from a secret, and nothing else changes.
+      - name: a throwaway certificate, to rehearse signing
+        if: ${{ inputs.sign == 'rehearsal' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=localSpace signing rehearsal, not a publisher' -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddDays(2)
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw "no signtool on this runner" }
+          $command = @{ cmd = $signtool.FullName; args = @('sign', '/fd', 'SHA256', '/sha1', $cert.Thumbprint, '%1') } | ConvertTo-Json -Compress
+          "LOCALSPACE_SIGN_COMMAND=$command" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SIGNED_BY=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: the installer and the portable zip, around the engine verified against its pin
         shell: bash
         run: node scripts/package.mjs
@@ -89,6 +111,23 @@ jobs:
             if (-not (Test-Path (Join-Path $dir $item))) { throw "not installed: $item" }
           }
           "INSTALL_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: every program file that was installed is signed, and the installer too
+        if: ${{ env.SIGNED_BY != '' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Smart App Control judges every executable and library a program
+          # loads, so one unsigned file among them is a refused app.
+          $files = @(Get-ChildItem dist/windows/*-setup.exe) + @(Get-ChildItem $env:INSTALL_DIR -Recurse -Include *.exe, *.dll)
+          $unsigned = @()
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+            $by = if ($signature.SignerCertificate) { $signature.SignerCertificate.Thumbprint } else { 'nobody' }
+            "{0,-60} {1}" -f $file.Name, $by
+            if ($by -ne $env:SIGNED_BY) { $unsigned += $file.FullName }
+          }
+          if ($unsigned.Count) { throw "not signed by the certificate of this run: $($unsigned -join ', ')" }
+          "$($files.Count) program files, every one signed by $env:SIGNED_BY"
       - name: the installed engine and command line run from where they were put
         shell: pwsh
         run: |

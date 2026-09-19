@@ -238,11 +238,25 @@ template with that one line changed (its header says from which upstream
 file), and `packaging/windows/hooks.nsh` makes the uninstaller's checkbox
 remove the data folder. Take the copy again when the tauri-cli pin moves.
 
-**Not signed yet.** Until the certificate exists, SmartScreen warns and Smart
-App Control, where it is on, refuses the installer and the zip's executables
-outright. Signing is a configuration change (`bundle.windows.signCommand`)
-and covers every executable and library in the package, the engine's
-included.
+**Not signed yet, and ready to be.** Until the certificate exists,
+SmartScreen warns and Smart App Control, where it is on, refuses the
+installer and the zip's executables outright. The path a certificate takes
+is built and rehearsed: `scripts/package.mjs` reads
+`LOCALSPACE_SIGN_COMMAND`, what signs one file, as JSON in the form tauri's
+`bundle.windows.signCommand` takes,
+`{"cmd": "…\\signtool.exe", "args": ["sign", "/fd", "SHA256", …, "%1"]}`.
+With it set, **every executable and library of the package is signed**, the
+engine's and the command line's too (Smart App Control judges each file a
+program loads, not only the installer), and tauri signs the app, the
+installer and the uninstaller with the same command. The command is never
+printed, since its arguments may hold a secret. `gh workflow run package.yml
+-f sign=rehearsal` makes a throwaway certificate on the runner, signs with
+it, and refuses the build if one installed program file, or the installer,
+is not signed by it. When the real certificate arrives: whatever its
+provider needs on the runner (a tool, a login), and
+`LOCALSPACE_SIGN_COMMAND` from a secret; nothing else changes. A
+certificate's signature also wants a timestamp (`/tr <the provider's
+address> /td SHA256`), which the rehearsal leaves out.
 
 What the workflow proves on a clean Windows runner: the installer runs
 silently and lays out every file; the engine and the command line run from
