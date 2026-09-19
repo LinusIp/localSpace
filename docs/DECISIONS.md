@@ -18,7 +18,10 @@ person's reading of them are in `docs/test-a/MESSAGE-SCRIPT.md`).
   date right in one run and wrong in the other, "France has two capitals"
   in both. **The 0.5B is a last resort only**: it repeats questions back and
   drops a conversation's thread at the first follow-up, which bears out the
-  ladder rule. The 14B follows when its download has ended.
+  ladder rule. **The 14B gave the best answers of the four** (16 of 19
+  turns, nothing factual wrong, correct German inside its translation and
+  correct Russian, real trips from Berlin); on the development laptop it is
+  what the app says it is, too slow for everyday use (answers in 3 to 60 s).
 - **Put to the user, not decided:** whether the default on a 4 GB laptop
   should be the 1.5B (forty words a second, by the rule "the largest that
   runs well") or the 7B (about ten words a second measured, which the app
@@ -26,6 +29,21 @@ person's reading of them are in `docs/test-a/MESSAGE-SCRIPT.md`).
   slower than reading pace" covers 5 to 15 tokens a second, which is about 4
   to 11 words a second, where a person reads about 4: only the bottom of the
   band is slower than reading.
+- **Two things the 14B showed, put to the user and not decided.** It reached
+  for `web.search` three times (the Moon, the weather, a cost), the 7B once:
+  the tool is offered whenever the mode is not `airgapped` (plugin spec
+  §8.1) and has no search service behind it until the user sets one (answer
+  24), so each reach is ten to twenty seconds for nothing. §8.1 gives the
+  reason the tools are absent when airgapped, "so the model never proposes
+  a search it can't run", and the same reason would take `web.search` out
+  while no service is set; `web.fetch` works without one and would stay.
+  And once in nineteen turns its tool call came back from the engine as
+  text, bare JSON without the tags the engine's reading of the model's
+  format looks for, and Core showed it to the person as the answer:
+  `{"name": "task.note", "arguments": …}`. Core already reads a reply of
+  its own grammar's shape as a call (`tool` and `params`,
+  `model::parse_grammar_call`); the model's own shape it does not. Both
+  are in `docs/AFTER-TEST-A.md` until the user says otherwise.
 - **A word no member may be shown reached a person through the model.**
   Asked to shorten a sentence, the 1.5B answered "I don't have a harness to
   use for this task": it had read "(no harness is focused)", a rule about
