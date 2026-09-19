@@ -54,6 +54,20 @@ The user's answers to the second evening report of 2026-09-19
   bandwidth floor by memory class for a card the table lacks ("an unknown
   card that reports 8 GB of memory is not a processor"): new logic, after
   the test.
+  **Entered the same day:** the six RTX 50 laptop parts, each as the
+  "Memory Bandwidth" row of NVIDIA's own table gives it (5090 and 5080
+  Laptop 896 GB/s, 5070 Ti Laptop 672, 5070, 5060 and 5050 Laptop 384; for
+  the 5070 Laptop NVIDIA gives one figure for its two memory sizes), and
+  twenty laptop parts of AMD's, RX 7900M to RX 6300M, each as the "Memory
+  Bandwidth" line of its own page on amd.com gives it. AMD writes "up to"
+  before every such figure and publishes no lower one, so there was no
+  lower figure to take; the estimate's efficiency of 0.60 stands over it
+  as over every card. AMD lists no laptop part of the RX 9000 series. An
+  AMD laptop part is told from the desktop card of the same number by its
+  letter (7600S, 7600M XT), not by the word "laptop". The machine-shape
+  test has an 8 GB Radeon RX 7600S (offered the 7B, as an RTX 4060 Laptop
+  is) and a 12 GB RTX 5070 Ti Laptop (the 14B). `models/gpus.json` is
+  version 2.
 - **The verdict's words are derived from the numbers shown beside them**,
   not from the raw estimate, so that the two can never disagree whatever a
   calibration does later: "Works — about as fast as you read · about 2 to 3

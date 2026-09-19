@@ -865,15 +865,54 @@ mod tests {
             table.bandwidth("NVIDIA GeForce RTX 4070 Ti SUPER"),
             Some(672.0)
         );
-        // A laptop part the table does not have is unknown, never the desktop one.
-        assert_eq!(table.bandwidth("NVIDIA GeForce RTX 5070 Laptop GPU"), None);
-        // "7600S" is not a "7600".
-        assert_eq!(table.bandwidth("AMD Radeon RX 7600S"), None);
+        // A laptop part the table does not have is unknown, never the desktop
+        // one of the same number (there is a desktop "rtx 4070 ti").
+        assert_eq!(
+            table.bandwidth("NVIDIA GeForce RTX 4070 Ti Laptop GPU"),
+            None
+        );
+        // The RTX 50 laptop parts, as NVIDIA's own table states them: not
+        // the desktop cards' figures (672 and 896).
+        assert_eq!(
+            table.bandwidth("NVIDIA GeForce RTX 5070 Laptop GPU"),
+            Some(384.0)
+        );
+        assert_eq!(
+            table.bandwidth("NVIDIA GeForce RTX 5070 Ti Laptop GPU"),
+            Some(672.0)
+        );
+        assert_eq!(
+            table.bandwidth("NVIDIA GeForce RTX 5090 Laptop GPU"),
+            Some(896.0)
+        );
+        // "7600S" is not a "7600", and "7600M XT" is not a "7600M": AMD's
+        // laptop parts are told by their letter, each with its own figure.
+        assert_eq!(table.bandwidth("AMD Radeon RX 7600S"), Some(256.0));
         assert_eq!(table.bandwidth("AMD Radeon RX 7600"), Some(288.0));
+        assert_eq!(table.bandwidth("AMD Radeon RX 7600M XT"), Some(288.0));
+        assert_eq!(table.bandwidth("AMD Radeon RX 7600M"), Some(256.0));
+        assert_eq!(table.bandwidth("AMD Radeon(TM) RX 6800M"), Some(384.0));
+        assert_eq!(table.bandwidth("AMD Radeon RX 6700S"), Some(224.0));
+        assert_eq!(table.bandwidth("AMD Radeon RX 6650M XT"), Some(256.0));
         assert_eq!(
             table.bandwidth("Intel(R) Arc(TM) A770 Graphics"),
             Some(512.0)
         );
+    }
+
+    #[test]
+    fn a_laptop_card_of_amd_s_is_a_card_and_not_the_processor_s_own_graphics() {
+        for (name, total) in [
+            ("AMD Radeon RX 7600S", 8176),
+            ("AMD Radeon(TM) RX 6800M", 12272),
+            ("AMD Radeon RX 6700S", 8176),
+            ("AMD Radeon RX 7900M", 16368),
+        ] {
+            let gpu = &parse_devices(&written(name, total, total - 800))[0];
+            assert!(!gpu.integrated, "{name}");
+            assert!(gpu.known(), "{name}");
+            assert!(gpu.bandwidth_gbps.is_some(), "{name}");
+        }
     }
 
     #[test]

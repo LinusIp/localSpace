@@ -114,14 +114,16 @@ against, with a line in `docs/DECISIONS.md`.
   speeds are in. The test
   `what_typical_computers_are_told_and_offered` shows what a change does to
   every typical computer.
-- **Laptop cards the table does not know**: AMD's laptop parts (RX 6600M to
-  RX 7900M, the S parts) and the RTX 50 laptop parts are not in
-  `models/gpus.json`. Such a card is used, and promised only what the
-  processor would do, so an 8 GB card the table lacks is offered the 1.5B
-  where it would carry the 7B. Before the test: the testers' own cards, from
-  the screening answers, each with its published bandwidth. After it: the
-  rest, and whether a model that fits the card whole should be promised
-  more than the processor's pace.
+- **A card the table does not know is planned as if it were the
+  processor** (ruled for after the test, 2026-09-19): "an unknown card that
+  reports 8 GB of memory is not a processor", and the processor's pace is
+  pessimistic in a way that produces a wrong recommendation. The fix is a
+  conservative bandwidth floor by the card's memory class, which settles
+  the whole class instead of chasing a table that never ends. Until then:
+  AMD's laptop parts and the RTX 50 laptop parts are in the table since
+  2026-09-19, and the testers' own cards are checked against it when the
+  screening answers arrive. Not in it still: Intel's Arc laptop parts, the
+  professional cards (RTX A-series, Radeon Pro), and whatever comes next.
 - **The estimate for a mixture of experts has never been compared with a
   run**: Qwen3 30B-A3B is said to run well on a 32 GB laptop from its
   active bytes alone. It is listed and is not the default until it has been

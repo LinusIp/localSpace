@@ -1529,6 +1529,24 @@ mod tests {
                 verdicts: [WELL, WELL, WELL, WELL, WELL, WELL],
             },
             Shape {
+                // AMD's laptop cards are in the table since 2026-09-19: an
+                // 8 GB one carries the 7B whole, as an RTX 4060 Laptop does.
+                what: "16 GB and a Radeon RX 7600S with 8 GB",
+                card: Some("AMD Radeon RX 7600S (8176 MiB, 7200 MiB free)"),
+                memory_mib: 16_000,
+                copy_gbps: 19.0,
+                default: SEVEN_B,
+                verdicts: [WELL, WELL, WELL, WELL, WORKS, NO],
+            },
+            Shape {
+                what: "32 GB and an RTX 5070 Ti Laptop with 12 GB",
+                card: Some("NVIDIA GeForce RTX 5070 Ti Laptop GPU (12227 MiB, 10900 MiB free)"),
+                memory_mib: 32_400,
+                copy_gbps: 19.0,
+                default: FOURTEEN_B,
+                verdicts: [WELL, WELL, WELL, WELL, WELL, WELL],
+            },
+            Shape {
                 // A card the table does not know is used, and promised only
                 // what the processor would do. With faster memory that floor
                 // is "at least 6 words a second" for the 7B, which is faster
