@@ -1,6 +1,6 @@
 {
-  "version": 3,
-  "notes": "The curated model catalog (architecture v2 §4.4). An entry's files, their exact sizes and SHA-256 digests, its layers and its KV size are Hugging Face's own facts, gathered by scripts/catalog-entry.mjs; `verify` is what a finished download must be. Entries without `verify` carry approximate sizes, and their download is held to the length the server announces. Tensor maps are the numbers the placement needs: bytes of the dense core, bytes of routed experts, layers, and the expert layout.",
+  "version": 4,
+  "notes": "The curated model catalog (architecture v2 §4.4). An entry's files, their exact sizes and SHA-256 digests, its layers and its KV size are Hugging Face's own facts, gathered by scripts/catalog-entry.mjs; `verify` is what a finished download must be. Entries without `verify` carry approximate sizes, and their download is held to the length the server announces. `script_run` is the day an entry last went through the message script (scripts/message-script.mjs) on some machine and a person read what came back (docs/test-a/MESSAGE-SCRIPT.md): a model may only be the default if it has been, and an entry that does not say is listed and never offered first. Tensor maps are the numbers the placement needs: bytes of the dense core, bytes of routed experts, layers, and the expert layout.",
   "models": [
     {
       "id": "qwen2.5-0.5b-instruct-q4_k_m",
@@ -13,6 +13,7 @@
       "license_url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/blob/main/LICENSE",
       "license_words": "Free to use, also for commercial use.",
       "commercial_use": true,
+      "script_run": "2026-09-19",
       "bytes": 491400032,
       "context_len": 32768,
       "repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
@@ -47,6 +48,7 @@
       "license_url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/blob/main/LICENSE",
       "license_words": "Free to use, also for commercial use.",
       "commercial_use": true,
+      "script_run": "2026-09-19",
       "bytes": 1117320736,
       "context_len": 32768,
       "repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
@@ -115,6 +117,7 @@
       "license_url": "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/blob/main/LICENSE",
       "license_words": "Free to use, also for commercial use.",
       "commercial_use": true,
+      "script_run": "2026-09-19",
       "bytes": 4683073632,
       "context_len": 32768,
       "repo": "Qwen/Qwen2.5-7B-Instruct-GGUF",
@@ -154,6 +157,7 @@
       "license_url": "https://huggingface.co/Qwen/Qwen2.5-14B-Instruct-GGUF/blob/main/LICENSE",
       "license_words": "Free to use, also for commercial use.",
       "commercial_use": true,
+      "script_run": "2026-09-19",
       "bytes": 8988110496,
       "context_len": 32768,
       "repo": "Qwen/Qwen2.5-14B-Instruct-GGUF",

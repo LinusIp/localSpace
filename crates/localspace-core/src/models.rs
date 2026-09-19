@@ -63,6 +63,15 @@ pub struct CatalogModel {
     /// 2026-09-19); an entry that does not say is not recommended.
     #[serde(default)]
     pub commercial_use: bool,
+    /// The day this model last went through the message script
+    /// (`scripts/message-script.mjs`) on some machine, and a person read what
+    /// came back (`docs/test-a/MESSAGE-SCRIPT.md`). **A model may only be the
+    /// default if it has been**: an entry that does not say is listed, can be
+    /// chosen, and is never offered first. The failure this guards against
+    /// is not a bad model but an untested one arriving in front of a stranger
+    /// (docs/DECISIONS.md, 2026-09-19, the answers after day 3).
+    #[serde(default)]
+    pub script_run: String,
     pub bytes: u64,
     pub context_len: u32,
     /// A Hugging Face repository, or empty for an imported file.
@@ -645,10 +654,12 @@ impl Catalog {
     /// that fits at all. Only what can be fetched or is already here, and
     /// never one the disk has no room for.
     ///
-    /// Two standing rules (docs/DECISIONS.md, 2026-09-19). **Only a model
+    /// Three standing rules (docs/DECISIONS.md, 2026-09-19). **Only a model
     /// whose licence permits commercial use is ever offered by default**, and
     /// nothing is said of what was passed over: the others are listed, with
-    /// their licence in words. And **the ladder has a lowest rung worth
+    /// their licence in words. **Only a model that has been run through the
+    /// message script on some machine is**: see `CatalogModel::script_run`.
+    /// And **the ladder has a lowest rung worth
     /// standing on**: a model of under a billion parameters answers in words
     /// but cannot use a tool, so it is offered only where nothing larger so
     /// much as works; a slightly slower larger model comes before it.
@@ -663,6 +674,7 @@ impl Catalog {
             .models
             .iter()
             .filter(|m| m.commercial_use)
+            .filter(|m| !m.script_run.is_empty())
             .filter(|m| !m.repo.is_empty() || self.installed_path(&m.id).is_some())
             .filter(|m| room(m))
             .filter_map(|m| {
@@ -755,6 +767,7 @@ impl Catalog {
             license_url: String::new(),
             license_words: String::new(),
             commercial_use: false,
+            script_run: String::new(),
             bytes: meta.len(),
             context_len: 8192,
             repo: String::new(),
@@ -1340,6 +1353,85 @@ mod tests {
             m.commercial_use = false;
         }
         assert_eq!(catalog.recommend(&found_laptop()), None);
+    }
+
+    /// A gaming laptop with 32 GB of memory and an 8 GB card: the shape on
+    /// which the rule was found to be missing.
+    fn laptop_with_32_gb() -> Hardware {
+        let mut found = found_laptop();
+        found.gpus[0].name = "NVIDIA GeForce RTX 4060 Laptop GPU".into();
+        found.gpus[0].total_mib = 8188;
+        found.gpus[0].free_mib = 7164;
+        found.gpus[0].used_by_others_mib = Some(300);
+        found.gpus[0].bandwidth_gbps = Some(256.0);
+        found.ram_total_mib = 32_400;
+        found.ram_free_mib = 16_200;
+        found.ram_bandwidth_gbps = 19.0;
+        found
+    }
+
+    #[test]
+    fn a_model_nobody_has_run_is_never_the_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut catalog = Catalog::load(None, dir.path());
+        let found = laptop_with_32_gb();
+        // The 30B runs well here and is the largest that does, and it has
+        // never been started through Core on any machine: listed, with its
+        // verdict, and not the default.
+        let entries = catalog.entries(
+            &laptop(),
+            Some(&found),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+        );
+        let big = entries
+            .iter()
+            .find(|e| e.id == "qwen3-30b-a3b-q4_k_m")
+            .unwrap();
+        assert_eq!(big.verdict, "runs_well");
+        assert_eq!(
+            catalog.recommend(&found).as_deref(),
+            Some("qwen2.5-7b-instruct-q4_k_m")
+        );
+        // Once it has been through the script, it is.
+        for m in &mut catalog.models {
+            if m.id == "qwen3-30b-a3b-q4_k_m" {
+                m.script_run = "2026-10-01".into();
+            }
+        }
+        assert_eq!(
+            catalog.recommend(&found).as_deref(),
+            Some("qwen3-30b-a3b-q4_k_m")
+        );
+        // And with no entry that says so, nothing is offered first.
+        for m in &mut catalog.models {
+            m.script_run.clear();
+        }
+        assert_eq!(catalog.recommend(&found), None);
+    }
+
+    #[test]
+    fn every_model_said_to_have_been_through_the_script_is_in_its_record() {
+        let record = include_str!("../../../docs/test-a/MESSAGE-SCRIPT.md");
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = Catalog::load(None, dir.path());
+        let run: Vec<&CatalogModel> = catalog
+            .models
+            .iter()
+            .filter(|m| !m.script_run.is_empty())
+            .collect();
+        assert!(!run.is_empty());
+        for m in run {
+            assert!(
+                record
+                    .lines()
+                    .any(|l| l.trim_end() == format!("### {}", m.title)),
+                "{} says it went through the message script on {}, and the record has no section for it",
+                m.id,
+                m.script_run
+            );
+        }
     }
 
     #[test]
