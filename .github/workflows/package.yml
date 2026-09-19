@@ -101,7 +101,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the engine cannot list its devices without a GPU" }
           & "$env:INSTALL_DIR\localspace.exe" --version
           if ($LASTEXITCODE -ne 0) { throw "the command line does not run from the installed folder" }
-          & "$env:INSTALL_DIR\localspace.exe" doctor
+          $doctor = & "$env:INSTALL_DIR\localspace.exe" doctor 2>&1 | Out-String
+          $doctor
+          # The release build is the one a person installs, and it once
+          # optimised the memory measurement away: 1,344,816 GB/s, and a first
+          # run that estimated 2,407,216 tokens a second. No debug build ever
+          # showed it, so the figure is read here, from the installed binary.
+          if ($doctor -notmatch 'moves at ([0-9.]+) GB/s') { throw "doctor does not say how fast the memory moves" }
+          $moves = [double]$Matches[1]
+          if ($moves -lt 1 -or $moves -gt 100) { throw "the memory of this runner does not move at $moves GB/s" }
+          # A figure that cannot be believed is replaced by a careful one, and
+          # Core says so: that must not pass for a measurement here.
+          if ($doctor -match 'which no memory does') { throw "the release build did not measure the memory" }
       - name: the installed app starts, serves its client, and a second launch gives way
         shell: pwsh
         run: |
@@ -123,7 +134,21 @@ jobs:
             }
             if (($url -and $window) -or $app.HasExited) { break }
           }
+          # The window asks what this computer is; the look takes a few seconds.
+          foreach ($second in 1..30) {
+            if ((Test-Path $log) -and (Select-String -Path $log -Pattern 'the computer as found' -Quiet)) { break }
+            Start-Sleep -Seconds 1
+          }
           if (Test-Path $log) { Get-Content $log }
+          # The same figure, as the app itself found it, and what it led to.
+          if (Select-String -Path $log -Pattern 'which no memory does' -Quiet) { throw "the installed app did not measure the memory" }
+          $found = Select-String -Path $log -Pattern 'copied at ([0-9.]+) GB/s' | Select-Object -First 1
+          if ($found) {
+            $copied = [double]$found.Matches[0].Groups[1].Value
+            if ($copied -lt 1 -or $copied -gt 100) { throw "the app measured this runner's memory at $copied GB/s" }
+          }
+          $estimate = Select-String -Path $log -Pattern 'estimated at ([0-9.]+) tokens a second' | Select-Object -First 1
+          if ($estimate -and [double]$estimate.Matches[0].Groups[1].Value -gt 1000) { throw "the first run estimated $($estimate.Matches[0].Groups[1].Value) tokens a second" }
           if (-not $url) { throw "the installed app did not start its server" }
           if (-not $window) { throw "the installed app did not open its window" }
           $health = Invoke-WebRequest "${url}healthz" -UseBasicParsing

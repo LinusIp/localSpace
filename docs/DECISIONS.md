@@ -100,6 +100,19 @@ The user's answers to the second evening report of 2026-09-19
   time to the first piece, the tokens, the rate while writing, the size of
   the prompt, the tools asked for. The person's folder is written `~` in
   every path.
+- **Found by reading the package workflow's log, where the two new lines
+  stood: the build a person installs had never measured its memory.** On
+  the CI runner the release build logged "copied at 1344816.4 GB/s" and
+  "estimated at 2407216.2 tokens a second": the measurement looked at one
+  byte of its copy, and the optimiser of a release build removed the copy.
+  No debug build ever showed it, and every build run on the development
+  laptop was a debug build. On a tester's computer everything that runs
+  from system memory would have been promised thousands of words a second.
+  Both buffers are now held opaque to the optimiser; a figure no memory
+  does (above 400 GB/s, under 0.5) is never planned with: a careful 8 GB/s
+  stands in and the log says so; and the package workflow reads the figure
+  out of the installed release binary and out of the app's own log, and
+  refuses one that no memory does or one that had to be replaced.
 - **Smart App Control is a go or no-go for each tester.** Whoever's
   screening answer says it is on gets a signed build or does not take part;
   nobody is sent an installer that Windows will refuse. The sheet shows the

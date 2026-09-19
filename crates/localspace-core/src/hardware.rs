@@ -726,10 +726,39 @@ fn cpu_features() -> Vec<String> {
     features
 }
 
+/// What no memory does, GB/s: a figure beyond it is a failed measurement, not
+/// a fast machine. The widest servers copy at a few hundred.
+const NO_MEMORY_COPIES_FASTER_GBPS: f32 = 400.0;
+/// What is planned with when the measurement cannot be believed: the pace of
+/// a laptop with slower memory, so that nothing is promised that was not
+/// measured.
+const UNMEASURED_COPY_GBPS: f32 = 8.0;
+
+/// A measured copy rate, or the careful stand-in when it cannot be one.
+fn believable(measured_gbps: f32) -> f32 {
+    if measured_gbps.is_finite() && (0.5..=NO_MEMORY_COPIES_FASTER_GBPS).contains(&measured_gbps) {
+        measured_gbps
+    } else {
+        tracing::warn!(
+            "hardware: the memory measured at {measured_gbps} GB/s, which no memory does; planning with {UNMEASURED_COPY_GBPS} GB/s"
+        );
+        UNMEASURED_COPY_GBPS
+    }
+}
+
 /// How fast this machine's memory moves, GB/s: several threads each copying
 /// a buffer larger than any cache for a tenth of a second. Generating a
 /// token on the processor reads the whole model once, so its speed is this
 /// figure divided by the model's size, times a measured efficiency.
+///
+/// **Both buffers are held opaque to the optimiser.** Looking at one byte of
+/// the copy was not enough: a release build, which is what a person installs,
+/// removed the copy and "measured" 1,344,816 GB/s, and the first run
+/// estimated a model at 2,407,216 tokens a second (the package workflow's
+/// log of 2026-09-19; no debug build ever showed it). The package workflow
+/// now reads the figure out of the installed release binary and refuses one
+/// that no memory does; and [`believable`] keeps such a figure from ever
+/// being planned with.
 pub fn measure_ram_bandwidth() -> f32 {
     const BUFFER: usize = 32 * 1024 * 1024;
     const FOR: Duration = Duration::from_millis(100);
@@ -741,14 +770,15 @@ pub fn measure_ram_bandwidth() -> f32 {
         let workers: Vec<_> = (0..threads)
             .map(|_| {
                 scope.spawn(|| {
-                    let source = vec![1u8; BUFFER];
-                    let mut target = vec![0u8; BUFFER];
+                    let source = std::hint::black_box(vec![1u8; BUFFER]);
+                    let mut target = std::hint::black_box(vec![0u8; BUFFER]);
                     let begun = Instant::now();
                     let mut bytes = 0u64;
                     while begun.elapsed() < FOR {
-                        target.copy_from_slice(&source);
-                        // Looked at, so the copy cannot be optimised away.
-                        std::hint::black_box(target[BUFFER / 2]);
+                        target.copy_from_slice(std::hint::black_box(source.as_slice()));
+                        // All of it may be read from here on, as far as the
+                        // optimiser can tell: the copy has to happen.
+                        std::hint::black_box(target.as_mut_slice());
                         bytes += BUFFER as u64;
                     }
                     bytes as f64 / begun.elapsed().as_secs_f64().max(1e-9)
@@ -757,12 +787,31 @@ pub fn measure_ram_bandwidth() -> f32 {
             .collect();
         workers.into_iter().filter_map(|w| w.join().ok()).sum()
     });
-    (rate / 1e9) as f32
+    believable((rate / 1e9) as f32)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_copy_rate_no_memory_has_is_never_planned_with() {
+        // What the release build of 2026-09-19 "measured" on the CI runner.
+        assert_eq!(believable(1_344_816.4), UNMEASURED_COPY_GBPS);
+        assert_eq!(believable(f32::INFINITY), UNMEASURED_COPY_GBPS);
+        assert_eq!(believable(f32::NAN), UNMEASURED_COPY_GBPS);
+        assert_eq!(believable(0.0), UNMEASURED_COPY_GBPS);
+        // What laptops and servers do is kept as measured.
+        for real in [2.5_f32, 12.0, 19.3, 45.0, 180.0] {
+            assert_eq!(believable(real), real);
+        }
+        // And this machine, in whatever profile the tests are built with.
+        let here = measure_ram_bandwidth();
+        assert!(
+            (0.5..=NO_MEMORY_COPIES_FASTER_GBPS).contains(&here),
+            "{here}"
+        );
+    }
 
     /// Recorded on the development laptop on 2026-09-18 (release b10869): a
     /// Ryzen with Radeon graphics and an RTX 3050 Ti. The engine lists the
