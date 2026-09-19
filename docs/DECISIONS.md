@@ -4,6 +4,65 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-19, plain chat did not work on the models a laptop runs: the system prompt's opening
+
+Found while verifying item 3 with a real chat turn, and **the largest risk
+to the laptop test found so far**: on a fresh install, with nothing from the
+Store, the models the first run recommends could not hold a plain
+conversation through Core. **Built the same day on the builder's judgment,
+because the test is "install, the app recommends a model, and they chat";
+put to the user for confirmation or reversal.** It is one constant
+(`prompt::SYSTEM`); the layout the plugin spec fixes (§16.1: system prompt,
+model profile, tools, context, conversation) is untouched.
+
+- **The cause.** The prompt opened: "You are the agent inside localSpace.
+  You act by calling the tools listed below, which are the only capabilities
+  you have." A 100B-class model reads past that; a 3B or 7B takes it
+  literally. On a fresh install the tools listed are five bookkeeping and web
+  tools (`find_capability`, `task.note`, `task.plan`, `web.fetch`,
+  `web.search`), and the whole prompt, conversation included, reaches the
+  engine as one user message.
+- **Measured before, on a fresh data folder** (engine b10869, the
+  development laptop). Qwen2.5 3B: "Hello!" was answered with the ledger's
+  own bookkeeping text; "Say hello in five words" with two
+  `find_capability` calls and no reply; a question about Australia's capital
+  with tool syntax written out as text; "Explain how a heat pump works" took
+  26 s and returned the context's format. Qwen2.5 7B: "Hello!" got "task run
+  … completed without a goal specified"; the capital question was answered
+  correctly after 52 s of tool calls; the heat pump question ended in tool
+  calls and no reply.
+- **The change.** The opening now says that answering in plain words comes
+  first ("a greeting, a question you can answer from what you know,
+  something to write, explain or translate needs no tool at all, and your
+  reply is simply the answer"), that the tools are for what only they can
+  do, that `find_capability` is for when a tool would have to do the thing,
+  and that the ledger's and the conversation's format is never repeated in a
+  reply. The other rules are word for word what they were.
+- **Measured after, same folder, same messages.** 3B: four proper answers
+  in 0.2 to 2.4 s. 7B: four proper answers in 1.1 to 7.6 s.
+- **What it costs where tools are wanted** (the whiteboard's own agent
+  evals, through the server):
+
+  | Model | Old wording | New wording |
+  |---|---|---|
+  | Qwen2.5 0.5B | 3 of 6 (recorded 2026-09-10) | **1 of 6** |
+  | Qwen2.5 3B | 5 of 6 | 5 of 6, the same case failing |
+  | Qwen2.5 7B | did not finish within the API's 300 s | 5 of 6 in 291 s |
+
+  The case that fails on both wordings is "two stickies and an arrow between
+  them" (a third sticky instead of the arrow). The 0.5B, told to answer in
+  words, stops reaching for tools: it is recommended only where nothing
+  larger fits, and with the 1.5B now in the catalog that is a rare computer.
+  The browser walk with the agent on and the 7B loaded still passes: asked
+  for a note on the board, the agent put it there through the whiteboard's
+  tool.
+- **What this does not fix, and what it suggests.** The prompt still reaches
+  the engine as one user message rather than as a system message and turns,
+  which is not how small instruction models are trained to be addressed; and
+  on a fresh install tools such as `task.plan` ("one step per harness") have
+  nothing to act on. Both are for after the test, with evals per model size
+  to steer by (`docs/AFTER-TEST-A.md`).
+
 ## 2026-09-19, loading is not evidence of fitting: the look after a load, and what was measured
 
 Item 3 of the build order for the two tests (the instructions for the

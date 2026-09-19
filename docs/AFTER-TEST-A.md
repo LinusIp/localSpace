@@ -38,6 +38,26 @@ against, with a line in `docs/DECISIONS.md`.
   has no command-line switch, so the `package` workflow cannot tick it; it
   is checked by hand at the dry run.
 
+## The conversation with a small model
+
+- **The prompt reaches the engine as one user message**, conversation and
+  all, not as a system message and turns: not how small instruction models
+  are trained to be addressed. Sending it as messages keeps the spec's order
+  (and so the engine's prefix cache) and should be measured with the evals
+  per model size.
+- **On a fresh install the tools listed have nothing to act on**
+  (`task.plan` "one step per harness", `find_capability` with nothing
+  installed): fewer tools until something is installed.
+- **The first turn's prompt is about 2,600 tokens**, which a card processes
+  in three seconds and a processor alone in ten or more. Warming the
+  engine's cache with the prompt's stable part once a model has loaded would
+  make the first answer start as fast as the later ones.
+- **The evals have no model in `localspace evals`** and a 300-second limit
+  through the API, which the 7B with the old wording did not finish in. An
+  evals run per catalog model, with its time, belongs in the record.
+- **"Two stickies and an arrow between them"** fails on the 3B and the 7B
+  with either wording: a third sticky instead of the arrow.
+
 ## The words a person sees
 
 - **The vocabulary rule is not checked in CI**, although `docs/PILOT-1.md`
