@@ -1595,7 +1595,10 @@ impl Core {
     // -- tool exposure ------------------------------------------------------
 
     pub fn active_set(&self) -> proto::ActiveSet {
-        let network = self.gateway.lock().unwrap().config.mode;
+        let (network, search) = {
+            let gateway = self.gateway.lock().unwrap();
+            (gateway.config.mode, gateway.config.search_url.is_some())
+        };
         let read_only_harnesses = self.read_only_harnesses();
         exposure::Exposure {
             registry: &self.registry,
@@ -1604,6 +1607,7 @@ impl Core {
             pinned: &self.pinned,
             touched: &self.touched,
             network,
+            search,
             read_only: self.active.is_viewer(),
             read_only_harnesses: &read_only_harnesses,
         }
@@ -4742,6 +4746,27 @@ mod tests {
                 .iter()
                 .any(|t| t.name.starts_with("web."))
         );
+    }
+
+    #[test]
+    fn a_search_is_offered_once_a_search_service_is_set_and_not_before() {
+        let names = |core: &Core| -> Vec<String> {
+            core.active_set()
+                .tools
+                .into_iter()
+                .map(|t| t.name)
+                .collect()
+        };
+        // A person's own computer as installed: the mode is `ask`, and no
+        // search service exists until they set one.
+        let core = Core::new(Config::personal("anna")).unwrap();
+        assert!(!names(&core).iter().any(|n| n == "web.search"));
+        assert!(names(&core).iter().any(|n| n == "web.fetch"));
+
+        let mut cfg = Config::personal("anna");
+        cfg.gateway.search_url = Some("http://127.0.0.1:9/".into());
+        let core = Core::new(cfg).unwrap();
+        assert!(names(&core).iter().any(|n| n == "web.search"));
     }
 
     #[test]

@@ -69,12 +69,6 @@ against, with a line in `docs/DECISIONS.md`.
 - **On a fresh install the tools listed have nothing to act on**
   (`task.plan` "one step per harness", `find_capability` with nothing
   installed): fewer tools until something is installed.
-- **`web.search` is offered while no search service is set** (the mode is
-  `ask`, so plugin spec §8.1 lists it; answer 24 leaves the service unset):
-  the 7B reached for it once in the message script and the 14B three times,
-  ten to twenty seconds each for "nothing found". Offer it only while it can
-  run. Put to the user on 2026-09-19, because a tester will ask for the
-  weather; it moves before the test if they say so.
 - **A tool call that comes back as text.** Once in nineteen turns the 14B
   wrote its call as bare JSON, the engine handed it back as the reply, and
   the person was shown `{"name": "task.note", "arguments": …}`. Core reads

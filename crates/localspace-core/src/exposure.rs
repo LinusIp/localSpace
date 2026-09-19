@@ -29,6 +29,12 @@ pub struct Exposure<'a> {
     /// Harnesses this conversation has already touched.
     pub touched: &'a [String],
     pub network: proto::NetworkMode,
+    /// A search service is set for this environment (plugin spec §8.2).
+    /// Until one is, `web.search` is not shown: §8.1 takes the web tools away
+    /// when airgapped "so the model never proposes a search it can't run",
+    /// and a search with nothing behind it is the same search
+    /// (docs/DECISIONS.md, 2026-09-19, the answers after day 3).
+    pub search: bool,
     /// The caller's account is read-only (deployment §4.3, a viewer): only
     /// `read` tools are shown, Core's own included.
     pub read_only: bool,
@@ -213,7 +219,7 @@ impl Exposure<'_> {
             proto::ToolKind::Write,
         ));
 
-        if self.network != proto::NetworkMode::Airgapped {
+        if self.network != proto::NetworkMode::Airgapped && self.search {
             out.push(builtin(
                 "web.search",
                 "Search the web. Results are titles, URLs and snippets.",
@@ -228,6 +234,8 @@ impl Exposure<'_> {
                 }),
                 proto::ToolKind::Read,
             ));
+        }
+        if self.network != proto::NetworkMode::Airgapped {
             out.push(builtin(
                 "web.fetch",
                 "Fetch one URL and cache it in the workspace as a cited document.",
@@ -526,6 +534,7 @@ context_provider = true
             pinned,
             touched,
             network: proto::NetworkMode::Ask,
+            search: false,
             read_only: false,
             read_only_harnesses: &[],
         }
@@ -593,9 +602,10 @@ context_provider = true
     fn builtin_kinds_agree_with_the_builtins_shown() {
         let reg = registry();
         let p = ModelProfile::server();
-        let ex = exposure(&reg, &p, None, &[], &[]);
+        let mut ex = exposure(&reg, &p, None, &[], &[]);
+        ex.search = true;
         let builtins = ex.core_tools();
-        assert!(builtins.len() >= 5, "{}", builtins.len());
+        assert_eq!(builtins.len(), crate::CORE_TOOLS.len());
         for t in &builtins {
             assert_eq!(builtin_kind(&t.name), Some(t.kind), "{}", t.name);
         }
@@ -676,8 +686,37 @@ context_provider = true
         assert!(set.tools.iter().any(|t| t.name == "find_capability"));
 
         e.network = proto::NetworkMode::Ask;
+        e.search = true;
         let set = e.active_set();
         assert!(set.tools.iter().any(|t| t.name == "web.search"));
+    }
+
+    #[test]
+    fn a_search_is_not_offered_while_no_search_service_is_set() {
+        let reg = registry();
+        let p = ModelProfile::server();
+        let mut e = exposure(&reg, &p, None, &[], &[]);
+        for mode in [proto::NetworkMode::Ask, proto::NetworkMode::Online] {
+            e.network = mode;
+            e.search = false;
+            let names: Vec<String> = e.active_set().tools.into_iter().map(|t| t.name).collect();
+            assert!(!names.iter().any(|n| n == "web.search"), "{names:?}");
+            // A page can be fetched without a search service, so that stays.
+            assert!(names.iter().any(|n| n == "web.fetch"), "{names:?}");
+
+            e.search = true;
+            let names: Vec<String> = e.active_set().tools.into_iter().map(|t| t.name).collect();
+            assert!(names.iter().any(|n| n == "web.search"), "{names:?}");
+        }
+        // Airgapped, a search service changes nothing: no web tool at all.
+        e.network = proto::NetworkMode::Airgapped;
+        e.search = true;
+        assert!(
+            !e.active_set()
+                .tools
+                .iter()
+                .any(|t| t.name.starts_with("web."))
+        );
     }
 
     #[test]
