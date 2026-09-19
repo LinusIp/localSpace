@@ -297,6 +297,7 @@ impl Catalog {
         &self,
         machine: &Machine,
         hardware: Option<&Hardware>,
+        caps: &HashMap<String, u32>,
         downloads: &HashMap<String, proto::DownloadState>,
         loaded: Option<&str>,
     ) -> Vec<proto::ModelCatalogEntry> {
@@ -304,8 +305,11 @@ impl Catalog {
         self.models
             .iter()
             .map(|m| {
-                let placed = fitted
-                    .and_then(|hw| m.shape().map(|shape| fit::fit(&shape, hw, m.ask(), None)));
+                // With what a load taught, when one did: a model that had to
+                // give layers back shows the speed of where it now sits.
+                let cap = caps.get(&m.id).copied();
+                let placed =
+                    fitted.and_then(|hw| m.shape().map(|shape| fit::fit(&shape, hw, m.ask(), cap)));
                 let (verdict, tok_s, first_ms, summary, notes) = match (&placed, m.tensor_map()) {
                     (Some(placed), _) => (
                         verdict_id(placed.verdict).to_string(),
@@ -844,7 +848,7 @@ mod tests {
     fn the_built_in_catalog_parses_and_plans_for_both_profiles() {
         let dir = tempfile::tempdir().unwrap();
         let catalog = Catalog::load(None, dir.path());
-        let entries = catalog.entries(&laptop(), None, &HashMap::new(), None);
+        let entries = catalog.entries(&laptop(), None, &HashMap::new(), &HashMap::new(), None);
         assert!(entries.len() >= 5, "{}", entries.len());
         let small = entries
             .iter()
@@ -869,7 +873,7 @@ mod tests {
             big.plan_summary
         );
 
-        let entries = catalog.entries(&w32(), None, &HashMap::new(), None);
+        let entries = catalog.entries(&w32(), None, &HashMap::new(), &HashMap::new(), None);
         let big = entries
             .iter()
             .find(|e| e.id == "gpt-oss-120b-mxfp4")
@@ -913,7 +917,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let catalog = Catalog::load(None, dir.path());
         let found = found_laptop();
-        let entries = catalog.entries(&laptop(), Some(&found), &HashMap::new(), None);
+        let entries = catalog.entries(
+            &laptop(),
+            Some(&found),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+        );
         let entry = |id: &str| entries.iter().find(|e| e.id == id).unwrap();
 
         let small = entry("qwen2.5-3b-instruct-q4_k_m");
@@ -941,6 +951,18 @@ mod tests {
         assert_eq!(huge.verdict_label, "Will not fit on this computer");
         assert_eq!(huge.speed, "");
 
+        // What a load taught shows in the entry: with layers given back,
+        // the 7B is said to be slower than it was first said to be.
+        let taught: HashMap<String, u32> = [("qwen2.5-7b-instruct-q4_k_m".to_string(), 4)].into();
+        let after = catalog.entries(&laptop(), Some(&found), &taught, &HashMap::new(), None);
+        let slower = after.iter().find(|e| e.id == medium.id).unwrap();
+        assert!(slower.estimated_tok_s < medium.estimated_tok_s);
+        assert!(
+            slower.placement.starts_with("A small part of it fits"),
+            "{}",
+            slower.placement
+        );
+
         // The model to start with: the largest that runs well here.
         assert_eq!(
             catalog.recommend(&found).as_deref(),
@@ -959,7 +981,13 @@ mod tests {
     fn a_workstation_of_the_reference_tiers_keeps_its_planner() {
         let dir = tempfile::tempdir().unwrap();
         let catalog = Catalog::load(None, dir.path());
-        let entries = catalog.entries(&w32(), Some(&found_laptop()), &HashMap::new(), None);
+        let entries = catalog.entries(
+            &w32(),
+            Some(&found_laptop()),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+        );
         let small = entries
             .iter()
             .find(|e| e.id == "qwen2.5-3b-instruct-q4_k_m")
@@ -1210,7 +1238,7 @@ mod tests {
             "imports persist in imports.json"
         );
         let entry = again
-            .entries(&laptop(), None, &HashMap::new(), None)
+            .entries(&laptop(), None, &HashMap::new(), &HashMap::new(), None)
             .into_iter()
             .find(|e| e.id == "import-my-model")
             .unwrap();

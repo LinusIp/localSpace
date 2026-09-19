@@ -330,6 +330,10 @@ pub struct Core {
     hardware: Option<hardware::Hardware>,
     /// The look begun as Core started, until somebody needs its answer.
     looking: Option<std::thread::JoinHandle<hardware::Hardware>>,
+    /// What loads have taught: the most layers a model may be given on this
+    /// computer's card, where a load did not hold with more. Kept while Core
+    /// runs; the verdicts and the next load start from it.
+    layer_caps: Arc<Mutex<HashMap<String, u32>>>,
     next_approval: u64,
 }
 
@@ -394,6 +398,7 @@ impl Core {
             downloads: Arc::new(Mutex::new(HashMap::new())),
             engine: None,
             hardware: cfg.hardware.clone(),
+            layer_caps: Arc::default(),
             looking: (cfg.look_at_start && cfg.hardware.is_none()).then(|| {
                 let binary =
                     engine::find_binary(cfg.llama_server.as_deref(), cfg.data_dir.as_deref());
@@ -1214,10 +1219,12 @@ impl Core {
     fn model_catalog(&mut self) -> proto::Response {
         let downloads = self.downloads.lock().unwrap().clone();
         let hardware = self.fitted_hardware();
+        let caps = self.layer_caps.lock().unwrap().clone();
         proto::Response::ModelCatalog {
             entries: self.models.entries(
                 &self.cfg.machine,
                 hardware.as_ref(),
+                &caps,
                 &downloads,
                 self.engine.as_ref().map(|e| e.model_id.as_str()),
             ),
@@ -1343,10 +1350,19 @@ impl Core {
                     self.hardware = None;
                 }
                 let hardware = self.hardware();
-                self.models.fitted(id, &hardware, None)?
+                let cap = self.layer_caps.lock().unwrap().get(id).copied();
+                self.models
+                    .fitted(id, &hardware, cap)?
+                    .map(|placed| (placed, hardware))
             }
             None => None,
         };
+        // Loading is not evidence of fitting: the look at the engine once a
+        // start is over, which may have it started again with fewer layers.
+        let after_load = fitted
+            .as_ref()
+            .and_then(|(placed, hardware)| self.look_after_load(id, placed, hardware));
+        let fitted = fitted.map(|(placed, _)| placed);
         let context_len = match &fitted {
             Some(_) => self.models.get(id).map(|m| m.ask().context_len),
             None => self.models.get(id).map(|m| m.context_len.min(16384)),
@@ -1398,6 +1414,7 @@ impl Core {
             &log_dir,
             self.sink(),
             self.router.clone(),
+            after_load,
         )?;
         self.trace(format!(
             "engine: started {} for {id} on 127.0.0.1:{} with {}",
@@ -1415,6 +1432,66 @@ impl Core {
         self.engine = Some(engine);
         self.broadcast_environment();
         Ok(())
+    }
+
+    /// The look at the engine once a start of it is over (item 3 of the
+    /// build order of 2026-09-18). When the model loaded, what its process
+    /// holds of the graphics memory is read, once: a load that spilled into
+    /// system memory gives back the layers the overflow amounts to. When the
+    /// engine gave up while loading, it gives back a quarter. Either way the
+    /// engine is started again with the smaller plan before anyone is told
+    /// it is ready, what was learnt is kept for the verdicts and the next
+    /// load, and after a few starts whatever happens is accepted.
+    fn look_after_load(
+        &self,
+        id: &str,
+        placed: &fit::Fit,
+        hardware: &hardware::Hardware,
+    ) -> Option<engine::AfterLoad> {
+        const STARTS: u32 = 5;
+        if placed.gpu_layers == 0 {
+            return None;
+        }
+        let model = self.models.get(id)?;
+        let (shape, ask) = (model.shape()?, model.ask());
+        let context_len = ask.context_len;
+        let (id, hardware) = (id.to_string(), hardware.clone());
+        let (caps, sink) = (self.layer_caps.clone(), self.sink());
+        let mut placed = placed.clone();
+        let mut starts = 1;
+        Some(Box::new(move |outcome| {
+            let (off, why) = match outcome {
+                engine::LoadOutcome::Loaded { pid } => {
+                    let held = hardware::engine_graphics_memory(pid)?;
+                    let off = fit::layers_to_take_off(&placed, &shape, ask, held.shared_mib);
+                    (
+                        off,
+                        format!(
+                            "{} MiB of it had spilled into system memory",
+                            held.shared_mib
+                        ),
+                    )
+                }
+                engine::LoadOutcome::GaveUp => (
+                    fit::layers_to_take_off_after_giving_up(&placed),
+                    "the engine gave up while loading".to_string(),
+                ),
+            };
+            if off == 0 || starts >= STARTS {
+                return None;
+            }
+            starts += 1;
+            let cap = placed.gpu_layers.saturating_sub(off);
+            caps.lock().unwrap().insert(id.clone(), cap);
+            sink(proto::Event::TraceLine {
+                text: format!(
+                    "fit: {id} with {} layers on the card: {why}; now {cap}",
+                    placed.gpu_layers
+                ),
+            });
+            placed = fit::fit(&shape, &hardware, ask, Some(cap));
+            Some(engine::fitted_flags(&placed, context_len))
+        }))
     }
 
     // -- environment --------------------------------------------------------

@@ -364,6 +364,309 @@ fn a_download_with_no_room_for_it_is_refused_before_it_starts_and_names_the_plac
 }
 
 #[test]
+fn a_load_that_did_not_hold_is_started_again_as_the_look_says_before_anyone_is_told() {
+    use localspace_core::engine::{AfterLoad, Engine, LoadOutcome};
+    use localspace_core::model::Router;
+    use std::sync::RwLock;
+
+    let dir = tempfile::tempdir().unwrap();
+    let model = dir.path().join("m.gguf");
+    std::fs::write(&model, b"not a real model").unwrap();
+    let router = Arc::new(RwLock::new(Router::default()));
+    let events: Arc<Mutex<Vec<proto::Event>>> = Arc::default();
+    let heard = events.clone();
+    // The look: the first time it says "not where it was planned, one layer
+    // on the card instead of three"; the second time it is content.
+    let looks: Arc<Mutex<Vec<u32>>> = Arc::default();
+    let seen = looks.clone();
+    let after: AfterLoad = Box::new(move |outcome| {
+        let LoadOutcome::Loaded { pid } = outcome else {
+            panic!("the fake engine does not give up: {outcome:?}");
+        };
+        let mut seen = seen.lock().unwrap();
+        seen.push(pid);
+        (seen.len() == 1).then(|| vec!["-c".into(), "2048".into(), "-ngl".into(), "1".into()])
+    });
+    let flags: Vec<String> = ["-c", "2048", "-ngl", "3"].map(String::from).to_vec();
+    let engine = Engine::start(
+        Path::new(FAKE),
+        "m",
+        &model,
+        &flags,
+        2048,
+        &dir.path().join("engines"),
+        Arc::new(move |event| heard.lock().unwrap().push(event)),
+        router.clone(),
+        Some(after),
+    )
+    .unwrap();
+
+    let start = Instant::now();
+    while !engine.state().running {
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "{:?}",
+            engine.state()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let looks = looks.lock().unwrap().clone();
+    assert_eq!(looks.len(), 2, "asked again when the second start answered");
+    assert_ne!(looks[0], looks[1], "a new process, not the old one");
+    // The log is the running process's: started with what the look said.
+    let log = std::fs::read_to_string(dir.path().join("engines").join("m.log")).unwrap();
+    assert!(log.contains(r#""-ngl", "1""#), "{log}");
+    assert!(!log.contains(r#""-ngl", "3""#), "{log}");
+    // Nobody was told it was ready until it sat where it should.
+    let ready: Vec<bool> = events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|e| match e {
+            proto::Event::EngineChanged(s) => Some(s.running),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ready.iter().filter(|r| **r).count(), 1, "{ready:?}");
+    assert_eq!(ready.last(), Some(&true), "{ready:?}");
+    assert!(router.read().unwrap().chat.is_some());
+    engine.stop();
+}
+
+/// Starts the fake engine on a stub that says how many layers "fit".
+fn start_on_a_card_that_fits(
+    layers: u32,
+    dir: &Path,
+    after: Option<localspace_core::engine::AfterLoad>,
+) -> (
+    localspace_core::engine::Engine,
+    Arc<Mutex<Vec<proto::Event>>>,
+) {
+    use localspace_core::model::Router;
+    let model = dir.join("m.gguf");
+    std::fs::write(&model, format!("fits {layers} layers")).unwrap();
+    let events: Arc<Mutex<Vec<proto::Event>>> = Arc::default();
+    let heard = events.clone();
+    let flags: Vec<String> = ["-c", "2048", "-ngl", "29"].map(String::from).to_vec();
+    let engine = localspace_core::engine::Engine::start(
+        Path::new(FAKE),
+        "m",
+        &model,
+        &flags,
+        2048,
+        &dir.join("engines"),
+        Arc::new(move |event| heard.lock().unwrap().push(event)),
+        Arc::new(std::sync::RwLock::new(Router::default())),
+        after,
+    )
+    .unwrap();
+    (engine, events)
+}
+
+#[test]
+fn an_engine_that_gives_up_while_loading_is_tried_again_smaller_before_anyone_is_told() {
+    use localspace_core::engine::{AfterLoad, LoadOutcome};
+    let dir = tempfile::tempdir().unwrap();
+    let outcomes: Arc<Mutex<Vec<LoadOutcome>>> = Arc::default();
+    let seen = outcomes.clone();
+    let mut layers = 29u32;
+    let after: AfterLoad = Box::new(move |outcome| {
+        seen.lock().unwrap().push(outcome);
+        (outcome == LoadOutcome::GaveUp).then(|| {
+            layers -= 7;
+            vec![
+                "-c".into(),
+                "2048".into(),
+                "-ngl".into(),
+                layers.to_string(),
+            ]
+        })
+    });
+    let (engine, events) = start_on_a_card_that_fits(20, dir.path(), Some(after));
+    let start = Instant::now();
+    while !engine.state().running {
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "{:?}",
+            engine.state()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let outcomes = outcomes.lock().unwrap().clone();
+    assert_eq!(outcomes.len(), 3, "{outcomes:?}");
+    assert_eq!(outcomes[..2], [LoadOutcome::GaveUp, LoadOutcome::GaveUp]);
+    assert!(matches!(outcomes[2], LoadOutcome::Loaded { .. }));
+    let log = std::fs::read_to_string(dir.path().join("engines").join("m.log")).unwrap();
+    assert!(
+        log.contains(r#""-ngl", "15""#),
+        "29, then 22, then 15: {log}"
+    );
+    // Nobody heard of a failure: only of a model that became ready.
+    let events = events.lock().unwrap();
+    assert!(
+        !events.iter().any(|e| matches!(
+            e,
+            proto::Event::Notice {
+                level: proto::NoticeLevel::Error,
+                ..
+            }
+        )),
+        "{events:?}"
+    );
+    engine.stop();
+}
+
+#[test]
+fn an_engine_that_gives_up_and_has_no_smaller_plan_is_said_to_have_failed() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, events) = start_on_a_card_that_fits(20, dir.path(), None);
+    let start = Instant::now();
+    while !engine.state().detail.contains("failed") {
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "{:?}",
+            engine.state()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(!engine.state().running);
+    assert!(
+        engine.state().detail.contains("exited during load"),
+        "{:?}",
+        engine.state()
+    );
+    assert!(events.lock().unwrap().iter().any(|e| matches!(
+        e,
+        proto::Event::Notice {
+            level: proto::NoticeLevel::Error,
+            ..
+        }
+    )));
+}
+
+/// The verification item 3 asks for by name, on real hardware: "verify on a
+/// machine with less VRAM than the model needs". The real engine, the real
+/// 7B model (4.4 GB) and a card smaller than it; Core is told the card is
+/// twice its size, so that its first plan is wrong in the way that matters.
+/// Ignored, because it needs what a runner does not have:
+///
+///   LOCALSPACE_REAL_ENGINE=<llama-server> LOCALSPACE_REAL_MODELS=<folder with the 7B's two files> ///     cargo test -p localspace-core --test engine -- --ignored --nocapture a_real_card
+#[test]
+#[ignore = "needs the real engine, the 7B model on disk and a graphics card smaller than it"]
+fn a_real_card_smaller_than_the_model_ends_with_a_plan_that_holds() {
+    const MODEL: &str = "qwen2.5-7b-instruct-q4_k_m";
+    let (Ok(engine), Ok(models)) = (
+        std::env::var("LOCALSPACE_REAL_ENGINE"),
+        std::env::var("LOCALSPACE_REAL_MODELS"),
+    ) else {
+        panic!("set LOCALSPACE_REAL_ENGINE and LOCALSPACE_REAL_MODELS");
+    };
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("models")).unwrap();
+    for part in ["00001-of-00002", "00002-of-00002"] {
+        let name = format!("{MODEL}-{part}.gguf");
+        // A link, not a copy: the same volume, no second 4 GB.
+        std::fs::hard_link(
+            Path::new(&models).join(&name),
+            dir.path().join("models").join(&name),
+        )
+        .expect("linking the model into the test's folder");
+    }
+    let (machine, mut hardware) = an_ordinary_laptop();
+    hardware.gpus[0].total_mib = 8192;
+    hardware.gpus[0].free_mib = 8000;
+    hardware.gpus[0].used_by_others_mib = Some(0);
+    let mut cfg = Config::personal("tester");
+    cfg.machine = machine;
+    cfg.hardware = Some(hardware);
+    cfg.data_dir = Some(dir.path().to_path_buf());
+    cfg.llama_server = Some(PathBuf::from(engine));
+    let mut core = Core::new(cfg).expect("creating Core");
+    let events: Arc<Mutex<Vec<proto::Event>>> = Arc::default();
+    let sink = events.clone();
+    core.set_event_sink(Box::new(move |_to, ev| sink.lock().unwrap().push(ev)));
+
+    let began = Instant::now();
+    assert!(matches!(
+        core.handle(proto::Request::LoadModel { id: MODEL.into() }),
+        proto::Response::Ok
+    ));
+    loop {
+        let state = core.environment().engine;
+        if state.running {
+            break;
+        }
+        assert!(!state.detail.contains("failed"), "{state:?}");
+        assert!(began.elapsed() < Duration::from_secs(600), "{state:?}");
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    let lines: Vec<String> = events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|e| match e {
+            proto::Event::TraceLine { text }
+                if text.starts_with("fit:") || text.starts_with("engine:") =>
+            {
+                Some(text.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    for line in &lines {
+        eprintln!("{line}");
+    }
+    eprintln!("ready after {:.0} s", began.elapsed().as_secs_f32());
+    let taught = lines
+        .iter()
+        .filter(|l| l.starts_with("fit:") && l.contains("; now "))
+        .count();
+    assert!(
+        taught >= 1,
+        "the first plan was for a card twice the size: it cannot have held"
+    );
+    assert!(taught < 5, "and it settled before the starts ran out");
+
+    // What was learnt shows where a person reads it: not "all of it fits".
+    match core.handle(proto::Request::ListModelCatalog) {
+        proto::Response::ModelCatalog { entries } => {
+            let entry = entries.iter().find(|e| e.id == MODEL).unwrap();
+            eprintln!(
+                "{}: {} · {} · {}",
+                entry.title, entry.verdict_label, entry.speed, entry.placement
+            );
+            assert!(entry.loaded);
+            assert_ne!(entry.placement, "All of it fits in the graphics memory.");
+        }
+        other => panic!("{other:?}"),
+    }
+    // And it answers, at a speed a person can use.
+    let asked = Instant::now();
+    match core.handle(proto::Request::SendMessage {
+        text: "Say hello in five words.".into(),
+    }) {
+        proto::Response::Transcript { messages } => {
+            let reply = messages
+                .iter()
+                .rev()
+                .find(|m| m.role == proto::Role::Assistant)
+                .unwrap();
+            eprintln!(
+                "answered in {:.1} s: {}",
+                asked.elapsed().as_secs_f32(),
+                reply.content.trim()
+            );
+            assert!(!reply.content.trim().is_empty());
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(matches!(
+        core.handle(proto::Request::UnloadModel),
+        proto::Response::Ok
+    ));
+}
+
+#[test]
 fn a_crashed_sidecar_is_restarted() {
     let dir = tempfile::tempdir().unwrap();
     let (mut core, events) = core_with_fake_engine(dir.path());

@@ -21,6 +21,27 @@ use std::time::{Duration, Instant};
 /// Where events from Core's own threads go: the same sink the transport gets.
 pub type EventSink = Arc<dyn Fn(proto::Event) + Send + Sync>;
 
+/// How a start of the engine went, for whoever planned it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadOutcome {
+    /// The engine answers; this is its process.
+    Loaded { pid: u32 },
+    /// The engine gave up while loading: a graphics card asked for far more
+    /// than it has refuses, and the process exits.
+    GaveUp,
+}
+
+/// Asked when a start of the engine is over, and before anyone is told it
+/// is ready or has failed: did the model come to sit where the plan put it?
+/// `None` accepts what happened. `Some(flags)` has the engine started again
+/// with those flags in place of the ones it had, and the question is put
+/// again when that start is over. Loading is not evidence of fitting:
+/// measured on a 4 GB card with a 4.4 GB model, 20 layers on the card ran at
+/// 15.9 tokens a second, 22 loaded and ran at 7.0 (slower than no card at
+/// all, the rest having spilled into system memory), and 26 did not load.
+/// Whoever answers bounds the number of times.
+pub type AfterLoad = Box<dyn FnMut(LoadOutcome) -> Option<Vec<String>> + Send>;
+
 /// How long a model may take to come up before the sidecar is given up on.
 /// A hundred-billion-parameter model from NVMe is minutes, not seconds.
 pub const LOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
@@ -172,7 +193,10 @@ pub enum Status {
 
 struct Spec {
     binary: PathBuf,
+    /// The model, the address and the name: the same at every start.
     args: Vec<String>,
+    /// What the placement decided; replaced when a load did not hold.
+    flags: Mutex<Vec<String>>,
     log_path: PathBuf,
     /// The key this start of the engine answers to. Without one the engine
     /// accepts any origin and any caller on the machine: a web page open in
@@ -210,11 +234,12 @@ impl Engine {
         log_dir: &Path,
         sink: EventSink,
         router: Arc<RwLock<Router>>,
+        after_load: Option<AfterLoad>,
     ) -> Result<Engine> {
         std::fs::create_dir_all(log_dir).ok();
         let port = free_port()?;
         let log_path = log_dir.join(format!("{}.log", sanitize(model_id)));
-        let mut args: Vec<String> = vec![
+        let args: Vec<String> = vec![
             "-m".into(),
             model_path.to_string_lossy().into_owned(),
             "--host".into(),
@@ -224,10 +249,10 @@ impl Engine {
             "--alias".into(),
             model_id.to_string(),
         ];
-        args.extend(flags.iter().cloned());
         let spec = Arc::new(Spec {
             binary: binary.to_path_buf(),
             args,
+            flags: Mutex::new(flags.to_vec()),
             log_path: log_path.clone(),
             key: crate::identity::random_token(),
         });
@@ -248,7 +273,18 @@ impl Engine {
         let model = model_id.to_string();
         std::thread::Builder::new()
             .name(format!("engine-{}", sanitize(model_id)))
-            .spawn(move || supervise(spec, shared, sink, router, model, port, context_len))
+            .spawn(move || {
+                supervise(
+                    spec,
+                    shared,
+                    sink,
+                    router,
+                    model,
+                    port,
+                    context_len,
+                    after_load,
+                )
+            })
             .context("spawning the engine supervisor")?;
         Ok(engine)
     }
@@ -331,8 +367,10 @@ fn spawn(spec: &Spec) -> Result<Child> {
     let log = File::create(&spec.log_path)
         .with_context(|| format!("creating {}", spec.log_path.display()))?;
     let err = log.try_clone()?;
+    let flags = spec.flags.lock().unwrap().clone();
     crate::child::command(&spec.binary)
         .args(&spec.args)
+        .args(&flags)
         .env("LLAMA_API_KEY", &spec.key)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
@@ -341,6 +379,24 @@ fn spawn(spec: &Spec) -> Result<Child> {
         .map_err(|e| anyhow!("{e}"))
 }
 
+/// Start the engine again with other flags. `Ok(false)` when a stop came
+/// meanwhile, which wins: under the child's lock, so that the stop finds
+/// either the old process or the new one, never neither.
+fn start_again(spec: &Spec, shared: &Shared, flags: Vec<String>) -> Result<bool> {
+    *spec.flags.lock().unwrap() = flags;
+    let mut child = shared.child.lock().unwrap();
+    if *shared.status.lock().unwrap() == Status::Stopped {
+        return Ok(false);
+    }
+    if let Some(mut old) = child.take() {
+        let _ = old.kill();
+        let _ = old.wait();
+    }
+    *child = Some(spawn(spec)?);
+    Ok(true)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn supervise(
     spec: Arc<Spec>,
     shared: Arc<Shared>,
@@ -349,6 +405,7 @@ fn supervise(
     model: String,
     port: u16,
     context_len: u32,
+    mut after_load: Option<AfterLoad>,
 ) {
     let base = format!("http://127.0.0.1:{port}/v1");
     let health = format!("http://127.0.0.1:{port}/health");
@@ -372,6 +429,24 @@ fn supervise(
                 return;
             }
             if let Some(exit) = exited(&shared) {
+                // It gave up while loading. Whoever planned it may know a
+                // smaller plan: then that is tried before anyone is told.
+                let smaller = after_load
+                    .as_mut()
+                    .and_then(|look| look(LoadOutcome::GaveUp));
+                if let Some(flags) = smaller {
+                    sink(proto::Event::TraceLine {
+                        text: format!(
+                            "engine: {model} did not load ({exit}); trying again with {}",
+                            flags.join(" ")
+                        ),
+                    });
+                    match start_again(&spec, &shared, flags) {
+                        Ok(true) => continue,
+                        Ok(false) => return,
+                        Err(e) => tracing::warn!("engine: could not start again: {e}"),
+                    }
+                }
                 let why = format!(
                     "exited during load ({exit}); {}",
                     last_log_line(&spec.log_path)
@@ -405,6 +480,35 @@ fn supervise(
                 last_report = Instant::now();
             }
             std::thread::sleep(Duration::from_millis(400));
+        }
+
+        // It answers. Before anyone is told: is the model where the plan
+        // put it? If not, it is started again as the answer says, and asked
+        // again when that one answers.
+        let pid = shared.child.lock().unwrap().as_ref().map(Child::id);
+        let again = after_load
+            .as_mut()
+            .zip(pid)
+            .and_then(|(look, pid)| look(LoadOutcome::Loaded { pid }));
+        if let Some(flags) = again {
+            sink(proto::Event::TraceLine {
+                text: format!(
+                    "engine: {model} did not sit where it was planned; starting it again with {}",
+                    flags.join(" ")
+                ),
+            });
+            match start_again(&spec, &shared, flags) {
+                Ok(true) => {}
+                Ok(false) => return,
+                Err(e) => {
+                    *shared.status.lock().unwrap() =
+                        Status::Failed(format!("could not start again: {e}"));
+                    emit_state(&shared, &sink);
+                    return;
+                }
+            }
+            emit_state(&shared, &sink);
+            continue;
         }
 
         // Ready: the router gets the worker, the shell gets the news.

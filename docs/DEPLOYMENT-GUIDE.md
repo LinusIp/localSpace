@@ -10,7 +10,7 @@ Naming used throughout: **Core** is what employees connect to and where all data
 > - `tls = { cert, key }` — refused at start today; only `"behind-proxy"` works. `--self-signed` does not exist.
 > - `[models]` accepts only `dir`. `default`, `embedding` and `[[models.worker]]` are refused; an administrator points Core at an external endpoint at runtime instead.
 > - **Landed on 19 September 2026:** the check of the machine at first run. The app and `localspace doctor` describe the computer from the engine's own device list, which covers every vendor; every catalog entry shows its verdict, a range of words a second and where it sits before any download; the app recommends a model; the engine is started with a computed number of layers on one named device, never `999`; and a download that the models' drive has no room for is refused before it starts. **Verified on one NVIDIA laptop only**: AMD and Intel names are read from written examples, not from machines in hand.
-> - Not yet: the check *after* a model has loaded that its memory is where the plan put it (on Windows a card that is asked for too much does not refuse, it spills into system memory and the model crawls).
+> - **Landed on 19 September 2026:** the check *after* a model has loaded that its memory is where the plan put it. On Windows a card that is asked for a little too much does not refuse: the model loads, spills into system memory and runs slower than with no card at all (measured: 7.0 against 9.5 tokens a second). localSpace reads what the engine holds once it answers, gives layers back and starts it again before anyone is told it is ready; an engine that gives up while loading is tried again smaller the same way. Verified on a 4 GB card with a 4.4 GB model.
 > - **Landed on 19 September 2026:** a download continues from where it stopped, after a lost connection and after closing the app, and a finished file is held to its exact published size. **Not yet:** the SHA-256 is recorded for every file but not checked by the app (it waits for the approval of a hash crate).
 > - **Landed on 18 September 2026:** the Windows installer and a portable zip, with the inference engine inside (llama.cpp's Vulkan release, pinned by SHA-256). They are built by the `package` workflow and are **not signed yet**: SmartScreen warns, and Smart App Control, where it is on, refuses them outright. Of what §A2 and §A3 say, the checksum of a finished download and the pasted Hugging Face repo id are not in the build yet.
 > - There is no Linux package: §B3, building from source, is the state for a server, where the engine must still be placed by hand.
@@ -53,7 +53,7 @@ The rule the app is applying, if you want to check its work: a model at Q4 needs
 | Symptom | Cause |
 |---|---|
 | "No graphics card localSpace can use" on a machine with a graphics card | Graphics driver older than the Vulkan version required — update the driver. The app says so itself, and runs on the processor meanwhile |
-| Much slower than the estimate | Another application is holding VRAM; close it and restart the app |
+| Much slower than the estimate | Another application took graphics memory after the model had loaded (a game, a browser with many tabs); close it and load the model again from Settings → Assistant. At load time the app checks this itself |
 | Download stalls | It resumes — leave it, or restart it from Settings → Model |
 | Model will not load after a driver update | Delete the app's cache folder from Settings → Advanced → Diagnostics |
 

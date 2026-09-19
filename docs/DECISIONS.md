@@ -4,6 +4,67 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-19, loading is not evidence of fitting: the look after a load, and what was measured
+
+Item 3 of the build order for the two tests (the instructions for the
+builder, §3.3; the answers of 2026-09-18, §C and the approval after day 1).
+Measured on the development laptop: the RTX 3050 Ti Laptop with 4 GB (3,962
+MiB, 49 MiB held by other programs), engine b10869 through Vulkan, and
+Qwen2.5 7B at Q4_K_M, 4.4 GB in two files, at the app's context of 8,192.
+
+| Layers on the card | The card's own memory | "Shared" | Generated |
+|---|---|---|---|
+| 0 (the processor alone) | | | 9.5 tokens a second |
+| 15 | 2,752 MiB | 41 MiB | 13.2 |
+| 18 | 3,193 MiB | 41 MiB | 15.1 |
+| 20 | 3,476 MiB | 41 MiB | 15.9 |
+| 22 | 2,795 MiB | **1,022 MiB** | **7.0** |
+| 26 | the engine exits while loading | | |
+
+- **The failure the answers warned of is real and is worse than described:**
+  with 22 layers the model loads, a gigabyte of it spills into system
+  memory the card reaches over the bus, and it generates slower than with no
+  card at all. Nothing in the engine's output says so.
+- **Its signature is unmistakable.** A load that holds keeps 41 MiB in
+  "shared" graphics memory at every number of layers; one that spilled keeps
+  the overflow there. The line is drawn at 256 MiB. (The worry that a
+  partly-offloaded model keeps its system-memory half in "shared" memory was
+  unfounded for this engine: it does not.)
+- **Both ends are answered, before anyone is told the model is ready**
+  (`engine::AfterLoad`, asked by the supervisor when a start is over). A load
+  that **spilled** gives back the layers the overflow amounts to and one
+  more, so that one more start settles it (1,022 MiB is seven of this
+  model's layers: 22 becomes 14). An engine that **gave up while loading**
+  gives back a quarter of its layers, never fewer than two, down to the
+  processor alone. At most five starts, then whatever happened is accepted
+  or reported as before. A stop that arrives meanwhile wins. The ruling said
+  "a layer at a time"; the measurement says how many layers the overflow is,
+  and a start of this model costs five seconds, so it is taken in one step.
+- **What a load taught is kept** while Core runs: the most layers that
+  model may be given here. The verdicts use it, so a model that had to give
+  layers back shows the speed of where it now sits ("the speed estimate
+  adjusted accordingly"), and the next load starts from it. It is not
+  written to disk: the card may be freer tomorrow.
+- **Windows' figures are read once per start**, on the supervisor's thread
+  and never on Core's: about 1.3 s, while the person is waiting for a load
+  anyway. Elsewhere there are no such figures and none are needed: a card
+  that is asked for too much refuses, which is the second case.
+- **The plan is careful by about five layers on this card** (15 planned, 20
+  measured to hold: 13.2 against 15.9 tokens a second). Left so: a modest
+  model that works is the ruling's measure of success, and the ten laptops
+  say whether the margin can shrink.
+- **The estimates against the measurements:** the processor alone, 8.1
+  estimated and 9.5 measured; 15 layers, "about 6 to 8 words a second" said
+  and 9.9 measured. Both promise less than was delivered.
+
+**Verified as the item asks, "on a machine with less VRAM than the model
+needs"**, by a test that is ignored where there is no such machine
+(`a_real_card_smaller_than_the_model_ends_with_a_plan_that_holds`): Core was
+told the card had 8 GB, planned all 29 layers, the engine gave up, 22 were
+tried, 1,021 MiB had spilled, 14 held, and the model was announced ready
+after 15 seconds, with the catalog saying "Works, slower than reading pace ·
+about 6 to 8 words a second · About half of it fits in the graphics memory".
+
 ## 2026-09-19, downloads that continue, and a catalog made of Hugging Face's own facts
 
 The first part of the reduced item 4 of the build order for the two tests

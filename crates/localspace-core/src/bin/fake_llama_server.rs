@@ -7,7 +7,9 @@
 //! `FAKE_LLAMA_LOAD_MS` delays readiness; `FAKE_LLAMA_CRASH_AFTER_MS` makes
 //! it exit after that long, so restarts can be tested. Given `LLAMA_API_KEY`,
 //! it answers 401 to anything but `/health` that does not present the key,
-//! as llama-server does.
+//! as llama-server does. A model stub that begins `fits N layers` makes it
+//! give up while loading when `-ngl` asks for more, as llama-server does on a
+//! graphics card that refuses.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -34,6 +36,23 @@ fn main() {
         .and_then(|s| s.parse().ok());
 
     eprintln!("fake llama-server: args {:?}", &args[1..]);
+    let named = |flag: &str| args.windows(2).find(|w| w[0] == flag).map(|w| w[1].clone());
+    let fits: Option<u32> = named("-m")
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| {
+            text.strip_prefix("fits ")?
+                .split_whitespace()
+                .next()?
+                .parse()
+                .ok()
+        });
+    let asked: Option<u32> = named("-ngl").and_then(|n| n.parse().ok());
+    if let (Some(fits), Some(asked)) = (fits, asked)
+        && asked > fits
+    {
+        eprintln!("fake llama-server: {asked} layers do not fit; giving up");
+        std::process::exit(1);
+    }
     let started = Instant::now();
     if let Some(ms) = crash_ms {
         std::thread::spawn(move || {

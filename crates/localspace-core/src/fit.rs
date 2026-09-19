@@ -273,6 +273,41 @@ pub fn fit(shape: &Shape, hardware: &Hardware, ask: Ask, gpu_layer_cap: Option<u
     }
 }
 
+/// A load that holds keeps a few tens of MiB in "shared" graphics memory
+/// (system memory the card can reach): 41 MiB at every number of layers
+/// measured. One that spilled keeps the overflow there: 1,022 MiB measured,
+/// at less than half the speed of the processor alone. Between the two lies
+/// this line.
+const SPILLED_MIB: u64 = 256;
+
+/// How many layers to take off the card after a load, from what the engine's
+/// process was found to hold (`hardware::engine_graphics_memory`): none when
+/// the model sits where it was planned; otherwise as many as the overflow
+/// amounts to, and one more, so that one more start settles it.
+pub fn layers_to_take_off(placed: &Fit, shape: &Shape, ask: Ask, shared_mib: u64) -> u32 {
+    if shared_mib < SPILLED_MIB || placed.gpu_layers == 0 {
+        return 0;
+    }
+    let layers_total = shape.layers.max(1) as u64 + 1;
+    let kv_per_token = if ask.kv_quantized {
+        shape.kv_bytes_per_token_fp16 / 2
+    } else {
+        shape.kv_bytes_per_token_fp16
+    };
+    let per_layer = shape.weight_bytes.div_ceil(layers_total)
+        + (kv_per_token * ask.context_len as u64).div_ceil(shape.layers.max(1) as u64);
+    let spilled = (shared_mib * MIB).div_ceil(per_layer.max(1)) as u32;
+    (spilled + 1).min(placed.gpu_layers)
+}
+
+/// How many layers to take off the card when the engine gave up while
+/// loading: a quarter of what it was given, and never fewer than two, so
+/// that a few starts reach something that loads, the processor alone at
+/// the last.
+pub fn layers_to_take_off_after_giving_up(placed: &Fit) -> u32 {
+    (placed.gpu_layers / 4).max(2).min(placed.gpu_layers)
+}
+
 /// Down to a number that does not pretend: whole words under ten, fives
 /// under fifty, tens above.
 fn round_down(words: f32) -> u32 {
@@ -501,6 +536,39 @@ mod tests {
         assert_eq!(plan.verdict, Verdict::TooSlow, "shown, never hidden");
         assert_eq!(plan.verdict.label(), "Too slow for everyday use");
         assert_eq!(plan.speed_in_words(), "about 1 to 2 words a second");
+    }
+
+    #[test]
+    fn a_load_that_spilled_loses_the_layers_the_overflow_amounts_to_and_one_more() {
+        // Measured on the development laptop, 2026-09-19: the 7B with 22
+        // layers on the 4 GB card held 1,022 MiB "shared" and crawled; with
+        // 15, 18 and 20 it held 41 MiB and ran well.
+        let mut placed = fit(&qwen_7b(), &laptop_3050ti(), ASK, None);
+        placed.gpu_layers = 22;
+        assert_eq!(layers_to_take_off(&placed, &qwen_7b(), ASK, 41), 0);
+        let off = layers_to_take_off(&placed, &qwen_7b(), ASK, 1022);
+        assert_eq!(off, 8, "seven layers' worth had spilled, and one more");
+        assert!(
+            22 - off <= 20,
+            "what is left is a number that was measured to hold"
+        );
+        // Never more than are there, and nothing to take from the processor.
+        placed.gpu_layers = 3;
+        assert_eq!(layers_to_take_off(&placed, &qwen_7b(), ASK, 4000), 3);
+        placed.gpu_layers = 0;
+        assert_eq!(layers_to_take_off(&placed, &qwen_7b(), ASK, 4000), 0);
+    }
+
+    #[test]
+    fn an_engine_that_gave_up_gets_a_quarter_fewer_layers_down_to_none() {
+        let mut placed = fit(&qwen_7b(), &laptop_3050ti(), ASK, None);
+        let mut steps = Vec::new();
+        placed.gpu_layers = 29;
+        while placed.gpu_layers > 0 {
+            placed.gpu_layers -= layers_to_take_off_after_giving_up(&placed);
+            steps.push(placed.gpu_layers);
+        }
+        assert_eq!(steps, [22, 17, 13, 10, 8, 6, 4, 2, 0]);
     }
 
     #[test]
