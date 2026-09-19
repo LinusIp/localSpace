@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { authMode, events, login, me } from "./api/client";
-import { useSession } from "./store";
+import { type Notice, useSession } from "./store";
 import { Rail } from "./components/Rail";
 import { ChatPage } from "./pages/ChatPage";
 import { BoardPage } from "./pages/BoardPage";
@@ -15,6 +15,28 @@ import { HelpPage } from "./pages/HelpPage";
 import { FirstRunPage } from "./pages/FirstRunPage";
 import { SignInPage } from "./pages/SignInPage";
 import { InvitePage } from "./pages/InvitePage";
+
+/** How long a notice stands. */
+const NOTICE_MS = 8000;
+
+/**
+ * The notice to show now, if any. It goes when its time is up **whether or
+ * not anything else redraws the window**: its age used to be looked at only
+ * when something redrew, so that on a page that stood still ("connected to
+ * localSpace", over Settings, or over a list someone was reading) it stood
+ * for as long as the page did.
+ */
+function useNoticeToShow(latest: Notice | undefined): Notice | undefined {
+  const [, redraw] = useState(0);
+  useEffect(() => {
+    if (!latest) return;
+    const left = NOTICE_MS - (Date.now() - latest.at);
+    if (left <= 0) return;
+    const timer = setTimeout(() => redraw((n) => n + 1), left + 30);
+    return () => clearTimeout(timer);
+  }, [latest]);
+  return latest && Date.now() - latest.at < NOTICE_MS ? latest : undefined;
+}
 
 export default function App() {
   const session = useSession();
@@ -110,7 +132,7 @@ function Shell({ boardLink }: { boardLink: string | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const latest = notices[notices.length - 1];
+  const latest = useNoticeToShow(notices[notices.length - 1]);
   const admin = me?.topology === "organisation" && me.roles.includes("admin");
 
   // On a person's own computer the window waits a moment for what the
@@ -121,8 +143,8 @@ function Shell({ boardLink }: { boardLink: string | null }) {
     return (
       <>
         <FirstRunPage />
-        {/* Only what went wrong: the page stands still, and "connected" would stand with it. */}
-        {latest && latest.level !== "info" && Date.now() - latest.at < 8000 && <div className={`toast${latest.level === "error" ? " error" : latest.level === "warn" ? " warn" : ""}`}>{latest.text}</div>}
+        {/* Only what went wrong: the first thing a person reads here is not news of a connection. */}
+        {latest && latest.level !== "info" && <div className={`toast${latest.level === "error" ? " error" : latest.level === "warn" ? " warn" : ""}`}>{latest.text}</div>}
       </>
     );
   }
@@ -139,7 +161,7 @@ function Shell({ boardLink }: { boardLink: string | null }) {
         {page === "settings" && <SettingsPage />}
         {page === "admin" && (admin ? <AdminPage /> : <ChatPage />)}
         {page === "help" && <HelpPage />}
-        {latest && Date.now() - latest.at < 8000 && <div className={`toast${latest.level === "error" ? " error" : latest.level === "warn" ? " warn" : ""}`}>{latest.text}</div>}
+        {latest && <div className={`toast${latest.level === "error" ? " error" : latest.level === "warn" ? " warn" : ""}`}>{latest.text}</div>}
       </div>
     </div>
   );
