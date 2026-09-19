@@ -4,6 +4,76 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-19, the answers after day 4 and their addendum: the laptop test is on Monday 21 September, and nobody stands beside the testers
+
+The user's answers to the second evening report of 2026-09-19
+(`8-localspace-answers-day4.md`) and the addendum that came with them
+(`9-localspace-testA-remote-addendum.md`).
+
+- **The test is Monday 21 September, unsupervised.** Ten people install on
+  their own machines, in their own time, with an installer and a sheet and
+  nobody to ask. The dry run is Sunday morning, on a machine that is not the
+  builder's, from the CI artefact, following the sheet to the letter, with
+  the message script run there and its output read, and a plain go or no-go
+  before the end of that day. Monday morning: one clean package build from a
+  head that has not changed since the dry run, then send. **The two extra
+  days are not for new work**: no new model family, nothing from items 5 to
+  7, nothing off the after-test list.
+- **`web.fetch` is not offered until what it fetches can reach the model**
+  (plugin spec §8.1, §8.2; reverses "`web.fetch` stays" of the answers after
+  day 3, whose premise, the builder's, was wrong). "A tool that reports
+  'fetched, cached with a citation' while the model never sees a word of the
+  page does not fail honestly — it manufactures confidence." With it goes a
+  check of every other tool for the same shape: a summary that implies the
+  model saw what it never received. **Standing, from the user:** when a
+  ruling rests on something later found not to be true, come back and
+  correct it rather than build what was written.
+- **The privacy sentence is "Nothing you type leaves your computer."**,
+  true without qualification once no web tool is offered.
+- **The card table gets AMD's current laptop range and the RTX 50 laptop
+  range now**, each figure checked against the manufacturer's page, the
+  lower one where a part has variants; the testers' own cards are added when
+  the screening answers arrive, and the machine-shape test then says what
+  each named tester will be offered. **Not this week:** a conservative
+  bandwidth floor by memory class for a card the table lacks ("an unknown
+  card that reports 8 GB of memory is not a processor"): new logic, after
+  the test.
+- **The verdict's words are derived from the numbers shown beside them**,
+  not from the raw estimate, so that the two can never disagree whatever a
+  calibration does later: "Works — about as fast as you read · about 2 to 3
+  words a second" was the one place where the product argued with itself.
+- **The catalog's field is `exercised_on`, not `script_run`**: it records
+  that a model went through the script, not that it did well; the 1.5B went
+  through it, answered badly, and is still the default where there is no
+  graphics card.
+- **`app.log` replaces standing over a shoulder.** The sheet asks each
+  tester to send the file back, with its exact path. Whatever is cheap and
+  answers a question that would otherwise be guessed at is logged, a line
+  an event: how long a download took and at what rate, whether a model was
+  found here or fetched, the plan of layers and every step back from it, the
+  time to the first word, every error a person was shown. **Nothing of what
+  a person typed or was answered, and nothing is ever sent by the product:**
+  the tester attaches the file.
+- **Smart App Control is a go or no-go for each tester.** Whoever's
+  screening answer says it is on gets a signed build or does not take part;
+  nobody is sent an installer that Windows will refuse. The sheet shows the
+  SmartScreen dialog as it is, with the words to click, says beforehand that
+  the app is not signed yet and that this is expected of a test build, and
+  names whom to contact. If a certificate arrives by Sunday, the packaging
+  must be ready to use it that moment.
+- **The sheet is the product now**, and the dry run tests it as much as the
+  build: every step in order, a picture where Windows interrupts, and what
+  a slow step looks like so that a pause of four minutes reads as normal.
+  **A results form** of ten short questions collects what only a person can
+  tell; everything measurable comes from the log.
+- **The USB sticks are out** for this test (nobody can hand one over; each
+  tester downloads over their own connection). `scripts/stick-list.mjs` and
+  the recognition of a copied file stay in the product for a company that is
+  air-gapped; no more time goes into them before the test. The end-to-end
+  time is still measured at the dry run and decides nothing any more.
+- **Five to seven usable results of ten is a normal outcome** of an
+  unsupervised test and is planned for.
+
 ## 2026-09-19, the answers after day 3: six rulings, one addition, and the order of the next day
 
 The user's answers to the evening report of 2026-09-19
