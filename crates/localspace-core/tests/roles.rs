@@ -148,6 +148,8 @@ fn only_an_administrator_touches_what_is_shared() {
         },
         proto::Request::DescribeComputer,
         proto::Request::DownloadModel { id: "tiny".into() },
+        proto::Request::StopDownload { id: "tiny".into() },
+        proto::Request::DeleteModel { id: "tiny".into() },
         proto::Request::LoadModel { id: "tiny".into() },
         proto::Request::UnloadModel,
         proto::Request::ImportModel {

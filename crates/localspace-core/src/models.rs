@@ -12,7 +12,7 @@ use crate::profile::{HardwareTier, Machine};
 use anyhow::{Context, Result, anyhow, bail};
 use localspace_proto as proto;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -293,6 +293,39 @@ impl CatalogModel {
     }
 }
 
+/// A download the person stopped. Nothing is wrong: what came is kept, and
+/// the download goes on from there when they say so.
+#[derive(Debug, thiserror::Error)]
+#[error("stopped")]
+struct Stopped;
+
+/// The downloads' line. **One at a time**: two at once on a home connection
+/// halve both, and each looks broken; the second waits its turn and says so
+/// (docs/DECISIONS.md, 2026-09-19, the gaps found in the screenshots).
+#[derive(Default)]
+struct Line {
+    /// A download thread is at work.
+    busy: bool,
+    /// The model being fetched, and the flag that stops it: raised by
+    /// `Catalog::stop`, looked at between the pieces that arrive.
+    running: Option<(String, Arc<AtomicBool>)>,
+    /// The models waiting their turn, in the order they were asked for.
+    waiting: VecDeque<CatalogModel>,
+}
+
+/// The bytes of a model that are in the folder: its finished files and the
+/// one a download stopped in.
+fn bytes_here(dir: &Path, m: &CatalogModel) -> u64 {
+    m.files
+        .iter()
+        .map(|f| {
+            let partial = std::fs::metadata(dir.join(format!("{f}.part"))).map(|x| x.len());
+            let finished = std::fs::metadata(dir.join(f)).map(|x| x.len());
+            partial.or(finished).unwrap_or(0)
+        })
+        .sum()
+}
+
 pub struct Catalog {
     models: Vec<CatalogModel>,
     /// Where downloaded files and `imports.json` live.
@@ -304,6 +337,8 @@ pub struct Catalog {
     verified: Verified,
     /// A look at files that were already there is under way.
     scanning: Arc<AtomicBool>,
+    /// The downloads: the one at work and the ones waiting.
+    line: Arc<Mutex<Line>>,
 }
 
 /// Where files come from. Hugging Face, unless a test stands in for it.
@@ -357,6 +392,7 @@ impl Catalog {
             source: Source::default(),
             verified: Arc::new(Mutex::new(stamps)),
             scanning: Arc::default(),
+            line: Arc::default(),
         };
         let mut catalog = catalog;
         for m in catalog.imports() {
@@ -401,15 +437,7 @@ impl Catalog {
     /// The bytes of a model that are in the folder: its finished files and
     /// the one a download stopped in.
     fn present_bytes(&self, m: &CatalogModel) -> u64 {
-        m.files
-            .iter()
-            .map(|f| {
-                let partial =
-                    std::fs::metadata(self.dir.join(format!("{f}.part"))).map(|x| x.len());
-                let finished = std::fs::metadata(self.dir.join(f)).map(|x| x.len());
-                partial.or(finished).unwrap_or(0)
-            })
-            .sum()
+        bytes_here(&self.dir, m)
     }
 
     pub fn get(&self, id: &str) -> Option<&CatalogModel> {
@@ -641,6 +669,8 @@ impl Catalog {
                         .as_ref()
                         .map(|p| p.placement.clone())
                         .unwrap_or_default(),
+                    // Core says it, from a look at the drive: see `Core::model_catalog`.
+                    no_room: String::new(),
                     quality_words: m.quality_words().to_string(),
                     estimated_tok_s: tok_s,
                     first_token_ms: first_ms,
@@ -846,95 +876,267 @@ impl Catalog {
                 m.title
             );
         }
+        let dir = self.dir.clone();
+        std::fs::create_dir_all(&dir)?;
+        let here = bytes_here(&dir, &m);
+        let mut line = self.line.lock().unwrap();
         {
             let mut d = downloads.lock().unwrap();
-            if matches!(d.get(id), Some(s) if s.stage == "downloading" || s.stage == "verifying") {
-                bail!("{} is already being downloaded or checked", m.title);
+            let under_way = matches!(
+                d.get(id),
+                Some(s) if ["downloading", "verifying", "queued"].contains(&s.stage.as_str())
+            );
+            if under_way || line.waiting.iter().any(|w| w.id == id) {
+                bail!("{} is already being downloaded, or waits its turn", m.title);
             }
             d.insert(
                 id.to_string(),
                 proto::DownloadState {
-                    done_bytes: 0,
-                    total_bytes: m.bytes,
-                    stage: "downloading".into(),
+                    done_bytes: here,
+                    total_bytes: m.bytes.max(here),
+                    stage: if line.busy { "queued" } else { "downloading" }.into(),
                 },
             );
         }
-        let dir = self.dir.clone();
-        let source = self.source.clone();
-        let verified = self.verified.clone();
-        std::fs::create_dir_all(&dir)?;
-        std::thread::Builder::new()
-            .name(format!("download-{id}"))
+        line.waiting.push_back(m.clone());
+        if line.busy {
+            // Its turn comes when the one before it has ended, however it ends.
+            tracing::info!("models: the download of {id} waits for the one before it");
+            sink(proto::Event::ModelProgress {
+                id: id.to_string(),
+                done_bytes: here,
+                total_bytes: m.bytes.max(here),
+                stage: "queued".into(),
+            });
+            return Ok(());
+        }
+        line.busy = true;
+        drop(line);
+        let (line, source, verified) = (
+            self.line.clone(),
+            self.source.clone(),
+            self.verified.clone(),
+        );
+        let (told, to) = (downloads.clone(), sink.clone());
+        let spawned = std::thread::Builder::new()
+            .name("downloads".into())
             .spawn(move || {
-                let id = m.id.clone();
-                let began = Instant::now();
-                let here_before = m
-                    .files
-                    .iter()
-                    .map(|file| {
-                        let whole = std::fs::metadata(dir.join(file)).map(|x| x.len());
-                        let part = std::fs::metadata(dir.join(format!("{file}.part"))).map(|x| x.len());
-                        whole.or(part).unwrap_or(0)
-                    })
-                    .sum::<u64>();
-                tracing::info!(
-                    "models: the download of {id} begins: {} MiB in {} file(s), {} MiB of it already here",
-                    m.bytes / (1024 * 1024),
-                    m.files.len(),
-                    here_before / (1024 * 1024)
-                );
-                let result = fetch_all(&m, &dir, &source, &verified, &downloads, &sink);
-                let seconds = began.elapsed().as_secs_f64().max(0.001);
-                let fetched_mib = m.bytes.saturating_sub(here_before) as f64 / (1024.0 * 1024.0);
-                match &result {
-                    Ok(()) => tracing::info!(
-                        "models: the download of {id} is done and checked: {fetched_mib:.0} MiB in {seconds:.0} s ({:.1} MiB a second, the check included)",
-                        fetched_mib / seconds
-                    ),
-                    Err(e) => tracing::warn!(
-                        "models: the download of {id} stopped after {seconds:.0} s: {}",
-                        crate::without_the_home(&format!("{e:#}"))
-                    ),
+                loop {
+                    let (m, stop) = {
+                        let mut line = line.lock().unwrap();
+                        match line.waiting.pop_front() {
+                            Some(m) => {
+                                let stop = Arc::new(AtomicBool::new(false));
+                                line.running = Some((m.id.clone(), stop.clone()));
+                                (m, stop)
+                            }
+                            None => {
+                                line.busy = false;
+                                line.running = None;
+                                break;
+                            }
+                        }
+                    };
+                    fetch_and_tell(&m, &dir, &source, &verified, &told, &to, &stop);
                 }
-                let stage = match &result {
-                    Ok(()) => "done".to_string(),
-                    Err(e) => format!("failed: {e:#}"),
-                };
-                let state = {
-                    let mut d = downloads.lock().unwrap();
-                    let entry = d.entry(id.clone()).or_insert(proto::DownloadState {
-                        done_bytes: 0,
-                        total_bytes: m.bytes,
-                        stage: String::new(),
-                    });
-                    entry.stage = stage.clone();
-                    if result.is_ok() {
-                        entry.done_bytes = entry.total_bytes;
-                    }
-                    entry.clone()
-                };
-                sink(proto::Event::ModelProgress {
-                    id: id.clone(),
-                    done_bytes: state.done_bytes,
-                    total_bytes: state.total_bytes,
-                    stage: stage.clone(),
-                });
-                sink(proto::Event::Notice {
-                    level: if result.is_ok() {
-                        proto::NoticeLevel::Info
-                    } else {
-                        proto::NoticeLevel::Error
-                    },
-                    text: match result {
-                        Ok(()) => format!("{} downloaded; load it from Models", m.title),
-                        Err(e) => format!("{} download {e:#}", m.title),
-                    },
-                });
-            })
-            .context("spawning the download")?;
+            });
+        if let Err(e) = spawned {
+            // Nothing runs: the line is free again, and nothing waits in it.
+            let mut line = self.line.lock().unwrap();
+            line.busy = false;
+            line.waiting.retain(|w| w.id != id);
+            downloads.lock().unwrap().remove(id);
+            return Err(anyhow!("{e}")).context("spawning the download");
+        }
         Ok(())
     }
+
+    /// Stop the download of `id`: the one at work, or one that waits its
+    /// turn. What came is kept, so that it goes on from there when asked
+    /// (docs/DECISIONS.md, 2026-09-19).
+    pub fn stop(
+        &self,
+        id: &str,
+        downloads: &Arc<Mutex<HashMap<String, proto::DownloadState>>>,
+        sink: &EventSink,
+    ) -> Result<()> {
+        let mut line = self.line.lock().unwrap();
+        if let Some(at) = line.waiting.iter().position(|w| w.id == id) {
+            let waited = line.waiting.remove(at);
+            drop(line);
+            downloads.lock().unwrap().remove(id);
+            let here = waited
+                .as_ref()
+                .map(|m| bytes_here(&self.dir, m))
+                .unwrap_or(0);
+            tracing::info!(
+                "models: the download of {id} was taken out of the line before its turn"
+            );
+            sink(proto::Event::ModelProgress {
+                id: id.to_string(),
+                done_bytes: here,
+                total_bytes: waited.map(|m| m.bytes.max(here)).unwrap_or(here),
+                stage: if here > 0 { "paused" } else { "stopped" }.into(),
+            });
+            return Ok(());
+        }
+        match &line.running {
+            Some((running, stop)) if running == id => {
+                stop.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+            _ => bail!("{id} is not being downloaded"),
+        }
+    }
+
+    /// Remove a model's files from this computer, the finished ones and the
+    /// part of one a download stopped in, and forget what was known of them.
+    /// Returns the bytes that were freed. Never a file the person brought in
+    /// themselves: that one is theirs, where they keep it.
+    pub fn delete(
+        &mut self,
+        id: &str,
+        downloads: &Arc<Mutex<HashMap<String, proto::DownloadState>>>,
+    ) -> Result<u64> {
+        let m = self
+            .get(id)
+            .ok_or_else(|| anyhow!("no model `{id}` in the catalog"))?
+            .clone();
+        if m.path.is_some() {
+            bail!(
+                "{} is a file of your own that localSpace uses where it is; localSpace does not delete it",
+                m.title
+            );
+        }
+        {
+            let line = self.line.lock().unwrap();
+            let at_work = matches!(&line.running, Some((running, _)) if running == id);
+            if at_work || line.waiting.iter().any(|w| w.id == id) {
+                bail!("{} is being downloaded: stop that first", m.title);
+            }
+        }
+        if matches!(downloads.lock().unwrap().get(id), Some(s) if s.stage == "verifying") {
+            bail!("{} is being checked: try again in a moment", m.title);
+        }
+        let mut freed = 0u64;
+        for file in &m.files {
+            for path in [self.dir.join(file), self.dir.join(format!("{file}.part"))] {
+                if let Ok(meta) = std::fs::metadata(&path) {
+                    std::fs::remove_file(&path)
+                        .with_context(|| format!("removing {}", path.display()))?;
+                    freed += meta.len();
+                }
+            }
+        }
+        {
+            let mut stamps = self.verified.lock().unwrap();
+            for file in &m.files {
+                stamps.remove(file);
+            }
+            if let Ok(json) = serde_json::to_string_pretty(&*stamps) {
+                let _ = std::fs::write(self.dir.join(VERIFIED_FILE), json);
+            }
+        }
+        downloads.lock().unwrap().remove(id);
+        Ok(freed)
+    }
+}
+
+/// One model's download from beginning to end, on the downloads' thread:
+/// fetched, checked, and told to everyone, however it ends.
+fn fetch_and_tell(
+    m: &CatalogModel,
+    dir: &Path,
+    source: &Source,
+    verified: &Verified,
+    downloads: &Arc<Mutex<HashMap<String, proto::DownloadState>>>,
+    sink: &EventSink,
+    stop: &AtomicBool,
+) {
+    let id = m.id.clone();
+    let began = Instant::now();
+    let here_before = bytes_here(dir, m);
+    // It may have waited its turn: now it is the one being fetched.
+    downloads.lock().unwrap().insert(
+        id.clone(),
+        proto::DownloadState {
+            done_bytes: here_before,
+            total_bytes: m.bytes.max(here_before),
+            stage: "downloading".into(),
+        },
+    );
+    tracing::info!(
+        "models: the download of {id} begins: {} MiB in {} file(s), {} MiB of it already here",
+        m.bytes / (1024 * 1024),
+        m.files.len(),
+        here_before / (1024 * 1024)
+    );
+    let result = fetch_all(m, dir, source, verified, downloads, sink, stop);
+    let seconds = began.elapsed().as_secs_f64().max(0.001);
+    if let Err(e) = &result
+        && e.downcast_ref::<Stopped>().is_some()
+    {
+        // The person stopped it. What is here says so by itself: the entry
+        // reads "paused" from the part that was kept.
+        let here = bytes_here(dir, m);
+        downloads.lock().unwrap().remove(&id);
+        tracing::info!(
+            "models: the download of {id} was stopped by the person after {seconds:.0} s: {} MiB of it are kept",
+            here / (1024 * 1024)
+        );
+        sink(proto::Event::ModelProgress {
+            id,
+            done_bytes: here,
+            total_bytes: m.bytes.max(here),
+            stage: if here > 0 { "paused" } else { "stopped" }.into(),
+        });
+        return;
+    }
+    let fetched_mib = m.bytes.saturating_sub(here_before) as f64 / (1024.0 * 1024.0);
+    match &result {
+        Ok(()) => tracing::info!(
+            "models: the download of {id} is done and checked: {fetched_mib:.0} MiB in {seconds:.0} s ({:.1} MiB a second, the check included)",
+            fetched_mib / seconds
+        ),
+        Err(e) => tracing::warn!(
+            "models: the download of {id} stopped after {seconds:.0} s: {}",
+            crate::without_the_home(&format!("{e:#}"))
+        ),
+    }
+    let stage = match &result {
+        Ok(()) => "done".to_string(),
+        Err(e) => format!("failed: {e:#}"),
+    };
+    let state = {
+        let mut d = downloads.lock().unwrap();
+        let entry = d.entry(id.clone()).or_insert(proto::DownloadState {
+            done_bytes: 0,
+            total_bytes: m.bytes,
+            stage: String::new(),
+        });
+        entry.stage = stage.clone();
+        if result.is_ok() {
+            entry.done_bytes = entry.total_bytes;
+        }
+        entry.clone()
+    };
+    sink(proto::Event::ModelProgress {
+        id: id.clone(),
+        done_bytes: state.done_bytes,
+        total_bytes: state.total_bytes,
+        stage: stage.clone(),
+    });
+    sink(proto::Event::Notice {
+        level: if result.is_ok() {
+            proto::NoticeLevel::Info
+        } else {
+            proto::NoticeLevel::Error
+        },
+        text: match result {
+            Ok(()) => format!("{} downloaded; load it from Models", m.title),
+            Err(e) => format!("{} download {e:#}", m.title),
+        },
+    });
 }
 
 /// Fetch every file of a model that is not here yet. A file arrives as
@@ -948,6 +1150,7 @@ fn fetch_all(
     verified: &Verified,
     downloads: &Arc<Mutex<HashMap<String, proto::DownloadState>>>,
     sink: &EventSink,
+    stop: &AtomicBool,
 ) -> Result<()> {
     // Told to everyone while a file's SHA-256 is compared with the published one.
     let verifying = |done: u64| {
@@ -1045,7 +1248,15 @@ fn fetch_all(
                 stage: format!("downloading {} of {}", i + 1, m.files.len()),
             });
         };
-        let written = fetch_file(&agent, &url, &part, m.verify.get(file), source, &mut report)?;
+        let written = fetch_file(
+            &agent,
+            &url,
+            &part,
+            m.verify.get(file),
+            source,
+            stop,
+            &mut report,
+        )?;
         // The right length is not the right file: a download is the model's
         // only when its SHA-256 is the one its publisher gives.
         if let Some(check) = check {
@@ -1081,6 +1292,7 @@ fn fetch_file(
     part: &Path,
     expected: Option<&FileCheck>,
     source: &Source,
+    stop: &AtomicBool,
     report: &mut dyn FnMut(u64, Option<u64>),
 ) -> Result<u64> {
     let mut announced: Option<u64> = expected.map(|check| check.bytes);
@@ -1089,6 +1301,10 @@ fn fetch_file(
     // again, once: nothing here may download the same file for ever.
     let mut begun_again = false;
     loop {
+        // The person may stop it at any piece; what is written stays.
+        if stop.load(Ordering::SeqCst) {
+            return Err(Stopped.into());
+        }
         let have = std::fs::metadata(part).map(|x| x.len()).unwrap_or(0);
         if have > 0 && announced == Some(have) {
             break;
@@ -1140,6 +1356,10 @@ fn fetch_file(
                             out.write_all(&buf[..n])?;
                             written += n as u64;
                             report(written, announced);
+                            if stop.load(Ordering::SeqCst) {
+                                out.flush()?;
+                                return Err(Stopped.into());
+                            }
                         }
                         // The connection dropped: what was written stays.
                         Err(_) => break true,
@@ -1875,7 +2095,15 @@ mod tests {
         let sink: EventSink = Arc::new(|_| {});
         // The stamps the folder already has, as a catalog opened on it would.
         let verified = Catalog::load(None, dir).verified;
-        fetch_all(m, dir, &source, &verified, &Arc::default(), &sink)
+        fetch_all(
+            m,
+            dir,
+            &source,
+            &verified,
+            &Arc::default(),
+            &sink,
+            &AtomicBool::new(false),
+        )
     }
 
     fn digest(bytes: &[u8]) -> String {
@@ -2159,6 +2387,271 @@ mod tests {
                 .len(),
             500_000
         );
+    }
+
+    /// A stand-in that sends the first third of its body and then holds the
+    /// rest until it is let go: a download that is under way for as long as a
+    /// test needs it to be.
+    fn held_stand_in(body: Vec<u8>) -> (String, Arc<AtomicBool>) {
+        use std::io::{BufRead, BufReader};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let let_go = Arc::new(AtomicBool::new(false));
+        let gate = let_go.clone();
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let (body, gate) = (body.clone(), gate.clone());
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut from = 0usize;
+                    loop {
+                        let mut line = String::new();
+                        if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                            break;
+                        }
+                        if let Some(value) = line.to_ascii_lowercase().strip_prefix("range:") {
+                            from = value
+                                .trim()
+                                .strip_prefix("bytes=")
+                                .and_then(|r| r.strip_suffix('-'))
+                                .and_then(|r| r.parse().ok())
+                                .unwrap_or(0);
+                        }
+                    }
+                    let rest = &body[from.min(body.len())..];
+                    let head = if from > 0 {
+                        format!(
+                            "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            rest.len()
+                        )
+                    } else {
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            rest.len()
+                        )
+                    };
+                    let _ = stream.write_all(head.as_bytes());
+                    let first = rest.len() / 3;
+                    let _ = stream.write_all(&rest[..first]);
+                    let _ = stream.flush();
+                    while !gate.load(Ordering::SeqCst) {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    let _ = stream.write_all(&rest[first..]);
+                });
+            }
+        });
+        (base, let_go)
+    }
+
+    fn until(what: &str, mut holds: impl FnMut() -> bool) {
+        let began = Instant::now();
+        while !holds() {
+            assert!(began.elapsed() < Duration::from_secs(30), "never: {what}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn a_download_the_person_stops_keeps_what_came_and_goes_on_from_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let body = a_body();
+        let server = stand_in(body.clone(), true, 0, 0);
+        let source = Source {
+            base: server.base.clone(),
+            retry_pause: Duration::from_millis(10),
+            attempts: 3,
+        };
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .build()
+            .into();
+        let url = format!("{}/example/m/resolve/main/m.gguf", server.base);
+        let part = dir.path().join("m.gguf.part");
+        let check = FileCheck {
+            bytes: body.len() as u64,
+            sha256: String::new(),
+        };
+        // Stopped once a megabyte has come.
+        let stop = AtomicBool::new(false);
+        let stopped = fetch_file(
+            &agent,
+            &url,
+            &part,
+            Some(&check),
+            &source,
+            &stop,
+            &mut |written, _| {
+                if written >= 1 << 20 {
+                    stop.store(true, Ordering::SeqCst);
+                }
+            },
+        )
+        .unwrap_err();
+        assert!(stopped.downcast_ref::<Stopped>().is_some(), "{stopped:#}");
+        let kept = std::fs::metadata(&part).unwrap().len();
+        assert!(kept >= 1 << 20 && kept < body.len() as u64, "{kept}");
+        // Asked again, it goes on from the last byte that was kept.
+        let go_on = AtomicBool::new(false);
+        let written = fetch_file(
+            &agent,
+            &url,
+            &part,
+            Some(&check),
+            &source,
+            &go_on,
+            &mut |_, _| {},
+        )
+        .unwrap();
+        assert_eq!(written, body.len() as u64);
+        assert_eq!(std::fs::read(&part).unwrap(), body);
+        assert_eq!(
+            server.ranges.lock().unwrap().last().cloned().flatten(),
+            Some(format!("bytes={kept}-"))
+        );
+        // A flag that is up before anything begins fetches nothing at all.
+        let never = dir.path().join("never.part");
+        assert!(
+            fetch_file(
+                &agent,
+                &url,
+                &never,
+                Some(&check),
+                &source,
+                &stop,
+                &mut |_, _| {}
+            )
+            .is_err()
+        );
+        assert!(!never.exists());
+    }
+
+    #[test]
+    fn downloads_go_one_at_a_time_and_either_can_be_stopped_and_a_model_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let body = a_body();
+        let (base, let_go) = held_stand_in(body.clone());
+        let mut catalog = Catalog::load(None, dir.path());
+        for id in ["first", "second"] {
+            catalog.models.push(
+                serde_json::from_str(&format!(
+                    r#"{{"id":"{id}","title":"The {id}","params_b":1.0,"bytes":3000000,"context_len":2048,
+                        "repo":"example/{id}","files":["{id}.gguf"],"tensor":null}}"#
+                ))
+                .unwrap(),
+            );
+        }
+        catalog.set_source(Source {
+            base,
+            retry_pause: Duration::from_millis(10),
+            attempts: 3,
+        });
+        let downloads: Arc<Mutex<HashMap<String, proto::DownloadState>>> = Arc::default();
+        let events: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+        let heard = events.clone();
+        let sink: EventSink = Arc::new(move |event| {
+            if let proto::Event::ModelProgress { id, stage, .. } = event {
+                heard.lock().unwrap().push((id, stage));
+            }
+        });
+        let stage = |id: &str| downloads.lock().unwrap().get(id).map(|s| s.stage.clone());
+        let told = |id: &str, stage: &str| {
+            events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(i, s)| i == id && s == stage)
+        };
+
+        // The first is under way (the stand-in holds two thirds of it back).
+        catalog
+            .download("first", downloads.clone(), sink.clone())
+            .unwrap();
+        until("a part of the first has come", || {
+            dir.path()
+                .join("first.gguf.part")
+                .metadata()
+                .is_ok_and(|m| m.len() > 0)
+        });
+        // The second waits its turn, and says so; asked for twice, it is refused.
+        catalog
+            .download("second", downloads.clone(), sink.clone())
+            .unwrap();
+        assert_eq!(stage("second").as_deref(), Some("queued"));
+        assert!(told("second", "queued"));
+        assert!(!dir.path().join("second.gguf.part").exists());
+        let twice = catalog
+            .download("second", downloads.clone(), sink.clone())
+            .unwrap_err();
+        assert!(format!("{twice:#}").contains("waits its turn"), "{twice:#}");
+        // A model that is being downloaded is not deleted from under it.
+        let busy = catalog.delete("first", &downloads).unwrap_err();
+        assert!(format!("{busy:#}").contains("stop that first"), "{busy:#}");
+
+        // Taken out of the line before its turn: nothing of it came, nothing is kept.
+        catalog.stop("second", &downloads, &sink).unwrap();
+        assert_eq!(stage("second"), None);
+        assert!(told("second", "stopped"));
+        // Asked for again, it waits again.
+        catalog
+            .download("second", downloads.clone(), sink.clone())
+            .unwrap();
+        assert_eq!(stage("second").as_deref(), Some("queued"));
+
+        // The first is stopped: what came is kept, the entry reads "paused"
+        // from it, and the second's turn has come.
+        catalog.stop("first", &downloads, &sink).unwrap();
+        let_go.store(true, Ordering::SeqCst);
+        until("the first says it is paused", || told("first", "paused"));
+        let kept = dir.path().join("first.gguf.part").metadata().unwrap().len();
+        assert!(kept > 0 && kept < body.len() as u64, "{kept}");
+        assert_eq!(stage("first"), None);
+        let first = catalog.get("first").unwrap().clone();
+        assert_eq!(catalog.paused(&first).map(|s| s.done_bytes), Some(kept));
+        until("the second is done", || {
+            stage("second").as_deref() == Some("done")
+        });
+        assert_eq!(std::fs::read(dir.path().join("second.gguf")).unwrap(), body);
+        assert!(catalog.installed_path("second").is_some());
+        // Nothing is left in the line: a stop now has nothing to stop.
+        assert!(catalog.stop("second", &downloads, &sink).is_err());
+
+        // Deleted: the finished model frees what it was, the paused part what
+        // had come; both are gone from the folder and from what is known.
+        assert_eq!(
+            catalog.delete("second", &downloads).unwrap(),
+            body.len() as u64
+        );
+        assert!(catalog.installed_path("second").is_none());
+        assert!(!dir.path().join("second.gguf").exists());
+        assert_eq!(stage("second"), None);
+        assert_eq!(catalog.delete("first", &downloads).unwrap(), kept);
+        assert!(!dir.path().join("first.gguf.part").exists());
+        assert!(catalog.paused(&first).is_none());
+        // Going on with the first now begins it afresh, and it arrives whole.
+        catalog
+            .download("first", downloads.clone(), sink.clone())
+            .unwrap();
+        until("the first is done", || {
+            stage("first").as_deref() == Some("done")
+        });
+        assert_eq!(std::fs::read(dir.path().join("first.gguf")).unwrap(), body);
+    }
+
+    #[test]
+    fn a_file_of_the_person_s_own_is_never_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let own = dir.path().join("my-own.gguf");
+        std::fs::write(&own, b"mine").unwrap();
+        let mut catalog = Catalog::load(None, &dir.path().join("models"));
+        let imported = catalog.import(&own).unwrap();
+        let refused = catalog.delete(&imported.id, &Arc::default()).unwrap_err();
+        assert!(
+            format!("{refused:#}").contains("does not delete it"),
+            "{refused:#}"
+        );
+        assert!(own.exists());
+        assert!(catalog.delete("no-such-model", &Arc::default()).is_err());
     }
 
     #[test]

@@ -2,9 +2,12 @@
 
 export type DownloadState = { done_bytes: number, total_bytes: number, 
 /**
+ * `queued` (it waits for the download before it: one at a time),
  * `downloading`, `verifying` (its SHA-256 is being compared with the
  * published one: after a download, or for a file that was already
- * there), `paused` (stopped part-way; what came is kept), `done`,
+ * there), `paused` (stopped part-way, by a lost connection, by closing
+ * the app or by the person; what came is kept), `stopped` (stopped by
+ * the person before anything came; only ever an event's stage), `done`,
  * `checked` (files that were already there have been looked at; the
  * entry says whether they count), or `failed: <why>`.
  */

@@ -8,7 +8,7 @@ import { sizeInWords } from "../lib/models";
 import { useSession } from "../store";
 
 export function FirstRunPage() {
-  const { computer, catalogModels, environment, downloadModel, loadModel, leaveFirstRun, go, goSettings } = useSession();
+  const { computer, catalogModels, environment, downloadModel, stopDownload, loadModel, leaveFirstRun, go, goSettings } = useSession();
   const started = useRef(false);
   // The one deliberate click: nothing starts, downloaded or already here,
   // before the person has read what the page says and accepted it.
@@ -22,6 +22,8 @@ export function FirstRunPage() {
   // Its SHA-256 is being compared with the published one: after a download,
   // or for a file that was already on this computer (copied from a stick).
   const checking = !!model?.download && model.download.stage === "verifying";
+  // Another download is under way (begun in Settings): this one waits its turn.
+  const queued = !!model?.download && model.download.stage === "queued";
   const percent = model?.download && model.download.total_bytes > 0 ? Math.min(100, (100 * model.download.done_bytes) / model.download.total_bytes) : 0;
   const engine = environment?.engine;
   const starting = !!model && !!engine && engine.loading && engine.model === model.id;
@@ -77,6 +79,7 @@ export function FirstRunPage() {
                   </div>
                 )
               )}
+              {model.no_room && !downloading && !checking && <div className="error">{model.no_room}</div>}
               {(downloading || paused || checking || starting || (accepted && model.installed)) && (
                 <div style={{ marginTop: 18 }}>
                   <div className="progress">
@@ -85,6 +88,7 @@ export function FirstRunPage() {
                   <div className="auth-sub">{model.installed ? "Starting it up. A larger model takes a minute." : checking ? "Checking that the file on this computer is the published one…" : paused ? `${percent.toFixed(0)}% is already here.` : `${percent.toFixed(0)}% downloaded`}</div>
                 </div>
               )}
+              {queued && <div className="auth-sub">Waiting for the download before it to finish: one at a time.</div>}
               {failed && <div className="error">The download stopped. What came is kept: start it again and it continues from there.</div>}
               {offline && !model.installed && <div className="auth-sub">Downloads need the network, and this computer is set to stay offline.</div>}
               <button
@@ -94,10 +98,26 @@ export function FirstRunPage() {
                   setAccepted(true);
                   if (!model.installed) void downloadModel(model.id);
                 }}
-                disabled={downloading || checking || starting || (accepted && model.installed) || (offline && !model.installed)}
+                disabled={downloading || queued || checking || starting || (accepted && model.installed) || (offline && !model.installed) || (!!model.no_room && !model.installed)}
               >
-                {downloading ? "Downloading…" : checking ? "Checking…" : starting || (accepted && model.installed) ? "Starting…" : model.installed ? "Start" : paused || failed ? "Continue the download" : "Download and start"}
+                {downloading ? "Downloading…" : queued ? "Waiting its turn…" : checking ? "Checking…" : starting || (accepted && model.installed) ? "Starting…" : model.installed ? "Start" : paused || failed ? "Continue the download" : "Download and start"}
               </button>
+              {(downloading || queued) && (
+                <div className="auth-help" style={{ marginTop: 10 }}>
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => {
+                      // Stopped by the person: nothing starts by itself afterwards.
+                      setAccepted(false);
+                      void stopDownload(model.id);
+                    }}
+                  >
+                    Stop the download
+                  </button>
+                  <span> · what came is kept</span>
+                </div>
+              )}
             </div>
           ) : (
             <div className="first-run-model">

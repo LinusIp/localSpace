@@ -53,6 +53,14 @@ speed: string,
  */
 placement: string, 
 /**
+ * One sentence when the drive the models are kept on has no room for
+ * what is still to be fetched, naming the drive: "It needs 8.4 GB and
+ * drive C: has 3.1 GB free: make room there first." Empty when there is
+ * room, or nothing is left to fetch. Said before a download can be
+ * started, never at eighty per cent.
+ */
+no_room: string, 
+/**
  * One sentence on what to expect of the answers, where the model's size
  * calls for one: "Small models answer quickly but get things wrong more
  * often." Empty otherwise. The verdict is about speed alone; this is

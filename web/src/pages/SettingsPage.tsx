@@ -4,7 +4,7 @@
 // cannot open Advanced at all.
 
 import { useEffect, useState } from "react";
-import { ChevronRightIcon, InfoIcon, Switch } from "@localspace/ui";
+import { ChevronRightIcon, Dialog, InfoIcon, Switch } from "@localspace/ui";
 import type { ModelCatalogEntry, NetworkMode } from "../api/generated";
 import { bytesLabel, call, downloadDocument, logout, pick } from "../api/client";
 import { outcomeLine, useSession } from "../store";
@@ -126,7 +126,9 @@ function GeneralPane() {
 }
 
 function AssistantPane() {
-  const { me, environment, catalogModels, refreshModelCatalog, loadModel, downloadModel } = useSession();
+  const { me, environment, catalogModels, refreshModelCatalog, loadModel, downloadModel, stopDownload, deleteModel } = useSession();
+  // The one question before a model is deleted: which, and what it frees.
+  const [deleting, setDeleting] = useState<ModelCatalogEntry | null>(null);
   useEffect(() => {
     void refreshModelCatalog();
   }, [refreshModelCatalog]);
@@ -162,20 +164,27 @@ function AssistantPane() {
           {here.map((m) => {
             const on = m.id === current;
             return (
-              <button key={m.id} type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} onClick={() => !on && void loadModel(m.id)} disabled={willNotFit(m)}>
-                <span className={`radio${on ? " on" : ""}`} />
-                <span style={{ flex: 1 }}>
-                  <span className="opt-title">
-                    {m.title}
-                    {on && <span className="pill green">In use</span>}
-                    {!on && environment?.engine.loading && environment.engine.model === m.id && <span className="pill amber">Starting up…</span>}
+              <div key={m.id} className="opt-row">
+                <button type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} onClick={() => !on && void loadModel(m.id)} disabled={willNotFit(m)}>
+                  <span className={`radio${on ? " on" : ""}`} />
+                  <span style={{ flex: 1 }}>
+                    <span className="opt-title">
+                      {m.title}
+                      {on && <span className="pill green">In use</span>}
+                      {!on && environment?.engine.loading && environment.engine.model === m.id && <span className="pill amber">Starting up…</span>}
+                    </span>
+                    <div className="opt-body">
+                      {modelReason(m)}
+                      {m.license_words ? ` ${m.license_words}` : ""}
+                    </div>
                   </span>
-                  <div className="opt-body">
-                    {modelReason(m)}
-                    {m.license_words ? ` ${m.license_words}` : ""}
-                  </div>
-                </span>
-              </button>
+                </button>
+                {admin && m.source !== "import" && (
+                  <button type="button" className="btn danger" onClick={() => setDeleting(m)}>
+                    Delete
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
@@ -184,13 +193,42 @@ function AssistantPane() {
         <InfoIcon size={17} className="ls-muted" style={{ flexShrink: 0, marginTop: 1 }} />
         <div>{organisation ? "Your administrator decides which of these are available. Changing this affects only you." : "Changing this affects only this computer."}</div>
       </div>
-      {admin && <GetAModel entries={catalogModels.filter((m) => !m.installed)} onDownload={(id) => void downloadModel(id)} />}
+      {admin && <GetAModel entries={catalogModels.filter((m) => !m.installed)} onDownload={(id) => void downloadModel(id)} onStop={(id) => void stopDownload(id)} onDelete={setDeleting} />}
+      <Dialog
+        open={deleting !== null}
+        title={deleting ? `Delete ${deleting.title}?` : ""}
+        onClose={() => setDeleting(null)}
+        actions={
+          <>
+            <button type="button" className="btn" onClick={() => setDeleting(null)}>
+              Keep it
+            </button>
+            <button
+              type="button"
+              className="btn danger"
+              onClick={() => {
+                if (deleting) void deleteModel(deleting.id);
+                setDeleting(null);
+              }}
+            >
+              Delete
+            </button>
+          </>
+        }
+      >
+        {deleting && (
+          <p style={{ margin: 0, lineHeight: 1.55 }}>
+            This removes {deleting.title} from {where} and frees {sizeInWords(deleting.installed ? deleting.bytes : (deleting.download?.done_bytes ?? 0))}.
+            {deleting.id === current ? " It is the model in use: the assistant stops until you choose another." : ""} You can download it again whenever you like.
+          </p>
+        )}
+      </Dialog>
     </>
   );
 }
 
 /** The models that can be brought here, for whoever may bring them. */
-function GetAModel({ entries, onDownload }: { entries: ModelCatalogEntry[]; onDownload: (id: string) => void }) {
+function GetAModel({ entries, onDownload, onStop, onDelete }: { entries: ModelCatalogEntry[]; onDownload: (id: string) => void; onStop: (id: string) => void; onDelete: (m: ModelCatalogEntry) => void }) {
   const [open, setOpen] = useState(false);
   const environment = useSession((s) => s.environment);
   if (entries.length === 0) return null;
@@ -208,7 +246,11 @@ function GetAModel({ entries, onDownload }: { entries: ModelCatalogEntry[]; onDo
             const failed = m.download && m.download.stage.startsWith("failed");
             const paused = m.download && m.download.stage === "paused";
             const checking = m.download && m.download.stage === "verifying";
+            // One download at a time: this one waits for the one before it.
+            const queued = m.download && m.download.stage === "queued";
             const percent = m.download && m.download.total_bytes > 0 ? Math.min(100, (100 * m.download.done_bytes) / m.download.total_bytes) : 0;
+            // Something of it is on this computer: a part that a download stopped in.
+            const partly = (paused || failed) && (m.download?.done_bytes ?? 0) > 0;
             return (
               <div key={m.id} className="row-item">
                 <div className="row-main">
@@ -225,11 +267,34 @@ function GetAModel({ entries, onDownload }: { entries: ModelCatalogEntry[]; onDo
                       <div className="row-body">{checking ? "Checking that the file on this computer is the published one…" : paused ? `${percent.toFixed(0)}% is already here.` : `${percent.toFixed(0)}% downloaded`}</div>
                     </div>
                   )}
+                  {queued && <div className="row-body" style={{ marginTop: 8 }}>Waiting for the download before it to finish: one at a time, so that each is as fast as your connection.</div>}
                   {failed && <div className="error">The download stopped. What came is kept: start it again and it continues from there.</div>}
+                  {m.no_room && !downloading && !queued && !checking && <div className="error">{m.no_room}</div>}
                 </div>
-                <button type="button" className="btn" onClick={() => onDownload(m.id)} disabled={!!downloading || !!checking || offline || willNotFit(m)}>
-                  {downloading ? "Downloading…" : checking ? "Checking…" : willNotFit(m) ? "Too large" : paused || failed ? "Continue" : "Download"}
-                </button>
+                <div className="row-actions">
+                  {downloading || queued ? (
+                    <button type="button" className="btn" onClick={() => onStop(m.id)}>
+                      Stop
+                    </button>
+                  ) : checking ? null : willNotFit(m) ? (
+                    <button type="button" className="btn" disabled>
+                      Too large
+                    </button>
+                  ) : (
+                    <>
+                      {!m.no_room && (
+                        <button type="button" className="btn" onClick={() => onDownload(m.id)} disabled={offline}>
+                          {paused || failed ? "Continue" : "Download"}
+                        </button>
+                      )}
+                      {partly && (
+                        <button type="button" className="btn danger" onClick={() => onDelete(m)}>
+                          Delete
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             );
           })}

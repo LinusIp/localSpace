@@ -156,6 +156,10 @@ export type Session = {
   deleteConversation: (id: string) => Promise<void>;
   refreshEngineLog: () => Promise<void>;
   downloadModel: (id: string) => Promise<void>;
+  /** Stop a download, or take one out of the line; what came is kept. */
+  stopDownload: (id: string) => Promise<void>;
+  /** Remove a model's files from this computer. */
+  deleteModel: (id: string) => Promise<void>;
   loadModel: (id: string) => Promise<void>;
   unloadModel: () => Promise<void>;
   importModel: (path: string) => Promise<void>;
@@ -388,7 +392,8 @@ export const useSession = createStore<Session>((set, get) => {
           ),
         }));
         // "checked": files that were already on this computer have been looked at.
-        if (stage === "done" || stage === "checked" || stage.startsWith("failed")) void get().refreshModelCatalog();
+        // "paused" and "stopped": the person stopped it, and what is here says the rest.
+        if (["done", "checked", "paused", "stopped"].includes(stage) || stage.startsWith("failed")) void get().refreshModelCatalog();
       } else if ("presence" in event) {
         const { board, people } = event.presence;
         set((s) => ({ present: { ...s.present, [board]: people } }));
@@ -519,6 +524,15 @@ export const useSession = createStore<Session>((set, get) => {
     },
     downloadModel: async (id) => {
       await attempt(async () => takeModelCatalog(await call({ download_model: { id } })));
+    },
+    stopDownload: async (id) => {
+      await attempt(async () => takeModelCatalog(await call({ stop_download: { id } })));
+    },
+    deleteModel: async (id) => {
+      await attempt(async () => takeModelCatalog(await call({ delete_model: { id } })));
+      // The model in use may have been the one: what the bar says comes from Core.
+      await get().refreshEnvironment();
+      await get().refreshModels();
     },
     loadModel: async (id) => {
       await attempt(() => call({ load_model: { id } }));

@@ -349,6 +349,12 @@ pub struct ModelCatalogEntry {
     pub speed: String,
     /// One sentence on where the model sits on this computer.
     pub placement: String,
+    /// One sentence when the drive the models are kept on has no room for
+    /// what is still to be fetched, naming the drive: "It needs 8.4 GB and
+    /// drive C: has 3.1 GB free: make room there first." Empty when there is
+    /// room, or nothing is left to fetch. Said before a download can be
+    /// started, never at eighty per cent.
+    pub no_room: String,
     /// One sentence on what to expect of the answers, where the model's size
     /// calls for one: "Small models answer quickly but get things wrong more
     /// often." Empty otherwise. The verdict is about speed alone; this is
@@ -391,9 +397,12 @@ pub struct Computer {
 pub struct DownloadState {
     pub done_bytes: u64,
     pub total_bytes: u64,
+    /// `queued` (it waits for the download before it: one at a time),
     /// `downloading`, `verifying` (its SHA-256 is being compared with the
     /// published one: after a download, or for a file that was already
-    /// there), `paused` (stopped part-way; what came is kept), `done`,
+    /// there), `paused` (stopped part-way, by a lost connection, by closing
+    /// the app or by the person; what came is kept), `stopped` (stopped by
+    /// the person before anything came; only ever an event's stage), `done`,
     /// `checked` (files that were already there have been looked at; the
     /// entry says whether they count), or `failed: <why>`.
     pub stage: String,
@@ -1207,6 +1216,17 @@ pub enum Request {
     DescribeComputer,
     /// Fetch a catalog model's files from Hugging Face: provisioning egress.
     DownloadModel {
+        id: String,
+    },
+    /// Stop a download: the one under way, or one that waits its turn. What
+    /// came is kept, and downloading again goes on from there.
+    StopDownload {
+        id: String,
+    },
+    /// Remove a model's files from this computer, the finished ones and the
+    /// part of one a download stopped in. A model in use is stopped first.
+    /// Never a file the person brought in themselves.
+    DeleteModel {
         id: String,
     },
     /// Start the inference sidecar on a downloaded or imported model.

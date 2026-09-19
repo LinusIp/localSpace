@@ -393,6 +393,10 @@ pub struct Core {
     /// computer's card, where a load did not hold with more. Kept while Core
     /// runs; the verdicts and the next load start from it.
     layer_caps: Arc<Mutex<HashMap<String, u32>>>,
+    /// The free space of the models' drive, as last looked at, and when: the
+    /// list of models says of each whether the drive has room for it, the
+    /// list is asked for often, and the look costs most of a second.
+    disk_free: Option<(std::time::Instant, Option<u64>)>,
     next_approval: u64,
 }
 
@@ -458,6 +462,7 @@ impl Core {
             engine: None,
             hardware: cfg.hardware.clone(),
             layer_caps: Arc::default(),
+            disk_free: None,
             looking: (cfg.look_at_start && cfg.hardware.is_none()).then(|| {
                 let binary =
                     engine::find_binary(cfg.llama_server.as_deref(), cfg.data_dir.as_deref());
@@ -1285,15 +1290,89 @@ impl Core {
         let downloads = self.downloads.lock().unwrap().clone();
         let hardware = self.fitted_hardware();
         let caps = self.layer_caps.lock().unwrap().clone();
-        proto::Response::ModelCatalog {
-            entries: self.models.entries(
-                &self.cfg.machine,
-                hardware.as_ref(),
-                &caps,
-                &downloads,
-                self.engine.as_ref().map(|e| e.model_id.as_str()),
-            ),
+        let mut entries = self.models.entries(
+            &self.cfg.machine,
+            hardware.as_ref(),
+            &caps,
+            &downloads,
+            self.engine.as_ref().map(|e| e.model_id.as_str()),
+        );
+        // Whether the drive has room is said here, in the list, before a
+        // download can be started: never a refusal at the click, and never a
+        // download that fails at eighty per cent.
+        if let Some(free_mib) = self.disk_free_mib() {
+            let place = hardware::place_in_words(&self.models_dir());
+            for entry in entries
+                .iter_mut()
+                .filter(|e| !e.installed && e.source != "import")
+            {
+                let needs_mib = self.models.remaining_bytes(&entry.id) / (1024 * 1024);
+                if needs_mib > 0 && free_mib < needs_mib + models::DISK_HEADROOM_MIB {
+                    entry.no_room = format!(
+                        "It needs {:.1} GB and {place} has {:.1} GB free: make room there first.",
+                        needs_mib as f64 / 1024.0,
+                        free_mib as f64 / 1024.0
+                    );
+                }
+            }
         }
+        proto::Response::ModelCatalog { entries }
+    }
+
+    /// The free space of the models' drive, looked at no more than once in
+    /// five seconds.
+    fn disk_free_mib(&mut self) -> Option<u64> {
+        const FRESH: std::time::Duration = std::time::Duration::from_secs(5);
+        if let Some((at, free)) = self.disk_free
+            && at.elapsed() < FRESH
+        {
+            return free;
+        }
+        let free = hardware::disk_free_mib(&self.models_dir());
+        self.disk_free = Some((std::time::Instant::now(), free));
+        free
+    }
+
+    /// Stop a download; what came is kept.
+    fn stop_download(&mut self, id: &str) -> Result<()> {
+        self.models.stop(id, &self.downloads, &self.sink())?;
+        let _ = self.audit.append(
+            self.actor(),
+            self.scope("models"),
+            "model.download",
+            serde_json::json!({"model": id}),
+            "stopped",
+        );
+        Ok(())
+    }
+
+    /// Remove a model from this computer. One that is in use is stopped
+    /// first: the person asked for the space, and was told what it costs.
+    fn delete_model(&mut self, id: &str) -> Result<()> {
+        if self.engine.as_ref().is_some_and(|e| e.model_id == id)
+            && let Some(engine) = self.engine.take()
+        {
+            engine.stop();
+            self.trace(format!(
+                "engine: stopped llama-server for {id}, which is being deleted"
+            ));
+        }
+        let freed = self.models.delete(id, &self.downloads)?;
+        self.layer_caps.lock().unwrap().remove(id);
+        self.disk_free = None;
+        self.trace(format!(
+            "models: deleted `{id}`: {} MiB freed",
+            freed / (1024 * 1024)
+        ));
+        let _ = self.audit.append(
+            self.actor(),
+            self.scope("models"),
+            "model.delete",
+            serde_json::json!({"model": id, "bytes": freed}),
+            "ok",
+        );
+        self.broadcast_environment();
+        Ok(())
     }
 
     /// Where the models are kept.
@@ -1409,7 +1488,15 @@ impl Core {
         }
         self.models
             .download(id, self.downloads.clone(), self.sink())?;
-        self.trace(format!("models: downloading `{id}`"));
+        let waits = matches!(
+            self.downloads.lock().unwrap().get(id),
+            Some(state) if state.stage == "queued"
+        );
+        self.trace(if waits {
+            format!("models: `{id}` was asked for and waits its turn")
+        } else {
+            format!("models: downloading `{id}`")
+        });
         let _ = self.audit.append(
             self.actor(),
             self.scope("models"),
@@ -4194,6 +4281,20 @@ impl Core {
                 },
             },
 
+            R::StopDownload { id } => match self.stop_download(&id) {
+                Ok(()) => self.model_catalog(),
+                Err(e) => proto::Response::Error {
+                    message: format!("{e:#}"),
+                },
+            },
+
+            R::DeleteModel { id } => match self.delete_model(&id) {
+                Ok(()) => self.model_catalog(),
+                Err(e) => proto::Response::Error {
+                    message: format!("{e:#}"),
+                },
+            },
+
             R::LoadModel { id } => match self.load_model(&id) {
                 Ok(()) => proto::Response::Ok,
                 Err(e) => proto::Response::Error {
@@ -4734,7 +4835,8 @@ fn admin_only(req: &proto::Request) -> Option<&'static str> {
         R::InstallHarness { .. } | R::ApproveInstall { .. } => "harness.install",
         R::UninstallHarness { .. } => "harness.uninstall",
         R::DescribeComputer => "computer.describe",
-        R::DownloadModel { .. } => "model.download",
+        R::DownloadModel { .. } | R::StopDownload { .. } => "model.download",
+        R::DeleteModel { .. } => "model.delete",
         R::LoadModel { .. } => "model.load",
         R::UnloadModel => "model.unload",
         R::ImportModel { .. } => "model.import",
@@ -4876,6 +4978,47 @@ mod tests {
                 }
             }
             assert!(core.pending.is_empty());
+        }
+    }
+
+    #[test]
+    fn the_list_says_when_the_drive_has_no_room_before_a_download_can_begin() {
+        let mut core = Core::new(Config::personal("anna")).unwrap();
+        let entries = |core: &mut Core| match core.handle(proto::Request::ListModelCatalog) {
+            proto::Response::ModelCatalog { entries } => entries,
+            other => panic!("expected the catalog, got {other:?}"),
+        };
+        // A reading that stays fresh however long the first look at the
+        // computer takes on a busy machine: one from an hour ahead.
+        let ahead = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+        // Two gigabytes free: the 0.5B has room (with the gigabyte that is
+        // always kept free), and nothing larger has.
+        core.disk_free = Some((ahead, Some(2048)));
+        let listed = entries(&mut core);
+        let of = |id: &str| listed.iter().find(|e| e.id == id).unwrap().no_room.clone();
+        assert_eq!(of("qwen2.5-0.5b-instruct-q4_k_m"), "");
+        let seven = of("qwen2.5-7b-instruct-q4_k_m");
+        assert!(
+            seven.starts_with("It needs 4.4 GB and ")
+                && seven.ends_with(" has 2.0 GB free: make room there first."),
+            "{seven}"
+        );
+        // With room for everything, nothing is said.
+        core.disk_free = Some((ahead, Some(500_000)));
+        assert!(entries(&mut core).iter().all(|e| e.no_room.is_empty()));
+        // What cannot be stopped or deleted says so in a sentence, not a panic.
+        for request in [
+            proto::Request::StopDownload {
+                id: "qwen2.5-7b-instruct-q4_k_m".into(),
+            },
+            proto::Request::DeleteModel {
+                id: "no-such-model".into(),
+            },
+        ] {
+            match core.handle(request) {
+                proto::Response::Error { message } => assert!(!message.is_empty()),
+                other => panic!("expected a refusal, got {other:?}"),
+            }
         }
     }
 
