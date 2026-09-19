@@ -12,7 +12,7 @@
 //
 // A model may only be the default if it has been through this script on some
 // machine and a person has read what came back: that day is the entry's
-// `script_run` in models/catalog.json, and the answers belong in
+// `exercised_on` in models/catalog.json, and the answers belong in
 // docs/test-a/MESSAGE-SCRIPT.md under a heading with the model's title.
 
 import { writeFileSync } from "node:fs";

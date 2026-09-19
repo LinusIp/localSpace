@@ -70,7 +70,7 @@ about as fast as you read". The smallest models say of themselves "Small
 models answer quickly but get things wrong more often." `web.search` is not
 offered until a search service is set. A model is only ever the default once
 it has been through this script on some machine (the catalog's
-`script_run`). The test is in English only; the German and Russian findings
+`exercised_on`). The test is in English only; the German and Russian findings
 stay here as a known limitation.
 
 **The second runs** (the 7B and the 14B on the build with `web.search` no

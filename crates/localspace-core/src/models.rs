@@ -80,9 +80,12 @@ pub struct CatalogModel {
     /// default if it has been**: an entry that does not say is listed, can be
     /// chosen, and is never offered first. The failure this guards against
     /// is not a bad model but an untested one arriving in front of a stranger
-    /// (docs/DECISIONS.md, 2026-09-19, the answers after day 3).
+    /// (docs/DECISIONS.md, 2026-09-19, the answers after day 3). **It says
+    /// that the model was exercised, not that it did well**: the 1.5B went
+    /// through the script, answered badly, and is still the default where
+    /// there is no graphics card; hence the name.
     #[serde(default)]
-    pub script_run: String,
+    pub exercised_on: String,
     pub bytes: u64,
     pub context_len: u32,
     /// A Hugging Face repository, or empty for an imported file.
@@ -680,7 +683,7 @@ impl Catalog {
     /// whose licence permits commercial use is ever offered by default**, and
     /// nothing is said of what was passed over: the others are listed, with
     /// their licence in words. **Only a model that has been run through the
-    /// message script on some machine is**: see `CatalogModel::script_run`.
+    /// message script on some machine is**: see `CatalogModel::exercised_on`.
     /// And **the ladder has a lowest rung worth
     /// standing on**: a model of under a billion parameters answers in words
     /// but cannot use a tool, so it is offered only where nothing larger so
@@ -696,7 +699,7 @@ impl Catalog {
             .models
             .iter()
             .filter(|m| m.commercial_use)
-            .filter(|m| !m.script_run.is_empty())
+            .filter(|m| !m.exercised_on.is_empty())
             .filter(|m| !m.repo.is_empty() || self.installed_path(&m.id).is_some())
             .filter(|m| room(m))
             .filter_map(|m| {
@@ -789,7 +792,7 @@ impl Catalog {
             license_url: String::new(),
             license_words: String::new(),
             commercial_use: false,
-            script_run: String::new(),
+            exercised_on: String::new(),
             bytes: meta.len(),
             context_len: 8192,
             repo: String::new(),
@@ -1593,7 +1596,7 @@ mod tests {
                         .unwrap()
                 })
                 .collect();
-            assert_eq!(told, shape.verdicts, "what it is told: {}", shape.what);
+            assert_eq!(told, shape.verdicts, "the verdicts of {}", shape.what);
             assert_eq!(
                 catalog.recommend(&found).as_deref(),
                 Some(shape.default),
@@ -1604,7 +1607,7 @@ mod tests {
             // and may be used commercially; and nobody is ever offered the
             // 0.5B on a computer where a larger model so much as works.
             let offered = catalog.get(shape.default).unwrap();
-            assert!(!offered.script_run.is_empty() && offered.commercial_use);
+            assert!(!offered.exercised_on.is_empty() && offered.commercial_use);
             assert_ne!(shape.default, HALF_B, "{}", shape.what);
         }
     }
@@ -1662,7 +1665,7 @@ mod tests {
         // Once it has been through the script, it is.
         for m in &mut catalog.models {
             if m.id == "qwen3-30b-a3b-q4_k_m" {
-                m.script_run = "2026-10-01".into();
+                m.exercised_on = "2026-10-01".into();
             }
         }
         assert_eq!(
@@ -1671,7 +1674,7 @@ mod tests {
         );
         // And with no entry that says so, nothing is offered first.
         for m in &mut catalog.models {
-            m.script_run.clear();
+            m.exercised_on.clear();
         }
         assert_eq!(catalog.recommend(&found), None);
     }
@@ -1684,7 +1687,7 @@ mod tests {
         let run: Vec<&CatalogModel> = catalog
             .models
             .iter()
-            .filter(|m| !m.script_run.is_empty())
+            .filter(|m| !m.exercised_on.is_empty())
             .collect();
         assert!(!run.is_empty());
         for m in run {
@@ -1694,7 +1697,7 @@ mod tests {
                     .any(|l| l.trim_end() == format!("### {}", m.title)),
                 "{} says it went through the message script on {}, and the record has no section for it",
                 m.id,
-                m.script_run
+                m.exercised_on
             );
         }
     }

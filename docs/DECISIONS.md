@@ -131,7 +131,8 @@ evaluation only, not for commercial use."), not as "personal use".
   Qwen3 30B-A3B by default, a model that has never been started through
   Core anywhere. It stays listed and can be chosen; so does gpt-oss 120B;
   the rule covers the next family too.
-  In the catalog the rule is an entry's `script_run`, the day it last went
+  In the catalog the rule is an entry's `script_run` (renamed `exercised_on`
+  by the answers after day 4), the day it last went
   through the script (the builder's name for it, open to a better one): the
   four Qwen2.5 entries read on 2026-09-19 carry it, an entry that does not
   say is never the default, an imported file never says, and a test holds
