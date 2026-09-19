@@ -79,6 +79,52 @@ pub const CORE_TOOLS: &[&str] = &[
     "task.note",
 ];
 
+/// What of the events belongs in the log a person may be asked to send
+/// (`app.log`; docs/DECISIONS.md, 2026-09-19, the answers after day 4): what
+/// Core itself says of the engine, the models, the plan and the computer,
+/// and **every warning and error a person was shown**, since nobody stands
+/// beside them to read it. Never a line of a harness's own, which may quote a
+/// document, and never anything a person typed or was answered. The name
+/// of the person's folder is taken out of every path.
+fn log_event(ev: &proto::Event) {
+    const OWN: [&str; 5] = ["engine:", "models:", "planner:", "fit:", "computer:"];
+    match ev {
+        proto::Event::TraceLine { text } if OWN.iter().any(|own| text.starts_with(own)) => {
+            tracing::info!("{}", without_the_home(text))
+        }
+        proto::Event::Notice { level, text } => match level {
+            proto::NoticeLevel::Error => {
+                tracing::error!("shown to the person: {}", without_the_home(text))
+            }
+            proto::NoticeLevel::Warn => {
+                tracing::warn!("shown to the person: {}", without_the_home(text))
+            }
+            proto::NoticeLevel::Info => {}
+        },
+        _ => {}
+    }
+}
+
+/// `text` with the person's home folder written as `~`: a log that someone
+/// is asked to send should not carry their account's name in its paths.
+pub fn without_the_home(text: &str) -> String {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_default();
+    if home.len() < 4 {
+        return text.to_string();
+    }
+    let mut out = text.replace(&home, "~");
+    // The same folder written with the other slash.
+    let other = if home.contains('\\') {
+        home.replace('\\', "/")
+    } else {
+        home.replace('/', "\\")
+    };
+    out = out.replace(&other, "~");
+    out
+}
+
 /// Whether what a web tool brings back can reach the model: see
 /// `exposure::Exposure::web_results_reach_the_model`. Not yet, so no web tool
 /// is offered and none can be reached by the agent. It becomes true with
@@ -482,6 +528,7 @@ impl Core {
     fn sink(&self) -> engine::EventSink {
         let events = self.events.clone();
         Arc::new(move |ev| {
+            log_event(&ev);
             if let Some(sink) = &events {
                 sink(To::All, ev);
             }
@@ -489,6 +536,7 @@ impl Core {
     }
 
     fn emit_to(&self, to: To, ev: proto::Event) {
+        log_event(&ev);
         if let Some(sink) = &self.events {
             sink(to, ev);
         }
@@ -4829,6 +4877,19 @@ mod tests {
             }
             assert!(core.pending.is_empty());
         }
+    }
+
+    #[test]
+    fn a_path_in_the_log_does_not_name_the_person_s_folder() {
+        let home = std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .unwrap();
+        let line = format!("models: imported {home}/models/x.gguf as `import-x`");
+        assert_eq!(
+            without_the_home(&line),
+            "models: imported ~/models/x.gguf as `import-x`"
+        );
+        assert_eq!(without_the_home("engine: ready"), "engine: ready");
     }
 
     #[test]

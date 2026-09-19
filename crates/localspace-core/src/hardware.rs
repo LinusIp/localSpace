@@ -130,7 +130,7 @@ impl Hardware {
             })
             .collect();
         format!(
-            "{}; memory {} MiB ({} free), copied at {:.1} GB/s; {} cores; disk {}",
+            "{}; memory {} MiB ({} free), copied at {:.1} GB/s; {}, {} cores; disk {}",
             if cards.is_empty() {
                 "no graphics card".to_string()
             } else {
@@ -139,6 +139,9 @@ impl Hardware {
             self.ram_total_mib,
             self.ram_free_mib,
             self.ram_bandwidth_gbps,
+            self.cpu
+                .as_deref()
+                .unwrap_or("a processor that does not say its name"),
             self.cores,
             self.disk_free_mib
                 .map(|mib| format!("{mib} MiB free"))
@@ -634,6 +637,7 @@ fn system_facts(storage: Option<&Path>) -> SystemFacts {
          $key = ('luid_0x{{0:x8}}_0x{{1:x8}}_phys_0' -f (($p.AdapterLuid -shr 32) -band 0xffffffff), ($p.AdapterLuid -band 0xffffffff)); \
          if ($used.ContainsKey($key)) {{ $adapters += @{{ name = $p.Description; used = $used[$key] }} }} }} }}; \
          @{{ total_kb = $os.TotalVisibleMemorySize; free_kb = $os.FreePhysicalMemory; \
+         os = ($os.Caption + ' ' + $os.Version); \
          cpu = $cpu; disk_free = $free; adapters = @($adapters) }} | ConvertTo-Json -Compress -Depth 4"
     );
     let Ok(out) = crate::child::command("powershell")
@@ -645,6 +649,10 @@ fn system_facts(storage: Option<&Path>) -> SystemFacts {
     let Ok(json) = serde_json::from_slice::<serde_json::Value>(&out.stdout) else {
         return SystemFacts::default();
     };
+    // For the log a person may be asked to send: which Windows this is.
+    if let Some(os) = json["os"].as_str() {
+        tracing::info!("the operating system: {}", os.trim());
+    }
     SystemFacts {
         ram_total_mib: json["total_kb"].as_u64().unwrap_or(0) / 1024,
         ram_free_mib: json["free_kb"].as_u64().unwrap_or(0) / 1024,

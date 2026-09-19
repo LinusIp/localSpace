@@ -88,6 +88,18 @@ The user's answers to the second evening report of 2026-09-19
   time to the first word, every error a person was shown. **Nothing of what
   a person typed or was answered, and nothing is ever sent by the product:**
   the tester attaches the file.
+  **Built:** one tap where every event passes writes to the log what Core
+  itself says of the engine, the models, the plan and the computer (the
+  plan of layers, the engine's flags at every start and every step back
+  from a plan, the warm-up, the time to ready) and every warning and error
+  a person was shown; never a line of a harness's own, which may quote a
+  document. New lines: which Windows and which processor; a download's
+  beginning (how much was already here), its end (how long, at what rate)
+  or why it stopped; a file found on the computer and taken as the
+  published one; and the measure of every answer, never a word of it: the
+  time to the first piece, the tokens, the rate while writing, the size of
+  the prompt, the tools asked for. The person's folder is written `~` in
+  every path.
 - **Smart App Control is a go or no-go for each tester.** Whoever's
   screening answer says it is on gets a signed build or does not take part;
   nobody is sent an installer that Windows will refuse. The sheet shows the

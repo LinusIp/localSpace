@@ -386,7 +386,10 @@ pub fn router(server: Arc<Server>) -> Router {
             app = app.fallback_service(
                 tower_http::services::ServeDir::new(dir).not_found_service(index),
             );
-            tracing::info!("serving the web client from {}", dir.display());
+            tracing::info!(
+                "serving the web client from {}",
+                localspace_core::without_the_home(&dir.display().to_string())
+            );
         }
         _ => {
             app = app.fallback(get(placeholder));

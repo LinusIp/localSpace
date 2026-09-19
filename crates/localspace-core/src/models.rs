@@ -522,7 +522,12 @@ impl Catalog {
                         };
                         report(0);
                         match sha256_of(&dir.join(&file), &mut report) {
-                            Ok(found) if found == check.sha256 => stamp(&verified, &dir, &file, &found),
+                            Ok(found) if found == check.sha256 => {
+                                tracing::info!(
+                                    "models: {file} was found on this computer and is the published file: nothing to fetch"
+                                );
+                                stamp(&verified, &dir, &file, &found)
+                            }
                             Ok(_) => sink(proto::Event::Notice {
                                 level: proto::NoticeLevel::Warn,
                                 text: format!(
@@ -863,7 +868,35 @@ impl Catalog {
             .name(format!("download-{id}"))
             .spawn(move || {
                 let id = m.id.clone();
+                let began = Instant::now();
+                let here_before = m
+                    .files
+                    .iter()
+                    .map(|file| {
+                        let whole = std::fs::metadata(dir.join(file)).map(|x| x.len());
+                        let part = std::fs::metadata(dir.join(format!("{file}.part"))).map(|x| x.len());
+                        whole.or(part).unwrap_or(0)
+                    })
+                    .sum::<u64>();
+                tracing::info!(
+                    "models: the download of {id} begins: {} MiB in {} file(s), {} MiB of it already here",
+                    m.bytes / (1024 * 1024),
+                    m.files.len(),
+                    here_before / (1024 * 1024)
+                );
                 let result = fetch_all(&m, &dir, &source, &verified, &downloads, &sink);
+                let seconds = began.elapsed().as_secs_f64().max(0.001);
+                let fetched_mib = m.bytes.saturating_sub(here_before) as f64 / (1024.0 * 1024.0);
+                match &result {
+                    Ok(()) => tracing::info!(
+                        "models: the download of {id} is done and checked: {fetched_mib:.0} MiB in {seconds:.0} s ({:.1} MiB a second, the check included)",
+                        fetched_mib / seconds
+                    ),
+                    Err(e) => tracing::warn!(
+                        "models: the download of {id} stopped after {seconds:.0} s: {}",
+                        crate::without_the_home(&format!("{e:#}"))
+                    ),
+                }
                 let stage = match &result {
                     Ok(()) => "done".to_string(),
                     Err(e) => format!("failed: {e:#}"),

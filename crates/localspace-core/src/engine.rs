@@ -541,7 +541,12 @@ fn supervise(
                         began.elapsed().as_secs_f32()
                     ),
                 }),
-                Err(e) => tracing::debug!("engine: the warm-up did not finish: {e:#}"),
+                // Nothing is said to the person and nothing stops; the log
+                // keeps it, since the first answer is slower for it.
+                Err(e) => tracing::info!(
+                    "engine: {model} did not finish reading the prompt's stable part in {:.1} s: {e:#}",
+                    began.elapsed().as_secs_f32()
+                ),
             }
             if *shared.status.lock().unwrap() == Status::Stopped {
                 return;

@@ -101,9 +101,12 @@ fn run_loop(core: &mut Core, mut steps: usize) {
         let mut streamed = 0usize;
         let mut seen = String::new();
         let mut calling: Option<bool> = None;
+        let asked = std::time::Instant::now();
+        let mut first_piece: Option<std::time::Duration> = None;
         let reply = {
             let router = core.router.read().unwrap();
             router.chat_streaming(model::WorkerRole::Chat, &request, &mut |delta: &str| {
+                first_piece.get_or_insert_with(|| asked.elapsed());
                 seen.push_str(delta);
                 if calling.is_none()
                     && let Some(first) = seen.trim_start().chars().next()
@@ -118,6 +121,28 @@ fn run_loop(core: &mut Core, mut steps: usize) {
                 }
             })
         };
+
+        // For the log, the measure of an answer and never a word of it: how
+        // long until the first piece came, how many tokens at what rate, and
+        // which tools were asked for. It is what a tester's "it felt slow"
+        // is checked against (docs/DECISIONS.md, 2026-09-19, after day 4).
+        if let Ok(r) = &reply {
+            let tools: Vec<&str> = r.calls.iter().map(|c| c.tool.as_str()).collect();
+            tracing::info!(
+                "answer: step {steps}, {}, prompt of {} tokens, tools asked for: {}",
+                measure_of_an_answer(
+                    first_piece.map(|d| d.as_secs_f32()),
+                    asked.elapsed().as_secs_f32(),
+                    r.completion_tokens
+                ),
+                r.prompt_tokens,
+                if tools.is_empty() {
+                    "none".to_string()
+                } else {
+                    tools.join(", ")
+                }
+            );
+        }
 
         let reply = match reply {
             Ok(r) => r,
@@ -207,6 +232,23 @@ fn run_loop(core: &mut Core, mut steps: usize) {
     core.record_conversation();
 }
 
+/// "first piece after 1.2 s, 180 tokens in 14.9 s (13.1 tokens a second while
+/// writing)". The rate is taken over the time in which pieces came, which is
+/// what a person watches; a reply that came whole, or too fast to tell the
+/// two apart, is measured over all of its time and says so.
+fn measure_of_an_answer(first_piece: Option<f32>, took: f32, tokens: u32) -> String {
+    match first_piece {
+        Some(first) if took - first >= 0.5 => format!(
+            "first piece after {first:.1} s, {tokens} tokens in {took:.1} s ({:.1} tokens a second while writing)",
+            tokens as f32 / (took - first)
+        ),
+        _ => format!(
+            "{tokens} tokens in {took:.1} s ({:.1} tokens a second over all of it)",
+            tokens as f32 / took.max(0.05)
+        ),
+    }
+}
+
 fn record_call(core: &mut Core, tool: &str, params: &J, outcome: proto::ToolOutcome) {
     let record = proto::ToolCallRecord {
         id: format!("t{}", core.transcript.len()),
@@ -282,6 +324,25 @@ mod tests {
     use crate::model::{ChatReply, ChatRequest, ModelWorker, ProposedCall};
     use anyhow::Result;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn the_measure_of_an_answer_never_divides_by_a_moment() {
+        assert_eq!(
+            measure_of_an_answer(Some(1.2), 14.9, 180),
+            "first piece after 1.2 s, 180 tokens in 14.9 s (13.1 tokens a second while writing)"
+        );
+        // A tool call comes whole: there is no "while writing" to speak of.
+        assert_eq!(
+            measure_of_an_answer(None, 0.3, 25),
+            "25 tokens in 0.3 s (83.3 tokens a second over all of it)"
+        );
+        // Pieces, and too fast to tell the first from the last.
+        assert_eq!(
+            measure_of_an_answer(Some(0.04), 0.2, 13),
+            "13 tokens in 0.2 s (65.0 tokens a second over all of it)"
+        );
+        assert!(measure_of_an_answer(None, 0.0, 0).contains("0 tokens"));
+    }
 
     /// A worker that replays a fixed script of replies, so the loop itself is
     /// what is under test rather than a model.
