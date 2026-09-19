@@ -69,15 +69,20 @@ against, with a line in `docs/DECISIONS.md`.
 - **On a fresh install the tools listed have nothing to act on**
   (`task.plan` "one step per harness", `find_capability` with nothing
   installed): fewer tools until something is installed.
-- **A tool call that comes back as text.** Once in nineteen turns the 14B
-  wrote its call as bare JSON, the engine handed it back as the reply, and
-  the person was shown `{"name": "task.note", "arguments": …}`. Core reads
-  a reply of its own grammar's shape as a call already (`tool` and
-  `params`, `model::parse_grammar_call`), and not the model's own shape
-  (`name` and `arguments`). Either it reads that shape too, when the reply
-  is nothing but a call to a tool on offer, or the engine is held to the
-  format by a grammar (architecture §13, step 3: "tool loop with GBNF
-  grammar"). Put to the user on 2026-09-19.
+- **What a fetched page says never reaches the model.** A tool's result
+  comes back to the model as its one-line summary ("fetched …, cached with
+  a citation"); the page itself was to come back through retrieval (plugin
+  spec §8.2), which is not built. Asked to fetch a local stand-in page that
+  said "23 degrees with thick fog … the word of the day is marmalade", and
+  the fetch allowed, the 7B answered that the page says "sunny with a high
+  of 22°C … the word of the day is serendipity": an invented answer in the
+  page's name. The 14B reaches for `web.fetch` on a plain question (the
+  Moon's distance: "Allow this environment to fetch from `www.space.com`?").
+  Put to the user on 2026-09-19: not to offer `web.fetch` until what it
+  fetches can reach the model. The structural fix is retrieval, or a bounded
+  part of the page in the result the model reads.
+- **The approval's words**: "Allow this environment to fetch from
+  `www.space.com`?" is not how a person speaks.
 - **The evals have no model in `localspace evals`** and a 300-second limit
   through the API, which the 7B with the old wording did not finish in. An
   evals run per catalog model, with its time, belongs in the record.

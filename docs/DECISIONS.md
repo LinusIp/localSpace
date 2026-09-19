@@ -88,6 +88,30 @@ evaluation only, not for commercial use."), not as "personal use".
   model's own shape (`name`, `arguments`) as well as Core's (`tool`,
   `params`): only when the entire reply is a call to a tool actually on
   offer. It is the first thing cut if the day runs out.
+  **Built the same day, and needed more than was thought:** in a second run
+  of the message script the 14B wrote its call as text twice in nineteen
+  turns, not once (the translation again, and the code), both times
+  `task.note`, once spread over several lines.
+  `model::parse_bare_call` reads such a reply as the call when the entire
+  reply is one object with `name` and `arguments` and nothing else, and the
+  name is a tool on offer in that very request, with its dot or as the
+  engine is given it; every worker's reply passes it in the router. The
+  agent loop already held back a reply that begins with a brace, so nothing
+  of it is shown. Through the real 14B afterwards: the translation and the
+  code both come back in words.
+- **Found by the second runs, put to the user and not decided: what a
+  fetched page says never reaches the model.** With `web.search` gone the
+  14B reaches for `web.fetch` on a plain question (the Moon's distance:
+  "Allow this environment to fetch from `www.space.com`?"), and the 7B for
+  `find_capability` on the weather. A tool's result comes back to the model
+  as its one-line summary; the page was to come back through retrieval
+  (plugin spec §8.2), which is not built. A local stand-in page said "23
+  degrees with thick fog … the word of the day is marmalade"; with the
+  fetch allowed, the 7B answered that the page says "sunny with a high of
+  22°C … the word of the day is serendipity". The builder's statement in the
+  evening report, that `web.fetch` works without a search service, was
+  wrong in the sense that matters, and ruling 4's "`web.fetch` stays" rests
+  on it.
 - **6. The test is in English only.** All ten testers write in English; no
   language is added to the message script and no time goes into other
   languages. The German and Russian findings stay in the record as a known

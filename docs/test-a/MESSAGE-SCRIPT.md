@@ -73,6 +73,19 @@ it has been through this script on some machine (the catalog's
 `script_run`). The test is in English only; the German and Russian findings
 stay here as a known limitation.
 
+**The second runs** (the 7B and the 14B on the build with `web.search` no
+longer offered, 2026-09-19 in the evening; their answers are below, after
+the first runs'). The 7B answers the Moon in two seconds and says what it can
+do in plain words; asked for the weather it looks for a tool that could tell
+it (`find_capability`, nine seconds), finds none and says so. **The 14B
+wrote its tool call as text twice in nineteen turns**, not once, and reaches
+for `web.fetch` on the Moon and on the weather, which asks the person
+"Allow this environment to fetch from `www.space.com`?". **And what a
+fetched page says never reaches the model:** with the fetch of a local
+stand-in page allowed, the 7B reported a temperature and a "word of the
+day" that the page does not contain. Reading a bare call as the call is
+built; the fetch is put to the user.
+
 ## The answers
 
 ### Qwen2.5 7B Instruct
@@ -126,6 +139,60 @@ stay here as a known limitation.
 | three turns, each depending on the one before (1): Give me three ideas for a weekend trip from Berlin, one line each. | 13.9 s | none | Sure, here are three ideas for a weekend trip from Berlin: ⏎ 1. Potsdam and its beautiful palaces and parks. ⏎ 2. Dresden, known for its historic architecture and art museums. ⏎ 3. Szczecin, Poland, offering a mix of history and modern culture. |
 | three turns, each depending on the one before (2): Tell me more about the second one. | 22.1 s | none | Dresden, the capital city of the Free State of Saxony, Germany, is renowned for its Baroque and Rococo architecture, as well as its rich cultural heritage. It features stunning buildings like the Zwinger Palace and the Semper Opera House. The city also boasts numerous museums, including the famous Green Vault, which houses an impressive collection of treasures. Additionally, Dresden is known for its beautiful Elbe Ri… |
 | three turns, each depending on the one before (3): Roughly what would that cost for two people? | 46.5 s | web.search | It seems like there was an issue with accessing the web to find specific costs for a weekend trip to Dresden for two people. Let's try another approach to estimate the costs. ⏎ I can help you with an approximate budget based on typical expenses for travel, accommodation, and food. Would you like to proceed with this estimation? |
+
+The second run of the 7B, on the build of 2026-09-19 in the evening: `web.search` is no longer offered, and the line for "runs well" is at 10.
+### Qwen2.5 7B Instruct
+
+`qwen2.5-7b-instruct-q4_k_m`, through Core on a fresh data folder. Ready after 16 s. The app says of it here: "Runs well — faster than you read · about 7 to 10 words a second"; About half of it fits in the graphics memory; the rest runs from system memory, which is slower.
+
+| Message | Time | Tools reached for | What came back |
+|---|---|---|---|
+| a greeting: Hi there! | 1.1 s | none | Hello! How can I assist you today? |
+| what can you do: What can you do? | 2.8 s | none | I can answer questions, provide information, and help with tasks. If you have a specific request or question, feel free to ask! |
+| a factual question: How far is the Moon from the Earth? | 2.0 s | none | The average distance from the Earth to the Moon is about 385,000 kilometers. |
+| a short email: Write a short, polite email to my landlord asking him to fix the leaking tap in the kitche… | 7.5 s | none | Subject: Request for Kitchen Tap Repair ⏎ Dear [Landlord's Name], ⏎ I hope this email finds you well. I am writing to bring to your attention a small issue in the kitchen. The tap seems to be leaking, which is a bit concerning. I believe it would be best if you could have a look at it and arrange for it to be fixed at your earliest convenience. ⏎ Thank you for your prompt attention to this matter. ⏎ Best regards, ⏎ [… |
+| something to summarise: Summarise this in two sentences: ⏎ The town of Harrowfield sits where two rivers meet, and … | 6.6 s | none | Harrowfield, situated where two rivers meet, grew around water-dependent industries like mills and a brewery, but faced a devastating flood in 1912 that led to its transformation into residential and commercial spaces, eventually becoming a town with a population of about nineteen thousand, a weekly market, and a small museum. |
+| a question about a detail of a longer text: Read this and then answer: who rang the bell, and in which year? ⏎ The town of Harrowfield … | 2.9 s | none | Ada Pellow rang the chapel bell in the year 1912. |
+| arithmetic: What is 17 times 24? | 1.3 s | none | 17 times 24 is 408. |
+| a word problem: I have 3 boxes with 12 eggs in each, and I break 5 eggs. How many whole eggs do I have lef… | 5.5 s | none | You start with 3 boxes, each containing 12 eggs. That's a total of \(3 \times 12 = 36\) eggs. If you break 5 eggs, you subtract those from the total. So, you have \(36 - 5 = 31\) whole eggs left. |
+| a translation: Translate into German: Where is the nearest train station? | 3.4 s | none | Das nächste Bahnhof ist wo? ⏎ (Note: A more accurate translation would be "Wo ist der nächste Bahnhof?" but the provided text is a direct translation of the English sentence structure.) |
+| make this shorter: Make this shorter: I am writing to let you know that, due to circumstances which are unfor… | 1.7 s | none | I will be unable to attend the Thursday meeting due to unforeseen circumstances. |
+| a question in Spanish: ¿Cuál es la capital de Argentina y por qué es conocida? | 3.2 s | none | La capital de Argentina es Buenos Aires. Se conoce por ser un importante centro cultural, económico y político del país, además de ser una ciudad muy vibrante y diversa. |
+| a question in Russian: Какая столица Франции и чем она знаменита? | 2.9 s | none | Paris is the capital of France and it is renowned for its art, architecture, fashion, and cuisine. Would you like more detailed information on any of these aspects? |
+| something deliberately vague: Can you help me with my thing? | 1.6 s | none | Of course! Could you please provide more details about what you need help with? |
+| a packing list: Give me a packing list for a three-day hiking trip in autumn. | 25.2 s | none | Sure! For a three-day hiking trip in autumn, you'll want to pack the following items: ⏎ 1. **Clothing:** ⏎ - Layered clothing (t-shirts, long-sleeve shirts, sweaters, and jackets) ⏎ - Waterproof jacket or raincoat ⏎ - Warm hat and gloves ⏎ - Hiking socks ⏎ - Comfortable walking shoes or boots ⏎ - Lightweight pants or a pair of pants that can be layered ⏎ - Undergarments and sleepwear ⏎ 2. **Backpack:** ⏎ - Backpack w… |
+| a little code: Write a Python function that checks whether a number is prime. | 9.8 s | none | Sure! Here's a simple Python function to check whether a number is prime: ⏎ ```python ⏎ def is_prime(n): ⏎ if n <= 1: ⏎ return False ⏎ for i in range(2, int(n**0.5) + 1): ⏎ if n % i == 0: ⏎ return False ⏎ return True ⏎ ``` ⏎ You can use this function to check if a number is prime. For example, `is_prime(7)` will return `True`, and `is_prime(4)` will return `False`. |
+| something it cannot know: What is the weather like in Lisbon today? | 9.2 s | find_capability | I see that there's no tool installed to provide current weather information. We could look online for the weather in Lisbon today. Would you like to do that? |
+| three turns, each depending on the one before (1): Give me three ideas for a weekend trip from Berlin, one line each. | 5.5 s | none | Sure! Here are three ideas for a weekend trip from Berlin: ⏎ 1. Explore the charming town of Potsdam and visit the Sanssouci Palace. ⏎ 2. Discover the vibrant culture of Berlin's Kreuzberg neighborhood. ⏎ 3. Enjoy the beautiful lakes and nature trails in the Grunewald forest. |
+| three turns, each depending on the one before (2): Tell me more about the second one. | 4.9 s | none | Sure! The vibrant culture of Berlin's Kreuzberg neighborhood offers a mix of street art, trendy cafes, and lively markets. You can explore the neighborhood's unique vibe and perhaps visit some local eateries or attend a cultural event if you're there on the right day. |
+| three turns, each depending on the one before (3): Roughly what would that cost for two people? | 13.5 s | none | Based on general costs, a weekend trip focusing on Kreuzberg could include: ⏎ 1. **Accommodation**: Around €50-€100 per night for a budget-friendly option. ⏎ 2. **Food**: €20-€40 per person per day for meals. ⏎ 3. **Activities**: Free or low-cost activities like exploring the street art and markets, but you might spend €10-€20 on a guided tour or a specific event. ⏎ 4. **Transport**: €10-€20 for public transportation… |
+
+The second run of the 14B on the same build, before a bare call was read as the call: it shows one twice. "No reply" is a turn that waits for the person to allow a fetch.
+### Qwen2.5 14B Instruct
+
+`qwen2.5-14b-instruct-q4_k_m`, through Core on a fresh data folder. Ready after 31 s. The app says of it here: "Works — about as fast as you read · about 3 to 4 words a second"; A small part of it fits in the graphics memory; the rest runs from system memory, which is slower.
+
+| Message | Time | Tools reached for | What came back |
+|---|---|---|---|
+| a greeting: Hi there! | 2.7 s | none | Hello! How can I assist you today? |
+| what can you do: What can you do? | 8.7 s | none | I can assist with a variety of tasks such as fetching information from the web, planning tasks, taking notes, and more. How can I help you today? |
+| a factual question: How far is the Moon from the Earth? | 17.5 s | web.fetch | **no reply** |
+| a short email: Write a short, polite email to my landlord asking him to fix the leaking tap in the kitche… | 29.0 s | none | Certainly! Here's a draft for your email: ⏎ Subject: Request for Repair: Leaking Tap in Kitchen ⏎ Dear [Landlord's Name], ⏎ I hope this message finds you well. I am writing to kindly request your assistance in addressing a minor issue in our kitchen. The tap has been leaking, and I believe it would be best to have it fixed as soon as possible to prevent any potential damage. ⏎ Thank you in advance for your attention … |
+| something to summarise: Summarise this in two sentences: ⏎ The town of Harrowfield sits where two rivers meet, and … | 21.4 s | none | Harrowfield, situated where two rivers meet, has a rich history marked by its dependence on water and industry, including the construction of a stone bridge in 1915 after a devastating flood. Today, the town thrives with a population of about nineteen thousand, a weekly market, and a museum featuring the historic chapel bell. |
+| a question about a detail of a longer text: Read this and then answer: who rang the bell, and in which year? ⏎ The town of Harrowfield … | 9.0 s | none | Ada Pellow rang the bell in 1912 during the great flood to warn the townspeople. |
+| arithmetic: What is 17 times 24? | 3.7 s | none | 17 times 24 is 408. |
+| a word problem: I have 3 boxes with 12 eggs in each, and I break 5 eggs. How many whole eggs do I have lef… | 9.8 s | none | You start with 3 boxes times 12 eggs, which gives you 36 eggs in total. After breaking 5 eggs, you have 31 whole eggs left. |
+| a translation: Translate into German: Where is the nearest train station? | 8.2 s | none | {"name": "task.note", "arguments": {"text": "Translate into German: Wo ist der nearest train station? Correcting to proper German."}} |
+| make this shorter: Make this shorter: I am writing to let you know that, due to circumstances which are unfor… | 7.5 s | none | Here's a shorter version: Due to circumstances beyond my control, I regret to inform you that I cannot attend the Thursday afternoon meeting. |
+| a question in Spanish: ¿Cuál es la capital de Argentina y por qué es conocida? | 16.0 s | none | La capital de Argentina es Buenos Aires. Es conocida por muchas razones, incluyendo su vibrante vida nocturna, sus numerosos parques y espacios verdes, su rica historia cultural y arquitectónica, y su importante papel económico y político tanto a nivel nacional como internacional. |
+| a question in Russian: Какая столица Франции и чем она знаменита? | 15.2 s | none | Столица Франции — Париж. Он знаменит Эйфелевой башней, Лувром, Нотр-Дамом и многими другими историческими и культурными достопримечательностями. |
+| something deliberately vague: Can you help me with my thing? | 5.1 s | none | Of course! Could you please provide more details about your thing so I can assist you better? |
+| a packing list: Give me a packing list for a three-day hiking trip in autumn. | 75.8 s | none | Sure, I can help with that. For a three-day hiking trip in autumn, you'll want to pack items that will keep you comfortable and prepared for the weather. Here’s a basic packing list: ⏎ ### Essentials ⏎ - Tent or shelter ⏎ - Sleeping bag and pad ⏎ - Backpack ⏎ - Map and compass ⏎ - First aid kit ⏎ - Multi-tool or knife ⏎ - Headlamp or flashlight ⏎ - Firestarter and matches ⏎ - Water bottle or hydration system ⏎ - Suns… |
+| a little code: Write a Python function that checks whether a number is prime. | 13.5 s | none | { ⏎ "name": "task.note", ⏎ "arguments": { ⏎ "text": "To write a Python function that checks whether a number is prime, we need to create a function that takes an integer as input and returns True if the number is prime, and False otherwise." ⏎ } ⏎ } |
+| something it cannot know: What is the weather like in Lisbon today? | 13.0 s | web.fetch | **no reply** |
+| three turns, each depending on the one before (1): Give me three ideas for a weekend trip from Berlin, one line each. | 9.3 s | none | Sure, here are three ideas for a weekend trip from Berlin: ⏎ 1. Potsdam and its palaces ⏎ 2. The Baltic Sea coast ⏎ 3. The Harz mountains |
+| three turns, each depending on the one before (2): Tell me more about the second one. | 31.8 s | none | The second option is the Baltic Sea coast, also known as the "Baltic Coast" or "Baltische Küste" in German. This area offers beautiful sandy beaches, charming seaside towns, and a variety of water activities. You can enjoy swimming, sunbathing, sailing, and even surfing in some areas. The coastal towns like Warnemünde, Kühlungsborn, and Binz offer a mix of relaxation and entertainment, with numerous restaurants, cafe… |
+| three turns, each depending on the one before (3): Roughly what would that cost for two people? | 75.1 s | none | To estimate the cost for a weekend trip to the Baltic Sea coast from Berlin for two people, we need to consider transportation, accommodation, food, and activities. Let's break it down: ⏎ 1. **Transportation**: Train tickets from Berlin to a coastal town like Warnemünde or Kühlungsborn can cost around €20-€30 per person for a round trip. So, for two people, it would be approximately €40-€60. ⏎ 2. **Accommodation**: A… |
 
 The second run, after the word "harness" had been taken out of what the model reads.
 ### Qwen2.5 1.5B Instruct

@@ -445,6 +445,49 @@ pub fn parse_grammar_call(text: &str) -> Option<ProposedCall> {
     })
 }
 
+/// A reply that is nothing but a tool call in the model's own shape,
+/// `{"name": "...", "arguments": {...}}`, read as the call it is.
+///
+/// The engine reads that shape itself when the model wraps it in its tags.
+/// Once in the nineteen turns of the message script the 14B left the tags
+/// out, the engine handed the JSON back as the answer, and a person was shown
+/// `{"name": "task.note", "arguments": …}` (docs/DECISIONS.md, 2026-09-19).
+/// Read narrowly, so that JSON a person asked for is never taken for a call:
+/// the **entire** reply is one object, it has these two members and no
+/// other, and the name is a tool **on offer in this very request**, written
+/// with its dot or as the engine is given it.
+pub fn parse_bare_call(text: &str, tools: &[proto::ExposedTool]) -> Option<ProposedCall> {
+    let value: J = serde_json::from_str(text.trim()).ok()?;
+    let object = value.as_object()?;
+    if object.len() != 2 {
+        return None;
+    }
+    let name = object.get("name")?.as_str()?.replace("__", ".");
+    let params = match object.get("arguments")? {
+        J::Object(arguments) => J::Object(arguments.clone()),
+        // As the OpenAI shape carries them: JSON inside a string.
+        J::String(inside) => serde_json::from_str::<J>(inside)
+            .ok()
+            .filter(|v| v.is_object())?,
+        _ => return None,
+    };
+    tools.iter().any(|t| t.name == name).then(|| ProposedCall {
+        id: "call_0".into(),
+        tool: name,
+        params,
+    })
+}
+
+/// Every worker's reply passes here: see [`parse_bare_call`].
+fn with_a_bare_call_read(mut reply: ChatReply, req: &ChatRequest) -> ChatReply {
+    if reply.calls.is_empty()
+        && let Some(call) = parse_bare_call(&reply.text, &req.tools)
+    {
+        reply.calls.push(call);
+    }
+    reply
+}
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -518,7 +561,7 @@ impl Router {
         } else {
             self.metrics.chat_calls.fetch_add(1, Ordering::Relaxed);
         }
-        let reply = worker.chat(req)?;
+        let reply = with_a_bare_call_read(worker.chat(req)?, req);
         self.metrics
             .prompt_tokens
             .fetch_add(reply.prompt_tokens as u64, Ordering::Relaxed);
@@ -541,7 +584,7 @@ impl Router {
         } else {
             self.metrics.chat_calls.fetch_add(1, Ordering::Relaxed);
         }
-        let reply = worker.chat_streaming(req, on_delta)?;
+        let reply = with_a_bare_call_read(worker.chat_streaming(req, on_delta)?, req);
         self.metrics
             .prompt_tokens
             .fetch_add(reply.prompt_tokens as u64, Ordering::Relaxed);
@@ -621,6 +664,107 @@ mod tests {
         assert_eq!(reply.calls.len(), 1);
         assert_eq!(reply.calls[0].tool, "canvas.add_shape");
         assert_eq!(reply.calls[0].params["kind"], "ellipse");
+    }
+
+    fn offered(names: &[&str]) -> Vec<proto::ExposedTool> {
+        names
+            .iter()
+            .map(|name| proto::ExposedTool {
+                harness: "core".into(),
+                name: name.to_string(),
+                summary: String::new(),
+                params: proto::Json(json!({"type": "object"})),
+                kind: proto::ToolKind::Write,
+                confirm: proto::Confirm::Never,
+                cost_hint: proto::CostHint::Instant,
+                undoable: false,
+                reason: proto::ExposureReason::CoreBuiltin,
+            })
+            .collect()
+    }
+
+    /// What the 14B wrote on 2026-09-19, to the letter.
+    const RECORDED_BARE_CALL: &str = r#"{"name": "task.note", "arguments": {"text": "Translate into German: Wo ist der n\u00e4chste Bahnhof?"}}"#;
+
+    #[test]
+    fn a_reply_that_is_nothing_but_a_call_to_a_tool_on_offer_is_read_as_the_call() {
+        let tools = offered(&["find_capability", "task.note"]);
+        let call = parse_bare_call(RECORDED_BARE_CALL, &tools).unwrap();
+        assert_eq!(call.tool, "task.note");
+        assert_eq!(
+            call.params["text"],
+            "Translate into German: Wo ist der nächste Bahnhof?"
+        );
+        // As the engine is given the name, and with the arguments in a string.
+        let call = parse_bare_call(
+            r#" {"name": "task__note", "arguments": "{\"text\": \"x\"}"} "#,
+            &tools,
+        )
+        .unwrap();
+        assert_eq!(call.tool, "task.note");
+        assert_eq!(call.params["text"], "x");
+    }
+
+    #[test]
+    fn json_a_person_asked_for_is_never_taken_for_a_call() {
+        let tools = offered(&["task.note"]);
+        // A tool that is not on offer in this request.
+        assert!(parse_bare_call(RECORDED_BARE_CALL, &offered(&["find_capability"])).is_none());
+        // Words around it: the reply is not nothing but the call.
+        let around = format!("Here is the call: {RECORDED_BARE_CALL}");
+        assert!(parse_bare_call(&around, &tools).is_none());
+        // Another member, a missing one, arguments that are not an object.
+        for text in [
+            r#"{"name": "task.note", "arguments": {}, "id": 1}"#,
+            r#"{"name": "task.note"}"#,
+            r#"{"name": "task.note", "arguments": [1, 2]}"#,
+            r#"{"name": "task.note", "arguments": "not json"}"#,
+            r#"{"name": "Ada", "arguments": {"age": 36}}"#,
+            r#"[{"name": "task.note", "arguments": {}}]"#,
+            "",
+        ] {
+            assert!(parse_bare_call(text, &tools).is_none(), "{text}");
+        }
+    }
+
+    #[test]
+    fn the_router_reads_a_bare_call_whichever_worker_wrote_it() {
+        struct Bare;
+        impl ModelWorker for Bare {
+            fn info(&self) -> proto::ModelInfo {
+                Fake { id: "bare" }.info()
+            }
+            fn chat(&self, _req: &ChatRequest) -> Result<ChatReply> {
+                Ok(ChatReply {
+                    text: RECORDED_BARE_CALL.to_string(),
+                    ..Default::default()
+                })
+            }
+            fn embed(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>> {
+                Ok(Vec::new())
+            }
+        }
+        let router = Router {
+            chat: Some(Arc::new(Bare)),
+            ..Default::default()
+        };
+        let mut request = ChatRequest::new(String::new());
+        request.tools = offered(&["task.note"]);
+        let reply = router.chat(WorkerRole::Chat, &request).unwrap();
+        assert_eq!(reply.calls.len(), 1);
+        assert_eq!(reply.calls[0].tool, "task.note");
+        let mut shown = String::new();
+        let streamed = router
+            .chat_streaming(WorkerRole::Chat, &request, &mut |delta| {
+                shown.push_str(delta)
+            })
+            .unwrap();
+        assert_eq!(streamed.calls.len(), 1);
+        // The same words with the tool not on offer stay words.
+        request.tools = offered(&["find_capability"]);
+        let reply = router.chat(WorkerRole::Chat, &request).unwrap();
+        assert!(reply.calls.is_empty());
+        assert_eq!(reply.text, RECORDED_BARE_CALL);
     }
 
     #[test]
