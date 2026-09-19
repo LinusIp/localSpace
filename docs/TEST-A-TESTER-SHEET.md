@@ -23,9 +23,15 @@ the day itself. Nothing here needs a terminal or any technical knowledge.
 > each file against its published SHA-256 and then says "It is already on
 > this computer: nothing to download", with a **Start** button. A file that
 > is not the published one does not count; a model that is not on the stick
-> is downloaded as before. The files and their digests are in
-> `models/catalog.json`; `node scripts/check-catalog.mjs` checks them against
-> Hugging Face.
+> is downloaded as before. `node scripts/stick-list.mjs` prints the files
+> with their sizes and digests, and `node scripts/stick-list.mjs --check
+> <folder>` checks a stick against them before the day (the five Qwen2.5
+> models, 16 GiB together, take half a minute from a fast disk);
+> `node scripts/check-catalog.mjs` checks the list itself against Hugging
+> Face. The five Qwen2.5 models cover every laptop with 16 GB of memory; a
+> laptop with 32 GB may be recommended Qwen3 30B-A3B (17.3 GiB), which has
+> not run through localSpace on any machine yet: put to the user on
+> 19 September.
 >
 > **What the models answer** to nineteen ordinary messages, model by model,
 > is in `docs/test-a/MESSAGE-SCRIPT.md`. In short: the 7B and the 14B are
