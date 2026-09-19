@@ -9,12 +9,12 @@ Naming used throughout: **Core** is what employees connect to and where all data
 > - The `localspace install`, `localspace models download` / `import`, `localspace backup` and `doctor --running` commands. The CLI today has `serve`, `admin`, `doctor`, `bench`, `evals`, `call` and `audit`.
 > - `tls = { cert, key }` — refused at start today; only `"behind-proxy"` works. `--self-signed` does not exist.
 > - `[models]` accepts only `dir`. `default`, `embedding` and `[[models.worker]]` are refused; an administrator points Core at an external endpoint at runtime instead.
-> - GPU detection: `localspace doctor` now describes the computer from the engine's own device list, which covers every vendor. The catalog's verdicts and the engine's flags still come from the older `nvidia-smi` detection, so an AMD or Intel machine is still planned as if it had no GPU, until items 2 and 3 land.
-> - `-ngl 999` is hardcoded; the partial-offload path uses described rather than measured free VRAM.
+> - **Landed on 19 September 2026:** the check of the machine at first run. The app and `localspace doctor` describe the computer from the engine's own device list, which covers every vendor; every catalog entry shows its verdict, a range of words a second and where it sits before any download; the app recommends a model; the engine is started with a computed number of layers on one named device, never `999`; and a download that the models' drive has no room for is refused before it starts. **Verified on one NVIDIA laptop only**: AMD and Intel names are read from written examples, not from machines in hand.
+> - Not yet: the check *after* a model has loaded that its memory is where the plan put it (on Windows a card that is asked for too much does not refuse, it spills into system memory and the model crawls).
 > - Downloads restart from zero and nothing is checksummed.
-> - **Landed on 18 September 2026:** the Windows installer and a portable zip, with the inference engine inside (llama.cpp's Vulkan release, pinned by SHA-256). They are built by the `package` workflow and are **not signed yet**: SmartScreen warns, and Smart App Control, where it is on, refuses them outright. What §A2 says after "Run the installer" (the check of the machine, the recommendation, a download that resumes) is items 2 to 4 and is not in the build yet.
+> - **Landed on 18 September 2026:** the Windows installer and a portable zip, with the inference engine inside (llama.cpp's Vulkan release, pinned by SHA-256). They are built by the `package` workflow and are **not signed yet**: SmartScreen warns, and Smart App Control, where it is on, refuses them outright. Of what §A2 and §A3 say, a download that resumes and is checksum-verified, and the pasted Hugging Face repo id, are not in the build yet.
 > - There is no Linux package: §B3, building from source, is the state for a server, where the engine must still be placed by hand.
-> - `serve` refuses to start below the hardware floor without `--allow-below-floor`. In personal mode that becomes a plain-words statement rather than a refusal; in server mode the gate stays.
+> - **Landed on 19 September 2026:** in personal mode the hardware floor is a plain-words statement, never a refusal. In server mode `serve` still refuses to start below the floor without `--allow-below-floor`, and that gate stays.
 >
 > Found when this guide was read against the build on 18 September 2026, and as much *not yet* as the list above:
 >
@@ -44,7 +44,7 @@ Then it is a chat window. Nothing else is installed by default — the whiteboar
 
 ## A3. Choosing a different model
 
-Settings → Model shows the whole catalog with a verdict for this machine against each entry: *runs well*, *runs slowly*, *will not fit*, and an estimated speed. To use something not in the catalog, paste its Hugging Face repo id and the same verdict appears before anything downloads.
+Settings → Assistant → *Get another model* shows the whole catalog with a verdict for this machine against each entry — *Runs well*, *Works, slower than reading pace*, *Too slow for everyday use* or *Will not fit on this computer* — and an estimated speed as a range of words a second. (The lines between the verdicts are provisional until the ten laptops have calibrated them.) To use something not in the catalog, paste its Hugging Face repo id and the same verdict appears before anything downloads.
 
 The rule the app is applying, if you want to check its work: a model at Q4 needs roughly 0.6 GB per billion parameters, plus a gigabyte or two for the context. What fits in VRAM runs fast; what spills into system RAM runs at a fraction of that; what does not fit in RAM either will not run at all.
 
@@ -52,7 +52,7 @@ The rule the app is applying, if you want to check its work: a model at Q4 needs
 
 | Symptom | Cause |
 |---|---|
-| "No usable GPU found" on a machine with a GPU | Graphics driver older than the Vulkan version required — update the driver |
+| "No graphics card localSpace can use" on a machine with a graphics card | Graphics driver older than the Vulkan version required — update the driver. The app says so itself, and runs on the processor meanwhile |
 | Much slower than the estimate | Another application is holding VRAM; close it and restart the app |
 | Download stalls | It resumes — leave it, or restart it from Settings → Model |
 | Model will not load after a driver update | Delete the app's cache folder from Settings → Advanced → Diagnostics |

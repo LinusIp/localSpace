@@ -13,8 +13,30 @@ export function modelLabel(id: string | null | undefined, catalog: ModelCatalogE
   return id;
 }
 
-/** One line on why to pick a model, in plain words, from what the planner knows. */
+/**
+ * A download's size as a person says it: "2.0 GB", "469 MB". Counted as
+ * Windows counts (1 GB = 1024 MB), so the figure matches File Explorer's and
+ * the free space beside it, which Core reports the same way.
+ */
+export function sizeInWords(bytes: number): string {
+  return bytes >= 2 ** 30 ? `${(bytes / 2 ** 30).toFixed(1)} GB` : `${Math.round(bytes / 2 ** 20)} MB`;
+}
+
+/** Whether this computer's memory cannot hold the model at all. */
+export function willNotFit(entry: ModelCatalogEntry): boolean {
+  return entry.verdict === "will_not_fit" || entry.verdict === "does not fit";
+}
+
+/**
+ * One line on how a model will run here, in plain words. On a person's own
+ * computer that is the verdict and a range of words a second, known before
+ * any download; on a server of the reference tiers, what the planner knows.
+ */
 export function modelReason(entry: ModelCatalogEntry): string {
+  if (entry.verdict_label) {
+    const how = entry.speed ? `${entry.verdict_label}: ${entry.speed}.` : `${entry.verdict_label}.`;
+    return entry.placement ? `${how} ${entry.placement}` : how;
+  }
   if (entry.notes) return entry.notes;
   switch (entry.verdict) {
     case "resident":

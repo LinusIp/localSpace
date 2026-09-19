@@ -34,6 +34,21 @@ const until = async (what, check, ms = 15000) => {
 };
 const step = (text) => console.log(`· ${text}`);
 
+// A person's own computer with no model on it opens on the first run: what
+// the computer is, in a sentence, and a way past it. With a model already
+// here the shell opens directly. Every window meets it, so every window of
+// this walk goes through here.
+const pastTheFirstRun = async (page, say) => {
+  const store = page.getByRole("button", { name: "Store", exact: true });
+  const notNow = page.getByRole("button", { name: "Not now", exact: true });
+  await until("the shell or the first run", async () => (await store.count()) + (await notNow.count()) > 0, 60000);
+  if (!(await notNow.count())) return;
+  const sentence = (await page.locator(".first-run-computer").innerText()).trim();
+  if (!/system memory$/.test(sentence)) throw new Error(`the first run does not say what this computer is: "${sentence}"`);
+  if (say) step(`the first run: "${sentence}"`);
+  await notNow.click();
+};
+
 let browser;
 for (const channel of ["msedge", "chrome"]) {
   try {
@@ -54,6 +69,8 @@ try {
   });
   page.on("pageerror", (e) => console.log(`  [pageerror] ${e.message.slice(0, 200)}`));
   await page.goto(`${origin}/?token=${token}`);
+
+  await pastTheFirstRun(page, true);
   await page.getByRole("button", { name: "Store", exact: true }).click();
 
   // 1. Install from the catalog, unless it is installed already.
@@ -91,7 +108,7 @@ try {
     const env = (await api("/environment")).environment;
     if (!env.model) {
       const catalog = (await request("list_model_catalog")).model_catalog.entries;
-      const local = catalog.find((m) => m.installed && m.verdict !== "does not fit");
+      const local = catalog.find((m) => m.installed && !["does not fit", "will_not_fit"].includes(m.verdict));
       if (local) {
         step(`loading ${local.id} for the agent`);
         await request({ load_model: { id: local.id } });
@@ -251,6 +268,7 @@ try {
   const page2 = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   try {
     await page2.goto(`${origin}/?token=${token}`);
+    await pastTheFirstRun(page2, false);
     await until("the second window's rail to list the whiteboard", async () => (await page2.getByRole("button", { name: "Whiteboard", exact: true }).count()) > 0);
     await page2.getByRole("button", { name: "Whiteboard", exact: true }).first().click();
     const frameEl2 = page2.locator("iframe[title='Board']");

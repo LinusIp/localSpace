@@ -12,6 +12,7 @@ import { StorePage } from "./pages/StorePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AdminPage } from "./pages/AdminPage";
 import { HelpPage } from "./pages/HelpPage";
+import { FirstRunPage } from "./pages/FirstRunPage";
 import { SignInPage } from "./pages/SignInPage";
 import { InvitePage } from "./pages/InvitePage";
 
@@ -77,7 +78,7 @@ export default function App() {
 }
 
 function Shell({ boardLink }: { boardLink: string | null }) {
-  const { me, page, onEvent, setLive, refreshEnvironment, refreshTranscript, refreshModels, refreshModelCatalog, refreshTask, refreshConversations, loadPreferences, notices } = useSession();
+  const { me, page, onEvent, setLive, refreshEnvironment, refreshTranscript, refreshModels, refreshModelCatalog, refreshComputer, refreshTask, refreshConversations, loadPreferences, notices, computer, computerAsked, firstRunLeft } = useSession();
 
   // The event stream keeps everything current while the shell is open; the
   // first state is fetched outright.
@@ -94,14 +95,36 @@ function Shell({ boardLink }: { boardLink: string | null }) {
     void refreshModels();
     void refreshModelCatalog();
     void refreshTask();
+    void refreshTask();
     void refreshConversations();
     void loadPreferences();
+    // The catalog's verdicts and the first run both need a look at the
+    // machine, which takes a moment the first time: asked last, so nothing
+    // else waits behind it.
+    void refreshModelCatalog();
+    // On a person's own computer: looking at the machine takes a
+    // moment, and nothing else should wait behind it. In an organisation the
+    // computer that matters is the server, and this window never asks.
+    if (me?.topology === "personal") void refreshComputer();
     return stop;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const latest = notices[notices.length - 1];
   const admin = me?.topology === "organisation" && me.roles.includes("admin");
+
+  // On a person's own computer the window waits a moment for what the
+  // computer is, so that a first run never flashes the empty chat first.
+  if (me?.topology === "personal" && !computerAsked) return <div className="auth ls-muted">Looking at this computer…</div>;
+  // The first run: no model is on this computer yet.
+  if (me?.topology === "personal" && computer?.first_run && !firstRunLeft) {
+    return (
+      <>
+        <FirstRunPage />
+        {latest && Date.now() - latest.at < 8000 && <div className={`toast${latest.level === "error" ? " error" : latest.level === "warn" ? " warn" : ""}`}>{latest.text}</div>}
+      </>
+    );
+  }
 
   return (
     <div className="shell">

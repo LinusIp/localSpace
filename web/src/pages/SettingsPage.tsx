@@ -10,7 +10,7 @@ import { bytesLabel, call, downloadDocument, logout, pick } from "../api/client"
 import { outcomeLine, useSession } from "../store";
 import type { SettingsPane } from "../store";
 import { TopBar } from "../components/TopBar";
-import { modelLabel, modelReason } from "../lib/models";
+import { modelLabel, modelReason, sizeInWords, willNotFit } from "../lib/models";
 import { clock } from "../lib/time";
 import type { Json, ToolOutcome } from "../api/generated";
 
@@ -162,7 +162,7 @@ function AssistantPane() {
           {here.map((m) => {
             const on = m.id === current;
             return (
-              <button key={m.id} type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} onClick={() => !on && void loadModel(m.id)} disabled={m.verdict === "does not fit"}>
+              <button key={m.id} type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} onClick={() => !on && void loadModel(m.id)} disabled={willNotFit(m)}>
                 <span className={`radio${on ? " on" : ""}`} />
                 <span style={{ flex: 1 }}>
                   <span className="opt-title">
@@ -209,7 +209,7 @@ function GetAModel({ entries, onDownload }: { entries: ModelCatalogEntry[]; onDo
                 <div className="row-main">
                   <div className="row-title">{m.title}</div>
                   <div className="row-body">
-                    {modelReason(m)} About {bytesLabel(m.bytes)} to download.
+                    {modelReason(m)} About {sizeInWords(m.bytes)} to download.
                   </div>
                   {downloading && m.download && (
                     <div style={{ marginTop: 8 }}>
@@ -221,8 +221,8 @@ function GetAModel({ entries, onDownload }: { entries: ModelCatalogEntry[]; onDo
                   )}
                   {failed && <div className="error">The download did not finish. Try again.</div>}
                 </div>
-                <button type="button" className="btn" onClick={() => onDownload(m.id)} disabled={!!downloading || offline || m.verdict === "does not fit"}>
-                  {downloading ? "Downloading…" : m.verdict === "does not fit" ? "Too large" : "Download"}
+                <button type="button" className="btn" onClick={() => onDownload(m.id)} disabled={!!downloading || offline || willNotFit(m)}>
+                  {downloading ? "Downloading…" : willNotFit(m) ? "Too large" : "Download"}
                 </button>
               </div>
             );

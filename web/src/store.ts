@@ -13,6 +13,7 @@ import type {
   CatalogEntry,
   ChatMessage,
   Commit,
+  Computer,
   ContextBlock,
   ConversationSummary,
   EnvironmentState,
@@ -88,6 +89,12 @@ export type Session = {
   catalog: CatalogEntry[];
   models: ModelInfo[];
   catalogModels: ModelCatalogEntry[];
+  /** What this computer is, in plain words; asked once, on a person's own computer. */
+  computer: Computer | null;
+  /** The question about the computer was answered, or failed: the window stops waiting for it. */
+  computerAsked: boolean;
+  /** The first run was finished or put off in this window. */
+  firstRunLeft: boolean;
   engineLog: string[];
   context: { blocks: ContextBlock[]; prompt: string } | null;
   conversations: ConversationSummary[];
@@ -141,6 +148,8 @@ export type Session = {
   refreshCatalog: () => Promise<void>;
   refreshModels: () => Promise<void>;
   refreshModelCatalog: () => Promise<void>;
+  refreshComputer: () => Promise<void>;
+  leaveFirstRun: () => void;
   refreshConversations: () => Promise<void>;
   newConversation: () => Promise<void>;
   selectConversation: (id: string) => Promise<void>;
@@ -200,6 +209,9 @@ const EMPTY = {
   catalog: [] as CatalogEntry[],
   models: [] as ModelInfo[],
   catalogModels: [] as ModelCatalogEntry[],
+  computer: null as Computer | null,
+  computerAsked: false,
+  firstRunLeft: false,
   engineLog: [] as string[],
   context: null,
   conversations: [] as ConversationSummary[],
@@ -486,6 +498,14 @@ export const useSession = createStore<Session>((set, get) => {
     refreshModelCatalog: async () => {
       await attempt(async () => takeModelCatalog(await call("list_model_catalog")));
     },
+    refreshComputer: async () => {
+      await attempt(async () => {
+        const computer = pick(await call("describe_computer"), "computer");
+        if (computer) set({ computer });
+      });
+      set({ computerAsked: true });
+    },
+    leaveFirstRun: () => set({ firstRunLeft: true }),
     refreshEngineLog: async () => {
       await attempt(async () => {
         const log = pick(await call({ engine_log: { lines: 60 } }), "engine_log");
