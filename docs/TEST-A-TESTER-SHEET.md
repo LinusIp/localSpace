@@ -3,13 +3,14 @@
 One page. Part 1 is five questions to answer **before** the day; part 2 is
 the day itself. Nothing here needs a terminal or any technical knowledge.
 
-> **For us, not for testers — delete this block before sending.** Part 1 can
-> go out today. Part 2 describes the build of the 25th: step 5 (what the app
-> says about the computer, the recommendation, a download that resumes) is
-> items 2 to 4 of the build order and is not in the build yet. Screenshots
-> of the two Windows messages are added after the dry run of Thursday 24th,
-> from the real build on a real machine; the "10 GB" of part 1 is checked
-> against the recommended models then too.
+> **For us, not for testers — delete this block before sending.** Part 1
+> is the screening the user took on to send on the 18th. Part 2 matches the build as of 19 September: the
+> first run says what the computer is, recommends a model with how it will
+> run, and its download continues after an interruption. Screenshots of the
+> two Windows messages and of the first run are added after the dry run of
+> Thursday 24th, from the real build on a real machine that is not ours. The
+> models a laptop is offered today are 0.5 GB, 1.0 GB, 2.0 GB, 4.4 GB and
+> 8.4 GB to download, so "about 10 GB" of free disk covers every one of them.
 
 ## Part 1 — before the day: five things to send us
 
@@ -47,9 +48,11 @@ Open **Task Manager** (press Ctrl+Shift+Esc) and choose **Performance**.
      take part on another machine or watch a neighbour's.
 4. **Start localSpace** from the Start menu if it did not open by itself.
    The first start takes a moment.
-5. **Read what it says about your computer**, and the model it recommends.
-   Accept it. The download is a few gigabytes; it continues by itself if
-   the connection drops.
+5. **Read what it says about your computer**, and the model it recommends
+   with how fast it expects it to be. Choose **Download and start**. The
+   download is between one and five gigabytes. If the connection drops it
+   carries on by itself; if you close the app, open it again and choose
+   **Continue the download**: it goes on from where it stopped.
 6. **Chat.** Ask it anything. Then try something long, such as "explain how
    a heat pump works, in detail".
 
@@ -57,7 +60,8 @@ Open **Task Manager** (press Ctrl+Shift+Esc) and choose **Performance**.
 
 - What the app said about your computer (one line), and the model it
   recommended.
-- The speed it promised, and whether the answers felt like that.
+- The speed it promised ("about 20 to 30 words a second", for instance),
+  and whether the answers felt like that, faster, or slower.
 - How long the first word of an answer took: under two seconds, a few
   seconds, or longer.
 - Anything that stopped you, word for word if there was a message.
