@@ -4,6 +4,101 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-19, two gaps found in the pictures: a download could not be stopped, and the shell offers what does not exist
+
+The user's note on the first pictures (`13-localspace-ui-gaps.md`).
+
+- **A download can be stopped, and a model can be deleted** (architecture v2
+  §4.4). *Stop* on a download under way keeps what came: the entry reads
+  "N% is already here" with *Continue*, as after a lost connection. *Delete*
+  on a model that is here and on a part a download stopped in asks once, in
+  plain words, naming the model and the space it frees, and the entry is back
+  to *Download*; a model in use is stopped first, and the question says so; a
+  file the person brought in themselves is never deleted. The buttons stand
+  where *Download* stands, not in a menu. In the API: `stop_download` and
+  `delete_model`, an administrator's in an organisation like `download_model`
+  (the builder's names).
+- **One download at a time.** Two at once on a home connection halve both and
+  each looks broken. A second one waits its turn, says so ("Waiting for the
+  download before it to finish"), can be stopped while it waits, and begins
+  when the one before it has ended, however it ended. The stage is `queued`.
+- **The drive's room is said in the list, before a download can begin**, as it
+  already was at the first run: an entry the models' drive has no room for
+  (what is still to fetch, and the gigabyte that is always kept free) offers
+  no *Download* and says "It needs 8.4 GB and drive C: has 3.1 GB free: make
+  room there first." The refusal at the click stays behind it. The drive is
+  looked at no more than once in five seconds: the look costs most of a
+  second on Windows, and the list is asked for often.
+- **The rule: nothing is visible unless it works.** Not disabled with a
+  tooltip, not greyed and mysterious: either it does the thing, or it is not
+  on the screen. The one exception is a control whose absence would confuse
+  more than its presence, and that one carries a plain sentence saying when
+  it will work, never a code and never "coming soon" on its own. **The whole
+  shell was walked on a fresh install of the release build and every control
+  that leads nowhere was listed for the user; nothing of it is changed until
+  the list is agreed.**
+
+## 2026-09-19, the answers of Saturday night, and what the first pictures showed
+
+The user's answers to the night's report (`12-localspace-answers-saturday.md`),
+with what was found while taking the pictures they asked for.
+
+- **Every build tested by hand had been a debug build; what ten strangers run
+  is a release build, and the two are proven to behave differently here.** So
+  the dry run uses the release artefact, and the message script runs against
+  the installed release build. **Asked for and done: where else could this
+  class of bug hide?** Nowhere: the memory's copy rate was the only place in
+  the product where a measured result depends on work an optimiser could
+  remove or reorder. Everything else that is timed waits on real input and
+  output or on another process (the engine's start, a download, an answer);
+  `localspace bench` times calls that have side effects, so they cannot be
+  removed, and nothing is decided from it.
+- **The pictures for the landing page come from the release build**: the
+  portable copy of the package, serving a fresh data folder under a neutral
+  name, at the app's own 1440 by 900, in the light theme.
+- **How the installer reaches testers: a cloud-drive link the founder
+  controls, with the SHA-256 in the email.** Google Drive shows its own "can't
+  scan this file for viruses" page for a file of this size: a second alarming
+  page before SmartScreen, so it is pictured on the sheet too. A GitHub
+  Release on the public localLabs repository is the founder's call. **The dry
+  run downloads the installer the way a tester will**, through the real link,
+  in a browser, on a machine that has never seen the file.
+- **The contact on the sheet** is `locallabs.io@gmail.com`, "the localLabs
+  team" until the founder gives a name, **and a Telegram contact, preferably a
+  small group for the ten testers, at the top of the sheet**: somebody stuck
+  at nine in the evening does not write an email and wait. The founder
+  decides; the sheet has the place.
+- **The certificate's provider is not decided.** The signing path is ready for
+  either outcome: with nothing in hand by Sunday evening, Monday ships
+  unsigned, and a tester whose screening answer says Smart App Control is on
+  receives no installer.
+- **AMD machines are the least-validated path in the product**, and their
+  logs are read first on Monday (`docs/test-a/RUNBOOK.md`). AMD publishes only
+  "up to" figures; they stay as entered, under the estimate's efficiency.
+- **Smart App Control on the development machine: the user turns it off**,
+  once the founder confirms (it cannot be turned on again without
+  reinstalling Windows). The builder never changes it. **What was seen that
+  night with it on (state 1):** it refused `rustc.exe` for about two hours
+  and then let it run again; and it blocked **neither the unsigned installer
+  nor the unsigned app**: the installer opened, was clicked through by the
+  person at the machine, and the app ran. Its verdicts are not uniform, so the
+  rule for testers stands as ruled, and the block's dialog could not be
+  recorded from our installer on this machine.
+- **The verdicts' effective lines are accepted as built**: about 9 tokens a
+  second for "runs well" and 5.3 for "works", read off the numbers shown.
+  Monday's calibration starts from these, not from the 10 and 5 first ruled.
+  An unknown card promised the processor's floor errs on the right side:
+  faster than promised, and the reliable model.
+- **Sunday, added:** read the log the dry run writes as if a stranger had
+  sent it; verify the installer's clicks by watching them; capture every
+  dialog a tester meets, in order. **Seen already, by one capture:** the
+  installer's folder page has a **Next** button where the sheet said
+  *Install*, and it shows the account's folder name.
+- **Found while taking the pictures, and fixed:** "connected to localSpace"
+  never went away on a page that stood still: a notice's age was looked at
+  only when something else redrew the window. It now goes after its eight
+  seconds by itself.
+
 ## 2026-09-19, the answers after day 4 and their addendum: the laptop test is on Monday 21 September, and nobody stands beside the testers
 
 The user's answers to the second evening report of 2026-09-19

@@ -4,15 +4,19 @@ Thank you for doing this. localSpace is an AI assistant that runs **on your
 computer**: what you type stays there. We want to know whether it installs
 and runs on machines we have never seen, and yours is one of them.
 
+> **Stuck, or unsure whether to go on? Ask, whatever the hour.**
+> Telegram: ‹the testers' group, or the contact› — the quickest, and you see
+> what the others ran into.
+> Email: **locallabs.io@gmail.com** (the localLabs team).
+
 **You are on your own for this, and that is the point.** Nothing here needs a
 terminal or any technical knowledge. If something stops you, that is not
 your mistake: it is exactly what we need to hear about. Stop, write down
-what you saw, and send it to us.
+what you saw, and tell us.
 
 - **Time:** about 45 minutes, most of it a download you do not have to watch.
 - **You need:** Windows 10 or 11, about 10 GB of free disk space, and an
   internet connection for the download (between 1 and 8 GB, once).
-- **Stuck, or unsure whether to go on?** ‹name›, ‹email or phone›.
 
 ## Before you start: one thing about Windows
 
@@ -26,10 +30,16 @@ this file, from us, it is safe to go on.
 ## The steps
 
 **1. Download the installer** from the link in our email:
-`localSpace_…_x64-setup.exe` (about 60 MB).
+`localSpace-…-windows-x64-setup.exe` (about 35 MB).
 
-Your browser may hold the file back because few people have downloaded it
-yet:
+The link opens a page of Google Drive. If Drive says that it cannot scan
+the file for viruses, or warns that the file is a program, click
+**Download anyway**.
+
+‹picture: Drive's page, from the dry run›
+
+Then your browser may hold the file back, because few people have
+downloaded it yet:
 
 - **Edge** says *"… isn't commonly downloaded. Make sure you trust … before
   you open it."* Point at the file in the downloads list, click the three
@@ -51,10 +61,13 @@ yet:
   fix. **Do not change any Windows setting.** Stop here and tell us: that
   alone is a useful result.
 
-**3. Install.** Click **Next**, then **Install**. When the bar is full and it
-says *Completed*, click **Next**, then **Finish**, and leave *Run localSpace*
+**3. Install.** Click **Next**, and **Next** again on the page that shows the
+folder (leave the folder as it is). When the bar is full and it says
+*Completed*, click **Next**, then **Finish**, and leave *Run localSpace*
 ticked. It installs for you only, asks for no administrator password, and
 takes under a minute.
+
+‹pictures: the installer's pages in order, from the dry run›
 
 **4. The first start.** localSpace opens by itself (if not: Start menu →
 *localSpace*). For a few seconds it says *"Looking at this computer…"*. Then
@@ -76,7 +89,7 @@ that it happened.)
 
 | What you see | How long | It is working when |
 |---|---|---|
-| *"… % downloaded"* under a bar | 5 minutes to an hour, by your connection: the model is between 1 and 8 GB | the percentage goes up. If your connection drops, it carries on by itself. If you close the app, open it again and choose **Continue the download**: nothing is lost. |
+| *"… % downloaded"* under a bar | 5 minutes to an hour, by your connection: the model is between 1 and 8 GB | the percentage goes up. If your connection drops, it carries on by itself. You can stop it (**Stop the download**, under the button) and go on later with **Continue the download**; closing the app does the same. Nothing that came is lost. |
 | *"Checking that the file on this computer is the published one…"* | up to a minute | it says so |
 | *"Starting it up. A larger model takes a minute."* | 10 seconds to 2 minutes | it says so |
 
@@ -102,6 +115,8 @@ write, something to summarise, a sum. Then try something long, such as
   what the app found out about your computer, what it downloaded and how
   fast it ran. **It holds nothing you typed and none of the answers.** The
   app never sends it anywhere by itself; only you can.
+
+  ‹picture: the folder with app.log in it, from the dry run›
 - **Your answers to the ten questions below.** Short is fine.
 
 ## The ten questions
@@ -126,5 +141,7 @@ write, something to summarise, a sum. Then try something long, such as
 ## Afterwards
 
 Keep it, or remove it: Windows **Settings → Apps → Installed apps →
-localSpace → Uninstall**. Tick *Delete the application data* to remove the
-downloaded model too (it is the large part).
+localSpace → Uninstall** (on Windows 10: *Apps & features*). Tick *Delete
+the application data* to remove the downloaded model too (it is the large
+part). To free the space and keep the app: **Settings → Assistant →
+Delete**, beside the model.
