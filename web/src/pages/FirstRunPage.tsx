@@ -14,6 +14,8 @@ export function FirstRunPage() {
   const model = catalogModels.find((m) => m.id === computer?.recommended) ?? null;
   const downloading = !!model?.download && model.download.stage.startsWith("downloading");
   const failed = !!model?.download && model.download.stage.startsWith("failed");
+  // Stopped part-way, by a lost connection or by closing the app: what came is kept.
+  const paused = !!model?.download && model.download.stage === "paused";
   const percent = model?.download && model.download.total_bytes > 0 ? Math.min(100, (100 * model.download.done_bytes) / model.download.total_bytes) : 0;
   const engine = environment?.engine;
   const starting = !!model && !!engine && engine.loading && engine.model === model.id;
@@ -61,18 +63,18 @@ export function FirstRunPage() {
               <div className="auth-sub">
                 About {sizeInWords(model.bytes)} to download.{room ? ` ${room}` : ""}
               </div>
-              {(downloading || starting || model.installed) && (
+              {(downloading || paused || starting || model.installed) && (
                 <div style={{ marginTop: 18 }}>
                   <div className="progress">
                     <div style={{ width: `${model.installed ? 100 : percent}%` }} />
                   </div>
-                  <div className="auth-sub">{model.installed ? "Starting it up. A larger model takes a minute." : `${percent.toFixed(0)}% downloaded`}</div>
+                  <div className="auth-sub">{model.installed ? "Starting it up. A larger model takes a minute." : paused ? `${percent.toFixed(0)}% is already here.` : `${percent.toFixed(0)}% downloaded`}</div>
                 </div>
               )}
-              {failed && <div className="error">The download did not finish. Try again.</div>}
+              {failed && <div className="error">The download stopped. What came is kept: start it again and it continues from there.</div>}
               {offline && <div className="auth-sub">Downloads need the network, and this computer is set to stay offline.</div>}
               <button type="button" className="auth-button" onClick={() => void downloadModel(model.id)} disabled={downloading || starting || model.installed || offline}>
-                {downloading ? "Downloading…" : model.installed || starting ? "Starting…" : "Download and start"}
+                {downloading ? "Downloading…" : model.installed || starting ? "Starting…" : paused || failed ? "Continue the download" : "Download and start"}
               </button>
             </div>
           ) : (

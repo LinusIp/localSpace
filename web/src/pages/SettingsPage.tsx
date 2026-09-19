@@ -203,6 +203,7 @@ function GetAModel({ entries, onDownload }: { entries: ModelCatalogEntry[]; onDo
           {entries.map((m) => {
             const downloading = m.download && m.download.stage.startsWith("downloading");
             const failed = m.download && m.download.stage.startsWith("failed");
+            const paused = m.download && m.download.stage === "paused";
             const percent = m.download && m.download.total_bytes > 0 ? Math.min(100, (100 * m.download.done_bytes) / m.download.total_bytes) : 0;
             return (
               <div key={m.id} className="row-item">
@@ -211,18 +212,18 @@ function GetAModel({ entries, onDownload }: { entries: ModelCatalogEntry[]; onDo
                   <div className="row-body">
                     {modelReason(m)} About {sizeInWords(m.bytes)} to download.
                   </div>
-                  {downloading && m.download && (
+                  {(downloading || paused) && m.download && (
                     <div style={{ marginTop: 8 }}>
                       <div className="progress">
                         <div style={{ width: `${percent}%` }} />
                       </div>
-                      <div className="row-body">{percent.toFixed(0)}% downloaded</div>
+                      <div className="row-body">{paused ? `${percent.toFixed(0)}% is already here.` : `${percent.toFixed(0)}% downloaded`}</div>
                     </div>
                   )}
-                  {failed && <div className="error">The download did not finish. Try again.</div>}
+                  {failed && <div className="error">The download stopped. What came is kept: start it again and it continues from there.</div>}
                 </div>
                 <button type="button" className="btn" onClick={() => onDownload(m.id)} disabled={!!downloading || offline || willNotFit(m)}>
-                  {downloading ? "Downloading…" : willNotFit(m) ? "Too large" : "Download"}
+                  {downloading ? "Downloading…" : willNotFit(m) ? "Too large" : paused || failed ? "Continue" : "Download"}
                 </button>
               </div>
             );
