@@ -38,7 +38,9 @@ source: string, files: Array<string>, installed: boolean, loaded: boolean, downl
  */
 verdict: string, 
 /**
- * The verdict as a person reads it: "Runs well — faster than you read".
+ * The verdict as a person reads it: "Runs well — faster than you read",
+ * "Works — about as fast as you read", "Too slow for everyday use",
+ * "Will not fit on this computer".
  */
 verdict_label: string, 
 /**
@@ -49,4 +51,11 @@ speed: string,
 /**
  * One sentence on where the model sits on this computer.
  */
-placement: string, estimated_tok_s: number, first_token_ms: number, plan_summary: string, plan_notes: Array<string>, supports_tools: boolean, notes: string, };
+placement: string, 
+/**
+ * One sentence on what to expect of the answers, where the model's size
+ * calls for one: "Small models answer quickly but get things wrong more
+ * often." Empty otherwise. The verdict is about speed alone; this is
+ * shown wherever the model is recommended or listed.
+ */
+quality_words: string, estimated_tok_s: number, first_token_ms: number, plan_summary: string, plan_notes: Array<string>, supports_tools: boolean, notes: string, };

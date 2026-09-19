@@ -48,7 +48,16 @@ const READ_PER_COPY: f64 = 2.0;
 /// The lines between the verdicts, in tokens a second. **Provisional**: the
 /// ten laptops of the first test calibrate them, and revising them after it
 /// is the expected thing (docs/DECISIONS.md, 2026-09-18, answer 5).
-const RUNS_WELL_TOKENS_PER_SECOND: f32 = 15.0;
+///
+/// "Runs well" began at 15, a guess, and moved to 10 on a measurement
+/// (docs/DECISIONS.md, 2026-09-19, the answers after day 3): on a 4 GB card
+/// the 7B runs at 13 tokens a second, about ten words a second and two and
+/// a half times the pace of reading, and is reliably good on the message
+/// script, where the 1.5B that the old line made the default there answers
+/// "17 × 24 = 388". Prefer the more reliable model once a model is fast
+/// enough to read along with: speed above reading pace has sharply
+/// diminishing value, and correctness does not.
+const RUNS_WELL_TOKENS_PER_SECOND: f32 = 10.0;
 const WORKS_TOKENS_PER_SECOND: f32 = 5.0;
 /// English runs at about three words to four tokens.
 const WORDS_PER_TOKEN: f32 = 0.75;
@@ -82,7 +91,7 @@ impl Verdict {
     pub fn label(self) -> &'static str {
         match self {
             Verdict::RunsWell => "Runs well \u{2014} faster than you read",
-            Verdict::Works => "Works, slower than reading pace",
+            Verdict::Works => "Works \u{2014} about as fast as you read",
             Verdict::TooSlow => "Too slow for everyday use",
             Verdict::WillNotFit => "Will not fit on this computer",
         }
@@ -463,6 +472,38 @@ mod tests {
         let none = fit(&qwen_7b(), &laptop_3050ti(), ASK, Some(0));
         assert_eq!(none.gpu_layers, 0);
         assert_eq!(none.device, None);
+    }
+
+    #[test]
+    fn the_line_for_runs_well_is_where_the_measurement_put_it() {
+        // The 7B on the 4 GB card: 13 tokens a second measured, about ten
+        // words a second, reliably good on the message script. Under the
+        // first line (15, a guess) it only "worked", and the 1.5B was the
+        // default in its place.
+        let seven = fit(&qwen_7b(), &laptop_3050ti(), ASK, None);
+        assert!(
+            (10.0..15.0).contains(&seven.tokens_per_second),
+            "{}",
+            seven.tokens_per_second
+        );
+        assert_eq!(seven.verdict, Verdict::RunsWell);
+        assert_eq!(seven.speed_in_words(), "about 7 to 9 words a second");
+        // The words are one scale of reading pace, and each is true of its
+        // band: a person reads about four words a second.
+        assert_eq!(
+            Verdict::RunsWell.label(),
+            "Runs well \u{2014} faster than you read"
+        );
+        assert_eq!(
+            Verdict::Works.label(),
+            "Works \u{2014} about as fast as you read"
+        );
+        assert_eq!(Verdict::TooSlow.label(), "Too slow for everyday use");
+        assert_eq!(Verdict::WillNotFit.label(), "Will not fit on this computer");
+        let words = |tokens: f32| tokens * WORDS_PER_TOKEN;
+        assert!(words(RUNS_WELL_TOKENS_PER_SECOND) * RANGE_LOW > 5.0);
+        assert!((3.0..8.0).contains(&words(WORKS_TOKENS_PER_SECOND)));
+        assert!((3.0..8.0).contains(&words(RUNS_WELL_TOKENS_PER_SECOND)));
     }
 
     #[test]

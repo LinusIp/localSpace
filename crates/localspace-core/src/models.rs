@@ -26,6 +26,17 @@ pub const BUILT_IN: &str = include_str!("../../../models/catalog.json");
 /// fills a disk to the brim, where the database and the logs also live.
 pub const DISK_HEADROOM_MIB: u64 = 1024;
 
+/// Below this many billion parameters a model is of the smallest band (the
+/// "tiny" band of the any-hardware plan, 1 to 4 billion, and what is under
+/// it), and is shown with [`SMALL_MODEL_WORDS`] wherever it is recommended
+/// or listed. The verdicts are all about speed; the message script measured
+/// that the 1.5B answers "17 × 24 = 388" at forty words a second, and a
+/// person who is told only that it runs well takes the product for broken
+/// where the small model is small (docs/DECISIONS.md, 2026-09-19, the
+/// answers after day 3, A). One sentence on the band, not a second scale.
+const SMALL_MODEL_BELOW_B: f32 = 4.0;
+pub const SMALL_MODEL_WORDS: &str = "Small models answer quickly but get things wrong more often.";
+
 /// The context a model is started with on a computer below the reference
 /// tiers: what the small profile's working set needs, and a KV cache a
 /// laptop's card can hold beside the weights.
@@ -250,6 +261,16 @@ impl CatalogModel {
             layers: map.layers,
             kv_bytes_per_token_fp16: map.kv_bytes_per_token_fp16,
         })
+    }
+
+    /// What a person is told about this model's answers, where its size calls
+    /// for a word: see [`SMALL_MODEL_WORDS`]. Empty for every larger model.
+    pub fn quality_words(&self) -> &'static str {
+        if self.params_b < SMALL_MODEL_BELOW_B {
+            SMALL_MODEL_WORDS
+        } else {
+            ""
+        }
     }
 
     /// What `fit` is asked for this model.
@@ -612,6 +633,7 @@ impl Catalog {
                         .as_ref()
                         .map(|p| p.placement.clone())
                         .unwrap_or_default(),
+                    quality_words: m.quality_words().to_string(),
                     estimated_tok_s: tok_s,
                     first_token_ms: first_ms,
                     plan_summary: summary,
@@ -1255,15 +1277,39 @@ mod tests {
         assert_eq!(small.speed, "about 20 to 30 words a second");
         assert_eq!(small.placement, "All of it fits in the graphics memory.");
 
-        // Larger than the card: it still runs, with the layers that fit, and says so.
+        // Larger than the card: it still runs, with the layers that fit, and
+        // says so. Thirteen tokens a second measured: faster than a person
+        // reads, which is what "runs well" means since the line is at 10.
         let medium = entry("qwen2.5-7b-instruct-q4_k_m");
-        assert_eq!(medium.verdict, "works", "{}", medium.placement);
+        assert_eq!(medium.verdict, "runs_well", "{}", medium.placement);
         assert!(
             medium
                 .placement
                 .starts_with("About half of it fits in the graphics memory")
         );
-        assert!(medium.speed.starts_with("about "), "{}", medium.speed);
+        assert_eq!(medium.speed, "about 7 to 9 words a second");
+        // Twice the size again: it works, and the words say at what pace.
+        let large = entry("qwen2.5-14b-instruct-q4_k_m");
+        assert_eq!(large.verdict, "works");
+        assert_eq!(
+            large.verdict_label,
+            "Works \u{2014} about as fast as you read"
+        );
+
+        // The verdict is about speed alone. What to expect of the answers is
+        // said of the smallest band, wherever it is listed, and of no other.
+        assert_eq!(small.quality_words, SMALL_MODEL_WORDS);
+        assert_eq!(
+            entry("qwen2.5-0.5b-instruct-q4_k_m").quality_words,
+            SMALL_MODEL_WORDS
+        );
+        assert_eq!(
+            entry("qwen2.5-1.5b-instruct-q4_k_m").quality_words,
+            SMALL_MODEL_WORDS
+        );
+        assert_eq!(medium.quality_words, "");
+        assert_eq!(large.quality_words, "");
+        assert_eq!(entry("qwen3-30b-a3b-q4_k_m").quality_words, "");
 
         // Never hidden, never a number: it will not fit, and that is all.
         let huge = entry("gpt-oss-120b-mxfp4");
@@ -1283,20 +1329,30 @@ mod tests {
             slower.placement
         );
 
-        // The model to start with: the largest that runs well here **of those
-        // whose licence permits commercial use**. The 3B runs well too and is
-        // passed over without a word: it is for research and evaluation only.
+        // The model to start with: the largest that runs well here, which is
+        // the 7B: prefer the more reliable model once a model is fast enough
+        // to read along with.
+        assert_eq!(
+            catalog.recommend(&found).as_deref(),
+            Some("qwen2.5-7b-instruct-q4_k_m")
+        );
+        // **Of those whose licence permits commercial use**: without the 7B
+        // and the 14B, the 3B is the largest that runs well, and it is passed
+        // over without a word for the 1.5B: it is for research and
+        // evaluation only.
         assert_eq!(small.verdict, "runs_well");
         assert!(!small.commercial_use);
         assert_eq!(
             small.license_words,
             "Free for research and evaluation only, not for commercial use."
         );
+        let mut without = Catalog::load(None, dir.path());
+        without.models.retain(|m| m.params_b < 7.0);
         assert_eq!(
-            catalog.recommend(&found).as_deref(),
+            without.recommend(&found).as_deref(),
             Some("qwen2.5-1.5b-instruct-q4_k_m")
         );
-        let recommended = entry("qwen2.5-1.5b-instruct-q4_k_m");
+        let recommended = entry("qwen2.5-7b-instruct-q4_k_m");
         assert!(recommended.commercial_use);
         assert_eq!(
             recommended.license_words,
@@ -1315,12 +1371,12 @@ mod tests {
     fn nobody_lands_on_the_smallest_model_while_a_larger_one_so_much_as_works() {
         let dir = tempfile::tempdir().unwrap();
         let catalog = Catalog::load(None, dir.path());
-        // No card, and memory slow enough that the 0.5B runs well (24 tokens a
-        // second) where the 1.5B only works (10): the 1.5B all the same, since
+        // No card, and memory slow enough that the 0.5B runs well (16 tokens a
+        // second) where the 1.5B only works (7): the 1.5B all the same, since
         // the 0.5B answers in words but cannot use a tool.
         let mut slow = found_laptop();
         slow.gpus.clear();
-        slow.ram_bandwidth_gbps = 6.0;
+        slow.ram_bandwidth_gbps = 4.0;
         let entries = catalog.entries(
             &laptop(),
             Some(&slow),
@@ -1337,11 +1393,206 @@ mod tests {
         );
         // Slower still, the 1.5B is too slow for everyday use and the 0.5B
         // works: then, and only then, the 0.5B.
-        slow.ram_bandwidth_gbps = 2.5;
+        slow.ram_bandwidth_gbps = 2.0;
         assert_eq!(
             catalog.recommend(&slow).as_deref(),
             Some("qwen2.5-0.5b-instruct-q4_k_m")
         );
+    }
+
+    /// What typical computers are told and offered: the probe the answers
+    /// after day 3 asked for when the line for "runs well" moved from 15 to
+    /// 10 tokens a second, kept, so that the next change to a line, to an
+    /// efficiency or to the ladder shows what it does to every one of them
+    /// (docs/DECISIONS.md, 2026-09-19). Each card comes through the engine's
+    /// own device line and the card table, as it does on the day.
+    #[test]
+    fn what_typical_computers_are_told_and_offered() {
+        const WELL: &str = "runs_well";
+        const WORKS: &str = "works";
+        const SLOW: &str = "too_slow";
+        const NO: &str = "will_not_fit";
+        const HALF_B: &str = "qwen2.5-0.5b-instruct-q4_k_m";
+        const ONE_HALF_B: &str = "qwen2.5-1.5b-instruct-q4_k_m";
+        const THREE_B: &str = "qwen2.5-3b-instruct-q4_k_m";
+        const SEVEN_B: &str = "qwen2.5-7b-instruct-q4_k_m";
+        const FOURTEEN_B: &str = "qwen2.5-14b-instruct-q4_k_m";
+        const THIRTY_B: &str = "qwen3-30b-a3b-q4_k_m";
+        const IDS: [&str; 6] = [HALF_B, ONE_HALF_B, THREE_B, SEVEN_B, FOURTEEN_B, THIRTY_B];
+
+        struct Shape {
+            what: &'static str,
+            /// The engine's line for its card, or none.
+            card: Option<&'static str>,
+            memory_mib: u64,
+            /// The measured copy rate of its memory, GB/s.
+            copy_gbps: f32,
+            default: &'static str,
+            /// Of the 0.5B, 1.5B, 3B, 7B, 14B and 30B-A3B, in that order.
+            verdicts: [&'static str; 6],
+        }
+        let shapes = [
+            Shape {
+                what: "the development laptop: 16 GB and an RTX 3050 Ti with 4 GB",
+                card: Some("NVIDIA GeForce RTX 3050 Ti Laptop GPU (3962 MiB, 3367 MiB free)"),
+                memory_mib: 15_613,
+                copy_gbps: 19.3,
+                default: SEVEN_B,
+                verdicts: [WELL, WELL, WELL, WELL, WORKS, NO],
+            },
+            Shape {
+                what: "16 GB and an older 4 GB card, a GTX 1650",
+                card: Some("NVIDIA GeForce GTX 1650 (4096 MiB, 3500 MiB free)"),
+                memory_mib: 16_000,
+                copy_gbps: 12.0,
+                default: ONE_HALF_B,
+                verdicts: [WELL, WELL, WELL, WORKS, SLOW, NO],
+            },
+            Shape {
+                what: "16 GB and an RTX 3060 Laptop with 6 GB",
+                card: Some("NVIDIA GeForce RTX 3060 Laptop GPU (6144 MiB, 5400 MiB free)"),
+                memory_mib: 16_000,
+                copy_gbps: 15.0,
+                default: SEVEN_B,
+                verdicts: [WELL, WELL, WELL, WELL, WORKS, NO],
+            },
+            Shape {
+                what: "16 GB and an RTX 4060 Laptop with 8 GB",
+                card: Some("NVIDIA GeForce RTX 4060 Laptop GPU (8188 MiB, 7164 MiB free)"),
+                memory_mib: 16_000,
+                copy_gbps: 19.0,
+                default: SEVEN_B,
+                verdicts: [WELL, WELL, WELL, WELL, WORKS, NO],
+            },
+            Shape {
+                // The 30B runs well here and nobody has ever run it: listed,
+                // and not the default.
+                what: "32 GB and an RTX 4060 Laptop with 8 GB",
+                card: Some("NVIDIA GeForce RTX 4060 Laptop GPU (8188 MiB, 7164 MiB free)"),
+                memory_mib: 32_400,
+                copy_gbps: 19.0,
+                default: SEVEN_B,
+                verdicts: [WELL, WELL, WELL, WELL, WORKS, WELL],
+            },
+            Shape {
+                what: "32 GB and an RTX 4080 Laptop with 12 GB",
+                card: Some("NVIDIA GeForce RTX 4080 Laptop GPU (12282 MiB, 10900 MiB free)"),
+                memory_mib: 32_400,
+                copy_gbps: 19.0,
+                default: FOURTEEN_B,
+                verdicts: [WELL, WELL, WELL, WELL, WELL, WELL],
+            },
+            Shape {
+                what: "32 GB and an RTX 4090 Laptop with 16 GB",
+                card: Some("NVIDIA GeForce RTX 4090 Laptop GPU (16376 MiB, 14600 MiB free)"),
+                memory_mib: 32_400,
+                copy_gbps: 19.0,
+                default: FOURTEEN_B,
+                verdicts: [WELL, WELL, WELL, WELL, WELL, WELL],
+            },
+            Shape {
+                // A card the table does not know is used, and promised only
+                // what the processor would do: the 7B "works" on that promise,
+                // so the default stays the 1.5B although the card would carry
+                // the 7B. The remedy is the card's entry in the table.
+                what: "16 GB and an 8 GB card the table does not know",
+                card: Some("Glenfly Arise 8G (8192 MiB, 7300 MiB free)"),
+                memory_mib: 16_000,
+                copy_gbps: 19.0,
+                default: ONE_HALF_B,
+                verdicts: [WELL, WELL, WELL, WORKS, SLOW, NO],
+            },
+            Shape {
+                what: "16 GB and the processor's own graphics",
+                card: Some("AMD Radeon(TM) 780M Graphics (8192 MiB, 7000 MiB free)"),
+                memory_mib: 16_000,
+                copy_gbps: 19.0,
+                default: ONE_HALF_B,
+                verdicts: [WELL, WELL, WELL, WORKS, SLOW, NO],
+            },
+            Shape {
+                what: "16 GB of faster memory and no card",
+                card: None,
+                memory_mib: 15_613,
+                copy_gbps: 19.3,
+                default: ONE_HALF_B,
+                verdicts: [WELL, WELL, WELL, WORKS, SLOW, NO],
+            },
+            Shape {
+                what: "16 GB of slower memory and no card",
+                card: None,
+                memory_mib: 16_000,
+                copy_gbps: 12.0,
+                default: ONE_HALF_B,
+                verdicts: [WELL, WELL, WELL, WORKS, SLOW, NO],
+            },
+            Shape {
+                what: "32 GB of faster memory and no card",
+                card: None,
+                memory_mib: 32_400,
+                copy_gbps: 19.0,
+                default: ONE_HALF_B,
+                verdicts: [WELL, WELL, WELL, WORKS, SLOW, WELL],
+            },
+            Shape {
+                what: "8 GB of slower memory and no card",
+                card: None,
+                memory_mib: 7_900,
+                copy_gbps: 12.0,
+                default: ONE_HALF_B,
+                verdicts: [WELL, WELL, WELL, NO, NO, NO],
+            },
+        ];
+
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = Catalog::load(None, dir.path());
+        for shape in shapes {
+            let mut found = found_laptop();
+            found.ram_total_mib = shape.memory_mib;
+            found.ram_free_mib = shape.memory_mib / 2;
+            found.ram_bandwidth_gbps = shape.copy_gbps;
+            found.gpus = shape
+                .card
+                .map(|line| {
+                    crate::hardware::parse_devices(&format!(
+                        "Available devices:\n  Vulkan0: {line}\n"
+                    ))
+                })
+                .unwrap_or_default();
+            for gpu in &mut found.gpus {
+                gpu.used_by_others_mib = Some(300);
+            }
+            let entries = catalog.entries(
+                &laptop(),
+                Some(&found),
+                &HashMap::new(),
+                &HashMap::new(),
+                None,
+            );
+            let told: Vec<&str> = IDS
+                .iter()
+                .map(|id| {
+                    entries
+                        .iter()
+                        .find(|e| e.id == *id)
+                        .map(|e| e.verdict.as_str())
+                        .unwrap()
+                })
+                .collect();
+            assert_eq!(told, shape.verdicts, "{}", shape.what);
+            assert_eq!(
+                catalog.recommend(&found).as_deref(),
+                Some(shape.default),
+                "{}",
+                shape.what
+            );
+            // Whatever is offered first has been through the message script
+            // and may be used commercially; and nobody is ever offered the
+            // 0.5B on a computer where a larger model so much as works.
+            let offered = catalog.get(shape.default).unwrap();
+            assert!(!offered.script_run.is_empty() && offered.commercial_use);
+            assert_ne!(shape.default, HALF_B, "{}", shape.what);
+        }
     }
 
     #[test]

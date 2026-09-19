@@ -41,7 +41,26 @@ evaluation only, not for commercial use."), not as "personal use".
   two capitals". The 15 was a guess and provisional; the 10 is measured.
   Two conditions: every machine shape is probed again after the change, the
   ones without a graphics card included, and nothing else may silently
-  become "runs well" that should not. **The principle underneath: prefer
+  become "runs well" that should not. **What the probe found**, over
+  thirteen typical computers through the engine's own device line and the
+  card table (kept as the test `what_typical_computers_are_told_and_offered`):
+  one default changes, the 4 GB RTX 3050 Ti laptop's, from the 1.5B to the
+  7B ("Runs well — faster than you read · about 7 to 9 words a second", 12.5
+  tokens a second estimated, 13 to 16 measured). Three verdicts go from
+  "works" to "runs well" and none of them is a default: the 3B on a
+  computer without a card (11 to 14 tokens a second), and the 30B-A3B on a
+  32 GB computer without a card (14, from an estimate no run has checked).
+  A 6 or 8 GB card keeps the 7B, a 12 or 16 GB card the 14B, a computer
+  without a card the 1.5B (the 7B reaches 5 to 8 tokens a second there), an
+  older 4 GB card (GTX 1650) the 1.5B. Even the low end of the range shown
+  at the line is 5.6 words a second, above the pace of reading, so "faster
+  than you read" is true of the whole band, and the middle band is 3.75 to
+  7.5 words a second, "about as fast as you read". **Found on the way:**
+  the card table has no AMD laptop parts and no RTX 50 laptop parts; such a
+  card is used and promised only the processor's pace, so its laptop is
+  offered the 1.5B where the card would carry the 7B. Put to the user: the
+  testers' cards from the screening, each added with its published
+  bandwidth. **The principle underneath: prefer
   the more reliable model once a model is fast enough to read along with.
   Speed above reading pace has sharply diminishing value; correctness does
   not.**

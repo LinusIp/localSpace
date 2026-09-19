@@ -340,13 +340,20 @@ pub struct ModelCatalogEntry {
     /// On every other computer: `runs_well`, `works`, `too_slow` or
     /// `will_not_fit`, with the three fields below filled.
     pub verdict: String,
-    /// The verdict as a person reads it: "Runs well — faster than you read".
+    /// The verdict as a person reads it: "Runs well — faster than you read",
+    /// "Works — about as fast as you read", "Too slow for everyday use",
+    /// "Will not fit on this computer".
     pub verdict_label: String,
     /// "about 20 to 30 words a second", "at least 10 words a second"; empty
     /// when the model will not fit. Never one number with a decimal.
     pub speed: String,
     /// One sentence on where the model sits on this computer.
     pub placement: String,
+    /// One sentence on what to expect of the answers, where the model's size
+    /// calls for one: "Small models answer quickly but get things wrong more
+    /// often." Empty otherwise. The verdict is about speed alone; this is
+    /// shown wherever the model is recommended or listed.
+    pub quality_words: String,
     pub estimated_tok_s: f32,
     pub first_token_ms: f32,
     pub plan_summary: String,

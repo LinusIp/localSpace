@@ -62,6 +62,17 @@ sum and a date wrong that its first run got right.**
   of its own grammar); this one had the model's own shape (`name` and
   `arguments`). Whether Core should read that one too is put to the user.
 
+**What was decided on it** (the answers after day 3, docs/DECISIONS.md,
+2026-09-19). The line for "runs well" moved from 15 to 10 tokens a second, so
+the 7B is the default on a 4 GB card: prefer the more reliable model once a
+model is fast enough to read along with. The middle verdict reads "Works —
+about as fast as you read". The smallest models say of themselves "Small
+models answer quickly but get things wrong more often." `web.search` is not
+offered until a search service is set. A model is only ever the default once
+it has been through this script on some machine (the catalog's
+`script_run`). The test is in English only; the German and Russian findings
+stay here as a known limitation.
+
 ## The answers
 
 ### Qwen2.5 7B Instruct

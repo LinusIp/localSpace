@@ -66,6 +66,7 @@ export function FirstRunPage() {
                 {model.speed && <span className="ls-muted"> · {model.speed}</span>}
               </div>
               <div className="auth-sub">{model.placement}</div>
+              {model.quality_words && <div className="auth-sub">{model.quality_words}</div>}
               {model.license_words && <div className="auth-sub">{model.license_words}</div>}
               {model.installed ? (
                 <div className="auth-sub">It is already on this computer: nothing to download.</div>

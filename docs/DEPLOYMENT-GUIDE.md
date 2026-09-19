@@ -44,7 +44,7 @@ Then it is a chat window. Nothing else is installed by default — the whiteboar
 
 ## A3. Choosing a different model
 
-Settings → Assistant → *Get another model* shows the whole catalog with a verdict for this machine against each entry — *Runs well*, *Works, slower than reading pace*, *Too slow for everyday use* or *Will not fit on this computer* — and an estimated speed as a range of words a second. (The lines between the verdicts are provisional until the ten laptops have calibrated them.) To use something not in the catalog, paste its Hugging Face repo id and the same verdict appears before anything downloads.
+Settings → Assistant → *Get another model* shows the whole catalog with a verdict for this machine against each entry — *Runs well — faster than you read*, *Works — about as fast as you read*, *Too slow for everyday use* or *Will not fit on this computer* — and an estimated speed as a range of words a second. The smallest models also say "Small models answer quickly but get things wrong more often." (The lines between the verdicts are provisional until the ten laptops have calibrated them.) To use something not in the catalog, paste its Hugging Face repo id and the same verdict appears before anything downloads.
 
 The rule the app is applying, if you want to check its work: a model at Q4 needs roughly 0.6 GB per billion parameters, plus a gigabyte or two for the context. What fits in VRAM runs fast; what spills into system RAM runs at a fraction of that; what does not fit in RAM either will not run at all.
 

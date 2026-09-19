@@ -96,8 +96,23 @@ against, with a line in `docs/DECISIONS.md`.
 - **CUDA's efficiency**, measured instead of taken as Vulkan's.
 - **The fixed cost a token on the card** scales with the number of layers
   rather than being one constant; two models cannot tell the two apart.
-- **The verdict lines** (15 and 5 tokens a second) and **the efficiencies**
-  are provisional until the ten laptops' recorded speeds are in.
+- **The verdict lines** (10 and 5 tokens a second; "runs well" moved from 15
+  on a measurement, 2026-09-19) and **the efficiencies** are provisional
+  until the ten laptops' recorded speeds are in. The test
+  `what_typical_computers_are_told_and_offered` shows what a change does to
+  every typical computer.
+- **Laptop cards the table does not know**: AMD's laptop parts (RX 6600M to
+  RX 7900M, the S parts) and the RTX 50 laptop parts are not in
+  `models/gpus.json`. Such a card is used, and promised only what the
+  processor would do, so an 8 GB card the table lacks is offered the 1.5B
+  where it would carry the 7B. Before the test: the testers' own cards, from
+  the screening answers, each with its published bandwidth. After it: the
+  rest, and whether a model that fits the card whole should be promised
+  more than the processor's pace.
+- **The estimate for a mixture of experts has never been compared with a
+  run**: Qwen3 30B-A3B is said to run well on a 32 GB laptop from its
+  active bytes alone. It is listed and is not the default until it has been
+  through the message script.
 - **The reference tiers are still told from `nvidia-smi`** (`profile::Machine`):
   a workstation or server with AMD or Intel cards is "below the floor", is
   planned by `fit` like a laptop (which works), and in server mode meets the

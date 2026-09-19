@@ -31,8 +31,15 @@ export function willNotFit(entry: ModelCatalogEntry): boolean {
  * One line on how a model will run here, in plain words. On a person's own
  * computer that is the verdict and a range of words a second, known before
  * any download; on a server of the reference tiers, what the planner knows.
+ * A model of the smallest band carries Core's sentence on what to expect of
+ * its answers, wherever it is listed.
  */
 export function modelReason(entry: ModelCatalogEntry): string {
+  const said = howItRuns(entry);
+  return entry.quality_words ? `${said} ${entry.quality_words}` : said;
+}
+
+function howItRuns(entry: ModelCatalogEntry): string {
   if (entry.verdict_label) {
     const how = entry.speed ? `${entry.verdict_label}: ${entry.speed}.` : `${entry.verdict_label}.`;
     return entry.placement ? `${how} ${entry.placement}` : how;
