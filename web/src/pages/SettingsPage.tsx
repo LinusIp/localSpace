@@ -170,7 +170,10 @@ function AssistantPane() {
                     {on && <span className="pill green">In use</span>}
                     {!on && environment?.engine.loading && environment.engine.model === m.id && <span className="pill amber">Starting up…</span>}
                   </span>
-                  <div className="opt-body">{modelReason(m)}</div>
+                  <div className="opt-body">
+                    {modelReason(m)}
+                    {m.license_words ? ` ${m.license_words}` : ""}
+                  </div>
                 </span>
               </button>
             );
@@ -204,26 +207,28 @@ function GetAModel({ entries, onDownload }: { entries: ModelCatalogEntry[]; onDo
             const downloading = m.download && m.download.stage.startsWith("downloading");
             const failed = m.download && m.download.stage.startsWith("failed");
             const paused = m.download && m.download.stage === "paused";
+            const checking = m.download && m.download.stage === "verifying";
             const percent = m.download && m.download.total_bytes > 0 ? Math.min(100, (100 * m.download.done_bytes) / m.download.total_bytes) : 0;
             return (
               <div key={m.id} className="row-item">
                 <div className="row-main">
                   <div className="row-title">{m.title}</div>
                   <div className="row-body">
-                    {modelReason(m)} About {sizeInWords(m.bytes)} to download.
+                    {modelReason(m)}
+                    {m.license_words ? ` ${m.license_words}` : ""} About {sizeInWords(m.bytes)} to download.
                   </div>
-                  {(downloading || paused) && m.download && (
+                  {(downloading || paused || checking) && m.download && (
                     <div style={{ marginTop: 8 }}>
                       <div className="progress">
                         <div style={{ width: `${percent}%` }} />
                       </div>
-                      <div className="row-body">{paused ? `${percent.toFixed(0)}% is already here.` : `${percent.toFixed(0)}% downloaded`}</div>
+                      <div className="row-body">{checking ? "Checking that the file on this computer is the published one…" : paused ? `${percent.toFixed(0)}% is already here.` : `${percent.toFixed(0)}% downloaded`}</div>
                     </div>
                   )}
                   {failed && <div className="error">The download stopped. What came is kept: start it again and it continues from there.</div>}
                 </div>
-                <button type="button" className="btn" onClick={() => onDownload(m.id)} disabled={!!downloading || offline || willNotFit(m)}>
-                  {downloading ? "Downloading…" : willNotFit(m) ? "Too large" : paused || failed ? "Continue" : "Download"}
+                <button type="button" className="btn" onClick={() => onDownload(m.id)} disabled={!!downloading || !!checking || offline || willNotFit(m)}>
+                  {downloading ? "Downloading…" : checking ? "Checking…" : willNotFit(m) ? "Too large" : paused || failed ? "Continue" : "Download"}
                 </button>
               </div>
             );

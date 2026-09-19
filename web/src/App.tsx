@@ -121,7 +121,8 @@ function Shell({ boardLink }: { boardLink: string | null }) {
     return (
       <>
         <FirstRunPage />
-        {latest && Date.now() - latest.at < 8000 && <div className={`toast${latest.level === "error" ? " error" : latest.level === "warn" ? " warn" : ""}`}>{latest.text}</div>}
+        {/* Only what went wrong: the page stands still, and "connected" would stand with it. */}
+        {latest && latest.level !== "info" && Date.now() - latest.at < 8000 && <div className={`toast${latest.level === "error" ? " error" : latest.level === "warn" ? " warn" : ""}`}>{latest.text}</div>}
       </>
     );
   }

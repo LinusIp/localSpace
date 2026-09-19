@@ -387,7 +387,8 @@ export const useSession = createStore<Session>((set, get) => {
             m.id === id ? { ...m, download: { done_bytes, total_bytes, stage } } : m,
           ),
         }));
-        if (stage === "done" || stage.startsWith("failed")) void get().refreshModelCatalog();
+        // "checked": files that were already on this computer have been looked at.
+        if (stage === "done" || stage === "checked" || stage.startsWith("failed")) void get().refreshModelCatalog();
       } else if ("presence" in event) {
         const { board, people } = event.presence;
         set((s) => ({ present: { ...s.present, [board]: people } }));
@@ -502,6 +503,10 @@ export const useSession = createStore<Session>((set, get) => {
       await attempt(async () => {
         const computer = pick(await call("describe_computer"), "computer");
         if (computer) set({ computer });
+        // The model that was in use here last is started again as the window
+        // opens, unless one is running or starting already.
+        const engine = get().environment?.engine;
+        if (computer?.last_model && !computer.first_run && !engine?.running && !engine?.loading) void get().loadModel(computer.last_model);
       });
       set({ computerAsked: true });
     },

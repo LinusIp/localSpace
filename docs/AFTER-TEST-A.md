@@ -34,6 +34,13 @@ against, with a line in `docs/DECISIONS.md`.
   (`scripts/check-catalog.mjs` is the check; two of five entries were dead on
   2026-09-19).
 
+## Before the server test (with items 5 to 7)
+
+- **An organisation's server does not start its model again after a
+  restart.** On a person's own computer the window starts the model that was
+  in use last; a server has no such window, and an administrator would load
+  the model by hand after every restart. Core should do it as it starts.
+
 ## The package and the desktop app
 
 - **A choosable folder for the models.** Many gaming laptops have a small C:

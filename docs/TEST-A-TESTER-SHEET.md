@@ -11,6 +11,17 @@ the day itself. Nothing here needs a terminal or any technical knowledge.
 > Thursday 24th, from the real build on a real machine that is not ours. The
 > models a laptop is offered today are 0.5 GB, 1.0 GB, 2.0 GB, 4.4 GB and
 > 8.4 GB to download, so "about 10 GB" of free disk covers every one of them.
+>
+> **On the day the models do not come over the venue's wifi.** Ten people
+> downloading at once share one pipe. Copy the models from a USB stick or a
+> share into each laptop's `%LOCALAPPDATA%\localSpace\models` (make the folder
+> if the app has not run yet), before or after installing. The app checks
+> each file against its published SHA-256 and then says "It is already on
+> this computer: nothing to download", with a **Start** button. A file that
+> is not the published one does not count; a model that is not on the stick
+> is downloaded as before. The files and their digests are in
+> `models/catalog.json`; `node scripts/check-catalog.mjs` checks them against
+> Hugging Face.
 
 ## Part 1 — before the day: five things to send us
 
@@ -49,10 +60,12 @@ Open **Task Manager** (press Ctrl+Shift+Esc) and choose **Performance**.
 4. **Start localSpace** from the Start menu if it did not open by itself.
    The first start takes a moment.
 5. **Read what it says about your computer**, and the model it recommends
-   with how fast it expects it to be. Choose **Download and start**. The
-   download is between one and five gigabytes. If the connection drops it
-   carries on by itself; if you close the app, open it again and choose
-   **Continue the download**: it goes on from where it stopped.
+   with how fast it expects it to be. Then choose the green button. It says
+   **Start** when the model is already on your computer (we copied it there),
+   and **Download and start** when it is not: that download is between one
+   and eight gigabytes, carries on by itself if the connection drops, and,
+   if you close the app, goes on from where it stopped when you open it
+   again and choose **Continue the download**.
 6. **Chat.** Ask it anything. Then try something long, such as "explain how
    a heat pump works, in detail".
 
