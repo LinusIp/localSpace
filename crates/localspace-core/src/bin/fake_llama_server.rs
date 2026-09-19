@@ -9,7 +9,8 @@
 //! it answers 401 to anything but `/health` that does not present the key,
 //! as llama-server does. A model stub that begins `fits N layers` makes it
 //! give up while loading when `-ngl` asks for more, as llama-server does on a
-//! graphics card that refuses.
+//! graphics card that refuses; one that contains `chat fails` makes every
+//! chat completion answer 500. Each request is named in the log.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -37,15 +38,17 @@ fn main() {
 
     eprintln!("fake llama-server: args {:?}", &args[1..]);
     let named = |flag: &str| args.windows(2).find(|w| w[0] == flag).map(|w| w[1].clone());
-    let fits: Option<u32> = named("-m")
+    let stub = named("-m")
         .and_then(|path| std::fs::read_to_string(path).ok())
-        .and_then(|text| {
-            text.strip_prefix("fits ")?
-                .split_whitespace()
-                .next()?
-                .parse()
-                .ok()
-        });
+        .unwrap_or_default();
+    let chat_fails = stub.contains("chat fails");
+    let fits: Option<u32> = Some(stub.as_str()).and_then(|text| {
+        text.strip_prefix("fits ")?
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()
+    });
     let asked: Option<u32> = named("-ngl").and_then(|n| n.parse().ok());
     if let (Some(fits), Some(asked)) = (fits, asked)
         && asked > fits
@@ -65,15 +68,18 @@ fn main() {
     for stream in listener.incoming().flatten() {
         let ready = started.elapsed() >= Duration::from_millis(load_ms);
         let alias = alias.clone();
-        std::thread::spawn(move || handle(stream, ready, &alias));
+        std::thread::spawn(move || handle(stream, ready, &alias, chat_fails));
     }
 }
 
-fn handle(mut stream: TcpStream, ready: bool, alias: &str) {
+fn handle(mut stream: TcpStream, ready: bool, alias: &str, chat_fails: bool) {
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut request_line = String::new();
     if reader.read_line(&mut request_line).is_err() {
         return;
+    }
+    if !request_line.contains("/health") {
+        eprintln!("fake llama-server: request {}", request_line.trim());
     }
     let mut content_length = 0usize;
     let mut presented: Option<String> = None;
@@ -107,6 +113,16 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str) {
         let _ = write!(
             stream,
             "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{json}",
+            json.len()
+        );
+        return;
+    }
+
+    if chat_fails && path.starts_with("/v1/chat/completions") {
+        let json = r#"{"error":{"code":500,"message":"on purpose","type":"server_error"}}"#;
+        let _ = write!(
+            stream,
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{json}",
             json.len()
         );
         return;

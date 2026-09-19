@@ -7,7 +7,7 @@
 //! supervisor thread reports through the event sink, so the shell sees
 //! "loading", "ready" and "crashed" the moment they happen.
 
-use crate::model::{OpenAiWorker, Router};
+use crate::model::{ChatRequest, ModelWorker, OpenAiWorker, Router};
 use crate::planner::{PlacementPlan, TensorMap, Verdict};
 use anyhow::{Context, Result, anyhow};
 use localspace_proto as proto;
@@ -41,6 +41,13 @@ pub enum LoadOutcome {
 /// all, the rest having spilled into system memory), and 26 did not load.
 /// Whoever answers bounds the number of times.
 pub type AfterLoad = Box<dyn FnMut(LoadOutcome) -> Option<Vec<String>> + Send>;
+
+/// How long the warm-up may take before it is left behind: on a computer
+/// without a usable graphics card the prompt's stable part is read at a few
+/// hundred tokens a second, which is the very wait being moved out of the
+/// person's first message; a computer that needs longer than this goes on
+/// without it.
+const WARM_UP_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// How long a model may take to come up before the sidecar is given up on.
 /// A hundred-billion-parameter model from NVMe is minutes, not seconds.
@@ -235,6 +242,7 @@ impl Engine {
         sink: EventSink,
         router: Arc<RwLock<Router>>,
         after_load: Option<AfterLoad>,
+        warm_up: Option<ChatRequest>,
     ) -> Result<Engine> {
         std::fs::create_dir_all(log_dir).ok();
         let port = free_port()?;
@@ -283,6 +291,7 @@ impl Engine {
                     port,
                     context_len,
                     after_load,
+                    warm_up,
                 )
             })
             .context("spawning the engine supervisor")?;
@@ -406,6 +415,7 @@ fn supervise(
     port: u16,
     context_len: u32,
     mut after_load: Option<AfterLoad>,
+    warm_up: Option<ChatRequest>,
 ) {
     let base = format!("http://127.0.0.1:{port}/v1");
     let health = format!("http://127.0.0.1:{port}/health");
@@ -509,6 +519,33 @@ fn supervise(
             }
             emit_state(&shared, &sink);
             continue;
+        }
+
+        // The warm-up (docs/DECISIONS.md, 2026-09-19): the engine reads the
+        // part of the prompt every first turn begins with, and keeps it, so
+        // that a person's first message starts as fast as their second. It
+        // happens here, inside the wait for the model that they are in
+        // anyway; it is bounded; and when it fails nothing is said and
+        // nothing stops: the first message is a few seconds slower.
+        if let Some(request) = &warm_up {
+            let began = Instant::now();
+            let reader = OpenAiWorker::new(&base, &model)
+                .with_context_len(context_len)
+                .with_key(Some(spec.key.clone()))
+                .with_timeout(WARM_UP_TIMEOUT);
+            match reader.chat(request) {
+                Ok(reply) => sink(proto::Event::TraceLine {
+                    text: format!(
+                        "engine: {model} read the prompt's stable part ({} tokens) in {:.1} s",
+                        reply.prompt_tokens,
+                        began.elapsed().as_secs_f32()
+                    ),
+                }),
+                Err(e) => tracing::debug!("engine: the warm-up did not finish: {e:#}"),
+            }
+            if *shared.status.lock().unwrap() == Status::Stopped {
+                return;
+            }
         }
 
         // Ready: the router gets the worker, the shell gets the news.

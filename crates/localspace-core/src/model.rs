@@ -143,6 +143,12 @@ impl OpenAiWorker {
         self
     }
 
+    /// How long one request may take; three minutes unless said otherwise.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
     /// Ask the endpoint what it has loaded. Used by the model picker.
     pub fn list_models(base_url: &str, api_key: Option<&str>) -> Result<Vec<String>> {
         let url = format!("{}/models", base_url.trim_end_matches('/'));

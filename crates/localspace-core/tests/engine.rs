@@ -410,6 +410,7 @@ fn a_load_that_did_not_hold_is_started_again_as_the_look_says_before_anyone_is_t
         Arc::new(move |event| heard.lock().unwrap().push(event)),
         router.clone(),
         Some(after),
+        None,
     )
     .unwrap();
 
@@ -454,9 +455,22 @@ fn start_on_a_card_that_fits(
     localspace_core::engine::Engine,
     Arc<Mutex<Vec<proto::Event>>>,
 ) {
+    start_on(&format!("fits {layers} layers"), dir, after, None)
+}
+
+/// Starts the fake engine on a model stub that says what it says.
+fn start_on(
+    stub: &str,
+    dir: &Path,
+    after: Option<localspace_core::engine::AfterLoad>,
+    warm_up: Option<localspace_core::model::ChatRequest>,
+) -> (
+    localspace_core::engine::Engine,
+    Arc<Mutex<Vec<proto::Event>>>,
+) {
     use localspace_core::model::Router;
     let model = dir.join("m.gguf");
-    std::fs::write(&model, format!("fits {layers} layers")).unwrap();
+    std::fs::write(&model, stub).unwrap();
     let events: Arc<Mutex<Vec<proto::Event>>> = Arc::default();
     let heard = events.clone();
     let flags: Vec<String> = ["-c", "2048", "-ngl", "29"].map(String::from).to_vec();
@@ -470,6 +484,7 @@ fn start_on_a_card_that_fits(
         Arc::new(move |event| heard.lock().unwrap().push(event)),
         Arc::new(std::sync::RwLock::new(Router::default())),
         after,
+        warm_up,
     )
     .unwrap();
     (engine, events)
@@ -524,6 +539,65 @@ fn an_engine_that_gives_up_while_loading_is_tried_again_smaller_before_anyone_is
             }
         )),
         "{events:?}"
+    );
+    engine.stop();
+}
+
+fn wait_for_ready(engine: &localspace_core::engine::Engine) {
+    let start = Instant::now();
+    while !engine.state().running {
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "{:?}",
+            engine.state()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn the_engine_reads_the_prompts_stable_part_before_anyone_is_told_it_is_ready() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut warm_up = localspace_core::model::ChatRequest::new("the stable part".into());
+    warm_up.max_tokens = 1;
+    let (engine, events) = start_on("fits 99 layers", dir.path(), None, Some(warm_up));
+    wait_for_ready(&engine);
+    let log = std::fs::read_to_string(dir.path().join("engines").join("m.log")).unwrap();
+    assert!(log.contains("request POST /v1/chat/completions"), "{log}");
+    // In that order: it read, and then it was ready.
+    let events = events.lock().unwrap();
+    let read = events.iter().position(
+        |e| matches!(e, proto::Event::TraceLine { text } if text.contains("read the prompt's stable part")),
+    );
+    let ready = events
+        .iter()
+        .position(|e| matches!(e, proto::Event::EngineChanged(s) if s.running));
+    assert!(read.is_some() && read < ready, "{events:?}");
+    engine.stop();
+}
+
+#[test]
+fn a_warm_up_that_fails_is_silent_and_the_model_is_ready_all_the_same() {
+    let dir = tempfile::tempdir().unwrap();
+    let warm_up = localspace_core::model::ChatRequest::new("the stable part".into());
+    let (engine, events) = start_on(
+        "fits 99 layers; chat fails",
+        dir.path(),
+        None,
+        Some(warm_up),
+    );
+    wait_for_ready(&engine);
+    let log = std::fs::read_to_string(dir.path().join("engines").join("m.log")).unwrap();
+    assert!(
+        log.contains("request POST /v1/chat/completions"),
+        "it was tried: {log}"
+    );
+    let events = events.lock().unwrap();
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, proto::Event::Notice { .. })),
+        "nothing is said of it: {events:?}"
     );
     engine.stop();
 }

@@ -4,6 +4,40 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-19, the warm-up: a person's first message starts as fast as their second
+
+Answer 4 of the answers after day 2, built within its deadline and under its
+three conditions.
+
+- **What it is.** Once a model has loaded and sits where it should, and
+  before anyone is told it is ready, the engine is sent the part of the
+  prompt every first turn begins with (the instructions, the profile, the
+  tools, the state: `Prompt::prefix`), with the same tools beside it as a
+  turn sends, and asked for one token. The engine keeps what it read, and a
+  turn's prompt continues from there with the ledger and the conversation.
+- **Inside the existing wait.** It happens on the engine's supervisor thread
+  between "the model answers" and "ready", which the person is waiting
+  through anyway; nothing new is shown.
+- **Silent and never fatal.** It is bounded at 90 seconds; when it fails or
+  runs out of time nothing is said and nothing stops, and the first message
+  is that much slower. A stop that arrives meanwhile wins. The fake engine
+  proves both halves in CI: the read comes before "ready", and a read that
+  fails leaves no notice and a model that is ready all the same.
+- **Measured with the real engine on a fresh data folder (Qwen2.5 1.5B).**
+  With the card: the stable part is 1,052 tokens, read in 0.6 s inside the
+  wait; the first message ("Hello!") then needed 34 tokens and was answered
+  in 0.1 s. With the card hidden, as on a laptop without one: read in 5.4 s
+  inside the wait (194 tokens a second), and the first message was answered
+  in 0.6 s where it would have taken about six.
+- **A correction to the record of the same day:** the "2,600 tokens" of the
+  first turn was measured on the development data, where the whiteboard and
+  the planner are installed and their tools are in the prompt. On a fresh
+  install, which is what a tester has, the first turn's prompt is 1,052
+  tokens.
+- If a person installs a tool between the load and their first message the
+  tools in the prompt change and the read is not reused; nothing is lost but
+  the time it saved.
+
 ## 2026-09-19, a file is the model's by its SHA-256: downloads, models copied in, and the default's two rules
 
 What the answers after day 2 asked for by Tuesday, except the warm-up: the
