@@ -98,11 +98,18 @@ pub struct Hardware {
 }
 
 impl Hardware {
-    /// The card localSpace uses, pinned by name when the engine starts: the
-    /// first the engine lists, which prefers a discrete card over the
-    /// processor's own graphics.
+    /// The card localSpace uses, pinned by name when the engine starts: a
+    /// card of its own before the processor's graphics, whatever order the
+    /// engine lists them in (a hybrid laptop may list either first), and of
+    /// two cards the one with more memory. One device, never a split: a
+    /// model spread over a card and the processor's graphics is slower than
+    /// on the card alone.
     pub fn gpu(&self) -> Option<&Gpu> {
-        self.gpus.first()
+        self.gpus
+            .iter()
+            .filter(|gpu| !gpu.integrated)
+            .max_by_key(|gpu| gpu.total_mib)
+            .or_else(|| self.gpus.first())
     }
 
     /// One sentence a person recognises their computer in: "NVIDIA GeForce
@@ -788,6 +795,41 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn on_a_hybrid_laptop_the_card_is_used_whichever_the_engine_lists_first() {
+        // Written, not recorded: the engine's format, two devices, the
+        // processor's graphics first, as some hybrid laptops list them.
+        let listed = "Available devices:
+              Vulkan0: Intel(R) Iris(R) Xe Graphics (16163 MiB, 15000 MiB free)
+              Vulkan1: NVIDIA GeForce RTX 4060 Laptop GPU (8188 MiB, 7600 MiB free)
+";
+        let hybrid = with(parse_devices(listed), GpuListing::Listed, 32_000);
+        assert_eq!(hybrid.gpus.len(), 2);
+        let used = hybrid.gpu().unwrap();
+        assert_eq!(
+            used.device, "Vulkan1",
+            "the card, not the larger shared memory"
+        );
+        assert_eq!(
+            hybrid.sentence(),
+            "NVIDIA GeForce RTX 4060 Laptop GPU, 8 GB of graphics memory, 32 GB of system memory"
+        );
+        // Two cards of their own: the one with more memory.
+        let two = "Available devices:
+              Vulkan0: NVIDIA GeForce RTX 3060 (12288 MiB, 12000 MiB free)
+              Vulkan1: NVIDIA GeForce RTX 4090 (24564 MiB, 24000 MiB free)
+";
+        let desktop = with(parse_devices(two), GpuListing::Listed, 64_000);
+        assert_eq!(desktop.gpu().unwrap().device, "Vulkan1");
+        // Only the processor's graphics: that, planned as the processor.
+        let only = with(
+            parse_devices(&written("AMD Radeon(TM) Graphics", 8192, 7000)),
+            GpuListing::Listed,
+            16_000,
+        );
+        assert!(only.gpu().unwrap().integrated);
     }
 
     #[test]

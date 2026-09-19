@@ -52,6 +52,14 @@ against, with a line in `docs/DECISIONS.md`.
   rather than being one constant; two models cannot tell the two apart.
 - **The verdict lines** (15 and 5 tokens a second) and **the efficiencies**
   are provisional until the ten laptops' recorded speeds are in.
+- **The reference tiers are still told from `nvidia-smi`** (`profile::Machine`):
+  a workstation or server with AMD or Intel cards is "below the floor", is
+  planned by `fit` like a laptop (which works), and in server mode meets the
+  gate. The tiers should be told from the engine's device list too.
+- **Other families in the catalog**, each after a real run through Core:
+  Gemma 4 (E2B, E4B, 12B, 26B-A4B), Ministral 3 (3B, 8B, 14B), gpt-oss-20b,
+  SmolLM3-3B, all Apache-2.0 and published ungated by ggml-org as of
+  2026-09-19.
 - **Integrated graphics through Vulkan.** They are planned as the processor
   today; on some machines the engine is faster on them than on the cores.
 

@@ -123,7 +123,8 @@ fn describe_computer(cfg: &localspace_server::ServerConfig) {
     if let hardware::GpuListing::Failed(why) = &found.gpu_listing {
         out!("graphics  not listed: {why}");
     }
-    for (index, gpu) in found.gpus.iter().enumerate() {
+    let used = found.gpu().map(|gpu| gpu.device.clone());
+    for gpu in &found.gpus {
         let speed = match (gpu.integrated, gpu.bandwidth_gbps) {
             (true, _) => "shares the system memory".to_string(),
             (false, Some(gbps)) => format!("{gbps:.0} GB/s"),
@@ -142,7 +143,11 @@ fn describe_computer(cfg: &localspace_server::ServerConfig) {
             gpu.name,
             gpu.total_mib,
             gpu.free_mib,
-            if index == 0 { "; the one used" } else { "" }
+            if used.as_deref() == Some(gpu.device.as_str()) {
+                "; the one used"
+            } else {
+                ""
+            }
         );
     }
     out!(
