@@ -169,7 +169,7 @@ impl Exposure<'_> {
     fn core_tools(&self) -> Vec<proto::ExposedTool> {
         let mut out = vec![builtin(
             "find_capability",
-            "Search every installed harness for a tool that meets a stated need.",
+            "Search what is installed for a tool that meets a stated need.",
             serde_json::json!({
                 "type": "object",
                 "properties": {"need": {"type": "string"}},
@@ -182,7 +182,7 @@ impl Exposure<'_> {
         // note for later. Cheap enough to be present on every turn.
         out.push(builtin(
             "task.plan",
-            "Write the plan: one step per harness, in order, with the intent of each.",
+            "Write the plan of a task that takes several steps: one step per tool, in order, with the intent of each.",
             serde_json::json!({
                 "type": "object",
                 "properties": {

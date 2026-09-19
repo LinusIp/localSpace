@@ -4,6 +4,45 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-19, the message script: what the recommended models answer, and a word that reached a person
+
+Section C of the answers after day 2, begun the same day: a fixed script of
+seventeen messages and a three-turn conversation, through every model a
+tester can be recommended (`scripts/message-script.mjs`; the answers and a
+person's reading of them are in `docs/test-a/MESSAGE-SCRIPT.md`).
+
+- **The 7B is the first model that is reliably good on the script** (16 of
+  19 turns; its misses are ungrammatical German and an invented detail in
+  Russian). **The 1.5B, the default on a 4 GB laptop since the licence rule,
+  is fast and unreliable**: 17 × 24 = 388 in one run and 408 in the other, a
+  date right in one run and wrong in the other, "France has two capitals"
+  in both. **The 0.5B is a last resort only**: it repeats questions back and
+  drops a conversation's thread at the first follow-up, which bears out the
+  ladder rule. The 14B follows when its download has ended.
+- **Put to the user, not decided:** whether the default on a 4 GB laptop
+  should be the 1.5B (forty words a second, by the rule "the largest that
+  runs well") or the 7B (about ten words a second measured, which the app
+  calls "works"). And whether the middle verdict's words can stay: "Works,
+  slower than reading pace" covers 5 to 15 tokens a second, which is about 4
+  to 11 words a second, where a person reads about 4: only the bottom of the
+  band is slower than reading.
+- **A word no member may be shown reached a person through the model.**
+  Asked to shorten a sentence, the 1.5B answered "I don't have a harness to
+  use for this task": it had read "(no harness is focused)", a rule about
+  "each harness" and two tool summaries that named harnesses, none of which
+  means anything on a fresh install. The word is out of what the model
+  reads: the state says "(nothing is open)", the rule says "what is open is
+  described further down", `find_capability` searches "what is installed"
+  and `task.plan` plans "one step per tool". The spec's layout of the prompt
+  is untouched. The 1.5B still declines that one sentence, now in ordinary
+  words; five other rewriting requests were done well. The vocabulary rule
+  is about what a person reads, and what the model reads is what it says.
+- **Asked for today's weather**, the 1.5B says it cannot fetch it, and the
+  7B reaches for `web.search`, which on a fresh install has no search
+  service behind it and fails before any address is built: nothing leaves
+  the computer, and the person is told after nine seconds that nothing was
+  found. A tester will ask this within minutes; noted for the sheet.
+
 ## 2026-09-19, the warm-up: a person's first message starts as fast as their second
 
 Answer 4 of the answers after day 2, built within its deadline and under its
