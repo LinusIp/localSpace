@@ -8,12 +8,31 @@ against, with a line in `docs/DECISIONS.md`.
 
 ## Due first, by ruling
 
+- **The prompt as a system message and turns, not one user message.** The
+  root cause of 2026-09-19's find: the whole prompt, conversation and all,
+  reaches the engine as a single user message, which is not how small
+  instruction models are trained to be addressed and is why they took the
+  tool framing literally. The rewording of `prompt::SYSTEM` is a patch on
+  this. Sending messages keeps the spec's order (and so the engine's prefix
+  cache); it is measured with the evals per model size, and with the message
+  script of the laptop test.
 - **The model list as data.** A signed, versioned index that Core fetches
   from the registry or imports from a file; the compiled-in
   `models/catalog.json` and `models/gpus.json` move into it. The signature:
   `ed25519-dalek` is preferred over `ring`, decided with the item.
 - **A pasted Hugging Face repo id**, with the same verdict before any
-  download, if it was cut on Tuesday 22nd; the model card is untrusted data.
+  download: **cut for the laptop test on 2026-09-19** (one to one and a half
+  days against the half day it was allowed). The model card is untrusted
+  data; `scripts/catalog-entry.mjs` shows what is read and what is not.
+- **A licence-clean model for the 3B slot.** The default recommendation only
+  offers models whose licence permits commercial use, so between the 1.5B
+  and the 7B there is nothing to recommend (Qwen2.5 3B is under a research
+  licence). Each candidate's naming and notice obligations get a careful
+  read first.
+- **A CI job that resolves every catalog entry's address** and compares its
+  size and digest, so that a dead entry can never ship silently again
+  (`scripts/check-catalog.mjs` is the check; two of five entries were dead on
+  2026-09-19).
 
 ## The package and the desktop app
 
@@ -40,18 +59,9 @@ against, with a line in `docs/DECISIONS.md`.
 
 ## The conversation with a small model
 
-- **The prompt reaches the engine as one user message**, conversation and
-  all, not as a system message and turns: not how small instruction models
-  are trained to be addressed. Sending it as messages keeps the spec's order
-  (and so the engine's prefix cache) and should be measured with the evals
-  per model size.
 - **On a fresh install the tools listed have nothing to act on**
   (`task.plan` "one step per harness", `find_capability` with nothing
   installed): fewer tools until something is installed.
-- **The first turn's prompt is about 2,600 tokens**, which a card processes
-  in three seconds and a processor alone in ten or more. Warming the
-  engine's cache with the prompt's stable part once a model has loaded would
-  make the first answer start as fast as the later ones.
 - **The evals have no model in `localspace evals`** and a 300-second limit
   through the API, which the 7B with the old wording did not finish in. An
   evals run per catalog model, with its time, belongs in the record.

@@ -4,6 +4,98 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-19, the answers after day 2
+
+The user's rulings on the four questions of the second daily report, two
+additions to the plan for the laptop test, and a re-ranking of its risks
+("answers after day 2").
+
+1. **The reworded system prompt stays** (`prompt::SYSTEM`, 2026-09-19), with
+   its measurements in this record. The 0.5B falling from 3 of 6 to 1 of 6 in
+   the whiteboard's evals is accepted: it is recommended only where nothing
+   larger fits, and there plain chat that works is worth more than tool calls
+   that half work. **The ladder is checked:** nobody lands on the 0.5B when
+   the 1.5B fits; a slightly slower 1.5B is preferred to a 0.5B that cannot
+   use a tool. **The root cause is written down so that it is not lost:** the
+   whole prompt reaches the engine as a single user message, and not as a
+   system message and turns, which is why a small model takes the tool
+   framing literally. The rewording is a patch on a structural problem, and
+   the structural fix heads `docs/AFTER-TEST-A.md`.
+2. **`sha2` is approved** as a direct dependency. A file held only to its
+   published size is not verified: a truncated or corrupted download of
+   exactly the right length passes. With it comes a second job that matters
+   more than the checksum (below).
+3. **The default recommendation only ever offers a model whose licence
+   permits commercial use.** A standing product rule, not a decision for one
+   Friday: a company running localSpace on a research-licensed model is a
+   liability the default handed them. Two conditions on how it shows: the
+   licence appears **in words a person can act on** ("Free for personal and
+   research use, not for commercial use"), not as a licence's name; and the
+   recommendation **does not explain what it skipped**, it recommends the
+   best licence-clean model that fits. On the development laptop that is the
+   1.5B and not the 3B, a real step down in quality, which is **not** fixed
+   this week by adding a model family: the candidates each carry naming and
+   notice obligations that deserve a careful read. A licence-clean model for
+   the 3B slot is a first item after the test. (The user's caveat, kept: not
+   legal advice; every licence that ships is read properly before a
+   commercial launch.)
+4. **The warm-up of the engine's cache after a load is built, with a
+   deadline and conditions:** it lands by the end of Tuesday 22 September or
+   is cut; it happens **inside the existing "getting ready" wait**, never as
+   a new wait; and a warm-up that fails is **silent and never fatal**: the
+   first message is a few seconds slower and that is all.
+
+**Confirmed:** the pasted Hugging Face repo id is **cut** for the laptop
+test (estimated at one to one and a half days against the half day it was
+allowed), and other model families **wait**. Both are on the after-test list.
+
+**Ten people downloading at once is the likeliest way the day fails**
+(2.6 MB/s at this site; a venue's one pipe divided ten ways). So the models
+are **pre-staged**, and the app notices them: **at startup the models folder
+is scanned, and a file with a catalog entry's name and its SHA-256 marks
+that entry installed, with no download.** The same verification as after a
+download, pointed at a file that arrived by other means. On the day the
+models travel on a USB stick or a local share into
+`%LOCALAPPDATA%\localSpace\models`; a tester whose machine wants a model that
+is not on the stick falls back to downloading, which still works. It lands
+before the tester sheet's screenshots, because it changes what Friday looks
+like. The digests of every model a tester might be recommended are in the
+catalog.
+
+**Answer quality is ranked level with Smart App Control**, not third: four
+messages were a thin sample. **Before Thursday a fixed script of about
+fifteen realistic messages runs through each recommended model, and the
+results are recorded**: a greeting, "What can you do?", a factual question,
+a short email, something to summarise, a little arithmetic, a translation, a
+"make this shorter", a question in a tester's own language if one will be
+used, something deliberately vague, and **a three-turn conversation whose
+follow-up depends on the previous answer**, because a growing context on a
+4 GB card is where things fall over. The same script on each band. It ranks
+above any further model family: a model that fails it is found on Wednesday,
+when the answer can still be "recommend the next one up".
+
+**Notes, as rulings.**
+- A dead catalog entry must not be able to come back: a CI job that resolves
+  every entry's address is for after the test; **a one-off check of every
+  entry that ships is done before Thursday** (two dead out of five says
+  check them all).
+- **Smart App Control on the development machine:** it stays on, but the dry
+  run matters more than the experiment. If on Wednesday or Thursday it
+  stands between the builder and a working package, it may be turned off
+  without asking first, and that day's report says so. *The builder's note:
+  changing a security setting of Windows is left to the user even so; if it
+  comes to that the builder says so at once and the user flips it.*
+- The rule for hybrid laptops is confirmed by an explicit check: the card of
+  its own is preferred, not whichever device is listed first.
+- The daily package run stays.
+
+**The remaining days:** the checksum, the detection of files already
+present, and the warm-up if it fits, by Tuesday; the message script, the
+check of the catalog and the screenshots on Wednesday; the dry run on a
+machine that is not the builder's on Thursday; the test on Friday. Nothing
+of items 5, 6 or 7 until the laptop test is done. The same report each
+evening.
+
 ## 2026-09-19, plain chat did not work on the models a laptop runs: the system prompt's opening
 
 Found while verifying item 3 with a real chat turn, and **the largest risk
