@@ -172,6 +172,14 @@ pub fn sha256_of(path: &Path, on_progress: &mut dyn FnMut(u64)) -> Result<String
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// A model some of whose files are here and have not been looked at yet.
+struct Unchecked {
+    id: String,
+    title: String,
+    /// Each with what it must turn out to be.
+    files: Vec<(String, FileCheck)>,
+}
+
 /// What a finished file must be.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileCheck {
@@ -405,7 +413,7 @@ impl Catalog {
     /// Files that are here under a catalog entry's name, finished, and not
     /// yet known to be the published ones: a model copied in from a USB
     /// stick or a share, or one whose file has changed since it was checked.
-    fn unchecked(&self) -> Vec<(String, String, Vec<(String, FileCheck)>)> {
+    fn unchecked(&self) -> Vec<Unchecked> {
         self.models
             .iter()
             .filter(|m| m.path.is_none())
@@ -418,7 +426,11 @@ impl Catalog {
                     .filter(|f| !holds(&self.verified, &self.dir, f, m.verify.get(*f)))
                     .filter_map(|f| Some((f.clone(), m.verify.get(f)?.clone())))
                     .collect();
-                (!files.is_empty()).then(|| (m.id.clone(), m.title.clone(), files))
+                (!files.is_empty()).then(|| Unchecked {
+                    id: m.id.clone(),
+                    title: m.title.clone(),
+                    files,
+                })
             })
             .collect()
     }
@@ -439,7 +451,7 @@ impl Catalog {
         let work: Vec<_> = self
             .unchecked()
             .into_iter()
-            .filter(|(id, ..)| !busy(id))
+            .filter(|model| !busy(&model.id))
             .collect();
         if work.is_empty() || self.scanning.swap(true, Ordering::SeqCst) {
             return;
@@ -452,7 +464,7 @@ impl Catalog {
         let spawned = std::thread::Builder::new()
             .name("models-already-here".into())
             .spawn(move || {
-                for (id, title, files) in work {
+                for Unchecked { id, title, files } in work {
                     let total: u64 = files.iter().map(|(_, check)| check.bytes).sum();
                     let mut before = 0u64;
                     let mut last = Instant::now();
@@ -1490,8 +1502,7 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(10));
         }
-        let events = events.lock().unwrap().clone();
-        events
+        events.lock().unwrap().clone()
     }
 
     #[test]
