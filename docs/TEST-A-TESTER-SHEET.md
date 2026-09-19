@@ -8,9 +8,9 @@ the day itself. Nothing here needs a terminal or any technical knowledge.
 > first run says what the computer is, recommends a model with how it will
 > run, and its download continues after an interruption. The two pictures of
 > the first run under step 5 are from the build of 19 September on our own
-> laptop (the page is the same everywhere but for what it says about the
-> computer and which model it names; they are taken again if the rule behind
-> the recommendation changes). Screenshots of the two Windows messages are
+> laptop, taken again after the line for "runs well" moved to 10 tokens a
+> second (the page is the same everywhere but for what it says about the
+> computer and which model it names). Screenshots of the two Windows messages are
 > added after the dry run of Thursday 24th, from the real build on a real
 > machine that is not ours. The
 > models a laptop is offered today are 0.5 GB, 1.0 GB, 2.0 GB, 4.4 GB and
@@ -28,16 +28,32 @@ the day itself. Nothing here needs a terminal or any technical knowledge.
 > <folder>` checks a stick against them before the day (the five Qwen2.5
 > models, 16 GiB together, take half a minute from a fast disk);
 > `node scripts/check-catalog.mjs` checks the list itself against Hugging
-> Face. The five Qwen2.5 models cover every laptop with 16 GB of memory; a
-> laptop with 32 GB may be recommended Qwen3 30B-A3B (17.3 GiB), which has
-> not run through localSpace on any machine yet: put to the user on
-> 19 September.
+> Face. **Put all five Qwen2.5 models on the stick** (16 GiB together): a
+> laptop is offered the 7B from a 4 GB card of the RTX 3050 Ti's class
+> upward, the 14B from a 12 GB card, the 1.5B without a card or with an
+> older 4 GB card, and the 0.5B and the 3B can be chosen by hand. Qwen3
+> 30B-A3B and gpt-oss 120B are listed and are never offered first: nobody
+> has run them through localSpace yet (docs/DECISIONS.md, 2026-09-19).
+>
+> **A card the app does not know by name** (AMD's laptop cards and the RTX 50
+> laptop cards today) is used, and promised only what the processor would
+> do, so its laptop is offered the 1.5B. Send the builder the graphics cards
+> from part 1's answers before the day, and each is added with its published
+> figure.
+>
+> **If a recommendation surprises you on the day**, the file `app.log` (see
+> the end of part 2) has two lines that explain it: "the computer as found"
+> and "first run: … is recommended".
 >
 > **What the models answer** to nineteen ordinary messages, model by model,
 > is in `docs/test-a/MESSAGE-SCRIPT.md`. In short: the 7B and the 14B are
 > reliably good; the 1.5B is fast and gets a sum, a date or a capital wrong
-> often enough that a tester will meet it; asked for the weather, the larger
-> ones try a web search that is not set up and say they found nothing.
+> often enough that a tester will meet it, which the app now says of the
+> smallest models itself. Asked for the weather, the 7B looks for a tool that
+> could tell it, finds none and says so after about nine seconds; the 14B
+> asks to fetch a web page, on the weather and on plain questions too, and
+> what a fetched page says does not reach the model yet: an open question
+> in the report of 19 September.
 
 ## Part 1 — before the day: five things to send us
 
@@ -87,8 +103,9 @@ Open **Task Manager** (press Ctrl+Shift+Esc) and choose **Performance**.
 
    ![The first run when the model is not there yet: a green Download and start button](test-a/first-run-download.png)
 
-6. **Chat.** Ask it anything. Then try something long, such as "explain how
-   a heat pump works, in detail". It answers from what it has learned: it
+6. **Chat, in English.** Ask it anything. Then try something long, such as
+   "explain how a heat pump works, in detail". Other languages are not part
+   of this test; if you try one anyway, write down what happened. It answers from what it has learned: it
    cannot look up today's weather or the news, and it can be wrong, the
    smaller models more often. Nothing you type leaves your computer unless
    it asks to fetch a web page and you allow it.
