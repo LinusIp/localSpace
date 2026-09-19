@@ -327,14 +327,44 @@ pub struct ModelCatalogEntry {
     pub installed: bool,
     pub loaded: bool,
     pub download: Option<DownloadState>,
-    /// `resident`, `hybrid`, `streaming`, `does not fit`, or `unknown`.
+    /// On a workstation or server of the reference tiers, the planner's
+    /// `resident`, `hybrid`, `streaming`, `does not fit` or `unknown`.
+    /// On every other computer: `runs_well`, `works`, `too_slow` or
+    /// `will_not_fit`, with the three fields below filled.
     pub verdict: String,
+    /// The verdict as a person reads it: "Runs well — faster than you read".
+    pub verdict_label: String,
+    /// "about 20 to 30 words a second", "at least 10 words a second"; empty
+    /// when the model will not fit. Never one number with a decimal.
+    pub speed: String,
+    /// One sentence on where the model sits on this computer.
+    pub placement: String,
     pub estimated_tok_s: f32,
     pub first_token_ms: f32,
     pub plan_summary: String,
     pub plan_notes: Vec<String>,
     pub supports_tools: bool,
     pub notes: String,
+}
+
+/// What the first run says about this computer, and what follows from it
+/// (the "any hardware" plan of 2026-09-18). Plain words throughout: this is
+/// read by a person who has never seen a model's file name.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct Computer {
+    /// "NVIDIA GeForce RTX 4060 Laptop GPU, 8 GB of graphics memory, 32 GB
+    /// of system memory".
+    pub sentence: String,
+    /// What follows from it, a sentence each; empty when nothing does.
+    pub notes: Vec<String>,
+    /// Free space where the models are kept, in whole GB.
+    pub disk_free_gb: Option<u32>,
+    /// That place as a person knows it: "drive C:" on Windows.
+    pub disk: String,
+    /// The catalog model localSpace would start with here, when one fits.
+    pub recommended: Option<String>,
+    /// True when no model is on this computer yet: the first run.
+    pub first_run: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
@@ -1147,6 +1177,10 @@ pub enum Request {
     },
     /// The model catalog with the planner's verdict per entry (v2 §4.4).
     ListModelCatalog,
+    /// What this computer is, in plain words, and the model recommended for
+    /// it. The computer is Core's: in an organisation that is the server, and
+    /// the question is the administrator's.
+    DescribeComputer,
     /// Fetch a catalog model's files from Hugging Face: provisioning egress.
     DownloadModel {
         id: String,
@@ -1266,6 +1300,7 @@ pub enum Response {
     ModelCatalog {
         entries: Vec<ModelCatalogEntry>,
     },
+    Computer(Computer),
     EngineLog {
         lines: Vec<String>,
     },

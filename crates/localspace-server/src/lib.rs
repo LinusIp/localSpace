@@ -194,6 +194,9 @@ pub fn core_config(cfg: &ServerConfig) -> Config {
     core.data_dir = cfg.data.clone();
     core.session_ttl_ms = cfg.session_ttl_ms;
     core.gateway = cfg.gateway.clone();
+    // A person's own computer is looked at as Core starts: the first run asks
+    // what it is within a second of the window opening.
+    core.look_at_start = cfg.personal;
     core
 }
 

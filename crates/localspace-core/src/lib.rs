@@ -99,6 +99,13 @@ pub struct Config {
     pub policy: Policy,
     pub gateway: GatewayConfig,
     pub machine: Machine,
+    /// What this computer was found to be, when the caller already knows (a
+    /// test describes one); `None` has Core look the first time it matters.
+    pub hardware: Option<hardware::Hardware>,
+    /// Look as Core starts, on a thread of its own, instead of the first time
+    /// it matters: the app on a person's own computer asks within its first
+    /// second, and the look takes two or three.
+    pub look_at_start: bool,
     pub profile: ModelProfile,
     /// A directory with an organisation's own `catalog.json` of models, on top
     /// of the built-in catalog. Downloaded files always go under the data dir.
@@ -126,6 +133,8 @@ impl Config {
             policy: Policy::default(),
             gateway: GatewayConfig::default(),
             machine,
+            hardware: None,
+            look_at_start: false,
             profile,
             models_dir: None,
             llama_server: None,
@@ -316,6 +325,11 @@ pub struct Core {
     models: models::Catalog,
     downloads: Arc<Mutex<HashMap<String, proto::DownloadState>>>,
     engine: Option<engine::Engine>,
+    /// What this computer was found to be: looked at once, the first time a
+    /// verdict, a recommendation or a load needs it, and kept.
+    hardware: Option<hardware::Hardware>,
+    /// The look begun as Core started, until somebody needs its answer.
+    looking: Option<std::thread::JoinHandle<hardware::Hardware>>,
     next_approval: u64,
 }
 
@@ -379,6 +393,13 @@ impl Core {
             models,
             downloads: Arc::new(Mutex::new(HashMap::new())),
             engine: None,
+            hardware: cfg.hardware.clone(),
+            looking: (cfg.look_at_start && cfg.hardware.is_none()).then(|| {
+                let binary =
+                    engine::find_binary(cfg.llama_server.as_deref(), cfg.data_dir.as_deref());
+                let models_dir = models_store.clone();
+                std::thread::spawn(move || hardware::detect(binary.as_deref(), Some(&models_dir)))
+            }),
             registry: Registry::new(),
             docs: DocStore::new(),
             store,
@@ -1190,14 +1211,67 @@ impl Core {
 
     // -- models: the catalog, downloads, the sidecar (v2 §4) -----------------
 
-    fn model_catalog(&self) -> proto::Response {
+    fn model_catalog(&mut self) -> proto::Response {
         let downloads = self.downloads.lock().unwrap().clone();
+        let hardware = self.fitted_hardware();
         proto::Response::ModelCatalog {
             entries: self.models.entries(
                 &self.cfg.machine,
+                hardware.as_ref(),
                 &downloads,
                 self.engine.as_ref().map(|e| e.model_id.as_str()),
             ),
+        }
+    }
+
+    /// Where the models are kept.
+    fn models_dir(&self) -> PathBuf {
+        self.models.dir().to_path_buf()
+    }
+
+    /// What this computer is. Looked at once (the engine lists its devices,
+    /// the operating system is asked one question, memory is timed for a
+    /// tenth of a second: two or three seconds in all) and kept.
+    fn hardware(&mut self) -> hardware::Hardware {
+        if let Some(found) = &self.hardware {
+            return found.clone();
+        }
+        if let Some(found) = self.looking.take().and_then(|look| look.join().ok()) {
+            self.trace(format!("computer: {}", found.sentence()));
+            self.hardware = Some(found.clone());
+            return found;
+        }
+        let binary = engine::find_binary(
+            self.cfg.llama_server.as_deref(),
+            self.cfg.data_dir.as_deref(),
+        );
+        let found = hardware::detect(binary.as_deref(), Some(&self.models_dir()));
+        self.trace(format!("computer: {}", found.sentence()));
+        self.hardware = Some(found.clone());
+        found
+    }
+
+    /// The same, for a computer below the reference tiers, which is the one
+    /// `fit` plans for; a workstation or server of the tiers has its planner.
+    fn fitted_hardware(&mut self) -> Option<hardware::Hardware> {
+        (self.cfg.machine.tier() == profile::HardwareTier::BelowFloor).then(|| self.hardware())
+    }
+
+    /// The first run's screen: the computer in one sentence, what follows
+    /// from it, the room for models, and the model to start with.
+    fn describe_computer(&mut self) -> proto::Computer {
+        let found = self.hardware();
+        let dir = self.models_dir();
+        let first_run = !self.models.any_installed();
+        proto::Computer {
+            sentence: found.sentence(),
+            notes: found.notes(),
+            disk_free_gb: found.disk_free_mib.map(|mib| (mib / 1024) as u32),
+            disk: hardware::place_in_words(&dir),
+            recommended: self
+                .fitted_hardware()
+                .and_then(|hw| self.models.recommend(&hw)),
+            first_run,
         }
     }
 
@@ -1209,6 +1283,23 @@ impl Core {
             anyhow::bail!(
                 "this environment is air-gapped: bring the file over and import it instead"
             );
+        }
+        // Room for it is checked before the first byte, on the drive the
+        // models go to: never a download that fails at 80 %.
+        if let Some(model) = self.models.get(id) {
+            let dir = self.models_dir();
+            let needs_mib = model.bytes / (1024 * 1024);
+            if let Some(free_mib) = hardware::disk_free_mib(&dir)
+                && free_mib < needs_mib + models::DISK_HEADROOM_MIB
+            {
+                anyhow::bail!(
+                    "{} needs {:.1} GB and {} has {:.1} GB free. Make room there and try again.",
+                    model.title,
+                    needs_mib as f64 / 1024.0,
+                    hardware::place_in_words(&dir),
+                    free_mib as f64 / 1024.0
+                );
+            }
         }
         self.models
             .download(id, self.downloads.clone(), self.sink())?;
@@ -1241,22 +1332,51 @@ impl Core {
             .models
             .installed_path(id)
             .ok_or_else(|| anyhow::anyhow!("`{id}` is not downloaded yet"))?;
-        let context_len = self
-            .models
-            .get(id)
-            .map(|m| m.context_len.min(16384))
-            .unwrap_or(8192);
-        let flags = match self.models.placement(id, &self.cfg.machine)? {
-            Some((map, plan)) => {
-                self.trace(format!("planner: {}", plan.summary()));
-                engine::flags(&plan, &map, context_len)
+        // A computer below the reference tiers is planned by `fit`, from what
+        // it was found to be just now: the card may hold more or less than it
+        // did when the verdicts were shown.
+        let fitted = match self.fitted_hardware() {
+            Some(_) => {
+                if self.cfg.hardware.is_none() {
+                    self.hardware = None;
+                }
+                let hardware = self.hardware();
+                self.models.fitted(id, &hardware, None)?
             }
-            None => vec![
-                "-c".into(),
-                context_len.to_string(),
-                "-ngl".into(),
-                "999".into(),
-            ],
+            None => None,
+        };
+        let context_len = match &fitted {
+            Some(_) => self.models.get(id).map(|m| m.ask().context_len),
+            None => self.models.get(id).map(|m| m.context_len.min(16384)),
+        }
+        .unwrap_or(8192);
+        let flags = if let Some(placed) = &fitted {
+            self.trace(format!(
+                "fit: {} of {} layers on the card ({} MiB there, {} MiB in system memory); {}",
+                placed.gpu_layers,
+                placed.layers_total,
+                placed.gpu_mib,
+                placed.ram_mib,
+                placed.speed_in_words()
+            ));
+            engine::fitted_flags(placed, context_len)
+        } else {
+            match self.models.placement(id, &self.cfg.machine)? {
+                Some((map, plan)) => {
+                    self.trace(format!("planner: {}", plan.summary()));
+                    engine::flags(&plan, &map, context_len)
+                }
+                // A model whose numbers are not known: the engine fits it
+                // itself, to the memory it measures, with its own margin.
+                None => vec![
+                    "-c".into(),
+                    context_len.to_string(),
+                    "-ngl".into(),
+                    "auto".into(),
+                    "--fit".into(),
+                    "on".into(),
+                ],
+            }
         };
         if let Some(old) = self.engine.take() {
             old.stop();
@@ -3843,6 +3963,8 @@ impl Core {
 
             R::ListModelCatalog => self.model_catalog(),
 
+            R::DescribeComputer => proto::Response::Computer(self.describe_computer()),
+
             R::DownloadModel { id } => match self.download_model(&id) {
                 Ok(()) => self.model_catalog(),
                 Err(e) => proto::Response::Error {
@@ -4389,6 +4511,7 @@ fn admin_only(req: &proto::Request) -> Option<&'static str> {
         R::SetHarnessEnabled { .. } => "harness.enable",
         R::InstallHarness { .. } | R::ApproveInstall { .. } => "harness.install",
         R::UninstallHarness { .. } => "harness.uninstall",
+        R::DescribeComputer => "computer.describe",
         R::DownloadModel { .. } => "model.download",
         R::LoadModel { .. } => "model.load",
         R::UnloadModel => "model.unload",

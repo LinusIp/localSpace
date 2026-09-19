@@ -238,14 +238,21 @@ pub fn fit(shape: &Shape, hardware: &Hardware, ask: Ask, gpu_layer_cap: Option<u
     };
     let words = tokens_per_second * WORDS_PER_TOKEN;
     let placement = if !fits {
-        "Larger than this computer's memory can hold.".to_string()
+        "It needs more memory than this computer has.".to_string()
     } else if on_card == layers_total {
         "All of it fits in the graphics memory.".to_string()
     } else if on_card > 0 {
-        format!(
-            "{on_card} of its {layers_total} layers fit in the graphics memory; the rest runs \
-             from system memory, which is slower."
-        )
+        // A share in plain words; how many layers that is, is for support
+        // (`localspace doctor`, the trace), not for the person choosing.
+        let share = on_card as f32 / layers_total as f32;
+        let part = if share >= 0.75 {
+            "Most of it fits"
+        } else if share >= 0.4 {
+            "About half of it fits"
+        } else {
+            "A small part of it fits"
+        };
+        format!("{part} in the graphics memory; the rest runs from system memory, which is slower.")
     } else if card.is_some() {
         "It does not fit in the graphics memory, so it runs from system memory.".to_string()
     } else {
@@ -392,7 +399,14 @@ mod tests {
         assert_eq!(plan.device.as_deref(), Some("Vulkan0"));
         // What goes on the card stays under what is free there, less the margin.
         assert!(plan.gpu_mib <= 3367 - 384, "{plan:?}");
-        assert!(plan.placement.contains("layers fit in the graphics memory"));
+        assert_eq!(
+            plan.placement,
+            "About half of it fits in the graphics memory; the rest runs from system memory, which is slower."
+        );
+        assert!(
+            !plan.placement.contains("layer"),
+            "no jargon where a person reads"
+        );
         // Slower than it would be on a card that held all of it.
         let mut roomy = laptop_3050ti();
         roomy.gpus[0].total_mib = 16_000;

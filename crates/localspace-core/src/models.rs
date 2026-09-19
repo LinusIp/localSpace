@@ -5,8 +5,10 @@
 //! the environment is air-gapped.
 
 use crate::engine::EventSink;
+use crate::fit::{self, Fit};
+use crate::hardware::Hardware;
 use crate::planner::{self, MoeLayout, PlanRequest, TensorMap, Verdict};
-use crate::profile::Machine;
+use crate::profile::{HardwareTier, Machine};
 use anyhow::{Context, Result, anyhow, bail};
 use localspace_proto as proto;
 use serde::{Deserialize, Serialize};
@@ -18,6 +20,15 @@ use std::time::{Duration, Instant};
 
 /// The catalog shipped with the build, as a file beside the harnesses.
 pub const BUILT_IN: &str = include_str!("../../../models/catalog.json");
+
+/// Kept free on the models' drive beyond the model itself: a download never
+/// fills a disk to the brim, where the database and the logs also live.
+pub const DISK_HEADROOM_MIB: u64 = 1024;
+
+/// The context a model is started with on a computer below the reference
+/// tiers: what the small profile's working set needs, and a KV cache a
+/// laptop's card can hold beside the weights.
+pub const FITTED_CONTEXT: u32 = 8192;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogFile {
@@ -62,6 +73,16 @@ fn yes() -> bool {
     true
 }
 
+/// The verdict as the client's code reads it; `label()` is what a person reads.
+fn verdict_id(verdict: fit::Verdict) -> &'static str {
+    match verdict {
+        fit::Verdict::RunsWell => "runs_well",
+        fit::Verdict::Works => "works",
+        fit::Verdict::TooSlow => "too_slow",
+        fit::Verdict::WillNotFit => "will_not_fit",
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tensor {
     pub core_bytes: u64,
@@ -89,6 +110,25 @@ impl CatalogModel {
                 t.layers as u64 * 4096
             },
         })
+    }
+
+    /// The model's numbers as `fit` takes them.
+    pub fn shape(&self) -> Option<fit::Shape> {
+        let map = self.tensor_map()?;
+        Some(fit::Shape {
+            weight_bytes: map.total_bytes(),
+            active_bytes: map.core_bytes + map.expert_bytes_per_token(),
+            layers: map.layers,
+            kv_bytes_per_token_fp16: map.kv_bytes_per_token_fp16,
+        })
+    }
+
+    /// What `fit` is asked for this model.
+    pub fn ask(&self) -> fit::Ask {
+        fit::Ask {
+            context_len: self.context_len.min(FITTED_CONTEXT),
+            kv_quantized: false,
+        }
     }
 
     pub fn source(&self) -> String {
@@ -144,6 +184,13 @@ impl Catalog {
         self.models.iter().find(|m| m.id == id)
     }
 
+    /// Whether any model is on this computer yet.
+    pub fn any_installed(&self) -> bool {
+        self.models
+            .iter()
+            .any(|m| self.installed_path(&m.id).is_some())
+    }
+
     /// The path `llama-server` loads: the first file, once every file is here.
     pub fn installed_path(&self, id: &str) -> Option<PathBuf> {
         let m = self.get(id)?;
@@ -158,18 +205,33 @@ impl Catalog {
         (all_here && !paths.is_empty()).then(|| paths[0].clone())
     }
 
-    /// Every entry with the planner's verdict for this machine and its state on disk.
+    /// Every entry with its verdict for this machine and its state on disk.
+    /// A workstation or server of the reference tiers is planned by the
+    /// placement planner; every other computer, given what it was found to
+    /// be, by `fit`: three words a person reads, a range of words a second,
+    /// and where the model sits.
     pub fn entries(
         &self,
         machine: &Machine,
+        hardware: Option<&Hardware>,
         downloads: &HashMap<String, proto::DownloadState>,
         loaded: Option<&str>,
     ) -> Vec<proto::ModelCatalogEntry> {
+        let fitted = hardware.filter(|_| machine.tier() == HardwareTier::BelowFloor);
         self.models
             .iter()
             .map(|m| {
-                let (verdict, tok_s, first_ms, summary, notes) = match m.tensor_map() {
-                    Some(map) => {
+                let placed = fitted
+                    .and_then(|hw| m.shape().map(|shape| fit::fit(&shape, hw, m.ask(), None)));
+                let (verdict, tok_s, first_ms, summary, notes) = match (&placed, m.tensor_map()) {
+                    (Some(placed), _) => (
+                        verdict_id(placed.verdict).to_string(),
+                        placed.tokens_per_second,
+                        0.0,
+                        placed.placement.clone(),
+                        Vec::new(),
+                    ),
+                    (None, Some(map)) => {
                         let req = PlanRequest {
                             context_len: m.context_len.min(16384),
                             ..PlanRequest::default()
@@ -183,7 +245,7 @@ impl Catalog {
                             p.notes.clone(),
                         )
                     }
-                    None => (
+                    (None, None) => (
                         "unknown".into(),
                         0.0,
                         0.0,
@@ -213,6 +275,15 @@ impl Catalog {
                     loaded: loaded == Some(m.id.as_str()),
                     download,
                     verdict,
+                    verdict_label: placed
+                        .as_ref()
+                        .map(|p| p.verdict.label().to_string())
+                        .unwrap_or_default(),
+                    speed: placed.as_ref().map(Fit::speed_in_words).unwrap_or_default(),
+                    placement: placed
+                        .as_ref()
+                        .map(|p| p.placement.clone())
+                        .unwrap_or_default(),
                     estimated_tok_s: tok_s,
                     first_token_ms: first_ms,
                     plan_summary: summary,
@@ -222,6 +293,71 @@ impl Catalog {
                 }
             })
             .collect()
+    }
+
+    /// Where `id` sits on a computer below the reference tiers, with at
+    /// most `gpu_layer_cap` layers on the card. `None` for a model whose
+    /// numbers are not known.
+    pub fn fitted(
+        &self,
+        id: &str,
+        hardware: &Hardware,
+        gpu_layer_cap: Option<u32>,
+    ) -> Result<Option<Fit>> {
+        let m = self
+            .get(id)
+            .ok_or_else(|| anyhow!("no model `{id}` in the catalog"))?;
+        let Some(shape) = m.shape() else {
+            return Ok(None);
+        };
+        let placed = fit::fit(&shape, hardware, m.ask(), gpu_layer_cap);
+        if placed.verdict == fit::Verdict::WillNotFit {
+            bail!(
+                "{} will not fit on this computer. {}",
+                m.title,
+                placed.placement
+            );
+        }
+        Ok(Some(placed))
+    }
+
+    /// The model to start with on this computer: the largest that runs well,
+    /// or failing that the largest that works, or failing that the smallest
+    /// that fits at all. Only what can be fetched or is already here, and
+    /// never one the disk has no room for.
+    pub fn recommend(&self, hardware: &Hardware) -> Option<String> {
+        let room = |m: &CatalogModel| {
+            self.installed_path(&m.id).is_some()
+                || hardware
+                    .disk_free_mib
+                    .is_none_or(|free| m.bytes / (1024 * 1024) < free)
+        };
+        let placed: Vec<(&CatalogModel, Fit)> = self
+            .models
+            .iter()
+            .filter(|m| !m.repo.is_empty() || self.installed_path(&m.id).is_some())
+            .filter(|m| room(m))
+            .filter_map(|m| {
+                m.shape()
+                    .map(|shape| (m, fit::fit(&shape, hardware, m.ask(), None)))
+            })
+            .collect();
+        let largest = |verdict: fit::Verdict| {
+            placed
+                .iter()
+                .filter(|(_, p)| p.verdict == verdict)
+                .max_by(|a, b| a.0.params_b.total_cmp(&b.0.params_b))
+                .map(|(m, _)| m.id.clone())
+        };
+        largest(fit::Verdict::RunsWell)
+            .or_else(|| largest(fit::Verdict::Works))
+            .or_else(|| {
+                placed
+                    .iter()
+                    .filter(|(_, p)| p.verdict == fit::Verdict::TooSlow)
+                    .min_by_key(|(m, _)| m.bytes)
+                    .map(|(m, _)| m.id.clone())
+            })
     }
 
     /// Whether this model is placeable at all here, with the planner's reasons.
@@ -527,7 +663,7 @@ mod tests {
     fn the_built_in_catalog_parses_and_plans_for_both_profiles() {
         let dir = tempfile::tempdir().unwrap();
         let catalog = Catalog::load(None, dir.path());
-        let entries = catalog.entries(&laptop(), &HashMap::new(), None);
+        let entries = catalog.entries(&laptop(), None, &HashMap::new(), None);
         assert!(entries.len() >= 5, "{}", entries.len());
         let small = entries
             .iter()
@@ -552,7 +688,7 @@ mod tests {
             big.plan_summary
         );
 
-        let entries = catalog.entries(&w32(), &HashMap::new(), None);
+        let entries = catalog.entries(&w32(), None, &HashMap::new(), None);
         let big = entries
             .iter()
             .find(|e| e.id == "gpt-oss-120b-mxfp4")
@@ -563,6 +699,92 @@ mod tests {
             big.plan_summary
         );
         assert!(big.estimated_tok_s > 0.0);
+    }
+
+    /// The development laptop as it was found on 2026-09-18.
+    fn found_laptop() -> Hardware {
+        use crate::hardware::{Backend, Gpu, GpuListing, Vendor};
+        Hardware {
+            gpus: vec![Gpu {
+                device: "Vulkan0".into(),
+                backend: Backend::Vulkan,
+                name: "NVIDIA GeForce RTX 3050 Ti Laptop GPU".into(),
+                vendor: Vendor::Nvidia,
+                total_mib: 3962,
+                free_mib: 3367,
+                used_by_others_mib: Some(49),
+                integrated: false,
+                bandwidth_gbps: Some(192.0),
+            }],
+            gpu_listing: GpuListing::Listed,
+            ram_total_mib: 15_613,
+            ram_free_mib: 7_184,
+            ram_bandwidth_gbps: 19.3,
+            disk_free_mib: Some(140_000),
+            cores: 16,
+            cpu: None,
+            cpu_features: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn on_an_ordinary_computer_every_entry_says_how_it_will_run_before_any_download() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = Catalog::load(None, dir.path());
+        let found = found_laptop();
+        let entries = catalog.entries(&laptop(), Some(&found), &HashMap::new(), None);
+        let entry = |id: &str| entries.iter().find(|e| e.id == id).unwrap();
+
+        let small = entry("qwen2.5-3b-instruct-q4_k_m");
+        assert_eq!(small.verdict, "runs_well");
+        assert_eq!(
+            small.verdict_label,
+            "Runs well \u{2014} faster than you read"
+        );
+        assert_eq!(small.speed, "about 20 to 30 words a second");
+        assert_eq!(small.placement, "All of it fits in the graphics memory.");
+
+        // Larger than the card: it still runs, with the layers that fit, and says so.
+        let medium = entry("qwen2.5-7b-instruct-q4_k_m");
+        assert_eq!(medium.verdict, "works", "{}", medium.placement);
+        assert!(
+            medium
+                .placement
+                .starts_with("About half of it fits in the graphics memory")
+        );
+        assert!(medium.speed.starts_with("about "), "{}", medium.speed);
+
+        // Never hidden, never a number: it will not fit, and that is all.
+        let huge = entry("gpt-oss-120b-mxfp4");
+        assert_eq!(huge.verdict, "will_not_fit");
+        assert_eq!(huge.verdict_label, "Will not fit on this computer");
+        assert_eq!(huge.speed, "");
+
+        // The model to start with: the largest that runs well here.
+        assert_eq!(
+            catalog.recommend(&found).as_deref(),
+            Some("qwen2.5-3b-instruct-q4_k_m")
+        );
+        // With no room on the disk for it, the largest that the disk can take.
+        let mut full = found_laptop();
+        full.disk_free_mib = Some(1_000);
+        assert_eq!(
+            catalog.recommend(&full).as_deref(),
+            Some("qwen2.5-0.5b-instruct-q4_k_m")
+        );
+    }
+
+    #[test]
+    fn a_workstation_of_the_reference_tiers_keeps_its_planner() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = Catalog::load(None, dir.path());
+        let entries = catalog.entries(&w32(), Some(&found_laptop()), &HashMap::new(), None);
+        let small = entries
+            .iter()
+            .find(|e| e.id == "qwen2.5-3b-instruct-q4_k_m")
+            .unwrap();
+        assert_eq!(small.verdict, "resident");
+        assert_eq!(small.verdict_label, "");
     }
 
     #[test]
@@ -601,7 +823,7 @@ mod tests {
             "imports persist in imports.json"
         );
         let entry = again
-            .entries(&laptop(), &HashMap::new(), None)
+            .entries(&laptop(), None, &HashMap::new(), None)
             .into_iter()
             .find(|e| e.id == "import-my-model")
             .unwrap();

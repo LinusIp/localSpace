@@ -419,6 +419,78 @@ pub fn detect(engine: Option<&Path>, storage: Option<&Path>) -> Hardware {
     }
 }
 
+/// The drive a path is on, on Windows: the letter of `C:\...` and of the
+/// verbatim `\\?\C:\...` alike.
+#[cfg(target_os = "windows")]
+fn drive_letter(path: &Path) -> Option<char> {
+    let full = std::fs::canonicalize(path)
+        .ok()
+        .or_else(|| std::path::absolute(path).ok())?;
+    full.components().find_map(|c| match c {
+        std::path::Component::Prefix(prefix) => match prefix.kind() {
+            std::path::Prefix::Disk(letter) | std::path::Prefix::VerbatimDisk(letter) => {
+                Some(char::from(letter).to_ascii_uppercase())
+            }
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+/// Where `path` is, as a person names it: "drive C:" on Windows, and the
+/// folder itself where drives have no letters.
+pub fn place_in_words(path: &Path) -> String {
+    #[cfg(target_os = "windows")]
+    if let Some(letter) = drive_letter(path) {
+        return format!("drive {letter}:");
+    }
+    format!("the disk that holds {}", path.display())
+}
+
+/// Free space where `path` is (or will be), in MiB, asked now. For the
+/// moment before a download: the figure of the first run is minutes old.
+pub fn disk_free_mib(path: &Path) -> Option<u64> {
+    system_facts_for_disk(path)
+}
+
+#[cfg(target_os = "windows")]
+fn system_facts_for_disk(path: &Path) -> Option<u64> {
+    let letter = drive_letter(path)?;
+    let script = format!("([System.IO.DriveInfo]::new('{letter}:\\')).AvailableFreeSpace");
+    let out = crate::child::command("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .ok()?;
+    let bytes: u64 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
+    Some(bytes / 1024 / 1024)
+}
+
+#[cfg(target_os = "linux")]
+fn system_facts_for_disk(path: &Path) -> Option<u64> {
+    // `df -Pk`: one header line, then the file system's line, the fourth
+    // field the available kilobytes.
+    let existing = path.ancestors().find(|p| p.exists())?;
+    let out = crate::child::command("df")
+        .arg("-Pk")
+        .arg(existing)
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let available: u64 = text
+        .lines()
+        .nth(1)?
+        .split_whitespace()
+        .nth(3)?
+        .parse()
+        .ok()?;
+    Some(available / 1024)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+fn system_facts_for_disk(_path: &Path) -> Option<u64> {
+    None
+}
+
 #[derive(Default)]
 struct SystemFacts {
     ram_total_mib: u64,
@@ -485,24 +557,7 @@ pub fn engine_graphics_memory(_pid: u32) -> Option<EngineGraphicsMemory> {
 fn system_facts(storage: Option<&Path>) -> SystemFacts {
     // One question to the operating system, answered as JSON: the memory in
     // KB, the processor's name, and the free bytes of the models' drive.
-    let drive = storage
-        .and_then(|p| {
-            std::fs::canonicalize(p)
-                .ok()
-                .or_else(|| Some(p.to_path_buf()))
-        })
-        .and_then(|p| {
-            p.components().find_map(|c| match c {
-                std::path::Component::Prefix(prefix) => match prefix.kind() {
-                    std::path::Prefix::Disk(letter) | std::path::Prefix::VerbatimDisk(letter) => {
-                        Some(char::from(letter))
-                    }
-                    _ => None,
-                },
-                _ => None,
-            })
-        })
-        .unwrap_or('C');
+    let drive = storage.and_then(drive_letter).unwrap_or('C');
     // The adapters: Windows counts each one's memory in use under its LUID
     // (classes whose names are the same in every language, unlike the
     // counters'), and the registry says which name a LUID carries.
@@ -569,20 +624,7 @@ fn system_facts(storage: Option<&Path>) -> SystemFacts {
                 .and_then(|rest| rest.split_once(':'))
                 .map(|(_, name)| name.trim().to_string())
         });
-    let disk_free_mib = storage.and_then(|dir| {
-        // `df -Pk`: one header line, then the file system's line, the fourth
-        // field the available kilobytes.
-        let existing = dir.ancestors().find(|p| p.exists())?;
-        let out = crate::child::command("df")
-            .arg("-Pk")
-            .arg(existing)
-            .output()
-            .ok()?;
-        let text = String::from_utf8_lossy(&out.stdout);
-        let line = text.lines().nth(1)?;
-        let available: u64 = line.split_whitespace().nth(3)?.parse().ok()?;
-        Some(available / 1024)
-    });
+    let disk_free_mib = storage.and_then(system_facts_for_disk);
     SystemFacts {
         ram_total_mib: kb("MemTotal:") / 1024,
         ram_free_mib: kb("MemAvailable:") / 1024,

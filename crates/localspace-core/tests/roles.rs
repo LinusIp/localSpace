@@ -146,6 +146,7 @@ fn only_an_administrator_touches_what_is_shared() {
         proto::Request::UninstallHarness {
             harness: WHITEBOARD.into(),
         },
+        proto::Request::DescribeComputer,
         proto::Request::DownloadModel { id: "tiny".into() },
         proto::Request::LoadModel { id: "tiny".into() },
         proto::Request::UnloadModel,

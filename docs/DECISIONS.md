@@ -4,6 +4,82 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-19, the first run: what Core decides, and what was measured with the real engine
+
+The second half of item 2 of the build order for the two tests, with the
+part of item 3 that is the engine's flags (the instructions for the builder,
+§3.2 and §3.3). The check after a load, the rest of item 3, follows.
+
+- **Which computers `fit` plans for.** A workstation or server of the
+  reference tiers (W32, W96, S) keeps the placement planner, so the W32 gate
+  and its measurement stay untouched. **Every other computer** — every
+  laptop of the first test, and a single-GPU server of the second — is
+  planned by `fit`, from what the computer was found to be: the verdict in a
+  person's words, a range of words a second, and where the model sits, on
+  every catalog entry **before any download**. The protocol carries them as
+  `verdict_label`, `speed` and `placement` beside the verdict's id
+  (`runs_well`, `works`, `too_slow`, `will_not_fit`).
+- **No jargon where a person reads.** The placement sentence says "About
+  half of it fits in the graphics memory; the rest runs from system memory,
+  which is slower", not how many layers: the layer count is for support
+  (`localspace doctor`, the trace). The vocabulary rule of `docs/PILOT-1.md`
+  §12 caught it; that rule is still kept by hand
+  (`docs/AFTER-TEST-A.md`).
+- **The engine's flags from the fit:** the context, the number of layers on
+  the card as the engine counts them, and the one device by name
+  (`-c 8192 -ngl 37 --device Vulkan0`), so that a hybrid laptop never puts
+  the model on the processor's own graphics; with nothing on the card,
+  `--device none`. **No `999` is left anywhere**: the planner's path says
+  every layer by its number too. A model whose numbers are not known is left
+  to the engine's own fitting (`-ngl auto --fit on`). The computer is looked
+  at again at the moment of a load, since the card may hold more or less than
+  when the verdicts were shown.
+- **The context on such a computer is 8,192 tokens**: what the small
+  profile's working set needs, and a KV cache a laptop's card can hold
+  beside the weights.
+- **The model to start with** is the largest that runs well; failing that
+  the largest that works; failing that the smallest that fits at all. Only
+  what can be fetched or is already here, and never one the disk has no room
+  for.
+- **Room on the disk is checked before the first byte**, on the drive the
+  models go to, asked at that moment and not taken from the first run's
+  figure: a model's size and 1 GiB beyond it. The refusal is one sentence
+  that names the place: "Qwen2.5 7B Instruct needs 4.4 GB and drive C: has
+  2.1 GB free. Make room there and try again."
+- **The first run** is the administrator's question (`DescribeComputer`;
+  the one user of a personal workstation is its administrator, and in an
+  organisation the computer that matters is the server, so a member's window
+  never asks). On a person's own computer Core begins looking as it starts,
+  on a thread of its own, so the window's first question does not wait two
+  or three seconds for PowerShell. The page shows the sentence, what follows
+  from it, the recommended model with its verdict, speed, placement and size,
+  the room on the drive, and one button; "Choose a different model" and "Not
+  now" lead on. The browser walk meets the page on its fresh server, checks
+  the sentence, and goes past it.
+- **The hardware floor in personal mode is a statement** (answer 3 of
+  2026-09-18): `serve --personal` on a small computer logs that localSpace
+  runs a model sized to it and starts; without `--personal` the gate and
+  `--allow-below-floor` stay as they were.
+
+**Measured on the development laptop with the real engine (b10869),
+through Core:** qwen2.5-3b started with `-c 8192 -ngl 37 --device Vulkan0`
+and no key on its command line; it held **2,218 MiB of the card's own memory
+and 35 MiB shared**, against 2,551 MiB the plan allowed for (the plan errs
+on the careful side: the working buffers were 80 MiB where it allows 256,
+and the token embeddings stay in system memory). A real chat turn generated
+at **40.5 tokens a second, 30 words a second**; the first run had promised
+"about 20 to 30 words a second". **The first turn's prompt is 2,600 tokens**
+(the instructions and the tools), which took 3.1 s before the first word on
+this card (842 tokens a second); on a computer without a usable card that
+wait is the longest of the day, and only the first turn pays it, because the
+engine keeps the prompt. Put to the user as a finding, not built.
+
+**A constraint of the development machine:** Smart App Control now refuses
+the Rust toolchain's own linker for wasm components
+(`wasm-component-ld`), so harness logic cannot be rebuilt there; the files
+built on 2026-09-10 are current (their source has not changed) and CI builds
+them in every run. The setting stays on (answer 3 of the day before).
+
 ## 2026-09-18, the answers after day 1
 
 The user's rulings on the six questions of the first daily report, two

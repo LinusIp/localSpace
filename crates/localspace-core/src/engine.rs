@@ -86,6 +86,27 @@ fn candidates(
     candidates
 }
 
+/// The flags a fit becomes, on a computer below the reference tiers: the
+/// context, the number of layers on the card as the engine counts them
+/// (never "all of them and hope"), and the one device it may use, by name,
+/// so that a hybrid laptop never puts the model on the processor's own
+/// graphics. With nothing on the card the engine is told to use no device
+/// at all: an unknown or shared card is started carefully.
+pub fn fitted_flags(placed: &crate::fit::Fit, context_len: u32) -> Vec<String> {
+    let mut f: Vec<String> = vec![
+        "-c".into(),
+        context_len.to_string(),
+        "-ngl".into(),
+        placed.gpu_layers.to_string(),
+        "--device".into(),
+    ];
+    f.push(match &placed.device {
+        Some(device) => device.clone(),
+        None => "none".into(),
+    });
+    f
+}
+
 /// The flags a placement plan becomes (v2 §4.2). What the planner decided —
 /// what sits on the GPU, what stays in RAM, the KV precision, the context —
 /// expressed in llama.cpp's own terms.
@@ -97,15 +118,17 @@ pub fn flags(plan: &PlacementPlan, map: &TensorMap, context_len: u32) -> Vec<Str
         "on".into(),
     ];
     let layers = map.layers.max(1) as u64;
+    // Every layer, as the engine counts them: the repeating ones and the output.
+    let all = (layers + 1).to_string();
     match plan.verdict {
         Verdict::Resident => {
-            f.extend(["-ngl".into(), "999".into()]);
+            f.extend(["-ngl".into(), all]);
         }
         Verdict::Hybrid | Verdict::Streaming => {
             if map.is_moe() {
                 // Everything on the GPU except the expert layers the plan keeps
                 // off it, counted in whole layers: what `--n-cpu-moe` expresses.
-                f.extend(["-ngl".into(), "999".into()]);
+                f.extend(["-ngl".into(), all]);
                 let off_gpu = plan.ram_expert_bytes + plan.nvme_expert_bytes;
                 let per_layer = map.routed_expert_bytes / layers;
                 let cpu_layers = if per_layer == 0 {
@@ -564,6 +587,36 @@ mod tests {
     }
 
     #[test]
+    fn a_fit_becomes_a_number_of_layers_and_one_named_device() {
+        let placed = crate::fit::Fit {
+            gpu_layers: 16,
+            layers_total: 29,
+            device: Some("Vulkan0".into()),
+            gpu_mib: 2976,
+            ram_mib: 2200,
+            verdict: crate::fit::Verdict::Works,
+            tokens_per_second: 12.5,
+            words_per_second: (7, 9),
+            at_least: false,
+            placement: String::new(),
+        };
+        assert_eq!(
+            fitted_flags(&placed, 8192),
+            ["-c", "8192", "-ngl", "16", "--device", "Vulkan0"]
+        );
+        // Nothing on the card: the engine is told to use no device at all.
+        let on_the_processor = crate::fit::Fit {
+            gpu_layers: 0,
+            device: None,
+            ..placed
+        };
+        assert_eq!(
+            fitted_flags(&on_the_processor, 8192),
+            ["-c", "8192", "-ngl", "0", "--device", "none"]
+        );
+    }
+
+    #[test]
     fn with_nothing_said_only_the_package_and_path_are_looked_in() {
         let found = candidates(None, None, None, Some(Path::new("app")), None);
         assert_eq!(found, [Path::new("app").join("engine").join(binary_name())]);
@@ -602,7 +655,9 @@ mod tests {
     #[test]
     fn a_resident_dense_model_puts_every_layer_on_the_gpu() {
         let f = flags(&resident_plan(), &dense_map(4_000_000_000, 32), 8192);
-        assert!(f.windows(2).any(|w| w == ["-ngl", "999"]), "{f:?}");
+        // Every layer by its number, the 32 repeating ones and the output: never 999.
+        assert!(f.windows(2).any(|w| w == ["-ngl", "33"]), "{f:?}");
+        assert!(!f.iter().any(|a| a == "999"), "{f:?}");
         assert!(f.windows(2).any(|w| w == ["-c", "8192"]), "{f:?}");
         assert!(!f.iter().any(|a| a == "--n-cpu-moe"), "{f:?}");
         assert!(
@@ -652,7 +707,7 @@ mod tests {
             "{f:?}\n{}",
             p.summary()
         );
-        assert!(f.windows(2).any(|w| w == ["-ngl", "999"]), "{f:?}");
+        assert!(f.windows(2).any(|w| w == ["-ngl", "49"]), "{f:?}");
         assert!(
             f.iter().any(|a| a == "--cache-type-k"),
             "quantised KV: {f:?}"

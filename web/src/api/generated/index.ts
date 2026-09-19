@@ -13,6 +13,7 @@ export type { CapabilitySummary } from "./CapabilitySummary";
 export type { CatalogEntry } from "./CatalogEntry";
 export type { ChatMessage } from "./ChatMessage";
 export type { Commit } from "./Commit";
+export type { Computer } from "./Computer";
 export type { Confirm } from "./Confirm";
 export type { ContextBlock } from "./ContextBlock";
 export type { ConversationSummary } from "./ConversationSummary";

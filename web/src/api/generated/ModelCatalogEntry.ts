@@ -19,6 +19,22 @@ bytes: number, context_len: number,
  */
 source: string, files: Array<string>, installed: boolean, loaded: boolean, download: DownloadState | null, 
 /**
- * `resident`, `hybrid`, `streaming`, `does not fit`, or `unknown`.
+ * On a workstation or server of the reference tiers, the planner's
+ * `resident`, `hybrid`, `streaming`, `does not fit` or `unknown`.
+ * On every other computer: `runs_well`, `works`, `too_slow` or
+ * `will_not_fit`, with the three fields below filled.
  */
-verdict: string, estimated_tok_s: number, first_token_ms: number, plan_summary: string, plan_notes: Array<string>, supports_tools: boolean, notes: string, };
+verdict: string, 
+/**
+ * The verdict as a person reads it: "Runs well — faster than you read".
+ */
+verdict_label: string, 
+/**
+ * "about 20 to 30 words a second", "at least 10 words a second"; empty
+ * when the model will not fit. Never one number with a decimal.
+ */
+speed: string, 
+/**
+ * One sentence on where the model sits on this computer.
+ */
+placement: string, estimated_tok_s: number, first_token_ms: number, plan_summary: string, plan_notes: Array<string>, supports_tools: boolean, notes: string, };

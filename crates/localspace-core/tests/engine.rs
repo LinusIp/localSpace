@@ -5,6 +5,7 @@
 //! shell hears every state change, `UnloadModel` stops it — and a crash is
 //! restarted.
 
+use localspace_core::hardware::{Backend, Gpu, GpuListing, Hardware, Vendor};
 use localspace_core::profile::{Machine, ModelProfile};
 use localspace_core::{Config, Core};
 use localspace_proto as proto;
@@ -217,6 +218,149 @@ fn loading_a_model_starts_the_sidecar_and_a_chat_turn_goes_through_it() {
         core.environment().model.is_none(),
         "the worker is gone with the process"
     );
+}
+
+/// An ordinary computer, described: a laptop with a 4 GB card the table
+/// knows, as the development laptop was found on 2026-09-18.
+fn an_ordinary_laptop() -> (Machine, Hardware) {
+    let machine = Machine {
+        gpus: vec![4],
+        ram_gb: 15,
+        cores: 16,
+        ..Machine::default()
+    };
+    let hardware = Hardware {
+        gpus: vec![Gpu {
+            device: "Vulkan0".into(),
+            backend: Backend::Vulkan,
+            name: "NVIDIA GeForce RTX 3050 Ti Laptop GPU".into(),
+            vendor: Vendor::Nvidia,
+            total_mib: 3962,
+            free_mib: 3367,
+            used_by_others_mib: Some(49),
+            integrated: false,
+            bandwidth_gbps: Some(192.0),
+        }],
+        gpu_listing: GpuListing::Listed,
+        ram_total_mib: 15_613,
+        ram_free_mib: 7_184,
+        ram_bandwidth_gbps: 19.3,
+        disk_free_mib: Some(140_000),
+        cores: 16,
+        cpu: None,
+        cpu_features: Vec::new(),
+    };
+    (machine, hardware)
+}
+
+/// The same Core as the other tests', on that laptop, with a second model in
+/// its catalog that no disk has room for.
+fn core_on_an_ordinary_laptop(dir: &Path) -> Core {
+    let catalog = data_dir_with_model(dir);
+    std::fs::write(
+        catalog.join("catalog.json"),
+        r#"{"version":1,"models":[
+            {"id":"tiny","title":"Tiny","params_b":0.1,"bytes":16,"context_len":2048,
+             "repo":"example/tiny","files":["tiny.gguf"],
+             "tensor":{"core_bytes":16,"routed_expert_bytes":0,"layers":2,"moe":null,"kv_bytes_per_token_fp16":256}},
+            {"id":"vast","title":"Vast","params_b":3.0,"bytes":900000000000000,"context_len":2048,
+             "repo":"example/vast","files":["vast.gguf"],
+             "tensor":{"core_bytes":2000000000,"routed_expert_bytes":0,"layers":36,"moe":null,"kv_bytes_per_token_fp16":36864}}]}"#,
+    )
+    .unwrap();
+    let (machine, hardware) = an_ordinary_laptop();
+    let mut cfg = Config::personal("tester");
+    cfg.machine = machine;
+    cfg.hardware = Some(hardware);
+    cfg.data_dir = Some(dir.to_path_buf());
+    cfg.models_dir = Some(catalog);
+    cfg.llama_server = Some(PathBuf::from(FAKE));
+    Core::new(cfg).expect("creating Core")
+}
+
+#[test]
+fn on_an_ordinary_computer_the_engine_gets_a_number_of_layers_and_one_named_device() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut core = core_on_an_ordinary_laptop(dir.path());
+
+    // What the first run shows: the computer in plain words, and no first
+    // run any more once a model is here.
+    match core.handle(proto::Request::DescribeComputer) {
+        proto::Response::Computer(computer) => {
+            assert_eq!(
+                computer.sentence,
+                "NVIDIA GeForce RTX 3050 Ti Laptop GPU, 4 GB of graphics memory, 16 GB of system memory"
+            );
+            assert!(computer.notes.is_empty(), "{:?}", computer.notes);
+            assert_eq!(computer.disk_free_gb, Some(136));
+            assert!(!computer.first_run, "the stub model's file is on disk");
+            assert!(computer.recommended.is_some());
+        }
+        other => panic!("expected the computer, got {other:?}"),
+    }
+
+    // The verdict is in a person's words before anything is loaded.
+    match core.handle(proto::Request::ListModelCatalog) {
+        proto::Response::ModelCatalog { entries } => {
+            let tiny = entries.iter().find(|e| e.id == "tiny").unwrap();
+            assert_eq!(tiny.verdict, "runs_well");
+            assert!(tiny.verdict_label.starts_with("Runs well"));
+        }
+        other => panic!("{other:?}"),
+    }
+
+    assert!(matches!(
+        core.handle(proto::Request::LoadModel { id: "tiny".into() }),
+        proto::Response::Ok
+    ));
+    wait_until(&core, "the sidecar to answer", |s| s.running);
+    // The fake logs its arguments: every layer by its number (the two
+    // repeating ones and the output), the one device by name, and never 999.
+    let log = std::fs::read_to_string(dir.path().join("engines").join("tiny.log")).unwrap();
+    assert!(log.contains(r#""-ngl", "3""#), "{log}");
+    assert!(log.contains(r#""--device", "Vulkan0""#), "{log}");
+    assert!(!log.contains("\"999\""), "{log}");
+    assert!(matches!(
+        core.handle(proto::Request::UnloadModel),
+        proto::Response::Ok
+    ));
+}
+
+#[test]
+fn a_download_with_no_room_for_it_is_refused_before_it_starts_and_names_the_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut core = core_on_an_ordinary_laptop(dir.path());
+    match core.handle(proto::Request::DownloadModel { id: "vast".into() }) {
+        proto::Response::Error { message } => {
+            assert!(message.starts_with("Vast needs "), "{message}");
+            assert!(
+                message.contains(" free. Make room there and try again."),
+                "{message}"
+            );
+            let place = if cfg!(windows) {
+                "drive "
+            } else {
+                "the disk that holds "
+            };
+            assert!(message.contains(place), "{message}");
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    // Nothing was started: no partial file, no download in the catalog.
+    assert!(!dir.path().join("models").join("vast.gguf.part").exists());
+    match core.handle(proto::Request::ListModelCatalog) {
+        proto::Response::ModelCatalog { entries } => {
+            assert!(
+                entries
+                    .iter()
+                    .find(|e| e.id == "vast")
+                    .unwrap()
+                    .download
+                    .is_none()
+            );
+        }
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]

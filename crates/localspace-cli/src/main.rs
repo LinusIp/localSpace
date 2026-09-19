@@ -137,6 +137,13 @@ fn serve(args: ServeArgs) -> Result<()> {
                 "team mode: this is a workstation profile, not a server. Expect one interactive \
                  stream and graceful queuing beyond that."
             );
+        } else if cfg.personal {
+            // One person's own computer is never refused (the answers of
+            // 2026-09-18): it runs a model sized to it, and says which.
+            tracing::info!(
+                "this computer is smaller than a server: localSpace runs a model sized to it. \
+                 `localspace doctor` says what to expect."
+            );
         } else if !cfg.allow_below_floor {
             refuse(format!(
                 "refusing to start below the supported floor.\nDetected: {}\nRun `localspace \

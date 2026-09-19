@@ -38,6 +38,13 @@ against, with a line in `docs/DECISIONS.md`.
   has no command-line switch, so the `package` workflow cannot tick it; it
   is checked by hand at the dry run.
 
+## The words a person sees
+
+- **The vocabulary rule is not checked in CI**, although `docs/PILOT-1.md`
+  §12 says it is: no script reads the shell's member-facing strings for the
+  words a member must never see. Until it exists the rule is kept by hand
+  (it caught "layers" in the first run's placement sentence on 2026-09-19).
+
 ## The estimate
 
 - **CUDA's efficiency**, measured instead of taken as Vulkan's.
