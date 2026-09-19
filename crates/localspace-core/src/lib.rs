@@ -79,6 +79,13 @@ pub const CORE_TOOLS: &[&str] = &[
     "task.note",
 ];
 
+/// Whether what a web tool brings back can reach the model: see
+/// `exposure::Exposure::web_results_reach_the_model`. Not yet, so no web tool
+/// is offered and none can be reached by the agent. It becomes true with
+/// the change that lets a read tool's result, bounded, into what the model
+/// reads (docs/AFTER-TEST-A.md, due first).
+const WEB_RESULTS_REACH_THE_MODEL: bool = false;
+
 /// How many tool calls one agent turn may make before Core stops it.
 pub const MAX_AGENT_STEPS: usize = 24;
 
@@ -1618,11 +1625,20 @@ impl Core {
     // -- tool exposure ------------------------------------------------------
 
     pub fn active_set(&self) -> proto::ActiveSet {
+        let read_only_harnesses = self.read_only_harnesses();
+        self.exposure(&read_only_harnesses).active_set()
+    }
+
+    fn offers_builtin(&self, tool: &str) -> bool {
+        let read_only_harnesses = self.read_only_harnesses();
+        self.exposure(&read_only_harnesses).offers_builtin(tool)
+    }
+
+    fn exposure<'a>(&'a self, read_only_harnesses: &'a [String]) -> exposure::Exposure<'a> {
         let (network, search) = {
             let gateway = self.gateway.lock().unwrap();
             (gateway.config.mode, gateway.config.search_url.is_some())
         };
-        let read_only_harnesses = self.read_only_harnesses();
         exposure::Exposure {
             registry: &self.registry,
             profile: &self.cfg.profile,
@@ -1631,10 +1647,10 @@ impl Core {
             touched: &self.touched,
             network,
             search,
+            web_results_reach_the_model: WEB_RESULTS_REACH_THE_MODEL,
             read_only: self.active.is_viewer(),
-            read_only_harnesses: &read_only_harnesses,
+            read_only_harnesses,
         }
-        .active_set()
     }
 
     /// The installed harnesses whose document in this workspace the caller
@@ -1728,6 +1744,14 @@ impl Core {
                 && exposure::builtin_kind(tool) != Some(proto::ToolKind::Read)
             {
                 return self.refuse_read_only(tool, exposure::CORE_HARNESS, "");
+            }
+            // The agent reaches only what it is offered: a web tool that is
+            // not on offer cannot be called by a model that names it anyway,
+            // so "nothing you type leaves your computer" holds without an if.
+            if author == proto::Author::Agent && !self.offers_builtin(tool) {
+                return proto::ToolOutcome::Error {
+                    message: format!("no tool named `{tool}` is on offer"),
+                };
             }
             return self.call_core_tool(tool, params);
         }
@@ -4772,7 +4796,7 @@ mod tests {
     }
 
     #[test]
-    fn a_search_is_offered_once_a_search_service_is_set_and_not_before() {
+    fn no_web_tool_is_offered_and_the_agent_cannot_reach_one_by_naming_it() {
         let names = |core: &Core| -> Vec<String> {
             core.active_set()
                 .tools
@@ -4780,16 +4804,31 @@ mod tests {
                 .map(|t| t.name)
                 .collect()
         };
-        // A person's own computer as installed: the mode is `ask`, and no
-        // search service exists until they set one.
-        let core = Core::new(Config::personal("anna")).unwrap();
-        assert!(!names(&core).iter().any(|n| n == "web.search"));
-        assert!(names(&core).iter().any(|n| n == "web.fetch"));
-
-        let mut cfg = Config::personal("anna");
-        cfg.gateway.search_url = Some("http://127.0.0.1:9/".into());
-        let core = Core::new(cfg).unwrap();
-        assert!(names(&core).iter().any(|n| n == "web.search"));
+        // A person's own computer as installed, and one with a search service
+        // set: what a web tool brings back cannot reach the model yet, so
+        // neither is offered either tool.
+        let mut with_search = Config::personal("anna");
+        with_search.gateway.search_url = Some("http://127.0.0.1:9/".into());
+        for cfg in [Config::personal("anna"), with_search] {
+            let mut core = Core::new(cfg).unwrap();
+            assert!(!names(&core).iter().any(|n| n.starts_with("web.")));
+            // A model that names the tool anyway is refused before anything
+            // runs: no approval is raised, nothing is asked of the network.
+            for tool in ["web.fetch", "web.search"] {
+                let out = core.call_tool(
+                    tool,
+                    &serde_json::json!({"url": "https://example.com", "query": "x"}),
+                    proto::Author::Agent,
+                );
+                match out {
+                    proto::ToolOutcome::Error { message } => {
+                        assert!(message.contains("no tool named"), "{message}")
+                    }
+                    other => panic!("expected a refusal, got {other:?}"),
+                }
+            }
+            assert!(core.pending.is_empty());
+        }
     }
 
     #[test]

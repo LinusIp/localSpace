@@ -1,6 +1,7 @@
 # After the laptop test
 
-What was seen and deliberately not done before Friday 25 September 2026,
+What was seen and deliberately not done before the laptop test of Monday
+21 September 2026 (first planned for Friday 25),
 because it is neither needed for the test nor a security problem
 (docs/DECISIONS.md, 2026-09-18, the answers after day 1). Newest first
 within each part; an item leaves this list when it is built or decided
@@ -16,6 +17,23 @@ against, with a line in `docs/DECISIONS.md`.
   this. Sending messages keeps the spec's order (and so the engine's prefix
   cache); it is measured with the evals per model size, and with the message
   script of the laptop test.
+- **What a read tool brings back never reaches the model** (plugin spec §10
+  "Core returns {result, diff_summary} into context", §4.3 "a summary plus a
+  `zoom` tool", §8.2). The model reads a tool's one-line summary and nothing
+  of its result. For a tool that changes something the summary is the point;
+  for one that reads, the result is: `web.fetch` ("fetched …, cached with a
+  citation"), `web.search` ("8 result(s)"), the whiteboard's `canvas.list`
+  and `canvas.zoom` ("5 shape(s) in full detail", of which the model sees
+  no detail, while the prompt tells it to zoom when it needs some), the
+  planner's `board.columns` and `board.zoom`. Found on 2026-09-19 when a
+  model reported, in a fetched page's name, a temperature the page does not
+  contain. **Until it is fixed no web tool is offered**
+  (`WEB_RESULTS_REACH_THE_MODEL`, docs/DECISIONS.md, 2026-09-19, the answers
+  after day 4); a board is small enough for its provider's summary to carry
+  it, which is why the whiteboard's evals pass. The fix: a read tool's
+  result, bounded by the profile's budget and wrapped as untrusted where it
+  comes from outside, in what the model reads; then retrieval for what is
+  larger.
 - **The model list as data.** A signed, versioned index that Core fetches
   from the registry or imports from a file; the compiled-in
   `models/catalog.json` and `models/gpus.json` move into it. The signature:
@@ -69,20 +87,9 @@ against, with a line in `docs/DECISIONS.md`.
 - **On a fresh install the tools listed have nothing to act on**
   (`task.plan` "one step per harness", `find_capability` with nothing
   installed): fewer tools until something is installed.
-- **What a fetched page says never reaches the model.** A tool's result
-  comes back to the model as its one-line summary ("fetched …, cached with
-  a citation"); the page itself was to come back through retrieval (plugin
-  spec §8.2), which is not built. Asked to fetch a local stand-in page that
-  said "23 degrees with thick fog … the word of the day is marmalade", and
-  the fetch allowed, the 7B answered that the page says "sunny with a high
-  of 22°C … the word of the day is serendipity": an invented answer in the
-  page's name. The 14B reaches for `web.fetch` on a plain question (the
-  Moon's distance: "Allow this environment to fetch from `www.space.com`?").
-  Put to the user on 2026-09-19: not to offer `web.fetch` until what it
-  fetches can reach the model. The structural fix is retrieval, or a bounded
-  part of the page in the result the model reads.
 - **The approval's words**: "Allow this environment to fetch from
-  `www.space.com`?" is not how a person speaks.
+  `www.space.com`?" is not how a person speaks. Nobody meets them while no
+  web tool is offered.
 - **The evals have no model in `localspace evals`** and a 300-second limit
   through the API, which the 7B with the old wording did not finish in. An
   evals run per catalog model, with its time, belongs in the record.

@@ -28,6 +28,22 @@ The user's answers to the second evening report of 2026-09-19
   model saw what it never received. **Standing, from the user:** when a
   ruling rests on something later found not to be true, come back and
   correct it rather than build what was written.
+  **Built, and the class found, not only the instance:** the model reads
+  every tool's one-line summary and nothing of its result, so whatever a
+  *read* tool brings back never arrives: `web.search` ("8 result(s)") as
+  much as `web.fetch`, and, once they are installed, the whiteboard's
+  `canvas.list` and `canvas.zoom` ("5 shape(s) in full detail") and the
+  planner's two. On a fresh install only the two web tools are of that
+  kind: `find_capability` says what it found and focuses it, so its tools
+  arrive with the next turn, and `task.plan` and `task.note` claim nothing.
+  So **neither web tool is offered, whatever the mode and whether or not a
+  search service is set** (`WEB_RESULTS_REACH_THE_MODEL` in Core, false
+  until a read tool's result can reach the model: first on
+  `docs/AFTER-TEST-A.md`), and a call from the agent to one of Core's tools
+  that is not on offer is refused before anything runs: no approval is
+  raised and nothing is asked of the network. The person's own direct call
+  path is untouched. **Spec narrowing, authorised:** plugin spec §8.1's
+  `ask` and `online` modes offer no web tool for now.
 - **The privacy sentence is "Nothing you type leaves your computer."**,
   true without qualification once no web tool is offered.
 - **The card table gets AMD's current laptop range and the RTX 50 laptop

@@ -35,6 +35,16 @@ pub struct Exposure<'a> {
     /// and a search with nothing behind it is the same search
     /// (docs/DECISIONS.md, 2026-09-19, the answers after day 3).
     pub search: bool,
+    /// What a web tool brings back can reach the model. It cannot yet: the
+    /// model reads a tool's one-line summary and nothing of its result (a
+    /// page was to come back through retrieval, plugin spec §8.2, which is
+    /// not built). Asked to fetch a page that said "23 degrees with thick
+    /// fog", and told only "fetched, cached with a citation", a model
+    /// reported "sunny with a high of 22°C" in the page's name: a tool that
+    /// does not fail honestly but manufactures confidence. Until this is
+    /// true **no web tool is offered**, whatever the mode and the search
+    /// service (docs/DECISIONS.md, 2026-09-19, the answers after day 4).
+    pub web_results_reach_the_model: bool,
     /// The caller's account is read-only (deployment §4.3, a viewer): only
     /// `read` tools are shown, Core's own included.
     pub read_only: bool,
@@ -170,8 +180,16 @@ impl Exposure<'_> {
             || !self.read_only_harnesses.iter().any(|h| h == harness)
     }
 
+    /// Whether one of Core's own tools is on offer to the model now. A call
+    /// from the agent to one that is not is refused before anything runs.
+    pub fn offers_builtin(&self, tool: &str) -> bool {
+        self.core_tools().iter().any(|t| t.name == tool)
+    }
+
     /// Core's built-in tools. `web.*` is absent entirely under `airgapped`, so the
-    /// model never proposes a search it cannot run.
+    /// model never proposes a search it cannot run; and absent while what a
+    /// web tool brings back cannot reach the model, so that it never reports
+    /// what it has not read.
     fn core_tools(&self) -> Vec<proto::ExposedTool> {
         let mut out = vec![builtin(
             "find_capability",
@@ -219,7 +237,8 @@ impl Exposure<'_> {
             proto::ToolKind::Write,
         ));
 
-        if self.network != proto::NetworkMode::Airgapped && self.search {
+        let web = self.network != proto::NetworkMode::Airgapped && self.web_results_reach_the_model;
+        if web && self.search {
             out.push(builtin(
                 "web.search",
                 "Search the web. Results are titles, URLs and snippets.",
@@ -235,7 +254,7 @@ impl Exposure<'_> {
                 proto::ToolKind::Read,
             ));
         }
-        if self.network != proto::NetworkMode::Airgapped {
+        if web {
             out.push(builtin(
                 "web.fetch",
                 "Fetch one URL and cache it in the workspace as a cited document.",
@@ -535,6 +554,7 @@ context_provider = true
             touched,
             network: proto::NetworkMode::Ask,
             search: false,
+            web_results_reach_the_model: true,
             read_only: false,
             read_only_harnesses: &[],
         }
@@ -717,6 +737,27 @@ context_provider = true
                 .iter()
                 .any(|t| t.name.starts_with("web."))
         );
+    }
+
+    #[test]
+    fn no_web_tool_is_offered_while_what_it_brings_back_cannot_reach_the_model() {
+        let reg = registry();
+        let p = ModelProfile::server();
+        let mut e = exposure(&reg, &p, None, &[], &[]);
+        e.web_results_reach_the_model = false;
+        for mode in [proto::NetworkMode::Ask, proto::NetworkMode::Online] {
+            for search in [false, true] {
+                e.network = mode;
+                e.search = search;
+                let names: Vec<String> = e.active_set().tools.into_iter().map(|t| t.name).collect();
+                assert!(!names.iter().any(|n| n.starts_with("web.")), "{names:?}");
+                assert!(!e.offers_builtin("web.fetch") && !e.offers_builtin("web.search"));
+                // The rest of Core's own tools are untouched.
+                for kept in ["find_capability", "task.plan", "task.note"] {
+                    assert!(names.iter().any(|n| n == kept), "{kept} in {names:?}");
+                }
+            }
+        }
     }
 
     #[test]
