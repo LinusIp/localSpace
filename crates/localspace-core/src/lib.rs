@@ -1288,7 +1288,9 @@ impl Core {
         // models go to: never a download that fails at 80 %.
         if let Some(model) = self.models.get(id) {
             let dir = self.models_dir();
-            let needs_mib = model.bytes / (1024 * 1024);
+            // What is still to come: a download that stopped part-way keeps
+            // what it has, and only the rest needs room.
+            let needs_mib = self.models.remaining_bytes(id) / (1024 * 1024);
             if let Some(free_mib) = hardware::disk_free_mib(&dir)
                 && free_mib < needs_mib + models::DISK_HEADROOM_MIB
             {

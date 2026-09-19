@@ -58,6 +58,12 @@ pub struct CatalogModel {
     /// A Hugging Face repository, or empty for an imported file.
     #[serde(default)]
     pub repo: String,
+    /// The commit of that repository the entry's facts were taken at. Files
+    /// are fetched from it, so a repository that renames or replaces a file
+    /// (two of the first five entries had, by 2026-09-19) breaks nothing and
+    /// the digests keep matching. Empty means the repository's `main`.
+    #[serde(default)]
+    pub revision: String,
     pub files: Vec<String>,
     #[serde(default = "yes")]
     pub supports_tools: bool,
@@ -67,6 +73,20 @@ pub struct CatalogModel {
     /// Set for an imported file: where it lives.
     #[serde(default)]
     pub path: Option<PathBuf>,
+    /// What each finished file must be, by its name: its exact size, and its
+    /// SHA-256 as the publisher gives it. A file that is not listed is held
+    /// to the length the server announces.
+    #[serde(default)]
+    pub verify: HashMap<String, FileCheck>,
+}
+
+/// What a finished file must be.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileCheck {
+    pub bytes: u64,
+    /// Lower-case hex, as Hugging Face publishes it for the file.
+    #[serde(default)]
+    pub sha256: String,
 }
 
 fn yes() -> bool {
@@ -144,6 +164,31 @@ pub struct Catalog {
     models: Vec<CatalogModel>,
     /// Where downloaded files and `imports.json` live.
     dir: PathBuf,
+    /// Where a repository's files are fetched from, and how a dropped
+    /// connection is retried.
+    source: Source,
+}
+
+/// Where files come from. Hugging Face, unless a test stands in for it.
+#[derive(Debug, Clone)]
+pub struct Source {
+    /// `<base>/<repo>/resolve/<revision>/<file>` is a file's address.
+    pub base: String,
+    /// How long to wait before continuing after the connection dropped.
+    pub retry_pause: Duration,
+    /// How many times in a row a download may get nothing before it gives
+    /// up; any progress starts the count again.
+    pub attempts: u32,
+}
+
+impl Default for Source {
+    fn default() -> Self {
+        Source {
+            base: "https://huggingface.co".into(),
+            retry_pause: Duration::from_secs(5),
+            attempts: 6,
+        }
+    }
 }
 
 impl Catalog {
@@ -167,6 +212,7 @@ impl Catalog {
         let catalog = Catalog {
             models,
             dir: models_dir.to_path_buf(),
+            source: Source::default(),
         };
         let mut catalog = catalog;
         for m in catalog.imports() {
@@ -178,6 +224,43 @@ impl Catalog {
 
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// Fetch from somewhere else: a test's stand-in for Hugging Face.
+    pub fn set_source(&mut self, source: Source) {
+        self.source = source;
+    }
+
+    /// What is already here of a model that is not finished: the bytes of its
+    /// finished files and of the one a download stopped in. `None` when
+    /// nothing was begun, or everything is here.
+    pub fn paused(&self, m: &CatalogModel) -> Option<proto::DownloadState> {
+        let part = |f: &String| self.dir.join(format!("{f}.part"));
+        if m.path.is_some() || !m.files.iter().any(|f| part(f).is_file()) {
+            return None;
+        }
+        let here: u64 = m
+            .files
+            .iter()
+            .map(|f| {
+                let partial = std::fs::metadata(part(f)).map(|x| x.len());
+                let finished = std::fs::metadata(self.dir.join(f)).map(|x| x.len());
+                partial.or(finished).unwrap_or(0)
+            })
+            .sum();
+        Some(proto::DownloadState {
+            done_bytes: here,
+            total_bytes: m.bytes.max(here),
+            stage: "paused".into(),
+        })
+    }
+
+    /// What a download of `id` still has to fetch, in bytes: the model's
+    /// size less what is already here. For the check of the disk's room.
+    pub fn remaining_bytes(&self, id: &str) -> u64 {
+        let Some(m) = self.get(id) else { return 0 };
+        let here = self.paused(m).map(|p| p.done_bytes).unwrap_or(0);
+        m.bytes.saturating_sub(here)
     }
 
     pub fn get(&self, id: &str) -> Option<&CatalogModel> {
@@ -253,7 +336,9 @@ impl Catalog {
                         Vec::new(),
                     ),
                 };
-                let download = downloads.get(&m.id).cloned();
+                // A download that is running, or one that stopped part-way
+                // and will continue from there.
+                let download = downloads.get(&m.id).cloned().or_else(|| self.paused(m));
                 proto::ModelCatalogEntry {
                     id: m.id.clone(),
                     title: m.title.clone(),
@@ -425,6 +510,7 @@ impl Catalog {
             bytes: meta.len(),
             context_len: 8192,
             repo: String::new(),
+            revision: String::new(),
             files: vec![path.file_name().unwrap().to_string_lossy().to_string()],
             supports_tools: true,
             notes: "Imported in place. Its size stands in for a tensor map, as a dense model."
@@ -437,6 +523,7 @@ impl Catalog {
                 kv_bytes_per_token_fp16: 0,
             }),
             path: Some(path.to_path_buf()),
+            verify: HashMap::new(),
         };
         let mut imports = self.imports();
         imports.retain(|m| m.id != id);
@@ -483,12 +570,13 @@ impl Catalog {
             );
         }
         let dir = self.dir.clone();
+        let source = self.source.clone();
         std::fs::create_dir_all(&dir)?;
         std::thread::Builder::new()
             .name(format!("download-{id}"))
             .spawn(move || {
                 let id = m.id.clone();
-                let result = fetch_all(&m, &dir, &downloads, &sink);
+                let result = fetch_all(&m, &dir, &source, &downloads, &sink);
                 let stage = match &result {
                     Ok(()) => "done".to_string(),
                     Err(e) => format!("failed: {e:#}"),
@@ -529,88 +617,181 @@ impl Catalog {
     }
 }
 
+/// Fetch every file of a model that is not here yet. A file arrives as
+/// `<name>.part` and takes its name only when it is whole, so a model is never
+/// "installed" half-way; and the part is **kept** when a download stops, so
+/// the next one continues from its last byte instead of from zero.
 fn fetch_all(
     m: &CatalogModel,
     dir: &Path,
+    source: &Source,
     downloads: &Arc<Mutex<HashMap<String, proto::DownloadState>>>,
     sink: &EventSink,
 ) -> Result<()> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(None)
         .timeout_connect(Some(Duration::from_secs(30)))
+        // A refusal is read by its number here, not turned into an error: 416
+        // means the part is already as long as the file.
+        .http_status_as_error(false)
         .build()
         .into();
     let mut done_before: u64 = 0;
-    let mut total: u64 = m.bytes;
     for (i, file) in m.files.iter().enumerate() {
         let dest = dir.join(file);
-        if dest.is_file() && !dir.join(format!("{file}.part")).exists() {
+        let part = dir.join(format!("{file}.part"));
+        if dest.is_file() && !part.exists() {
             // Already here from an earlier run; count it and move on.
             done_before += std::fs::metadata(&dest).map(|x| x.len()).unwrap_or(0);
             continue;
         }
-        let url = format!("https://huggingface.co/{}/resolve/main/{}", m.repo, file);
-        let mut res = agent
-            .get(&url)
-            .call()
-            .with_context(|| format!("fetching {url}"))?;
-        if res.status() != 200 {
-            bail!("{url} answered {}", res.status());
-        }
-        let length = res.body().content_length();
-        if let Some(len) = length {
-            // The first file's real size corrects the estimate for single-file
-            // models; multi-file models keep the catalog's total.
-            if m.files.len() == 1 {
-                total = len;
-            }
-        }
-        let part = dir.join(format!("{file}.part"));
-        let mut out =
-            std::fs::File::create(&part).with_context(|| format!("creating {}", part.display()))?;
-        let mut reader = res.body_mut().as_reader();
-        let mut buf = vec![0u8; 1 << 20];
-        let mut written: u64 = 0;
+        let revision = if m.revision.is_empty() {
+            "main"
+        } else {
+            &m.revision
+        };
+        let url = format!("{}/{}/resolve/{revision}/{file}", source.base, m.repo);
         let mut last = Instant::now();
-        loop {
-            let n = reader
-                .read(&mut buf)
-                .with_context(|| format!("reading {url}"))?;
-            if n == 0 {
-                break;
+        let mut report = |file_bytes: u64, file_total: Option<u64>| {
+            if last.elapsed() < Duration::from_millis(500) {
+                return;
             }
-            out.write_all(&buf[..n])?;
-            written += n as u64;
-            if last.elapsed() > Duration::from_millis(500) {
-                last = Instant::now();
-                let done = done_before + written;
-                downloads.lock().unwrap().insert(
-                    m.id.clone(),
-                    proto::DownloadState {
-                        done_bytes: done,
-                        total_bytes: total.max(done),
-                        stage: "downloading".into(),
-                    },
-                );
-                sink(proto::Event::ModelProgress {
-                    id: m.id.clone(),
+            last = Instant::now();
+            let done = done_before + file_bytes;
+            // A single file's announced length corrects the catalog's estimate.
+            let total = match file_total {
+                Some(len) if m.files.len() == 1 => len,
+                _ => m.bytes,
+            }
+            .max(done);
+            downloads.lock().unwrap().insert(
+                m.id.clone(),
+                proto::DownloadState {
                     done_bytes: done,
-                    total_bytes: total.max(done),
-                    stage: format!("downloading {} of {}", i + 1, m.files.len()),
-                });
-            }
-        }
-        out.flush()?;
-        drop(out);
-        if let Some(len) = length
-            && written != len
-        {
-            bail!("{file}: got {written} of {len} bytes");
-        }
+                    total_bytes: total,
+                    stage: "downloading".into(),
+                },
+            );
+            sink(proto::Event::ModelProgress {
+                id: m.id.clone(),
+                done_bytes: done,
+                total_bytes: total,
+                stage: format!("downloading {} of {}", i + 1, m.files.len()),
+            });
+        };
+        let written = fetch_file(&agent, &url, &part, m.verify.get(file), source, &mut report)?;
         std::fs::rename(&part, &dest).with_context(|| format!("finishing {}", dest.display()))?;
         done_before += written;
     }
     Ok(())
+}
+
+/// One file into `part`, continuing from whatever `part` already holds. The
+/// server is asked for the rest (`Range`); when it sends the whole file
+/// anyway, the part starts over. A connection that drops is picked up again
+/// after a pause, from the last byte written, until `attempts` tries in a row
+/// have brought nothing. Returns the file's length, which is `expected`'s when
+/// the catalog says what it must be, and the server's otherwise; a file of
+/// any other length is removed and refused.
+fn fetch_file(
+    agent: &ureq::Agent,
+    url: &str,
+    part: &Path,
+    expected: Option<&FileCheck>,
+    source: &Source,
+    report: &mut dyn FnMut(u64, Option<u64>),
+) -> Result<u64> {
+    let mut announced: Option<u64> = expected.map(|check| check.bytes);
+    let mut fruitless = 0u32;
+    // A part that turns out longer than the file is thrown away and begun
+    // again, once: nothing here may download the same file for ever.
+    let mut begun_again = false;
+    loop {
+        let have = std::fs::metadata(part).map(|x| x.len()).unwrap_or(0);
+        if have > 0 && announced == Some(have) {
+            break;
+        }
+        let mut request = agent.get(url);
+        if have > 0 {
+            request = request.header("Range", &format!("bytes={have}-"));
+        }
+        let progressed = match request.call() {
+            Ok(mut res) => {
+                let status = res.status().as_u16();
+                let resumed = match status {
+                    206 => true,
+                    200 => false,
+                    416 => {
+                        // Nothing lies beyond what the part holds: it is the
+                        // whole file when nothing says how long that is. A
+                        // part longer than the file is left from something
+                        // else and is begun again, once; a file that ends
+                        // short of its published length is refused below.
+                        if announced.is_some_and(|len| have > len) && !begun_again {
+                            begun_again = true;
+                            let _ = std::fs::remove_file(part);
+                            continue;
+                        }
+                        break;
+                    }
+                    other => bail!("{url} answered {other}"),
+                };
+                let length = res.body().content_length();
+                let start = if resumed { have } else { 0 };
+                if announced.is_none() {
+                    announced = length.map(|len| start + len);
+                }
+                let mut out = std::fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .append(resumed)
+                    .truncate(!resumed)
+                    .open(part)
+                    .with_context(|| format!("opening {}", part.display()))?;
+                let mut reader = res.body_mut().as_reader();
+                let mut buf = vec![0u8; 1 << 20];
+                let mut written = start;
+                let dropped = loop {
+                    match reader.read(&mut buf) {
+                        Ok(0) => break false,
+                        Ok(n) => {
+                            out.write_all(&buf[..n])?;
+                            written += n as u64;
+                            report(written, announced);
+                        }
+                        // The connection dropped: what was written stays.
+                        Err(_) => break true,
+                    }
+                };
+                out.flush()?;
+                drop(out);
+                // The server has sent all it has. Whether that is the file
+                // is judged below, by its length.
+                if !dropped && announced.is_none_or(|len| written >= len) {
+                    break;
+                }
+                written > start
+            }
+            Err(_) => false,
+        };
+        fruitless = if progressed { 0 } else { fruitless + 1 };
+        if fruitless >= source.attempts {
+            bail!(
+                "stopped after {} tries that brought nothing. What is here is kept: \
+                 downloading again continues from it",
+                source.attempts
+            );
+        }
+        std::thread::sleep(source.retry_pause);
+    }
+    let written = std::fs::metadata(part).map(|x| x.len()).unwrap_or(0);
+    if let Some(len) = announced
+        && written != len
+    {
+        let _ = std::fs::remove_file(part);
+        bail!("the file came to {written} bytes where {len} were expected; it was removed");
+    }
+    Ok(written)
 }
 
 fn parse(text: &str) -> Result<CatalogFile> {
@@ -787,23 +968,229 @@ mod tests {
         assert_eq!(small.verdict_label, "");
     }
 
+    // --- downloads: a stand-in for Hugging Face ---------------------------
+
+    /// Serves one body at every address, honours `Range` when told to, cuts
+    /// its first `drops` answers short after `cut` bytes by closing the
+    /// connection, and remembers the `Range` each request carried.
+    struct StandIn {
+        base: String,
+        ranges: Arc<Mutex<Vec<Option<String>>>>,
+    }
+
+    fn stand_in(body: Vec<u8>, honour_range: bool, drops: usize, cut: usize) -> StandIn {
+        use std::io::{BufRead, BufReader};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let ranges: Arc<Mutex<Vec<Option<String>>>> = Arc::default();
+        let seen = ranges.clone();
+        std::thread::spawn(move || {
+            let mut dropped = 0;
+            for mut stream in listener.incoming().flatten() {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut range = None;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                        break;
+                    }
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("range:") {
+                        range = Some(value.trim().to_string());
+                    }
+                }
+                seen.lock().unwrap().push(range.clone());
+                let from = range
+                    .filter(|_| honour_range)
+                    .and_then(|r| {
+                        r.strip_prefix("bytes=")?
+                            .strip_suffix('-')?
+                            .parse::<usize>()
+                            .ok()
+                    })
+                    .unwrap_or(0);
+                if from >= body.len() {
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    );
+                    continue;
+                }
+                let rest = &body[from..];
+                let head = if from > 0 {
+                    format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {from}-{}/{}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len() - 1,
+                        body.len(),
+                        rest.len()
+                    )
+                } else {
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        rest.len()
+                    )
+                };
+                let _ = stream.write_all(head.as_bytes());
+                if dropped < drops {
+                    dropped += 1;
+                    let _ = stream.write_all(&rest[..cut.min(rest.len())]);
+                    continue; // the connection closes with the answer unfinished
+                }
+                let _ = stream.write_all(rest);
+            }
+        });
+        StandIn { base, ranges }
+    }
+
+    fn a_body() -> Vec<u8> {
+        (0..3_000_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    fn one_file_model(expected: Option<u64>) -> CatalogModel {
+        let mut m: CatalogModel = serde_json::from_str(
+            r#"{"id":"m","title":"M","params_b":1.0,"bytes":3000000,"context_len":2048,
+                "repo":"example/m","files":["m.gguf"],"tensor":null}"#,
+        )
+        .unwrap();
+        if let Some(bytes) = expected {
+            m.verify.insert(
+                "m.gguf".into(),
+                FileCheck {
+                    bytes,
+                    sha256: String::new(),
+                },
+            );
+        }
+        m
+    }
+
+    fn fetch(m: &CatalogModel, dir: &Path, base: &str) -> Result<()> {
+        let source = Source {
+            base: base.to_string(),
+            retry_pause: Duration::from_millis(10),
+            attempts: 3,
+        };
+        let sink: EventSink = Arc::new(|_| {});
+        fetch_all(m, dir, &source, &Arc::default(), &sink)
+    }
+
+    #[test]
+    fn a_dropped_connection_is_picked_up_from_its_last_byte() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = stand_in(a_body(), true, 1, 1_000_000);
+        fetch(&one_file_model(Some(3_000_000)), dir.path(), &server.base).unwrap();
+        assert_eq!(std::fs::read(dir.path().join("m.gguf")).unwrap(), a_body());
+        assert!(!dir.path().join("m.gguf.part").exists());
+        assert_eq!(
+            *server.ranges.lock().unwrap(),
+            [None, Some("bytes=1000000-".to_string())],
+            "the second request asks for the rest, not for everything"
+        );
+    }
+
+    #[test]
+    fn a_part_left_by_an_earlier_run_is_continued_not_begun_again() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("m.gguf.part"), &a_body()[..1_200_000]).unwrap();
+        let server = stand_in(a_body(), true, 0, 0);
+        // Before: the catalog says it is paused, with what is here.
+        let mut catalog = Catalog::load(None, dir.path());
+        catalog.models.push(one_file_model(Some(3_000_000)));
+        let paused = catalog.paused(catalog.get("m").unwrap()).unwrap();
+        assert_eq!(
+            (paused.done_bytes, paused.stage.as_str()),
+            (1_200_000, "paused")
+        );
+        assert_eq!(catalog.remaining_bytes("m"), 1_800_000);
+        assert!(
+            catalog.installed_path("m").is_none(),
+            "a part is not a model"
+        );
+
+        fetch(&one_file_model(Some(3_000_000)), dir.path(), &server.base).unwrap();
+        assert_eq!(std::fs::read(dir.path().join("m.gguf")).unwrap(), a_body());
+        assert_eq!(
+            *server.ranges.lock().unwrap(),
+            [Some("bytes=1200000-".to_string())]
+        );
+        assert!(catalog.paused(catalog.get("m").unwrap()).is_none());
+        assert!(catalog.installed_path("m").is_some());
+    }
+
+    #[test]
+    fn a_server_that_sends_everything_anyway_has_the_file_begun_again() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("m.gguf.part"), &a_body()[..1_200_000]).unwrap();
+        let server = stand_in(a_body(), false, 0, 0);
+        fetch(&one_file_model(None), dir.path(), &server.base).unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("m.gguf")).unwrap(),
+            a_body(),
+            "not the old part with the whole file after it"
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_not_the_published_size_is_removed_and_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = stand_in(a_body(), true, 0, 0);
+        let refused = fetch(&one_file_model(Some(3_000_010)), dir.path(), &server.base);
+        let why = format!("{:#}", refused.unwrap_err());
+        assert!(
+            why.contains("3000000 bytes where 3000010 were expected"),
+            "{why}"
+        );
+        assert!(!dir.path().join("m.gguf").exists(), "never installed");
+        assert!(!dir.path().join("m.gguf.part").exists(), "and not kept");
+        assert!(
+            server.ranges.lock().unwrap().len() <= 2,
+            "it asked once more for the rest and then stopped"
+        );
+    }
+
+    #[test]
+    fn a_server_that_never_answers_ends_the_download_and_keeps_what_is_here() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("m.gguf.part"), &a_body()[..500_000]).unwrap();
+        // A port nothing listens on.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let refused = fetch(
+            &one_file_model(Some(3_000_000)),
+            dir.path(),
+            &format!("http://127.0.0.1:{port}"),
+        );
+        let why = format!("{:#}", refused.unwrap_err());
+        assert!(why.contains("What is here is kept"), "{why}");
+        assert_eq!(
+            std::fs::metadata(dir.path().join("m.gguf.part"))
+                .unwrap()
+                .len(),
+            500_000
+        );
+    }
+
     #[test]
     fn a_model_is_installed_only_when_every_file_is_here_and_finished() {
         let dir = tempfile::tempdir().unwrap();
         let catalog = Catalog::load(None, dir.path());
-        assert!(catalog.installed_path("gpt-oss-120b-mxfp4").is_none());
-        let files = &catalog.get("gpt-oss-120b-mxfp4").unwrap().files;
+        // A model in three files: every one of them, finished.
+        const MODEL: &str = "qwen2.5-14b-instruct-q4_k_m";
+        assert!(catalog.installed_path(MODEL).is_none());
+        let files = &catalog.get(MODEL).unwrap().files;
+        assert_eq!(files.len(), 3);
         for f in files {
             std::fs::write(dir.path().join(f), b"x").unwrap();
         }
         std::fs::write(dir.path().join(format!("{}.part", files[2])), b"").unwrap();
         assert!(
-            catalog.installed_path("gpt-oss-120b-mxfp4").is_none(),
+            catalog.installed_path(MODEL).is_none(),
             "a .part means unfinished"
         );
         std::fs::remove_file(dir.path().join(format!("{}.part", files[2]))).unwrap();
         assert_eq!(
-            catalog.installed_path("gpt-oss-120b-mxfp4"),
+            catalog.installed_path(MODEL),
             Some(dir.path().join(&files[0]))
         );
     }

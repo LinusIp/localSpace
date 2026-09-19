@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "notes": "The curated model catalog (architecture v2 §4.4). Sizes are approximate and are only used for planning and display; the download reports the real size. Tensor maps are the numbers the placement planner needs: bytes of the dense core, bytes of routed experts, layers, and the expert layout.",
+  "version": 2,
+  "notes": "The curated model catalog (architecture v2 §4.4). An entry's files, their exact sizes and SHA-256 digests, its layers and its KV size are Hugging Face's own facts, gathered by scripts/catalog-entry.mjs; `verify` is what a finished download must be. Entries without `verify` carry approximate sizes, and their download is held to the length the server announces. Tensor maps are the numbers the placement needs: bytes of the dense core, bytes of routed experts, layers, and the expert layout.",
   "models": [
     {
       "id": "qwen2.5-0.5b-instruct-q4_k_m",
@@ -11,13 +11,60 @@
       "quant": "Q4_K_M",
       "license": "Apache-2.0",
       "license_url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/blob/main/LICENSE",
-      "bytes": 500000000,
+      "bytes": 491400032,
       "context_len": 32768,
       "repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
-      "files": ["qwen2.5-0.5b-instruct-q4_k_m.gguf"],
+      "revision": "9217f5db79a29953eb74d5343926648285ec7e67",
+      "files": [
+        "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      ],
+      "verify": {
+        "qwen2.5-0.5b-instruct-q4_k_m.gguf": {
+          "bytes": 491400032,
+          "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
+        }
+      },
       "supports_tools": true,
       "notes": "A smoke-test model: runs anywhere, proves the sidecar path. Not a working agent.",
-      "tensor": { "core_bytes": 500000000, "routed_expert_bytes": 0, "layers": 24, "moe": null, "kv_bytes_per_token_fp16": 12288 }
+      "tensor": {
+        "core_bytes": 491400032,
+        "routed_expert_bytes": 0,
+        "layers": 24,
+        "moe": null,
+        "kv_bytes_per_token_fp16": 12288
+      }
+    },
+    {
+      "id": "qwen2.5-1.5b-instruct-q4_k_m",
+      "title": "Qwen2.5 1.5B Instruct",
+      "family": "Qwen2.5",
+      "params_b": 1.5,
+      "active_params_b": 1.5,
+      "quant": "Q4_K_M",
+      "license": "Apache-2.0",
+      "license_url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/blob/main/LICENSE",
+      "bytes": 1117320736,
+      "context_len": 32768,
+      "repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+      "revision": "91cad51170dc346986eccefdc2dd33a9da36ead9",
+      "files": [
+        "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+      ],
+      "verify": {
+        "qwen2.5-1.5b-instruct-q4_k_m.gguf": {
+          "bytes": 1117320736,
+          "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"
+        }
+      },
+      "supports_tools": true,
+      "notes": "Small and quick: for a computer without a graphics card of its own, or with little memory.",
+      "tensor": {
+        "core_bytes": 1117320736,
+        "routed_expert_bytes": 0,
+        "layers": 28,
+        "moe": null,
+        "kv_bytes_per_token_fp16": 28672
+      }
     },
     {
       "id": "qwen2.5-3b-instruct-q4_k_m",
@@ -28,13 +75,28 @@
       "quant": "Q4_K_M",
       "license": "Qwen Research License",
       "license_url": "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/blob/main/LICENSE",
-      "bytes": 2100000000,
+      "bytes": 2104932768,
       "context_len": 32768,
       "repo": "Qwen/Qwen2.5-3B-Instruct-GGUF",
-      "files": ["qwen2.5-3b-instruct-q4_k_m.gguf"],
+      "revision": "7dabda4d13d513e3e842b20f0d435c732f172cbe",
+      "files": [
+        "qwen2.5-3b-instruct-q4_k_m.gguf"
+      ],
+      "verify": {
+        "qwen2.5-3b-instruct-q4_k_m.gguf": {
+          "bytes": 2104932768,
+          "sha256": "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d"
+        }
+      },
       "supports_tools": true,
       "notes": "Fits a 4 GB GPU. Drives one harness with the grammar, slowly.",
-      "tensor": { "core_bytes": 2100000000, "routed_expert_bytes": 0, "layers": 36, "moe": null, "kv_bytes_per_token_fp16": 36864 }
+      "tensor": {
+        "core_bytes": 2104932768,
+        "routed_expert_bytes": 0,
+        "layers": 36,
+        "moe": null,
+        "kv_bytes_per_token_fp16": 36864
+      }
     },
     {
       "id": "qwen2.5-7b-instruct-q4_k_m",
@@ -45,13 +107,75 @@
       "quant": "Q4_K_M",
       "license": "Apache-2.0",
       "license_url": "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/blob/main/LICENSE",
-      "bytes": 4700000000,
+      "bytes": 4683073632,
       "context_len": 32768,
       "repo": "Qwen/Qwen2.5-7B-Instruct-GGUF",
-      "files": ["qwen2.5-7b-instruct-q4_k_m.gguf"],
+      "revision": "bb5d59e06d9551d752d08b292a50eb208b07ab1f",
+      "files": [
+        "qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf",
+        "qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf"
+      ],
+      "verify": {
+        "qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf": {
+          "bytes": 3993201344,
+          "sha256": "dfce12e3862a5283ccfb88221b48480e58745165de856439950d0f22590580db"
+        },
+        "qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf": {
+          "bytes": 689872288,
+          "sha256": "539cf93f78e887edea1c04e2d7d8cdaca9d01dae9c9025bcb8accbe29df3d72a"
+        }
+      },
       "supports_tools": true,
       "notes": "The smallest model that follows the tool contract reliably in the whiteboard evals.",
-      "tensor": { "core_bytes": 4700000000, "routed_expert_bytes": 0, "layers": 28, "moe": null, "kv_bytes_per_token_fp16": 57344 }
+      "tensor": {
+        "core_bytes": 4683073632,
+        "routed_expert_bytes": 0,
+        "layers": 28,
+        "moe": null,
+        "kv_bytes_per_token_fp16": 57344
+      }
+    },
+    {
+      "id": "qwen2.5-14b-instruct-q4_k_m",
+      "title": "Qwen2.5 14B Instruct",
+      "family": "Qwen2.5",
+      "params_b": 14.8,
+      "active_params_b": 14.8,
+      "quant": "Q4_K_M",
+      "license": "Apache-2.0",
+      "license_url": "https://huggingface.co/Qwen/Qwen2.5-14B-Instruct-GGUF/blob/main/LICENSE",
+      "bytes": 8988110496,
+      "context_len": 32768,
+      "repo": "Qwen/Qwen2.5-14B-Instruct-GGUF",
+      "revision": "b466e1f8c07172155743e8e1307507d8a4f91fbd",
+      "files": [
+        "qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf",
+        "qwen2.5-14b-instruct-q4_k_m-00002-of-00003.gguf",
+        "qwen2.5-14b-instruct-q4_k_m-00003-of-00003.gguf"
+      ],
+      "verify": {
+        "qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf": {
+          "bytes": 3991999872,
+          "sha256": "a09ea5e7b1eafb1b30b241726c3cc3c905c96f14ad41e246ffa5f44e53904f68"
+        },
+        "qwen2.5-14b-instruct-q4_k_m-00002-of-00003.gguf": {
+          "bytes": 3989373504,
+          "sha256": "21b9457d079680d284e90ef69607c4b2d8ef64a09d4729cb7b5e1357bdba41ae"
+        },
+        "qwen2.5-14b-instruct-q4_k_m-00003-of-00003.gguf": {
+          "bytes": 1006737120,
+          "sha256": "c8d37006760a387a35216e070e6664d7da927f10be8eb870fef2e3d4833d9976"
+        }
+      },
+      "supports_tools": true,
+      "notes": "For a graphics card with 12 GB or more: better at long answers and careful reasoning than the smaller ones.",
+      "tensor": {
+        "core_bytes": 8988110496,
+        "routed_expert_bytes": 0,
+        "layers": 48,
+        "moe": null,
+        "kv_bytes_per_token_fp16": 196608
+      }
     },
     {
       "id": "qwen3-30b-a3b-q4_k_m",
@@ -62,30 +186,68 @@
       "quant": "Q4_K_M",
       "license": "Apache-2.0",
       "license_url": "https://huggingface.co/Qwen/Qwen3-30B-A3B-GGUF/blob/main/LICENSE",
-      "bytes": 18600000000,
+      "bytes": 18556685824,
       "context_len": 40960,
       "repo": "Qwen/Qwen3-30B-A3B-GGUF",
-      "files": ["Qwen3-30B-A3B-Q4_K_M.gguf"],
+      "revision": "e4d4bafdfb96a411a163846265362aceb0b9c63a",
+      "files": [
+        "Qwen3-30B-A3B-Q4_K_M.gguf"
+      ],
       "supports_tools": true,
       "notes": "A mixture of experts: 128 experts a layer, 8 active. Hybrid on a 16 GB GPU with the experts in RAM.",
-      "tensor": { "core_bytes": 1600000000, "routed_expert_bytes": 17000000000, "layers": 48, "moe": { "experts_per_layer": 128, "active_experts": 8, "shared_experts": 0 }, "kv_bytes_per_token_fp16": 98304 }
+      "tensor": {
+        "core_bytes": 1600000000,
+        "routed_expert_bytes": 17000000000,
+        "layers": 48,
+        "moe": {
+          "experts_per_layer": 128,
+          "active_experts": 8,
+          "shared_experts": 0
+        },
+        "kv_bytes_per_token_fp16": 98304
+      },
+      "verify": {
+        "Qwen3-30B-A3B-Q4_K_M.gguf": {
+          "bytes": 18556685824,
+          "sha256": "0d003f6662faee786ed5da3e31b29c978de5ae5d275c8794c606a7f3c01aa8f5"
+        }
+      }
     },
     {
       "id": "gpt-oss-120b-mxfp4",
       "title": "gpt-oss 120B",
       "family": "gpt-oss",
-      "params_b": 117.0,
+      "params_b": 117,
       "active_params_b": 5.1,
       "quant": "MXFP4",
       "license": "Apache-2.0",
       "license_url": "https://huggingface.co/ggml-org/gpt-oss-120b-GGUF/blob/main/README.md",
-      "bytes": 63400000000,
+      "bytes": 63387346208,
       "context_len": 131072,
       "repo": "ggml-org/gpt-oss-120b-GGUF",
-      "files": ["gpt-oss-120b-mxfp4-00001-of-00003.gguf", "gpt-oss-120b-mxfp4-00002-of-00003.gguf", "gpt-oss-120b-mxfp4-00003-of-00003.gguf"],
+      "revision": "238abdd290bb874b90a5da1b4549881b7d05c091",
+      "files": [
+        "gpt-oss-120b-MXFP4.gguf"
+      ],
       "supports_tools": true,
       "notes": "The 100B-class mixture of experts the W32 profile is planned around: 128 experts a layer, 4 active, 36 layers. Hybrid on 32 GB of VRAM with 64 GB of RAM.",
-      "tensor": { "core_bytes": 3600000000, "routed_expert_bytes": 59800000000, "layers": 36, "moe": { "experts_per_layer": 128, "active_experts": 4, "shared_experts": 0 }, "kv_bytes_per_token_fp16": 73728 }
+      "tensor": {
+        "core_bytes": 3600000000,
+        "routed_expert_bytes": 59800000000,
+        "layers": 36,
+        "moe": {
+          "experts_per_layer": 128,
+          "active_experts": 4,
+          "shared_experts": 0
+        },
+        "kv_bytes_per_token_fp16": 73728
+      },
+      "verify": {
+        "gpt-oss-120b-MXFP4.gguf": {
+          "bytes": 63387346208,
+          "sha256": "582bd40f6886200101f4c4ed9f25f3fe80cc14c86e9e2b37746cd8904a0c622d"
+        }
+      }
     }
   ]
 }

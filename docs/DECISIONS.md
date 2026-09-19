@@ -4,6 +4,61 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-19, downloads that continue, and a catalog made of Hugging Face's own facts
+
+The first part of the reduced item 4 of the build order for the two tests
+(the instructions for the builder, §3.4: "Downloads resume after an
+interruption and verify a checksum on completion"; tiny and small entries
+first).
+
+- **Two of the catalog's five entries could not have been downloaded.** The
+  7B model's single file name never existed (the repository holds it in two
+  parts), and the 120B model's three parts had been replaced upstream by one
+  file. Found on 2026-09-19 when the approved 7B download answered 404. So:
+- **Every entry is pinned to the commit of its repository** its facts were
+  taken at (`revision`), and files are fetched from that commit, not from
+  `main`: a repository that renames or replaces a file breaks nothing, and
+  the digests keep matching.
+- **An entry's machine-made fields are Hugging Face's own facts**, gathered
+  by `scripts/catalog-entry.mjs`: the files of one quantisation with their
+  exact sizes and SHA-256 digests (the repository's listing), the layers and
+  the KV size (the base model's `config.json`), the commit. It reproduced the
+  layers and KV sizes the hand-written entries had. Everything read is treated
+  as data: names, numbers and digests are copied, nothing is executed, a
+  model card's prose is never read, and a gated repository is refused. The
+  title, the licence with its address and the notes stay a person's to write.
+  `verify` in an entry is what each finished file must be.
+- **Added, of the family that has run through Core:** Qwen2.5 1.5B (1.0 GB;
+  Apache-2.0; for a computer without a card of its own) and Qwen2.5 14B
+  (8.4 GB in three files; Apache-2.0; for a 12 GB card and up). Other
+  families (Gemma 4, Ministral 3, gpt-oss-20b, all Apache-2.0 and published
+  ungated by ggml-org) each need a real run through Core first — their chat
+  templates, their tool calls, their thinking modes — and at this site's
+  2.6 MB/s that is a download apiece: they follow as time allows, and "four
+  models instead of eight" is the ruling's own measure of what may give.
+- **A download continues where it stopped.** A file arrives as
+  `<name>.part` and takes its name only when it is whole. The part is kept
+  when a download stops; the next one asks the server for the rest
+  (`Range`), and begins again only if the server sends everything anyway. A
+  dropped connection is picked up after five seconds, until six tries in a
+  row have brought nothing (any progress starts the count again). Across a
+  restart of the app the catalog says `paused` with what is here, the pages
+  say "N% is already here" and offer to continue, and the check of the
+  disk's room counts only what is still to come. Every path is bounded: a
+  part longer than the file is begun again once, and a file that does not
+  come to its published size is removed and refused, never installed.
+- **Proved with a real interruption:** the 0.5B model through the app from
+  Hugging Face, the server killed at 121.6 MB, restarted (`paused`,
+  121,620,628 of 491,400,032 bytes), continued from that byte, finished at
+  exactly the published size, and its SHA-256, computed outside the app, is
+  the published one.
+- **The checksum is recorded and not yet checked by the app.** Verifying a
+  SHA-256 takes a hash function, and the workspace names none for it
+  (`blake3` is there; Hugging Face publishes SHA-256). `sha2` is the standard
+  crate and is already compiled in through other crates, but it is a new
+  direct dependency: **asked of the user on 2026-09-19**. Until then a
+  finished file is held to its exact published size, and no page claims more.
+
 ## 2026-09-19, the first run: what Core decides, and what was measured with the real engine
 
 The second half of item 2 of the build order for the two tests, with the
