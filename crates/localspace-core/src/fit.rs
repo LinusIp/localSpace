@@ -45,20 +45,28 @@ const GPU_TOKEN_OVERHEAD_S: f64 = 0.0052;
 /// copied it (a copy reads and writes each byte): measured on a Ryzen 7 6800H.
 const READ_PER_COPY: f64 = 2.0;
 
-/// The lines between the verdicts, in tokens a second. **Provisional**: the
-/// ten laptops of the first test calibrate them, and revising them after it
-/// is the expected thing (docs/DECISIONS.md, 2026-09-18, answer 5).
+/// The pace of reading, in words a second: the one line the verdicts are
+/// drawn from. **The verdict's words are derived from the numbers shown
+/// beside them, never from the raw estimate, so that the two cannot
+/// disagree** whatever a calibration does later (docs/DECISIONS.md,
+/// 2026-09-19, the answers after day 4): "Works — about as fast as you read
+/// · about 2 to 3 words a second" was the one place where the product argued
+/// with itself. See [`Verdict::of_what_is_shown`].
 ///
-/// "Runs well" began at 15, a guess, and moved to 10 on a measurement
-/// (docs/DECISIONS.md, 2026-09-19, the answers after day 3): on a 4 GB card
-/// the 7B runs at 13 tokens a second, about ten words a second and two and
-/// a half times the pace of reading, and is reliably good on the message
-/// script, where the 1.5B that the old line made the default there answers
-/// "17 × 24 = 388". Prefer the more reliable model once a model is fast
-/// enough to read along with: speed above reading pace has sharply
-/// diminishing value, and correctness does not.
-const RUNS_WELL_TOKENS_PER_SECOND: f32 = 10.0;
-const WORKS_TOKENS_PER_SECOND: f32 = 5.0;
+/// Where that puts the lines, in tokens a second: "runs well" from about 9
+/// (shown as "about 5 to 6 words a second"), "works" from about 5.3 ("about
+/// 3 to 4"). **Provisional**: the ten laptops of the first test calibrate
+/// the estimate, and revising after it is the expected thing
+/// (docs/DECISIONS.md, 2026-09-18, answer 5). "Runs well" began at 15
+/// tokens a second, a guess, and moved to 10 on a measurement
+/// (2026-09-19, the answers after day 3): on a 4 GB card the 7B runs at 13
+/// tokens a second, about ten words a second and two and a half times the
+/// pace of reading, and is reliably good on the message script, where the
+/// 1.5B that the old line made the default there answers "17 × 24 = 388".
+/// Prefer the more reliable model once a model is fast enough to read along
+/// with: speed above reading pace has sharply diminishing value, and
+/// correctness does not.
+const READING_WORDS_PER_SECOND: u32 = 4;
 /// English runs at about three words to four tokens.
 const WORDS_PER_TOKEN: f32 = 0.75;
 /// The shown range reaches this far below the estimate.
@@ -87,6 +95,23 @@ pub enum Verdict {
 }
 
 impl Verdict {
+    /// The verdict of a model that fits, from what is shown of its speed:
+    /// `(low, high)` as in "about {low} to {high} words a second", or
+    /// `high` alone as in "at least {high} words a second". *Faster than you
+    /// read* when the least that is promised is above the pace of reading;
+    /// *about as fast as you read* when the most that is shown reaches it;
+    /// otherwise too slow for everyday use.
+    fn of_what_is_shown((low, high): (u32, u32), at_least: bool) -> Verdict {
+        let least = if at_least { high } else { low };
+        if least > READING_WORDS_PER_SECOND {
+            Verdict::RunsWell
+        } else if high >= READING_WORDS_PER_SECOND {
+            Verdict::Works
+        } else {
+            Verdict::TooSlow
+        }
+    }
+
     /// What a person reads. A slow model is shown with its verdict, never hidden.
     pub fn label(self) -> &'static str {
         match self {
@@ -236,16 +261,13 @@ pub fn fit(shape: &Shape, hardware: &Hardware, ask: Ask, gpu_layer_cap: Option<u
         0.0
     };
 
-    let verdict = if !fits {
-        Verdict::WillNotFit
-    } else if tokens_per_second >= RUNS_WELL_TOKENS_PER_SECOND {
-        Verdict::RunsWell
-    } else if tokens_per_second >= WORKS_TOKENS_PER_SECOND {
-        Verdict::Works
-    } else {
-        Verdict::TooSlow
-    };
     let words = tokens_per_second * WORDS_PER_TOKEN;
+    let shown = (round_down(words * RANGE_LOW), round_down(words));
+    let verdict = if fits {
+        Verdict::of_what_is_shown(shown, at_least)
+    } else {
+        Verdict::WillNotFit
+    };
     let placement = if !fits {
         "It needs more memory than this computer has.".to_string()
     } else if on_card == layers_total {
@@ -276,7 +298,7 @@ pub fn fit(shape: &Shape, hardware: &Hardware, ask: Ask, gpu_layer_cap: Option<u
         ram_mib: ram_bytes / MIB,
         verdict,
         tokens_per_second,
-        words_per_second: (round_down(words * RANGE_LOW), round_down(words)),
+        words_per_second: shown,
         at_least,
         placement,
     }
@@ -500,10 +522,59 @@ mod tests {
         );
         assert_eq!(Verdict::TooSlow.label(), "Too slow for everyday use");
         assert_eq!(Verdict::WillNotFit.label(), "Will not fit on this computer");
-        let words = |tokens: f32| tokens * WORDS_PER_TOKEN;
-        assert!(words(RUNS_WELL_TOKENS_PER_SECOND) * RANGE_LOW > 5.0);
-        assert!((3.0..8.0).contains(&words(WORKS_TOKENS_PER_SECOND)));
-        assert!((3.0..8.0).contains(&words(RUNS_WELL_TOKENS_PER_SECOND)));
+    }
+
+    #[test]
+    fn a_verdict_never_disagrees_with_the_numbers_shown_beside_it() {
+        // Every pair of numbers that can be shown, and "at least" of each.
+        for high in 0..=120u32 {
+            for low in 0..=high {
+                for at_least in [false, true] {
+                    let verdict = Verdict::of_what_is_shown((low, high), at_least);
+                    let least = if at_least { high } else { low };
+                    match verdict {
+                        // "faster than you read": nothing shown is at or under
+                        // the pace of reading.
+                        Verdict::RunsWell => assert!(least > READING_WORDS_PER_SECOND),
+                        // "about as fast as you read": what is shown reaches it.
+                        Verdict::Works => {
+                            assert!(high >= READING_WORDS_PER_SECOND);
+                            assert!(least <= READING_WORDS_PER_SECOND);
+                        }
+                        // "too slow for everyday use": nothing shown reaches it.
+                        Verdict::TooSlow => assert!(high < READING_WORDS_PER_SECOND),
+                        Verdict::WillNotFit => unreachable!("decided before the speed"),
+                    }
+                }
+            }
+        }
+        // The line that was the product arguing with itself, 2026-09-19.
+        assert_eq!(Verdict::of_what_is_shown((2, 3), false), Verdict::TooSlow);
+        assert_eq!(Verdict::of_what_is_shown((3, 4), false), Verdict::Works);
+        assert_eq!(Verdict::of_what_is_shown((4, 6), false), Verdict::Works);
+        assert_eq!(Verdict::of_what_is_shown((5, 7), false), Verdict::RunsWell);
+        // And through the whole of `fit`: whatever the machine, the verdict
+        // is the one its own shown numbers give.
+        for copy_gbps in [2.0_f32, 4.0, 6.0, 8.0, 10.0, 12.0, 15.0, 19.3, 30.0, 45.0] {
+            for shape in [qwen_half_b(), qwen_3b(), qwen_7b()] {
+                for card in [true, false] {
+                    let mut hardware = laptop_3050ti();
+                    hardware.ram_bandwidth_gbps = copy_gbps;
+                    if !card {
+                        hardware.gpus.clear();
+                    }
+                    let placed = fit(&shape, &hardware, ASK, None);
+                    if placed.verdict != Verdict::WillNotFit {
+                        assert_eq!(
+                            placed.verdict,
+                            Verdict::of_what_is_shown(placed.words_per_second, placed.at_least),
+                            "{}",
+                            placed.speed_in_words()
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

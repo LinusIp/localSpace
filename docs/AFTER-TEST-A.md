@@ -108,9 +108,10 @@ against, with a line in `docs/DECISIONS.md`.
 - **CUDA's efficiency**, measured instead of taken as Vulkan's.
 - **The fixed cost a token on the card** scales with the number of layers
   rather than being one constant; two models cannot tell the two apart.
-- **The verdict lines** (10 and 5 tokens a second; "runs well" moved from 15
-  on a measurement, 2026-09-19) and **the efficiencies** are provisional
-  until the ten laptops' recorded speeds are in. The test
+- **The verdicts' line** (the pace of reading at four words a second, read
+  off the numbers shown since 2026-09-19; about 9 and 5.3 tokens a second)
+  and **the efficiencies** are provisional until the testers' recorded
+  speeds are in. The test
   `what_typical_computers_are_told_and_offered` shows what a change does to
   every typical computer.
 - **Laptop cards the table does not know**: AMD's laptop parts (RX 6600M to

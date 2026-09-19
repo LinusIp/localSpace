@@ -58,6 +58,24 @@ The user's answers to the second evening report of 2026-09-19
   not from the raw estimate, so that the two can never disagree whatever a
   calibration does later: "Works — about as fast as you read · about 2 to 3
   words a second" was the one place where the product argued with itself.
+  **Built:** one line, the pace of reading at four words a second, and the
+  verdict is read off what is shown (`fit::Verdict::of_what_is_shown`):
+  *faster than you read* when the least that is promised is above it (the
+  low end of "about 5 to 7", or the one number of "at least 6"); *about as
+  fast as you read* when the most that is shown reaches it ("about 3 to 4",
+  "about 4 to 6"); otherwise *too slow for everyday use* ("about 2 to 3").
+  A test walks every pair of numbers that can be shown, and every machine it
+  tries through the whole of `fit`. The tokens-a-second lines are gone from
+  the code; where the rule puts them is about 9 for "runs well" (ruled at
+  10: a model estimated between 9 and 10 shows the same "about 5 to 6" or
+  "5 to 7" as one at 10 and cannot be told apart on screen) and 5.3 for
+  "works" (ruled at 5). **What moved on the typical computers:** the 14B on
+  the 4 GB development laptop and the 7B on a computer with slower memory
+  and no card are *too slow*, as their "about 2 to 3 words a second" says;
+  and **a card the table does not know, on a laptop with faster memory, is
+  now offered the 7B**: its floor reads "at least 6 words a second", which
+  is faster than a person reads. With slower memory the floor is "at least
+  3" and the default stays the 1.5B, until the card is in the table.
 - **The catalog's field is `exercised_on`, not `script_run`**: it records
   that a model went through the script, not that it did well; the 1.5B went
   through it, answered badly, and is still the default where there is no

@@ -1288,13 +1288,13 @@ mod tests {
                 .starts_with("About half of it fits in the graphics memory")
         );
         assert_eq!(medium.speed, "about 7 to 9 words a second");
-        // Twice the size again: it works, and the words say at what pace.
+        // Twice the size again. The words are derived from the numbers shown
+        // beside them: this line once read "Works — about as fast as you read
+        // · about 2 to 3 words a second", the product arguing with itself.
         let large = entry("qwen2.5-14b-instruct-q4_k_m");
-        assert_eq!(large.verdict, "works");
-        assert_eq!(
-            large.verdict_label,
-            "Works \u{2014} about as fast as you read"
-        );
+        assert_eq!(large.speed, "about 2 to 3 words a second");
+        assert_eq!(large.verdict, "too_slow");
+        assert_eq!(large.verdict_label, "Too slow for everyday use");
 
         // The verdict is about speed alone. What to expect of the answers is
         // said of the smallest band, wherever it is listed, and of no other.
@@ -1438,7 +1438,7 @@ mod tests {
                 memory_mib: 15_613,
                 copy_gbps: 19.3,
                 default: SEVEN_B,
-                verdicts: [WELL, WELL, WELL, WELL, WORKS, NO],
+                verdicts: [WELL, WELL, WELL, WELL, SLOW, NO],
             },
             Shape {
                 what: "16 GB and an older 4 GB card, a GTX 1650",
@@ -1449,6 +1449,8 @@ mod tests {
                 verdicts: [WELL, WELL, WELL, WORKS, SLOW, NO],
             },
             Shape {
+                // Its 14B is shown "about 3 to 4 words a second": about as fast as
+                // a person reads, by the numbers themselves.
                 what: "16 GB and an RTX 3060 Laptop with 6 GB",
                 card: Some("NVIDIA GeForce RTX 3060 Laptop GPU (6144 MiB, 5400 MiB free)"),
                 memory_mib: 16_000,
@@ -1492,15 +1494,27 @@ mod tests {
             },
             Shape {
                 // A card the table does not know is used, and promised only
-                // what the processor would do: the 7B "works" on that promise,
-                // so the default stays the 1.5B although the card would carry
-                // the 7B. The remedy is the card's entry in the table.
-                what: "16 GB and an 8 GB card the table does not know",
+                // what the processor would do. With faster memory that floor
+                // is "at least 6 words a second" for the 7B, which is faster
+                // than a person reads: the 7B.
+                what: "16 GB of faster memory and an 8 GB card the table does not know",
                 card: Some("Glenfly Arise 8G (8192 MiB, 7300 MiB free)"),
                 memory_mib: 16_000,
                 copy_gbps: 19.0,
+                default: SEVEN_B,
+                verdicts: [WELL, WELL, WELL, WELL, SLOW, NO],
+            },
+            Shape {
+                // With slower memory the floor is "at least 3 words a second",
+                // and the default stays the 1.5B although the card would
+                // carry the 7B. The remedy is the card's entry in the table
+                // (and, after the test, a floor by the card's memory class).
+                what: "16 GB of slower memory and an 8 GB card the table does not know",
+                card: Some("Glenfly Arise 8G (8192 MiB, 7300 MiB free)"),
+                memory_mib: 16_000,
+                copy_gbps: 12.0,
                 default: ONE_HALF_B,
-                verdicts: [WELL, WELL, WELL, WORKS, SLOW, NO],
+                verdicts: [WELL, WELL, WELL, SLOW, SLOW, NO],
             },
             Shape {
                 what: "16 GB and the processor's own graphics",
@@ -1524,7 +1538,7 @@ mod tests {
                 memory_mib: 16_000,
                 copy_gbps: 12.0,
                 default: ONE_HALF_B,
-                verdicts: [WELL, WELL, WELL, WORKS, SLOW, NO],
+                verdicts: [WELL, WELL, WELL, SLOW, SLOW, NO],
             },
             Shape {
                 what: "32 GB of faster memory and no card",
@@ -1579,7 +1593,7 @@ mod tests {
                         .unwrap()
                 })
                 .collect();
-            assert_eq!(told, shape.verdicts, "{}", shape.what);
+            assert_eq!(told, shape.verdicts, "what it is told: {}", shape.what);
             assert_eq!(
                 catalog.recommend(&found).as_deref(),
                 Some(shape.default),
