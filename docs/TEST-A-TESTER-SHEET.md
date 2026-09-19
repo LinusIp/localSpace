@@ -6,9 +6,13 @@ the day itself. Nothing here needs a terminal or any technical knowledge.
 > **For us, not for testers — delete this block before sending.** Part 1
 > is the screening the user took on to send on the 18th. Part 2 matches the build as of 19 September: the
 > first run says what the computer is, recommends a model with how it will
-> run, and its download continues after an interruption. Screenshots of the
-> two Windows messages and of the first run are added after the dry run of
-> Thursday 24th, from the real build on a real machine that is not ours. The
+> run, and its download continues after an interruption. The two pictures of
+> the first run under step 5 are from the build of 19 September on our own
+> laptop (the page is the same everywhere but for what it says about the
+> computer and which model it names; they are taken again if the rule behind
+> the recommendation changes). Screenshots of the two Windows messages are
+> added after the dry run of Thursday 24th, from the real build on a real
+> machine that is not ours. The
 > models a laptop is offered today are 0.5 GB, 1.0 GB, 2.0 GB, 4.4 GB and
 > 8.4 GB to download, so "about 10 GB" of free disk covers every one of them.
 >
@@ -22,6 +26,12 @@ the day itself. Nothing here needs a terminal or any technical knowledge.
 > is downloaded as before. The files and their digests are in
 > `models/catalog.json`; `node scripts/check-catalog.mjs` checks them against
 > Hugging Face.
+>
+> **What the models answer** to nineteen ordinary messages, model by model,
+> is in `docs/test-a/MESSAGE-SCRIPT.md`. In short: the 7B and the 14B are
+> reliably good; the 1.5B is fast and gets a sum, a date or a capital wrong
+> often enough that a tester will meet it; asked for the weather, the larger
+> ones try a web search that is not set up and say they found nothing.
 
 ## Part 1 — before the day: five things to send us
 
@@ -66,8 +76,16 @@ Open **Task Manager** (press Ctrl+Shift+Esc) and choose **Performance**.
    and eight gigabytes, carries on by itself if the connection drops, and,
    if you close the app, goes on from where it stopped when you open it
    again and choose **Continue the download**.
+
+   ![The first run when the model is already on the computer: a green Start button](test-a/first-run-already-here.png)
+
+   ![The first run when the model is not there yet: a green Download and start button](test-a/first-run-download.png)
+
 6. **Chat.** Ask it anything. Then try something long, such as "explain how
-   a heat pump works, in detail".
+   a heat pump works, in detail". It answers from what it has learned: it
+   cannot look up today's weather or the news, and it can be wrong, the
+   smaller models more often. Nothing you type leaves your computer unless
+   it asks to fetch a web page and you allow it.
 
 ### What to write down
 
