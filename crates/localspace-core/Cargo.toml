@@ -19,6 +19,7 @@ futures.workspace = true
 async-trait.workspace = true
 automerge.workspace = true
 blake3.workspace = true
+sha2.workspace = true
 redb.workspace = true
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true

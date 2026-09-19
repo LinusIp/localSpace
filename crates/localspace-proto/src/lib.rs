@@ -318,6 +318,14 @@ pub struct ModelCatalogEntry {
     pub quant: String,
     pub license: String,
     pub license_url: String,
+    /// The licence in words a person can act on: "Free to use, also for
+    /// commercial use", "Free for research and evaluation only, not for
+    /// commercial use". Empty when the catalog does not say.
+    pub license_words: String,
+    /// Whether the licence permits commercial use. The default
+    /// recommendation only ever offers a model for which this is true; the
+    /// others are listed, with their licence in words.
+    pub commercial_use: bool,
     /// Approximate size on disk of all files.
     pub bytes: u64,
     pub context_len: u32,
@@ -363,7 +371,12 @@ pub struct Computer {
     pub disk: String,
     /// The catalog model localSpace would start with here, when one fits.
     pub recommended: Option<String>,
-    /// True when no model is on this computer yet: the first run.
+    /// The model that was started last on this computer, when it is still
+    /// here: the window starts it again as it opens.
+    pub last_model: Option<String>,
+    /// True until a model has been chosen on this computer: the first run.
+    /// Not "no model file is here": models copied in from a stick are here
+    /// before anything was chosen, and the first run is still to come.
     pub first_run: bool,
 }
 
@@ -371,7 +384,11 @@ pub struct Computer {
 pub struct DownloadState {
     pub done_bytes: u64,
     pub total_bytes: u64,
-    /// `downloading`, `verifying`, `done`, or `failed: <why>`.
+    /// `downloading`, `verifying` (its SHA-256 is being compared with the
+    /// published one: after a download, or for a file that was already
+    /// there), `paused` (stopped part-way; what came is kept), `done`,
+    /// `checked` (files that were already there have been looked at; the
+    /// entry says whether they count), or `failed: <why>`.
     pub stage: String,
 }
 

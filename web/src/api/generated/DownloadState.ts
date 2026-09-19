@@ -2,6 +2,10 @@
 
 export type DownloadState = { done_bytes: number, total_bytes: number, 
 /**
- * `downloading`, `verifying`, `done`, or `failed: <why>`.
+ * `downloading`, `verifying` (its SHA-256 is being compared with the
+ * published one: after a download, or for a file that was already
+ * there), `paused` (stopped part-way; what came is kept), `done`,
+ * `checked` (files that were already there have been looked at; the
+ * entry says whether they count), or `failed: <why>`.
  */
 stage: string, };

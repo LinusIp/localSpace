@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -53,6 +54,15 @@ pub struct CatalogModel {
     pub license: String,
     #[serde(default)]
     pub license_url: String,
+    /// The licence in words a person can act on, written from the licence
+    /// itself: "Free to use, also for commercial use."
+    #[serde(default)]
+    pub license_words: String,
+    /// Whether the licence permits commercial use. The default recommendation
+    /// only ever offers a model for which this is true (docs/DECISIONS.md,
+    /// 2026-09-19); an entry that does not say is not recommended.
+    #[serde(default)]
+    pub commercial_use: bool,
     pub bytes: u64,
     pub context_len: u32,
     /// A Hugging Face repository, or empty for an imported file.
@@ -78,6 +88,88 @@ pub struct CatalogModel {
     /// to the length the server announces.
     #[serde(default)]
     pub verify: HashMap<String, FileCheck>,
+}
+
+/// A file whose SHA-256 was found to be the published one, as the file then
+/// was. It is hashed again only when its length or its time of modification
+/// has changed: a model is gigabytes, and is not read through at every start.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Stamp {
+    bytes: u64,
+    modified_ms: u64,
+    sha256: String,
+}
+
+/// The stamps of the models folder, by file name; kept in `verified.json`
+/// beside the files.
+type Verified = Arc<Mutex<HashMap<String, Stamp>>>;
+
+const VERIFIED_FILE: &str = "verified.json";
+
+fn length_and_time(path: &Path) -> Option<(u64, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let modified = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    Some((meta.len(), modified.as_millis() as u64))
+}
+
+/// Whether `file` in `dir` is what `check` says it must be, by its stamp.
+/// A file the catalog gives no digest for has nothing to be held to.
+fn holds(verified: &Verified, dir: &Path, file: &str, check: Option<&FileCheck>) -> bool {
+    let Some(check) = check.filter(|c| !c.sha256.is_empty()) else {
+        return true;
+    };
+    let Some((bytes, modified_ms)) = length_and_time(&dir.join(file)) else {
+        return false;
+    };
+    verified.lock().unwrap().get(file).is_some_and(|stamp| {
+        stamp.bytes == bytes && stamp.modified_ms == modified_ms && stamp.sha256 == check.sha256
+    })
+}
+
+/// Record that `file` is the published one, and write the record down.
+fn stamp(verified: &Verified, dir: &Path, file: &str, sha256: &str) {
+    let Some((bytes, modified_ms)) = length_and_time(&dir.join(file)) else {
+        return;
+    };
+    let mut stamps = verified.lock().unwrap();
+    stamps.insert(
+        file.to_string(),
+        Stamp {
+            bytes,
+            modified_ms,
+            sha256: sha256.to_string(),
+        },
+    );
+    if let Ok(json) = serde_json::to_string_pretty(&*stamps) {
+        let _ = std::fs::write(dir.join(VERIFIED_FILE), json);
+    }
+}
+
+/// The SHA-256 of a file, in lower-case hex, read through in pieces;
+/// `on_progress` hears how many bytes have been read.
+pub fn sha256_of(path: &Path, on_progress: &mut dyn FnMut(u64)) -> Result<String> {
+    use sha2::Digest;
+    let mut file =
+        std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let mut hasher = sha2::Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    let mut read = 0u64;
+    loop {
+        let n = file
+            .read(&mut buf)
+            .with_context(|| format!("reading {}", path.display()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        read += n as u64;
+        on_progress(read);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 /// What a finished file must be.
@@ -167,6 +259,10 @@ pub struct Catalog {
     /// Where a repository's files are fetched from, and how a dropped
     /// connection is retried.
     source: Source,
+    /// Which files have been found to be the published ones.
+    verified: Verified,
+    /// A look at files that were already there is under way.
+    scanning: Arc<AtomicBool>,
 }
 
 /// Where files come from. Hugging Face, unless a test stands in for it.
@@ -209,10 +305,17 @@ impl Catalog {
                 Err(e) => tracing::warn!("ignoring {}: {e}", dir.join("catalog.json").display()),
             }
         }
+        let stamps: HashMap<String, Stamp> =
+            std::fs::read_to_string(models_dir.join(VERIFIED_FILE))
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok())
+                .unwrap_or_default();
         let catalog = Catalog {
             models,
             dir: models_dir.to_path_buf(),
             source: Source::default(),
+            verified: Arc::new(Mutex::new(stamps)),
+            scanning: Arc::default(),
         };
         let mut catalog = catalog;
         for m in catalog.imports() {
@@ -239,15 +342,7 @@ impl Catalog {
         if m.path.is_some() || !m.files.iter().any(|f| part(f).is_file()) {
             return None;
         }
-        let here: u64 = m
-            .files
-            .iter()
-            .map(|f| {
-                let partial = std::fs::metadata(part(f)).map(|x| x.len());
-                let finished = std::fs::metadata(self.dir.join(f)).map(|x| x.len());
-                partial.or(finished).unwrap_or(0)
-            })
-            .sum();
+        let here = self.present_bytes(m);
         Some(proto::DownloadState {
             done_bytes: here,
             total_bytes: m.bytes.max(here),
@@ -259,8 +354,21 @@ impl Catalog {
     /// size less what is already here. For the check of the disk's room.
     pub fn remaining_bytes(&self, id: &str) -> u64 {
         let Some(m) = self.get(id) else { return 0 };
-        let here = self.paused(m).map(|p| p.done_bytes).unwrap_or(0);
-        m.bytes.saturating_sub(here)
+        m.bytes.saturating_sub(self.present_bytes(m))
+    }
+
+    /// The bytes of a model that are in the folder: its finished files and
+    /// the one a download stopped in.
+    fn present_bytes(&self, m: &CatalogModel) -> u64 {
+        m.files
+            .iter()
+            .map(|f| {
+                let partial =
+                    std::fs::metadata(self.dir.join(format!("{f}.part"))).map(|x| x.len());
+                let finished = std::fs::metadata(self.dir.join(f)).map(|x| x.len());
+                partial.or(finished).unwrap_or(0)
+            })
+            .sum()
     }
 
     pub fn get(&self, id: &str) -> Option<&CatalogModel> {
@@ -284,8 +392,116 @@ impl Catalog {
         let all_here = paths.iter().all(|p| p.is_file())
             && m.files
                 .iter()
-                .all(|f| !self.dir.join(format!("{f}.part")).exists());
+                .all(|f| !self.dir.join(format!("{f}.part")).exists())
+            // Here is not enough: a file is the model's only once its SHA-256
+            // has been found to be the published one, whether it was
+            // downloaded or arrived by other means.
+            && m.files
+                .iter()
+                .all(|f| holds(&self.verified, &self.dir, f, m.verify.get(f)));
         (all_here && !paths.is_empty()).then(|| paths[0].clone())
+    }
+
+    /// Files that are here under a catalog entry's name, finished, and not
+    /// yet known to be the published ones: a model copied in from a USB
+    /// stick or a share, or one whose file has changed since it was checked.
+    fn unchecked(&self) -> Vec<(String, String, Vec<(String, FileCheck)>)> {
+        self.models
+            .iter()
+            .filter(|m| m.path.is_none())
+            .filter_map(|m| {
+                let files: Vec<(String, FileCheck)> = m
+                    .files
+                    .iter()
+                    .filter(|f| self.dir.join(f).is_file())
+                    .filter(|f| !self.dir.join(format!("{f}.part")).exists())
+                    .filter(|f| !holds(&self.verified, &self.dir, f, m.verify.get(*f)))
+                    .filter_map(|f| Some((f.clone(), m.verify.get(f)?.clone())))
+                    .collect();
+                (!files.is_empty()).then(|| (m.id.clone(), m.title.clone(), files))
+            })
+            .collect()
+    }
+
+    /// Look at the files that were already there (docs/DECISIONS.md,
+    /// 2026-09-19): a file with an entry's name **and its SHA-256** counts as
+    /// that model, with no download; one that is something else is left alone
+    /// and does not count. On a thread of its own, one look at a time; the
+    /// entry shows `verifying` meanwhile and `checked` tells the clients to
+    /// ask again. Called whenever the catalog is asked for, so that a model
+    /// copied in while the app is open is noticed too.
+    pub fn scan_present(
+        &self,
+        downloads: Arc<Mutex<HashMap<String, proto::DownloadState>>>,
+        sink: EventSink,
+    ) {
+        let busy = |id: &String| matches!(downloads.lock().unwrap().get(id), Some(s) if s.stage == "downloading" || s.stage == "verifying");
+        let work: Vec<_> = self
+            .unchecked()
+            .into_iter()
+            .filter(|(id, ..)| !busy(id))
+            .collect();
+        if work.is_empty() || self.scanning.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let (dir, verified, scanning) = (
+            self.dir.clone(),
+            self.verified.clone(),
+            self.scanning.clone(),
+        );
+        let spawned = std::thread::Builder::new()
+            .name("models-already-here".into())
+            .spawn(move || {
+                for (id, title, files) in work {
+                    let total: u64 = files.iter().map(|(_, check)| check.bytes).sum();
+                    let mut before = 0u64;
+                    let mut last = Instant::now();
+                    for (file, check) in files {
+                        let mut report = |read: u64| {
+                            if last.elapsed() < Duration::from_millis(500) {
+                                return;
+                            }
+                            last = Instant::now();
+                            let state = proto::DownloadState {
+                                done_bytes: (before + read).min(total),
+                                total_bytes: total,
+                                stage: "verifying".into(),
+                            };
+                            downloads.lock().unwrap().insert(id.clone(), state.clone());
+                            sink(proto::Event::ModelProgress {
+                                id: id.clone(),
+                                done_bytes: state.done_bytes,
+                                total_bytes: state.total_bytes,
+                                stage: state.stage,
+                            });
+                        };
+                        report(0);
+                        match sha256_of(&dir.join(&file), &mut report) {
+                            Ok(found) if found == check.sha256 => stamp(&verified, &dir, &file, &found),
+                            Ok(_) => sink(proto::Event::Notice {
+                                level: proto::NoticeLevel::Warn,
+                                text: format!(
+                                    "{file} in the models folder is not the published file of {title}, \
+                                     so it does not count. Downloading {title} replaces it."
+                                ),
+                            }),
+                            Err(e) => tracing::warn!("models: {file} could not be read: {e:#}"),
+                        }
+                        before += check.bytes;
+                    }
+                    downloads.lock().unwrap().remove(&id);
+                    sink(proto::Event::ModelProgress {
+                        id: id.clone(),
+                        done_bytes: total,
+                        total_bytes: total,
+                        stage: "checked".into(),
+                    });
+                }
+                scanning.store(false, Ordering::SeqCst);
+            });
+        if spawned.is_err() {
+            self.scanning.store(false, Ordering::SeqCst);
+        }
     }
 
     /// Every entry with its verdict for this machine and its state on disk.
@@ -356,6 +572,8 @@ impl Catalog {
                     quant: m.quant.clone(),
                     license: m.license.clone(),
                     license_url: m.license_url.clone(),
+                    license_words: m.license_words.clone(),
+                    commercial_use: m.commercial_use,
                     bytes: m.bytes,
                     context_len: m.context_len,
                     source: m.source(),
@@ -414,6 +632,14 @@ impl Catalog {
     /// or failing that the largest that works, or failing that the smallest
     /// that fits at all. Only what can be fetched or is already here, and
     /// never one the disk has no room for.
+    ///
+    /// Two standing rules (docs/DECISIONS.md, 2026-09-19). **Only a model
+    /// whose licence permits commercial use is ever offered by default**, and
+    /// nothing is said of what was passed over: the others are listed, with
+    /// their licence in words. And **the ladder has a lowest rung worth
+    /// standing on**: a model of under a billion parameters answers in words
+    /// but cannot use a tool, so it is offered only where nothing larger so
+    /// much as works; a slightly slower larger model comes before it.
     pub fn recommend(&self, hardware: &Hardware) -> Option<String> {
         let room = |m: &CatalogModel| {
             self.installed_path(&m.id).is_some()
@@ -424,6 +650,7 @@ impl Catalog {
         let placed: Vec<(&CatalogModel, Fit)> = self
             .models
             .iter()
+            .filter(|m| m.commercial_use)
             .filter(|m| !m.repo.is_empty() || self.installed_path(&m.id).is_some())
             .filter(|m| room(m))
             .filter_map(|m| {
@@ -431,15 +658,18 @@ impl Catalog {
                     .map(|shape| (m, fit::fit(&shape, hardware, m.ask(), None)))
             })
             .collect();
-        let largest = |verdict: fit::Verdict| {
+        const LOWEST_RUNG_B: f32 = 1.0;
+        let largest = |verdict: fit::Verdict, from_b: f32| {
             placed
                 .iter()
-                .filter(|(_, p)| p.verdict == verdict)
+                .filter(|(m, p)| p.verdict == verdict && m.params_b >= from_b)
                 .max_by(|a, b| a.0.params_b.total_cmp(&b.0.params_b))
                 .map(|(m, _)| m.id.clone())
         };
-        largest(fit::Verdict::RunsWell)
-            .or_else(|| largest(fit::Verdict::Works))
+        largest(fit::Verdict::RunsWell, LOWEST_RUNG_B)
+            .or_else(|| largest(fit::Verdict::Works, LOWEST_RUNG_B))
+            .or_else(|| largest(fit::Verdict::RunsWell, 0.0))
+            .or_else(|| largest(fit::Verdict::Works, 0.0))
             .or_else(|| {
                 placed
                     .iter()
@@ -511,6 +741,8 @@ impl Catalog {
             quant: "as given".into(),
             license: "as licensed to you".into(),
             license_url: String::new(),
+            license_words: String::new(),
+            commercial_use: false,
             bytes: meta.len(),
             context_len: 8192,
             repo: String::new(),
@@ -562,7 +794,7 @@ impl Catalog {
         {
             let mut d = downloads.lock().unwrap();
             if matches!(d.get(id), Some(s) if s.stage == "downloading" || s.stage == "verifying") {
-                bail!("{} is already downloading", m.title);
+                bail!("{} is already being downloaded or checked", m.title);
             }
             d.insert(
                 id.to_string(),
@@ -575,12 +807,13 @@ impl Catalog {
         }
         let dir = self.dir.clone();
         let source = self.source.clone();
+        let verified = self.verified.clone();
         std::fs::create_dir_all(&dir)?;
         std::thread::Builder::new()
             .name(format!("download-{id}"))
             .spawn(move || {
                 let id = m.id.clone();
-                let result = fetch_all(&m, &dir, &source, &downloads, &sink);
+                let result = fetch_all(&m, &dir, &source, &verified, &downloads, &sink);
                 let stage = match &result {
                     Ok(()) => "done".to_string(),
                     Err(e) => format!("failed: {e:#}"),
@@ -629,9 +862,28 @@ fn fetch_all(
     m: &CatalogModel,
     dir: &Path,
     source: &Source,
+    verified: &Verified,
     downloads: &Arc<Mutex<HashMap<String, proto::DownloadState>>>,
     sink: &EventSink,
 ) -> Result<()> {
+    // Told to everyone while a file's SHA-256 is compared with the published one.
+    let verifying = |done: u64| {
+        let state = proto::DownloadState {
+            done_bytes: done.min(m.bytes),
+            total_bytes: m.bytes.max(done),
+            stage: "verifying".into(),
+        };
+        downloads
+            .lock()
+            .unwrap()
+            .insert(m.id.clone(), state.clone());
+        sink(proto::Event::ModelProgress {
+            id: m.id.clone(),
+            done_bytes: state.done_bytes,
+            total_bytes: state.total_bytes,
+            stage: state.stage,
+        });
+    };
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(None)
         .timeout_connect(Some(Duration::from_secs(30)))
@@ -644,10 +896,37 @@ fn fetch_all(
     for (i, file) in m.files.iter().enumerate() {
         let dest = dir.join(file);
         let part = dir.join(format!("{file}.part"));
+        let check = m.verify.get(file).filter(|c| !c.sha256.is_empty());
         if dest.is_file() && !part.exists() {
-            // Already here from an earlier run; count it and move on.
-            done_before += std::fs::metadata(&dest).map(|x| x.len()).unwrap_or(0);
-            continue;
+            // Already here: from an earlier run, or by other means. It counts
+            // when it is the published file, and then nothing is fetched.
+            let here = std::fs::metadata(&dest).map(|x| x.len()).unwrap_or(0);
+            let published = match check {
+                None => true,
+                Some(_) if holds(verified, dir, file, check) => true,
+                Some(check) => {
+                    verifying(done_before);
+                    let found = sha256_of(&dest, &mut |_| {})?;
+                    if found == check.sha256 {
+                        stamp(verified, dir, file, &found);
+                    }
+                    found == check.sha256
+                }
+            };
+            if published {
+                done_before += here;
+                continue;
+            }
+            // Something else under the model's name. Shorter than the file,
+            // it may still be arriving: it is not touched. Otherwise the
+            // download the person asked for replaces it.
+            if check.is_some_and(|c| here < c.bytes) {
+                bail!(
+                    "{file} is already in the models folder and is not complete. If it is still \
+                     being copied, wait for that to finish and try again; if not, delete it"
+                );
+            }
+            std::fs::remove_file(&dest).with_context(|| format!("replacing {}", dest.display()))?;
         }
         let revision = if m.revision.is_empty() {
             "main"
@@ -684,7 +963,23 @@ fn fetch_all(
             });
         };
         let written = fetch_file(&agent, &url, &part, m.verify.get(file), source, &mut report)?;
+        // The right length is not the right file: a download is the model's
+        // only when its SHA-256 is the one its publisher gives.
+        if let Some(check) = check {
+            verifying(done_before + written);
+            let found = sha256_of(&part, &mut |_| {})?;
+            if found != check.sha256 {
+                let _ = std::fs::remove_file(&part);
+                bail!(
+                    "{file} arrived whole and is not the published file (its SHA-256 is {found}); \
+                     it was removed"
+                );
+            }
+        }
         std::fs::rename(&part, &dest).with_context(|| format!("finishing {}", dest.display()))?;
+        if let Some(check) = check {
+            stamp(verified, dir, file, &check.sha256);
+        }
         done_before += written;
     }
     Ok(())
@@ -963,10 +1258,24 @@ mod tests {
             slower.placement
         );
 
-        // The model to start with: the largest that runs well here.
+        // The model to start with: the largest that runs well here **of those
+        // whose licence permits commercial use**. The 3B runs well too and is
+        // passed over without a word: it is for research and evaluation only.
+        assert_eq!(small.verdict, "runs_well");
+        assert!(!small.commercial_use);
+        assert_eq!(
+            small.license_words,
+            "Free for research and evaluation only, not for commercial use."
+        );
         assert_eq!(
             catalog.recommend(&found).as_deref(),
-            Some("qwen2.5-3b-instruct-q4_k_m")
+            Some("qwen2.5-1.5b-instruct-q4_k_m")
+        );
+        let recommended = entry("qwen2.5-1.5b-instruct-q4_k_m");
+        assert!(recommended.commercial_use);
+        assert_eq!(
+            recommended.license_words,
+            "Free to use, also for commercial use."
         );
         // With no room on the disk for it, the largest that the disk can take.
         let mut full = found_laptop();
@@ -975,6 +1284,50 @@ mod tests {
             catalog.recommend(&full).as_deref(),
             Some("qwen2.5-0.5b-instruct-q4_k_m")
         );
+    }
+
+    #[test]
+    fn nobody_lands_on_the_smallest_model_while_a_larger_one_so_much_as_works() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = Catalog::load(None, dir.path());
+        // No card, and memory slow enough that the 0.5B runs well (24 tokens a
+        // second) where the 1.5B only works (10): the 1.5B all the same, since
+        // the 0.5B answers in words but cannot use a tool.
+        let mut slow = found_laptop();
+        slow.gpus.clear();
+        slow.ram_bandwidth_gbps = 6.0;
+        let entries = catalog.entries(
+            &laptop(),
+            Some(&slow),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+        );
+        let verdict = |id: &str| entries.iter().find(|e| e.id == id).unwrap().verdict.clone();
+        assert_eq!(verdict("qwen2.5-0.5b-instruct-q4_k_m"), "runs_well");
+        assert_eq!(verdict("qwen2.5-1.5b-instruct-q4_k_m"), "works");
+        assert_eq!(
+            catalog.recommend(&slow).as_deref(),
+            Some("qwen2.5-1.5b-instruct-q4_k_m")
+        );
+        // Slower still, the 1.5B is too slow for everyday use and the 0.5B
+        // works: then, and only then, the 0.5B.
+        slow.ram_bandwidth_gbps = 2.5;
+        assert_eq!(
+            catalog.recommend(&slow).as_deref(),
+            Some("qwen2.5-0.5b-instruct-q4_k_m")
+        );
+    }
+
+    #[test]
+    fn a_model_whose_licence_does_not_say_is_never_the_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut catalog = Catalog::load(None, dir.path());
+        // Keep only entries that say nothing of commercial use.
+        for m in &mut catalog.models {
+            m.commercial_use = false;
+        }
+        assert_eq!(catalog.recommend(&found_laptop()), None);
     }
 
     #[test]
@@ -1097,7 +1450,194 @@ mod tests {
             attempts: 3,
         };
         let sink: EventSink = Arc::new(|_| {});
-        fetch_all(m, dir, &source, &Arc::default(), &sink)
+        // The stamps the folder already has, as a catalog opened on it would.
+        let verified = Catalog::load(None, dir).verified;
+        fetch_all(m, dir, &source, &verified, &Arc::default(), &sink)
+    }
+
+    fn digest(bytes: &[u8]) -> String {
+        use sha2::Digest;
+        format!("{:x}", sha2::Sha256::digest(bytes))
+    }
+
+    /// The one-file model, held to the SHA-256 of `published`.
+    fn one_file_model_published_as(published: &[u8]) -> CatalogModel {
+        let mut m = one_file_model(Some(published.len() as u64));
+        m.verify.get_mut("m.gguf").unwrap().sha256 = digest(published);
+        m
+    }
+
+    /// A catalog on `dir` that knows the one-file model as well.
+    fn catalog_with(dir: &Path, m: &CatalogModel) -> Catalog {
+        let mut catalog = Catalog::load(None, dir);
+        catalog.models.push(m.clone());
+        catalog
+    }
+
+    /// Look at what is already there, and wait for the look to be over.
+    fn scan(catalog: &Catalog) -> Vec<proto::Event> {
+        let events: Arc<Mutex<Vec<proto::Event>>> = Arc::default();
+        let heard = events.clone();
+        catalog.scan_present(
+            Arc::default(),
+            Arc::new(move |event| heard.lock().unwrap().push(event)),
+        );
+        let began = Instant::now();
+        while catalog.scanning.load(Ordering::SeqCst) {
+            assert!(
+                began.elapsed() < Duration::from_secs(30),
+                "the look did not end"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let events = events.lock().unwrap().clone();
+        events
+    }
+
+    #[test]
+    fn a_download_is_the_models_only_when_its_sha256_is_the_published_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = stand_in(a_body(), true, 0, 0);
+        let m = one_file_model_published_as(&a_body());
+        fetch(&m, dir.path(), &server.base).unwrap();
+        assert!(catalog_with(dir.path(), &m).installed_path("m").is_some());
+
+        // The right length and the wrong bytes: whole, and not the model.
+        let other = tempfile::tempdir().unwrap();
+        let mut wrong = a_body();
+        wrong[1_500_000] ^= 0xff;
+        let expects_other_bytes = one_file_model_published_as(&wrong);
+        let refused = fetch(&expects_other_bytes, other.path(), &server.base);
+        let why = format!("{:#}", refused.unwrap_err());
+        assert!(why.contains("is not the published file"), "{why}");
+        assert!(!other.path().join("m.gguf").exists(), "never installed");
+        assert!(!other.path().join("m.gguf.part").exists(), "and not kept");
+    }
+
+    #[test]
+    fn a_file_that_arrived_by_other_means_counts_by_its_sha256_and_nothing_is_fetched() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = one_file_model_published_as(&a_body());
+        // As from a USB stick: the file is simply there.
+        std::fs::write(dir.path().join("m.gguf"), a_body()).unwrap();
+        let catalog = catalog_with(dir.path(), &m);
+        assert!(
+            catalog.installed_path("m").is_none(),
+            "here is not yet verified"
+        );
+
+        let events = scan(&catalog);
+        assert!(catalog.installed_path("m").is_some());
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                proto::Event::ModelProgress { id, stage, .. } if id == "m" && stage == "checked"
+            )),
+            "the clients are told to ask again: {events:?}"
+        );
+
+        // Known from now on: another start does not read it through again.
+        let again = catalog_with(dir.path(), &m);
+        assert!(again.installed_path("m").is_some());
+        assert!(again.unchecked().is_empty());
+
+        // And asking for it to be downloaded fetches nothing at all.
+        let server = stand_in(a_body(), true, 0, 0);
+        fetch(&m, dir.path(), &server.base).unwrap();
+        assert!(
+            server.ranges.lock().unwrap().is_empty(),
+            "no request was made"
+        );
+    }
+
+    #[test]
+    fn a_file_copied_in_while_nothing_had_looked_is_verified_by_the_download_it_makes_needless() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = one_file_model_published_as(&a_body());
+        std::fs::write(dir.path().join("m.gguf"), a_body()).unwrap();
+        let server = stand_in(a_body(), true, 0, 0);
+        fetch(&m, dir.path(), &server.base).unwrap();
+        assert!(
+            server.ranges.lock().unwrap().is_empty(),
+            "no request was made"
+        );
+        assert!(catalog_with(dir.path(), &m).installed_path("m").is_some());
+    }
+
+    #[test]
+    fn something_else_under_a_models_name_does_not_count_and_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = one_file_model_published_as(&a_body());
+        let mut other = a_body();
+        other[7] ^= 0xff;
+        std::fs::write(dir.path().join("m.gguf"), &other).unwrap();
+        let catalog = catalog_with(dir.path(), &m);
+
+        let events = scan(&catalog);
+        assert!(catalog.installed_path("m").is_none());
+        assert_eq!(
+            std::fs::read(dir.path().join("m.gguf")).unwrap(),
+            other,
+            "not touched"
+        );
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                proto::Event::Notice { level: proto::NoticeLevel::Warn, text } if text.contains("is not the published file")
+            )),
+            "{events:?}"
+        );
+
+        // The download the person then asks for replaces it.
+        let server = stand_in(a_body(), true, 0, 0);
+        fetch(&m, dir.path(), &server.base).unwrap();
+        assert_eq!(std::fs::read(dir.path().join("m.gguf")).unwrap(), a_body());
+        assert!(catalog_with(dir.path(), &m).installed_path("m").is_some());
+    }
+
+    #[test]
+    fn a_file_that_may_still_be_arriving_is_not_touched() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = one_file_model_published_as(&a_body());
+        std::fs::write(dir.path().join("m.gguf"), &a_body()[..1_000_000]).unwrap();
+        let server = stand_in(a_body(), true, 0, 0);
+        let refused = fetch(&m, dir.path(), &server.base);
+        let why = format!("{:#}", refused.unwrap_err());
+        assert!(why.contains("is not complete"), "{why}");
+        assert_eq!(
+            std::fs::metadata(dir.path().join("m.gguf")).unwrap().len(),
+            1_000_000
+        );
+        assert!(server.ranges.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_file_that_changed_since_it_was_checked_is_checked_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = one_file_model_published_as(&a_body());
+        let file = dir.path().join("m.gguf");
+        std::fs::write(&file, a_body()).unwrap();
+        let catalog = catalog_with(dir.path(), &m);
+        scan(&catalog);
+        assert!(catalog.installed_path("m").is_some());
+
+        // The same length, other bytes, a later time: the stamp no longer holds.
+        let mut other = a_body();
+        other[0] ^= 0xff;
+        std::fs::write(&file, &other).unwrap();
+        let later = std::time::SystemTime::now() + Duration::from_secs(5);
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        assert!(catalog.installed_path("m").is_none());
+        scan(&catalog);
+        assert!(
+            catalog.installed_path("m").is_none(),
+            "and it is not the model"
+        );
     }
 
     #[test]
@@ -1202,9 +1742,18 @@ mod tests {
     #[test]
     fn a_model_is_installed_only_when_every_file_is_here_and_finished() {
         let dir = tempfile::tempdir().unwrap();
-        let catalog = Catalog::load(None, dir.path());
-        // A model in three files: every one of them, finished.
-        const MODEL: &str = "qwen2.5-14b-instruct-q4_k_m";
+        let mut catalog = Catalog::load(None, dir.path());
+        // A model in three files, of which the catalog gives no digest: every
+        // one of them, finished. (With a digest, being here is not enough:
+        // the tests of files that arrived by other means say what is.)
+        const MODEL: &str = "three";
+        catalog.models.push(
+            serde_json::from_str(
+                r#"{"id":"three","title":"Three","params_b":1.0,"bytes":3,"context_len":2048,
+                    "repo":"example/three","files":["a.gguf","b.gguf","c.gguf"],"tensor":null}"#,
+            )
+            .unwrap(),
+        );
         assert!(catalog.installed_path(MODEL).is_none());
         let files = &catalog.get(MODEL).unwrap().files;
         assert_eq!(files.len(), 3);

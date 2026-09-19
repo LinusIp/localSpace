@@ -4,6 +4,81 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-19, a file is the model's by its SHA-256: downloads, models copied in, and the default's two rules
+
+What the answers after day 2 asked for by Tuesday, except the warm-up: the
+checksum, the detection of files that are already there, the licence rule
+and the ladder of the recommendation. With it, what the run of the Friday
+flow on the development laptop taught.
+
+- **`sha2` 0.10** is the direct dependency (it was compiled in already
+  through other crates; no new crate enters the tree).
+- **"Installed" means: here, finished, and the published file.** A file of
+  which the catalog gives a SHA-256 is the model's only once that digest has
+  been found to be its own, whether it was downloaded or arrived by other
+  means. A file is read through once: what was found is kept in
+  `verified.json` beside the models (its length, its time of modification,
+  its digest), and it is read again only when length or time has changed. A
+  model of which the catalog gives no digest (an organisation's own entry,
+  an imported file) is held to being here, as before.
+- **After a download** the file is compared with the published digest before
+  it takes its name (`verifying`); one that differs is removed and refused:
+  the right length is not the right file.
+- **Files that were already there** (the ruling: models travel on a stick or
+  a share into the models folder, and the app notices them) are looked at
+  whenever the catalog or the computer is asked about, on a thread of its
+  own, one look at a time: so also when they are copied in while the app is
+  open. The entry shows `verifying` meanwhile and `checked` tells the clients
+  to ask again. **What is something else under a model's name does not count
+  and is left alone**, with a notice that says so; the download the person
+  then asks for replaces it. **A file shorter than the published one may
+  still be arriving and is never touched**: the download is refused with a
+  sentence that says to wait for the copy or delete the file. Asking for a
+  model whose published file is already here fetches nothing at all, and the
+  check of the disk's room counts what is here.
+- **The default recommendation only offers a model whose licence permits
+  commercial use** (`commercial_use` in the catalog; an entry that does not
+  say is never the default), and says nothing of what it passed over. Every
+  entry carries its **licence in words a person can act on**
+  (`license_words`), shown on the first run and in Settings. The words are
+  written from the licence itself: Apache-2.0 is "Free to use, also for
+  commercial use."; the Qwen Research licence defines non-commercial as "for
+  research or evaluation purposes only", so Qwen2.5 3B says "Free for
+  research and evaluation only, not for commercial use." and not "personal
+  use", which that licence does not grant.
+- **The ladder has a lowest rung worth standing on.** A model of under a
+  billion parameters is offered only where nothing larger so much as works:
+  a larger model that works comes before a smaller one that runs well. On
+  the development laptop the default is now **Qwen2.5 1.5B** ("about 35 to
+  50 words a second"); the 3B runs well there too and is passed over for its
+  licence.
+- **"First run" means that no model has been chosen on this computer**, not
+  that no model's file is here: with models copied in beforehand a file is
+  "here" within seconds, and the first run of 2026-09-19's first version was
+  skipped for an empty chat that said "No model". Core now **remembers the
+  model that was started last** (for the computer, not for a person), the
+  window **starts it again as it opens**, and the first run is shown until
+  one was chosen. Before this, every start of the app ended at "No model —
+  choose one in Settings".
+- **The first run keeps its one deliberate click.** A model that is already
+  on the computer is not started by itself: the page says "It is already on
+  this computer: nothing to download." and its button says **Start**. A
+  tester has the sentence about their computer to read and write down, and
+  the guide says "accept it".
+
+**The Friday flow, run on the development laptop** (a fresh data folder;
+0.5B, 1.5B and 7B placed in its models folder beforehand; the real engine):
+the first run appeared after 3.3 s with the 1.5B already verified; Start; the
+chat had its model 5.7 s later; nothing was fetched. Closed and opened again:
+the chat after 2.8 s, its model back by itself at 7.9 s. **Every entry that
+ships was checked against Hugging Face the same day** (`scripts/check-catalog.mjs`:
+ten files of seven entries answer at their pinned addresses with the
+catalog's sizes and digests); it is run again before Thursday.
+
+**For the server test, not built:** an organisation's server does not start
+its model again after a restart (the window that does it is a person's own);
+it belongs with items 5 to 7.
+
 ## 2026-09-19, the answers after day 2
 
 The user's rulings on the four questions of the second daily report, two

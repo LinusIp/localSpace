@@ -293,7 +293,10 @@ fn on_an_ordinary_computer_the_engine_gets_a_number_of_layers_and_one_named_devi
             );
             assert!(computer.notes.is_empty(), "{:?}", computer.notes);
             assert_eq!(computer.disk_free_gb, Some(136));
-            assert!(!computer.first_run, "the stub model's file is on disk");
+            // A model's file is here (as from a stick), and nothing has been
+            // chosen yet: the first run is still to come.
+            assert!(computer.first_run);
+            assert_eq!(computer.last_model, None);
             assert!(computer.recommended.is_some());
         }
         other => panic!("expected the computer, got {other:?}"),
@@ -320,6 +323,15 @@ fn on_an_ordinary_computer_the_engine_gets_a_number_of_layers_and_one_named_devi
     assert!(log.contains(r#""-ngl", "3""#), "{log}");
     assert!(log.contains(r#""--device", "Vulkan0""#), "{log}");
     assert!(!log.contains("\"999\""), "{log}");
+    // A model has been chosen now: no first run any more, and the next start
+    // of the window begins with this one.
+    match core.handle(proto::Request::DescribeComputer) {
+        proto::Response::Computer(computer) => {
+            assert!(!computer.first_run);
+            assert_eq!(computer.last_model.as_deref(), Some("tiny"));
+        }
+        other => panic!("expected the computer, got {other:?}"),
+    }
     assert!(matches!(
         core.handle(proto::Request::UnloadModel),
         proto::Response::Ok

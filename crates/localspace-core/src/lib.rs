@@ -151,6 +151,12 @@ impl Config {
     }
 }
 
+/// Where what belongs to the computer, and to no person, is kept among the
+/// preferences: no account can have this name.
+const COMPUTER: &str = "@computer";
+/// The model that was started last here.
+const LAST_MODEL: &str = "model.last";
+
 /// A tool call held at a confirmation gate, waiting for the user.
 struct Pending {
     tool: String,
@@ -1217,6 +1223,10 @@ impl Core {
     // -- models: the catalog, downloads, the sidecar (v2 §4) -----------------
 
     fn model_catalog(&mut self) -> proto::Response {
+        // A model that arrived by other means (a USB stick, a share) is
+        // noticed here, by its SHA-256, at the start and whenever it is asked.
+        self.models
+            .scan_present(self.downloads.clone(), self.sink());
         let downloads = self.downloads.lock().unwrap().clone();
         let hardware = self.fitted_hardware();
         let caps = self.layer_caps.lock().unwrap().clone();
@@ -1267,9 +1277,17 @@ impl Core {
     /// The first run's screen: the computer in one sentence, what follows
     /// from it, the room for models, and the model to start with.
     fn describe_computer(&mut self) -> proto::Computer {
+        self.models
+            .scan_present(self.downloads.clone(), self.sink());
         let found = self.hardware();
         let dir = self.models_dir();
-        let first_run = !self.models.any_installed();
+        let last = self
+            .store
+            .preferences(COMPUTER)
+            .ok()
+            .and_then(|all| all.into_iter().find(|(key, _)| key == LAST_MODEL))
+            .map(|(_, id)| id);
+        let first_run = last.is_none() && self.engine.is_none();
         proto::Computer {
             sentence: found.sentence(),
             notes: found.notes(),
@@ -1278,6 +1296,7 @@ impl Core {
             recommended: self
                 .fitted_hardware()
                 .and_then(|hw| self.models.recommend(&hw)),
+            last_model: last.filter(|id| self.models.installed_path(id).is_some()),
             first_run,
         }
     }
@@ -1430,6 +1449,11 @@ impl Core {
             "started",
         );
         self.engine = Some(engine);
+        // Remembered for the computer, not for a person: the next start
+        // begins with the model that was in use.
+        if let Err(e) = self.store.set_preference(COMPUTER, LAST_MODEL, id) {
+            tracing::warn!("models: the model in use could not be remembered: {e:#}");
+        }
         self.broadcast_environment();
         Ok(())
     }

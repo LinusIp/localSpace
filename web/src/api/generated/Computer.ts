@@ -28,6 +28,13 @@ disk: string,
  */
 recommended: string | null, 
 /**
- * True when no model is on this computer yet: the first run.
+ * The model that was started last on this computer, when it is still
+ * here: the window starts it again as it opens.
+ */
+last_model: string | null, 
+/**
+ * True until a model has been chosen on this computer: the first run.
+ * Not "no model file is here": models copied in from a stick are here
+ * before anything was chosen, and the first run is still to come.
  */
 first_run: boolean, };

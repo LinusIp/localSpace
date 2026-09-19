@@ -11,6 +11,18 @@ export type ModelCatalogEntry = { id: string, title: string, family: string, par
  */
 active_params_b: number, quant: string, license: string, license_url: string, 
 /**
+ * The licence in words a person can act on: "Free to use, also for
+ * commercial use", "Free for research and evaluation only, not for
+ * commercial use". Empty when the catalog does not say.
+ */
+license_words: string, 
+/**
+ * Whether the licence permits commercial use. The default
+ * recommendation only ever offers a model for which this is true; the
+ * others are listed, with their licence in words.
+ */
+commercial_use: boolean, 
+/**
  * Approximate size on disk of all files.
  */
 bytes: number, context_len: number, 

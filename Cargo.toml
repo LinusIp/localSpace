@@ -48,6 +48,9 @@ egui_tiles = "0.17"
 # --- state ---
 automerge = "0.11"
 blake3 = "1.8"
+# Approved on 2026-09-19: a download is held to the SHA-256 its publisher
+# gives, and a file that arrived by other means is recognised by it.
+sha2 = "0.10"
 redb = "4"
 
 # --- runtime ---
