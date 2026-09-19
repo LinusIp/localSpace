@@ -1254,16 +1254,22 @@ impl Core {
             return found.clone();
         }
         if let Some(found) = self.looking.take().and_then(|look| look.join().ok()) {
-            self.trace(format!("computer: {}", found.sentence()));
-            self.hardware = Some(found.clone());
-            return found;
+            return self.keep_what_was_found(found);
         }
         let binary = engine::find_binary(
             self.cfg.llama_server.as_deref(),
             self.cfg.data_dir.as_deref(),
         );
         let found = hardware::detect(binary.as_deref(), Some(&self.models_dir()));
+        self.keep_what_was_found(found)
+    }
+
+    /// The look is taken once and planned from; the log keeps its numbers,
+    /// so that what a person was recommended can be explained afterwards
+    /// from the log alone.
+    fn keep_what_was_found(&mut self, found: hardware::Hardware) -> hardware::Hardware {
         self.trace(format!("computer: {}", found.sentence()));
+        tracing::info!("the computer as found: {}", found.facts());
         self.hardware = Some(found.clone());
         found
     }
@@ -1288,14 +1294,31 @@ impl Core {
             .and_then(|all| all.into_iter().find(|(key, _)| key == LAST_MODEL))
             .map(|(_, id)| id);
         let first_run = last.is_none() && self.engine.is_none();
+        let fitted = self.fitted_hardware();
+        let recommended = fitted.as_ref().and_then(|hw| self.models.recommend(hw));
+        if first_run {
+            // With the look's numbers above it in the log, this says why.
+            let estimate = recommended.as_deref().and_then(|id| {
+                let hw = fitted.as_ref()?;
+                self.models.fitted(id, hw, None).ok().flatten()
+            });
+            match (&recommended, estimate) {
+                (Some(id), Some(placed)) => tracing::info!(
+                    "first run: {id} is recommended, estimated at {:.1} tokens a second with {} of {} layers on the card",
+                    placed.tokens_per_second,
+                    placed.gpu_layers,
+                    placed.layers_total
+                ),
+                (Some(id), None) => tracing::info!("first run: {id} is recommended"),
+                (None, _) => tracing::info!("first run: no model is recommended"),
+            }
+        }
         proto::Computer {
             sentence: found.sentence(),
             notes: found.notes(),
             disk_free_gb: found.disk_free_mib.map(|mib| (mib / 1024) as u32),
             disk: hardware::place_in_words(&dir),
-            recommended: self
-                .fitted_hardware()
-                .and_then(|hw| self.models.recommend(&hw)),
+            recommended,
             last_model: last.filter(|id| self.models.installed_path(id).is_some()),
             first_run,
         }

@@ -104,6 +104,48 @@ impl Hardware {
     /// two cards the one with more memory. One device, never a split: a
     /// model spread over a card and the processor's graphics is slower than
     /// on the card alone.
+    /// The numbers the plan is made from, on one line, for the log: what a
+    /// recommendation that surprises someone is explained with afterwards.
+    /// Nothing here is about a person: the card, the memory, the disk.
+    pub fn facts(&self) -> String {
+        let cards: Vec<String> = self
+            .gpus
+            .iter()
+            .map(|g| {
+                format!(
+                    "{} \"{}\": {} MiB, {} MiB for the engine, {} held by other programs, {}",
+                    g.device,
+                    g.name,
+                    g.total_mib,
+                    g.free_mib,
+                    g.used_by_others_mib
+                        .map(|mib| format!("{mib} MiB"))
+                        .unwrap_or_else(|| "an unknown amount".into()),
+                    match (g.integrated, g.bandwidth_gbps) {
+                        (true, _) => "shares the system memory".to_string(),
+                        (false, Some(gbps)) => format!("{gbps} GB/s by the card table"),
+                        (false, None) => "not in the card table".to_string(),
+                    }
+                )
+            })
+            .collect();
+        format!(
+            "{}; memory {} MiB ({} free), copied at {:.1} GB/s; {} cores; disk {}",
+            if cards.is_empty() {
+                "no graphics card".to_string()
+            } else {
+                cards.join("; ")
+            },
+            self.ram_total_mib,
+            self.ram_free_mib,
+            self.ram_bandwidth_gbps,
+            self.cores,
+            self.disk_free_mib
+                .map(|mib| format!("{mib} MiB free"))
+                .unwrap_or_else(|| "unknown".into()),
+        )
+    }
+
     pub fn gpu(&self) -> Option<&Gpu> {
         self.gpus
             .iter()
@@ -396,6 +438,14 @@ pub fn list_devices(engine: &Path) -> Result<Vec<Gpu>, String> {
 /// Everything, best effort. `engine` is `llama-server` when there is one;
 /// `storage` is where the models are kept, for the free space.
 pub fn detect(engine: Option<&Path>, storage: Option<&Path>) -> Hardware {
+    // Whatever else is busy while the look is taken (the app's own window
+    // opening, a model copied from a stick being checked) can only make the
+    // memory look slower than it is, never faster. One sample taken last,
+    // two seconds into a first start, read 13 GB/s on a laptop that copies
+    // at 19, and the 7B lost its place as the default to the 1.5B on it
+    // (2026-09-19). So: three samples with the look's other steps between
+    // them, and the best is kept.
+    let mut copy_gbps = measure_ram_bandwidth();
     let (gpus, gpu_listing) = match engine {
         None => (Vec::new(), GpuListing::NoEngine),
         Some(engine) => match list_devices(engine) {
@@ -406,7 +456,9 @@ pub fn detect(engine: Option<&Path>, storage: Option<&Path>) -> Hardware {
             }
         },
     };
+    copy_gbps = copy_gbps.max(measure_ram_bandwidth());
     let system = system_facts(storage);
+    copy_gbps = copy_gbps.max(measure_ram_bandwidth());
     let mut gpus = gpus;
     for gpu in &mut gpus {
         gpu.used_by_others_mib = system.held_of(&gpu.name);
@@ -416,7 +468,7 @@ pub fn detect(engine: Option<&Path>, storage: Option<&Path>) -> Hardware {
         gpu_listing,
         ram_total_mib: system.ram_total_mib,
         ram_free_mib: system.ram_free_mib,
-        ram_bandwidth_gbps: measure_ram_bandwidth(),
+        ram_bandwidth_gbps: copy_gbps,
         disk_free_mib: system.disk_free_mib,
         cores: std::thread::available_parallelism()
             .map(|n| n.get() as u32)
@@ -851,6 +903,34 @@ mod tests {
         assert_eq!(
             hardware.notes(),
             ["GPU detected, capability unknown \u{2014} starting carefully."]
+        );
+    }
+
+    #[test]
+    fn the_log_line_carries_the_numbers_a_plan_is_made_from() {
+        let mut gpus = parse_devices(RECORDED_HYBRID_LAPTOP);
+        gpus[0].used_by_others_mib = Some(412);
+        let found = with(gpus, GpuListing::Listed, 15_613);
+        let facts = found.facts();
+        assert!(
+            facts.starts_with(
+                "Vulkan0 \"NVIDIA GeForce RTX 3050 Ti Laptop GPU\": 3962 MiB, 3367 MiB for the engine, 412 MiB held by other programs, 192 GB/s by the card table; memory 15613 MiB"
+            ),
+            "{facts}"
+        );
+        // A card the table lacks says so, which explains a careful promise.
+        let mut unknown = parse_devices(&written("Moore Threads MTT S80", 16384, 16000));
+        unknown[0].used_by_others_mib = None;
+        let facts = with(unknown, GpuListing::Listed, 32_000).facts();
+        assert!(
+            facts.contains("an unknown amount held by other programs"),
+            "{facts}"
+        );
+        assert!(facts.contains("not in the card table"), "{facts}");
+        let none = with(Vec::new(), GpuListing::Listed, 8_000).facts();
+        assert!(
+            none.starts_with("no graphics card; memory 8000 MiB"),
+            "{none}"
         );
     }
 

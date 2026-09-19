@@ -64,6 +64,19 @@ evaluation only, not for commercial use."), not as "personal use".
   the more reliable model once a model is fast enough to read along with.
   Speed above reading pace has sharply diminishing value; correctness does
   not.**
+- **Found while taking the pictures again, and fixed: the memory was
+  measured once, at the busiest moment of a first start.** The look took its
+  one 100 ms sample of the copy rate last, two seconds in, while the window
+  was opening and a model copied from a stick was being checked: 13 GB/s on
+  a laptop that copies at 19, which put the 7B under the new line and the
+  1.5B in its place, on some starts and not on others. Being busy can only
+  make memory look slower, never faster, so the look now takes three
+  samples with its other steps between them and keeps the best (19.5, 20.8
+  and 20.9 GB/s over three such starts; the 7B each time). And the log now
+  keeps what the look found and what the first run recommended with its
+  estimate, two lines, so that a recommendation that surprises someone on
+  the day can be explained from `app.log` alone; nothing in them is about
+  a person.
 - **4. `web.search` is not offered until a search service is set** (plugin
   spec §8.1 and §8.2; answer 24). §8.1 takes the web tools away when
   airgapped "so the model never proposes a search it can't run", and the
