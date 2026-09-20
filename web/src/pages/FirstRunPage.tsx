@@ -90,7 +90,16 @@ export function FirstRunPage() {
               )}
               {queued && <div className="auth-sub">Waiting for the download before it to finish: one at a time.</div>}
               {failed && <div className="error">The download stopped. What came is kept: start it again and it continues from there.</div>}
-              {offline && !model.installed && <div className="auth-sub">Downloads need the network, and this computer is set to stay offline.</div>}
+              {offline && !model.installed && (
+                <div className="auth-sub">
+                  Downloads need the network, and this computer is set to stay offline.{" "}
+                  <button type="button" className="link green" onClick={() => { leaveFirstRun(); goSettings("network"); }}>
+                    Settings → Network changes that.
+                  </button>
+                </div>
+              )}
+              {/* Offline with nothing here, no button could work: the sentence stands alone. */}
+              {!(offline && !model.installed) && (
               <button
                 type="button"
                 className="auth-button"
@@ -98,10 +107,11 @@ export function FirstRunPage() {
                   setAccepted(true);
                   if (!model.installed) void downloadModel(model.id);
                 }}
-                disabled={downloading || queued || checking || starting || (accepted && model.installed) || (offline && !model.installed) || (!!model.no_room && !model.installed)}
+                disabled={downloading || queued || checking || starting || (accepted && model.installed) || (!!model.no_room && !model.installed)}
               >
                 {downloading ? "Downloading…" : queued ? "Waiting its turn…" : checking ? "Checking…" : starting || (accepted && model.installed) ? "Starting…" : model.installed ? "Start" : paused || failed ? "Continue the download" : "Download and start"}
               </button>
+              )}
               {(downloading || queued) && (
                 <div className="auth-help" style={{ marginTop: 10 }}>
                   <button

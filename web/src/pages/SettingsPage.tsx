@@ -234,6 +234,7 @@ function AssistantPane() {
 function GetAModel({ entries, onDownload, onStop, onDelete }: { entries: ModelCatalogEntry[]; onDownload: (id: string) => void; onStop: (id: string) => void; onDelete: (m: ModelCatalogEntry) => void }) {
   const [open, setOpen] = useState(false);
   const environment = useSession((s) => s.environment);
+  const personal = useSession((s) => s.me?.topology === "personal");
   if (entries.length === 0) return null;
   const offline = environment?.network === "airgapped";
   return (
@@ -243,7 +244,7 @@ function GetAModel({ entries, onDownload, onStop, onDelete }: { entries: ModelCa
       </button>
       {open && (
         <div className="row-list" style={{ marginTop: 12 }}>
-          {offline && <div className="row-item ls-muted">Downloads need the network. This server is offline, so a model is brought in as a file by your administrator.</div>}
+          {offline && <div className="row-item ls-muted">{personal ? "Downloads need the network, and this computer is set to stay offline. Settings → Network changes that." : "Downloads need the network. This server is offline, so a model is brought in as a file by your administrator."}</div>}
           {entries.map((m) => {
             const downloading = m.download && m.download.stage.startsWith("downloading");
             const failed = m.download && m.download.stage.startsWith("failed");
@@ -281,8 +282,9 @@ function GetAModel({ entries, onDownload, onStop, onDelete }: { entries: ModelCa
                     </button>
                   ) : checking || willNotFit(m) ? null : (
                     <>
-                      {!m.no_room && (
-                        <button type="button" className="btn" onClick={() => onDownload(m.id)} disabled={offline}>
+                      {/* Offline, the sentence above stands alone: no button that cannot work. */}
+                      {!m.no_room && !offline && (
+                        <button type="button" className="btn" onClick={() => onDownload(m.id)}>
                           {paused || failed ? "Continue" : "Download"}
                         </button>
                       )}
