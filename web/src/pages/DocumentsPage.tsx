@@ -1,6 +1,5 @@
 // Documents: everything in this workspace the person may see — each board
-// as a document of its own, and the files that exports made. Uploading
-// files comes with document search.
+// as a document of its own, and the files that exports made.
 
 import { useCallback, useEffect, useState } from "react";
 import { BoardIcon, FileIcon } from "@localspace/ui";
@@ -45,7 +44,7 @@ export function DocumentsPage() {
         <div className="page-sub">What is in this workspace: your boards, and the files made from them.</div>
         {docs === null ? null : docs.length === 0 ? (
           <p className="ls-muted" style={{ marginTop: 32 }}>
-            No documents yet. A board appears here once you open it, and files you export from it follow. Uploading your own files comes with document search.
+            No documents yet. A board appears here once you open it, and files you export from it follow.
           </p>
         ) : (
           <div className="row-list">
