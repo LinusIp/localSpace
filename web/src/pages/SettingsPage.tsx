@@ -94,19 +94,22 @@ function GeneralPane() {
   return (
     <>
       <h1 className="pane-title">General</h1>
-      <div className="pane-sub">Your account and where you are working.</div>
+      <div className="pane-sub">{organisation ? "Your account and where you are working." : "You, and where you are working."}</div>
       <div className="row-list">
         <div className="row-item">
           <div className="row-main">
             <div className="row-title">{me?.name || me?.user}</div>
             <div className="row-body">
-              {organisation ? me?.email : "Signed in on this computer"}
+              {organisation ? me?.email : "Your own computer needs no account."}
               {organisation && roleLabel(me?.roles) ? ` · ${roleLabel(me?.roles)}` : ""}
             </div>
           </div>
-          <button type="button" className="btn" onClick={() => void logout().then(signOut)}>
-            Sign out
-          </button>
+          {/* Only where there are accounts: see `Person` in the top bar. */}
+          {organisation && (
+            <button type="button" className="btn" onClick={() => void logout().then(signOut)}>
+              Sign out
+            </button>
+          )}
         </div>
         <div className="row-item">
           <div className="row-main">

@@ -39,6 +39,17 @@ export function ReadinessChip() {
 export function Person() {
   const { me, signOut, goSettings } = useSession();
   const label = me?.name || me?.email || me?.user || "?";
+  // A person's own computer has no accounts, so nothing to sign out of: there,
+  // "Sign out" led to a page asking for a token nobody can obtain, a locked
+  // door (docs/DECISIONS.md, 2026-09-20). Without it the menu held a name and
+  // a second way into Settings, so the initial opens Settings itself.
+  if (me?.topology === "personal") {
+    return (
+      <button type="button" className="avatar" onClick={() => goSettings("general")} aria-label="Settings" title={label}>
+        {initialsOf(label)}
+      </button>
+    );
+  }
   return (
     <Menu
       align="right"
