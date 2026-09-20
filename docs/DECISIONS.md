@@ -4,6 +4,65 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-20, Sunday's answers: the squeezed mark is fixed before the dry run, two pictures on one page agree, and two findings are written down
+
+The user's answers to the report on the landing pictures
+(`15-localspace-answers-sunday.md`).
+
+- **1. The assistant's round mark was squeezed to an oval beside every long
+  answer, and it is fixed before the dry run** (architecture v2 §6; the UI
+  reference of 2026-09-13). Seen on the landing pictures taken from the
+  release build `05b4d6de`: 18 × 33 px where 33 × 33 is meant, because
+  `.avatar` was allowed to shrink and an answer's long paragraph shrank it.
+  The builder asked when: now, between the dry run and Monday's build, or
+  after the test. Ruled: **now, if the dry run has not begun** (the user
+  confirmed on the day that it had not), "through the full gate — commit,
+  CI, package build — and the dry run uses that artefact. Not a hand-patched
+  folder." Had it begun: after the test, and the report would have said the
+  mark is known. Between the dry run and Monday's build nothing changes, not
+  even one declaration: **what is sent must be what was dry-run.** And it is
+  not called cosmetic: it "appears beside every long answer, in every
+  conversation, on every tester's machine", in the main view, and "a visibly
+  broken element there costs more trust than any missing feature". No walk
+  in CI draws an answer (CI has no model), so the fix is verified by
+  measuring the mark in the packaged release build; the gap is on
+  `docs/AFTER-TEST-A.md`.
+- **2. Two pictures on one page must agree.** The first run and the model
+  list stand side by side on the landing page, so they are the pair taken
+  in one look, "about 6 to 8 words a second" in both, although that list
+  carries the amber "No model — choose one in Settings": "it is the app
+  telling a new person what to do next". The speed is measured again at
+  every start, which is honest, and on a landing page it "reads as
+  sloppiness rather than as honest re-measurement". **Three of four verdicts
+  is fine: no machine and no framing is contrived to show all four.**
+  Picture 3 is taken again after the fix with a fresh question: a
+  mislabelled point in an answer is the model being imperfect, not a
+  defect, and still not what goes on the front page.
+- **3. The verdict does not stand out in its row**: mid-paragraph, in the
+  same grey as the licence and the size of the download, and it is "the
+  whole honesty claim". After the test, **first on the design list**
+  (`docs/AFTER-TEST-A.md`, due first).
+- **4. A busy first start recommends a model one size too small: after the
+  test, high priority, and watched on Monday.** Measured on 2026-09-20,
+  moments after 4.4 GB had been written to the disk: the memory copied at
+  8.2 GB/s, all three samples slow, on a laptop that reads 18 to 21 when
+  quiet; the 7B fell under the line and the 1.5B was recommended, with the
+  7B already on the disk; a restart on the quiet machine read 20.2 and
+  recommended the 7B. The measurement is not touched on the day of a dry
+  run. It is not to be called erring on the safe side: **"safe on speed is
+  unsafe on answer quality"**. The 1.5B gets arithmetic wrong and invents
+  facts by our own message script, and that is what moved the line from 15
+  to 10 tokens a second. Nor is it exotic: a tester's first run comes
+  moments after an installer wrote its files, on a gaming laptop with a
+  launcher and a browser open. The runbook's table for reading `app.log`
+  says what a low "copied at" means, so that whoever reads ten logs on
+  Monday recognises it. **Nothing in the tester sheet asks a person to
+  close other programs first**: that "makes the software feel fragile, and
+  it is our problem to solve, not theirs".
+- **What is left is the founder's**: the Telegram contact, the hosting
+  link, the testers' card names, the certificate, and the dry run. "An idle
+  hour on Sunday afternoon is fine; a new change at four o'clock is not."
+
 ## 2026-09-20, the rulings on the eight dead ends, Smart App Control stays on, and who takes the pictures
 
 The user's rulings on the walk of the shell (`14-localspace-deadend-rulings.md`),

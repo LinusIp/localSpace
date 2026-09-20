@@ -36,7 +36,7 @@ button {
 .chip.amber { background: var(--ls-warn-soft); border-color: #eedfb3; color: var(--ls-warn); }
 .chip.quiet { background: var(--ls-page); }
 
-.avatar { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; border: 0; padding: 0; background: var(--ls-ink); color: #fff; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.avatar { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 999px; border: 0; padding: 0; background: var(--ls-ink); color: #fff; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .avatar.small { width: 31px; height: 31px; font-size: 12px; }
 .avatar.soft { background: var(--ls-accent-soft); border: 1px solid var(--ls-accent-line); color: var(--ls-accent); }
 
