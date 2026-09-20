@@ -3,7 +3,7 @@
 // in words; anything that needs the person's say-so appears as a card.
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ClipIcon, CloseIcon, SpinnerIcon, StopIcon } from "@localspace/ui";
+import { ArrowUpIcon, CheckIcon, ChevronDownIcon, CloseIcon, SpinnerIcon, StopIcon } from "@localspace/ui";
 import type { ChatMessage, ToolCallRecord } from "../api/generated";
 import { initialsOf, outcomeLine, useSession } from "../store";
 import type { LiveToolCall } from "../store";
@@ -282,9 +282,6 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
         autoFocus
       />
       <div className="composer-row">
-        <button type="button" className="composer-attach" disabled title="Attaching files comes with document search, later this year.">
-          <ClipIcon size={17} /> Attach a file
-        </button>
         <div className="ls-row ls-gap-2">
           <button type="button" className="model-chip" onClick={() => goSettings("assistant")} title="Choose the assistant">
             {modelLabel(model?.id, catalogModels)}

@@ -94,9 +94,7 @@ button {
 .composer-card:focus-within { border-color: var(--ls-accent-line); }
 .composer-card textarea { display: block; width: 100%; box-sizing: border-box; border: 0; outline: none; resize: none; font: inherit; font-size: 15.5px; line-height: 1.5; background: transparent; color: var(--ls-ink); padding: 0; max-height: 220px; }
 .composer-card textarea::placeholder { color: var(--ls-faint); }
-.composer-row { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; gap: 10px; }
-.composer-attach { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; padding: 0; font: inherit; font-size: 13.5px; color: var(--ls-muted); cursor: default; }
-.composer-attach:disabled { color: var(--ls-faint); cursor: not-allowed; }
+.composer-row { display: flex; align-items: center; justify-content: flex-end; margin-top: 18px; gap: 10px; }
 .model-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border: 1px solid var(--ls-line); border-radius: 999px; background: transparent; font: inherit; font-size: 13px; color: var(--ls-ink-soft); cursor: pointer; }
 .model-chip:hover { background: var(--ls-page); }
 .model-chip.static { cursor: default; }
