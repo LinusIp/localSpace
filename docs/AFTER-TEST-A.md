@@ -33,7 +33,15 @@ against, with a line in `docs/DECISIONS.md`.
   it, which is why the whiteboard's evals pass. The fix: a read tool's
   result, bounded by the profile's budget and wrapped as untrusted where it
   comes from outside, in what the model reads; then retrieval for what is
-  larger.
+  larger. **With the web tools the third network mode returns** (plugin spec
+  §8.1): until then the Client shows two true choices, *Offline* and
+  *Online* (only to download a model), and says nothing of an assistant that
+  asks before it goes online (2026-09-20).
+- **What the rule "nothing is visible unless it works" took out, to come
+  back when it works**: *Attach a file* and uploading your own files (with
+  document search), *Documents* in the rail before a first document exists,
+  the raw API's address under Advanced. *Sign out* stays out of a personal
+  install for good.
 - **The model list as data.** A signed, versioned index that Core fetches
   from the registry or imports from a file; the compiled-in
   `models/catalog.json` and `models/gpus.json` move into it. The signature:

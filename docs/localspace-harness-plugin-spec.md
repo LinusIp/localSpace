@@ -279,6 +279,8 @@ Set per environment; in organisation mode the admin sets the ceiling and the use
 
 The mode is visible in the Client at all times — a single indicator, because a user in a bank needs to know at a glance whether this environment can talk to the internet.
 
+> **Deferred, 2026-09-20 (docs/DECISIONS.md).** No web tool is offered until what a read tool brings back can reach the model, so the Client shows two choices that are true of the product as it is, *Offline* (nothing is downloaded either) and *Online* (only to download a model that was asked for), and the indicator follows them. The three modes above, with `ask` as its own choice, return when the web tools do. Core and the API keep all three.
+
 ### 8.2 The gateway
 
 One Core component is the only thing with a socket. It provides two agent tools:

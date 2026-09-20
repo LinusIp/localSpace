@@ -58,8 +58,8 @@ downloaded it yet:
 
 - If instead a message says **"Smart App Control blocked an app that may be
   unsafe"**, there is no button that lets it through, and nothing for you to
-  fix. **Do not change any Windows setting.** Stop here and tell us: that
-  alone is a useful result.
+  fix. **Do not change any Windows setting.** Stop here and tell us on
+  Telegram straight away: that alone is a useful result.
 
 **3. Install.** Click **Next**, and **Next** again on the page that shows the
 folder (leave the folder as it is). When the bar is full and it says

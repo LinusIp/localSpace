@@ -11,11 +11,16 @@ This page is for us; the sheet is for them and holds nothing of this.
 The screening answers (graphics card, memory, free disk, Windows, Smart App
 Control) decide two things for each person.
 
-- **Smart App Control "On": a signed build, or not at all.** An unsigned
-  installer is refused outright there, with no button, and unsupervised that
-  is a lost tester we would not even hear from. "Evaluation" and "Off" can
-  take part with the unsigned build: they meet the SmartScreen warning the
-  sheet prepares them for.
+- **Everyone is sent the installer, whatever they answered about Smart App
+  Control** (ruled 2026-09-20, reversing the rule of the day before). Those
+  whose answer says "On" get one more line in their message: *Windows may
+  refuse to run the installer outright. That is expected of a build without
+  a certificate. If it happens, please tell us on Telegram straight away.*
+  A tester who cannot install is still a data point; a tester who was never
+  sent anything is not. **Nothing, anywhere, says that Smart App Control will
+  let the installer through**: on the one machine we have with it on, it let
+  ours through on 19 September, and its verdicts were seen to change within
+  hours.
 - **What they will be offered.** Send the graphics cards to the builder
   before Monday: each is run through the machine-shape test
   (`what_typical_computers_are_told_and_offered` in
@@ -27,11 +32,6 @@ Control) decide two things for each person.
   measured so far was measured on one NVIDIA laptop; an AMD card runs
   through the same Vulkan engine on figures AMD publishes as "up to". **On
   Monday their logs are read first.**
-- Smart App Control's verdicts are not uniform: on the development laptop,
-  with it on, it blocked neither the unsigned installer nor the unsigned app
-  on 19 September, while refusing the Rust compiler for two hours the same
-  evening. The rule above stands all the same: nobody whose answer says
-  "On" is sent an unsigned installer.
 
 Five to seven usable results of ten is a normal outcome of an unsupervised
 test, and the conclusions are planned around that number. Recruiting a few
@@ -68,10 +68,12 @@ their own machine while you watch and say nothing.
 
 Write down, for that machine:
 
-- **every dialog a tester meets, in order, as a picture** (they go into the
-  sheet): the download page and its warning, the browser's own warning,
-  SmartScreen as it first appears and after *More info*, the installer's
-  pages (first, progress, completed), and the folder that holds `app.log`;
+- **every dialog a tester meets, in order, as a picture**, taken by the
+  person at the machine with the screenshot key at the moment it appears:
+  `docs/test-a/SHOT-LIST.md` says what must be on screen for each and where
+  it goes in the sheet. If Drive's virus-scan page never appears (the file is
+  37 MB; Drive scans files under 100 MB), say so, and the sheet's conditional
+  sentence is deleted;
 - the exact clicks at each of them;
 - **the installer's clicks, by watching them**: the sheet says *Next*, *Next*
   on the folder page, *Next* once *Completed* shows, *Finish*. The folder
