@@ -307,45 +307,75 @@ function GetAModel({ entries, onDownload, onStop, onDelete }: { entries: ModelCa
   );
 }
 
-const MODES: Array<{ mode: NetworkMode; title: string; body: string }> = [
-  { mode: "airgapped", title: "Offline", body: "Nothing leaves your organisation's server. The assistant answers from what it has." },
-  { mode: "ask", title: "Online, asks first", body: "The assistant asks you before each request to the internet." },
-  { mode: "online", title: "Online", body: "The assistant may reach the internet when it needs to." },
+/**
+ * Two choices, each true of what the product does (docs/DECISIONS.md,
+ * 2026-09-20). No web tool exists, so the one thing that ever goes online is
+ * the download of a model somebody asked for; a choice that described the
+ * assistant asking before a request to the internet described behaviour the
+ * product does not have. The third mode of plugin spec §8.1 returns when web
+ * tools do: a deferral. "Online" here is the mode `ask`; a server whose
+ * settings say `online` reads as "Online" too.
+ */
+const CHOICES: Array<{ set: NetworkMode; title: string; personal: string; organisation: string }> = [
+  {
+    set: "airgapped",
+    title: "Offline",
+    personal: "Nothing is downloaded either. The assistant works with the model that is already on this computer.",
+    organisation: "Nothing is downloaded either. The assistant works with the model that is already on your organisation's server.",
+  },
+  {
+    set: "ask",
+    title: "Online",
+    personal: "Only to download a model you ask for. Nothing you type leaves this computer.",
+    organisation: "Only to download a model an administrator asks for. Nothing anyone types leaves your organisation's server.",
+  },
 ];
-
-function rank(mode: NetworkMode): number {
-  return mode === "airgapped" ? 0 : mode === "ask" ? 1 : 2;
-}
 
 function NetworkPane() {
   const { me, environment, setNetwork } = useSession();
-  const ceiling = environment?.network_ceiling ?? "airgapped";
   const organisation = me?.topology === "organisation";
-  // The mode is the server's, one for everyone: the administrator sets it.
+  // The choice is the server's, one for everyone: an administrator makes it.
+  // On a person's own computer there is no administrator, and nothing here
+  // ever says there is.
   const admin = !organisation || (me?.roles.includes("admin") ?? false);
+  // A server may be held offline by its settings file; then "Online" is not
+  // there to choose, and a sentence says why.
+  const heldOffline = environment?.network_ceiling === "airgapped";
+  const offline = environment?.network === "airgapped";
+  const chosen = CHOICES.find((c) => (c.set === "airgapped") === offline);
   return (
     <>
       <h1 className="pane-title">Network</h1>
-      <div className="pane-sub">{admin ? "Whether the assistant may reach the internet." : "Whether the assistant may reach the internet. Your administrator sets this for the whole server."}</div>
-      <div className="options">
-        {MODES.map((m) => {
-          const allowed = rank(m.mode) <= rank(ceiling);
-          const on = environment?.network === m.mode;
-          return (
-            <button key={m.mode} type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} disabled={!allowed || !admin} onClick={() => void setNetwork(m.mode)} title={!admin ? "Only administrators change this." : allowed ? undefined : "Your administrator has not allowed this."}>
-              <span className={`radio${on ? " on" : ""}`} />
-              <span style={{ flex: 1 }}>
-                <span className="opt-title">{m.title}</span>
-                <div className="opt-body">{organisation ? m.body : m.body.replace("your organisation's server", "this computer")}</div>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      {organisation && ceiling !== "online" && (
+      <div className="pane-sub">Whether localSpace may go online.{organisation && !admin ? " Your administrator decides this for the whole server." : ""}</div>
+      {admin ? (
+        <div className="options">
+          {CHOICES.filter((c) => c.set === "airgapped" || !heldOffline).map((c) => {
+            const on = c === chosen;
+            return (
+              <button key={c.set} type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} onClick={() => !on && void setNetwork(c.set)}>
+                <span className={`radio${on ? " on" : ""}`} />
+                <span style={{ flex: 1 }}>
+                  <span className="opt-title">{c.title}</span>
+                  <div className="opt-body">{organisation ? c.organisation : c.personal}</div>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="row-list">
+          <div className="row-item">
+            <div className="row-main">
+              <div className="row-title">{chosen?.title}</div>
+              <div className="row-body">{chosen?.organisation}</div>
+            </div>
+          </div>
+        </div>
+      )}
+      {organisation && heldOffline && (
         <div className="note">
           <InfoIcon size={17} className="ls-muted" style={{ flexShrink: 0, marginTop: 1 }} />
-          <div>Your administrator has set the limit at “{MODES.find((m) => m.mode === ceiling)?.title}”.</div>
+          <div>This server's settings keep it offline. Whoever runs the server changes that.</div>
         </div>
       )}
     </>

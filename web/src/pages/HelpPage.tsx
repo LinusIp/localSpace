@@ -31,7 +31,7 @@ export function HelpPage() {
           <div className="row-item">
             <div className="row-main">
               <div className="row-title">Choosing the assistant</div>
-              <div className="row-body">Settings → Assistant lists what is available and what each is good for. Settings → Network says whether the assistant may reach the internet.</div>
+              <div className="row-body">Settings → Assistant lists what is available and what each is good for. Settings → Network says whether localSpace may go online, which it only ever does to download a model that was asked for.</div>
             </div>
           </div>
           <div className="row-item">

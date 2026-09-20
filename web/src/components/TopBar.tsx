@@ -6,21 +6,22 @@ import { Menu, ShieldIcon } from "@localspace/ui";
 import { logout } from "../api/client";
 import { initialsOf, useSession } from "../store";
 
+/**
+ * The one indicator of whether this place can talk to the internet (plugin
+ * spec §8.1), saying what is true of the product as it is: no web tool
+ * exists, so the one thing that ever goes online is the download of a model
+ * somebody asked for (docs/DECISIONS.md, 2026-09-20).
+ */
 export function NetworkChip() {
   const environment = useSession((s) => s.environment);
+  const personal = useSession((s) => s.me?.topology === "personal");
   if (!environment) return null;
-  const mode = environment.network;
-  const label = mode === "airgapped" ? "Offline" : mode === "ask" ? "Online, asks first" : "Online";
-  const title =
-    mode === "airgapped"
-      ? "Nothing leaves your organisation's server."
-      : mode === "ask"
-        ? "The assistant asks before it reaches the internet."
-        : "The assistant may reach the internet.";
+  const offline = environment.network === "airgapped";
+  const where = personal ? "this computer" : "your organisation's server";
   return (
-    <span className={`chip ${mode === "airgapped" ? "green" : "quiet"}`} title={title}>
+    <span className={`chip ${offline ? "green" : "quiet"}`} title={offline ? `Nothing is downloaded, and nothing leaves ${where}.` : `localSpace goes online only to download a model that was asked for. Nothing typed here leaves ${where}.`}>
       <ShieldIcon size={13} />
-      {label}
+      {offline ? "Offline" : "Online, model downloads only"}
     </span>
   );
 }
