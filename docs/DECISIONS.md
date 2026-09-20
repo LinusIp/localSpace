@@ -4,6 +4,60 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-20, the rulings on the eight dead ends, Smart App Control stays on, and who takes the pictures
+
+The user's rulings on the walk of the shell (`14-localspace-deadend-rulings.md`),
+under the rule of 2026-09-19: nothing is visible unless it works.
+
+- **1. "Sign out" is removed from a personal install**, from Settings →
+  General and from the account menu: there are no accounts there, and it led
+  to a page asking for a token a person cannot obtain. "Not a dead end, a
+  locked door." An organisation's members keep it.
+- **2. "Attach a file" is removed.** Disabled with a tooltip is the shape the
+  rule forbids: the person sees a capability, reaches for it, and is told to
+  come back later.
+- **3. "Documents" is not in the rail until a first document exists**, and
+  the sentence promising that uploading your own files comes with document
+  search is deleted: hiding the entry while leaving the promise inside it
+  moves the dead end somewhere harder to find.
+- **4. The network has two true choices, and the pill follows** (plugin spec
+  §8.1): *Offline — nothing is downloaded either* and *Online — only to
+  download a model you ask for*. The three-mode pill was specified for a
+  product with web search, and no web tool exists (2026-09-19). **A
+  deferral, not a reversal: the third mode returns when web tools do**, and
+  the spec says so. Whatever else: "Your administrator has not allowed
+  this" never appears on a personal computer, where there is no
+  administrator, and nothing says that the assistant asks before a request
+  to the internet, which it cannot make.
+- **5. The "Too large" button is dropped**: the row already says it will not
+  fit. **6. With the computer set to stay offline, the sentence stands alone**
+  where the Download buttons were. **7. The empty state of Settings → Tools
+  stays**: honest, explains itself, and its link works. **8. The link to
+  `/api/v1/openapi.json` is removed from the app**: a raw API surface is
+  what a member is never supposed to see.
+- **Smart App Control on the development machine stays on**, reversing the
+  answer of the night before, on that night's evidence: it did not refuse
+  our unsigned installer, and it released `rustc` by itself after two hours.
+  What is left is a setting that now and then costs a rebuild, against an
+  irreversible change to the founder's machine; and it is the only machine
+  that tells us anything about how it behaves. CI is used when it
+  interferes.
+- **Testers with Smart App Control on are no longer left out.** Everyone is
+  sent the installer; those people's message says that Windows may refuse to
+  run it outright, that this is expected of a build without a certificate,
+  and asks them to say so on Telegram at once if it happens. "A tester who
+  cannot install is still a data point; a tester who was never sent anything
+  is not." One machine is one data point and its verdicts fluctuate: **nothing
+  anywhere says that Smart App Control will let the installer through.**
+- **The picture of its block (0) is dropped**: it cannot be taken, and it is
+  not manufactured. **Pictures 4 to 9 are taken by the person at the dry
+  run**, with the screenshot key at the right moment; the scripted capture of
+  a window is not used again. The builder hands over a shot list before the
+  dry run (`docs/test-a/SHOT-LIST.md`): what must be on screen, and where it
+  goes in the sheet, in the order met. If Drive's virus-scan page never
+  appears for a 37 MB file, the sheet loses its conditional sentence.
+- **Nothing new after this**: the list above, the dry run, the go or no-go.
+
 ## 2026-09-19, two gaps found in the pictures: a download could not be stopped, and the shell offers what does not exist
 
 The user's note on the first pictures (`13-localspace-ui-gaps.md`).
