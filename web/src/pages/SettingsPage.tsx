@@ -279,11 +279,7 @@ function GetAModel({ entries, onDownload, onStop, onDelete }: { entries: ModelCa
                     <button type="button" className="btn" onClick={() => onStop(m.id)}>
                       Stop
                     </button>
-                  ) : checking ? null : willNotFit(m) ? (
-                    <button type="button" className="btn" disabled>
-                      Too large
-                    </button>
-                  ) : (
+                  ) : checking || willNotFit(m) ? null : (
                     <>
                       {!m.no_room && (
                         <button type="button" className="btn" onClick={() => onDownload(m.id)} disabled={offline}>
