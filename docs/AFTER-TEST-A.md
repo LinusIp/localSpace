@@ -9,6 +9,36 @@ against, with a line in `docs/DECISIONS.md`.
 
 ## Due first, by ruling
 
+- **A busy first start recommends a model one size too small** (ruled
+  2026-09-20: high priority; the measurement is not touched on the day of a
+  dry run). The look copies memory three times and keeps the best, and on
+  2026-09-20 all three were slow: 8.2 GB/s on a laptop that reads 18 to 21
+  when quiet, moments after 4.4 GB had been written to its disk. The 7B
+  fell under the line for "runs well" and the 1.5B was recommended, with
+  the 7B already on the disk; a restart on the quiet machine read 20.2 and
+  recommended the 7B. **This is not erring on the safe side: safe on speed
+  is unsafe on answer quality.** By our own message script the 1.5B gets
+  arithmetic wrong and invents facts, which is what moved the line from 15
+  to 10 tokens a second. Nor is it exotic: a tester's first run comes
+  moments after the installer wrote its files, on a gaming laptop with a
+  launcher and a browser open. Monday's logs say how often
+  (`copied at N GB/s`; `docs/test-a/RUNBOOK.md` says how to recognise it),
+  and that number decides how it is built. Seen beside it, for whoever
+  designs the fix: the recommendation is made once, from that one moment;
+  a model already on the disk counts for nothing in it; and the same
+  model's range moves between two looks ("about 6 to 8 words a second" on
+  the first run, "6 to 9" once started), which two pictures side by side
+  made plain. Nothing in the tester sheet asks a person to close other
+  programs first: it is ours to solve.
+- **The verdict does not stand out in its row: first on the design list**
+  (ruled 2026-09-20). In Settings → Assistant, and behind "Choose a
+  different model", a row is one grey paragraph: the verdict, the speed,
+  where the model sits, the sentence on small models, the licence and the
+  size of the download, all in one grey and one weight. The verdict is the
+  single most important thing in the row, "the whole honesty claim", and
+  it stands mid-paragraph. The first run's card does set it apart (green,
+  on its own line), so the two places do not even agree. Seen on the
+  landing pictures of 2026-09-20.
 - **The prompt as a system message and turns, not one user message.** The
   root cause of 2026-09-19's find: the whole prompt, conversation and all,
   reaches the engine as a single user message, which is not how small
@@ -105,8 +135,14 @@ against, with a line in `docs/DECISIONS.md`.
 - **"Two stickies and an arrow between them"** fails on the 3B and the 7B
   with either wording: a third sticky instead of the arrow.
 
-## The words a person sees
+## The words a person sees, and the look
 
+- **No walk in CI draws an answer**, so nothing would have caught the
+  assistant's round mark squeezed to an oval beside every long answer
+  (found on a picture of the release build and fixed on 2026-09-20; it was
+  verified by measuring the mark in the packaged build). CI has no model,
+  and both walks stop before a conversation. A walk needs an engine that
+  answers one long paragraph without a model, and measures what is drawn.
 - **The vocabulary rule is not checked in CI**, although `docs/PILOT-1.md`
   §12 says it is: no script reads the shell's member-facing strings for the
   words a member must never see. Until it exists the rule is kept by hand

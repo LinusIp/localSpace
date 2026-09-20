@@ -129,7 +129,7 @@ were answered is in it, and their folder's name is written `~`.
 |---|---|
 | `localSpace 0.1.0 (…)` | the build they ran |
 | `the operating system:` | which Windows |
-| `the computer as found:` | the card as the engine names it, its memory, what other programs held of it, whether the card table knows it; the memory, how fast it copied; the processor; the free disk |
+| `the computer as found:` | the card as the engine names it, its memory, what other programs held of it, whether the card table knows it; the memory, and how fast it moved at that moment (`copied at N GB/s`: read it first, see below); the processor; the free disk |
 | `first run: … is recommended, estimated at …` | what they were offered, and on what estimate |
 | `models: the download of … begins` / `is done and checked` / `stopped` | how much was already there, how long it took, at what rate, or why it stopped |
 | `models: … was found on this computer` | a file that was already there was taken as the published one |
@@ -144,3 +144,33 @@ were answered is in it, and their folder's name is written `~`.
 
 A recommendation that surprises is explained by the first four lines. "It
 felt slow" is checked against the `answer:` lines.
+
+**Read `copied at N GB/s` first, on every log.** It is how fast the memory
+moved while the app looked at the computer, the best of three short
+samples, and the estimate of every model that does not fit on the card
+hangs on it. A computer that is busy at that moment reads low, and a
+tester's first start comes moments after the installer wrote its files,
+often with a launcher and a browser open. On the development laptop it
+reads 18 to 21 when quiet; on 20 September, moments after 4.4 GB had been
+written to the disk, it read 8.2, all three samples slow, and the app
+recommended the 1.5B where it recommends the 7B (a restart on the quiet
+machine read 20.2, and the 7B). **A low figure means the person may have
+been offered a model one size too small: quicker than promised, and wrong
+more often.** Read their answers to questions 6, 7 and 9 in that light.
+How to recognise it:
+
+- the line is there a second time further down (the app looks again when a
+  model starts) with a clearly higher figure: the first look was disturbed;
+- the model they ran does not all fit on the card (the `fit:` line says
+  how much is in system memory) and the `answer:` lines show it writing
+  clearly faster than the `first run:` line estimated: the estimate was
+  made from a disturbed look. A model that is all on the card shows
+  nothing here, because its estimate does not hang on the memory;
+- a figure in single digits with neither of these may be true (one memory
+  module instead of two): note it, and do not count it as a disturbed look.
+
+The builder can work out what the same computer would have been offered
+with the higher figure. Count how many of the ten logs show it: that number
+decides how the fix is built after the test (`docs/AFTER-TEST-A.md`, due
+first). Nobody is asked to close other programs before starting: it is
+ours to solve.
