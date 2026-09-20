@@ -477,11 +477,7 @@ function AdvancedPane() {
       <HistorySection />
       <RunToolSection />
       <p className="ls-small ls-faint" style={{ marginTop: 22 }}>
-        Model profile: {environment?.profile ?? "…"}. The API this app speaks is described at{" "}
-        <a className="ls-accent" href="/api/v1/openapi.json" target="_blank" rel="noreferrer">
-          /api/v1/openapi.json
-        </a>
-        .
+        Model profile: {environment?.profile ?? "…"}.
       </p>
     </>
   );
