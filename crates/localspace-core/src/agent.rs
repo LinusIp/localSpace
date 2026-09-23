@@ -40,7 +40,7 @@ pub fn turn(core: &mut Core, text: &str) {
 pub fn send(core: &mut Core, conversation: Option<String>, text: &str) -> proto::Response {
     let conversation = match chat_of_the_caller(core, conversation) {
         Ok(conversation) => conversation,
-        Err(refused) => return refused,
+        Err(refused) => return refusal(refused),
     };
     if turn_in(core, &conversation).is_some() {
         return refusal(
@@ -61,7 +61,7 @@ pub fn send(core: &mut Core, conversation: Option<String>, text: &str) -> proto:
 pub fn continue_answer(core: &mut Core, conversation: Option<String>) -> proto::Response {
     let conversation = match chat_of_the_caller(core, conversation) {
         Ok(conversation) => conversation,
-        Err(refused) => return refused,
+        Err(refused) => return refusal(refused),
     };
     if turn_in(core, &conversation).is_some() {
         return refusal("An answer is still being written in this chat.");
@@ -183,13 +183,14 @@ fn post(core: &mut Core, message: Internal) {
 }
 
 /// The chat a request is about: the one it names, which must be one of the
-/// caller's in the workspace they are in, or the one on screen.
-fn chat_of_the_caller(core: &Core, named: Option<String>) -> Result<String, proto::Response> {
+/// caller's in the workspace they are in, or the one on screen. Refused, the
+/// words that say why.
+fn chat_of_the_caller(core: &Core, named: Option<String>) -> Result<String, String> {
     let id = named.unwrap_or_else(|| core.conversations.current.clone());
     if core.conversations.conversations.iter().any(|c| c.id == id) {
         Ok(id)
     } else {
-        Err(refusal(format!("no conversation `{id}`")))
+        Err(format!("no conversation `{id}`"))
     }
 }
 
