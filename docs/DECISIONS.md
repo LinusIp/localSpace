@@ -59,30 +59,29 @@ model's answer.
 
 **Built** (the same day):
 - **1.6 and 1.7: an answer is written beside Core's queue.** A message
-  starts its answer and returns at once (`crate::turns`, `crate::agent`).
-  The model is read on a thread of its own; its words, its tool calls and
-  where it stands go out as events that name their chat (`TurnChanged`:
-  waits for another chat, waits for the model, writing, awaits approval,
-  done, stopped, cut); what it asks of tools comes back through Core's
-  queue one call at a time. One answer at a time for a person; as many
-  people at once as `Config::slots`, which is 1, until the server's setting
-  is decided. Stop takes effect at the safe points ruled: the model's step
-  ends within a fifth of a second and keeps what came; a tool call at work
-  finishes and the next is not begun; an approval waited on is withdrawn
-  (`ApprovalWithdrawn`), its call not made, and the person reads "Stopped.
-  The change that waited for your approval was not made." A stopped answer
-  stays in its chat, marked (`ChatMessage::stopped`), and the model reads it
-  with "[the answer stopped here]"; *Continue* hands the stopped words to
-  the engine as the start of its reply, which the model carries on
-  (llama-server's prefill; no tool is offered for that step), and what it
-  adds joins the answer. The window keeps each chat's answer apart: Stop for the chat on
-  screen, "Waiting for the answer in your other chat to finish. This one
-  will start by itself.", "The answer stopped here." with *Continue* under
-  the chat's last answer when nothing is in progress, a spinner beside a
-  chat in the list while its answer is written, and the answers in
-  progress asked for again whenever the event stream comes back. A server
-  whose every slot is taken shows the spinner alone until the words for
-  that case are decided.
+  starts its answer and returns at once (`crate::turns`, `crate::agent`). The
+  model is read on a thread of its own; its words, its tool calls and where it
+  stands go out as events that name their chat (`TurnChanged`: waits for
+  another chat, waits for the model, writing, awaits approval, done, stopped,
+  cut); what it asks of tools comes back through Core's queue one call at a
+  time. One answer at a time for a person; as many people at once as
+  `Config::slots`, which is 1, until the server's setting is decided. Stop
+  takes effect at the safe points ruled: the model's step ends within a fifth
+  of a second and keeps what came; a tool call at work finishes and the next
+  is not begun; an approval waited on is withdrawn (`ApprovalWithdrawn`), its
+  call not made, and the person reads "Stopped. The change that waited for
+  your approval was not made." A stopped answer stays in its chat, marked
+  (`ChatMessage::stopped`), and the model reads it with "[the answer stopped
+  here]"; *Continue* hands the stopped words to the engine as the start of its
+  reply, which the model carries on (llama-server's prefill; no tool is
+  offered for that step), and what it adds joins the answer. The window keeps
+  each chat's answer apart: Stop for the chat on screen, "Waiting for the
+  answer in your other chat to finish. This one will start by itself.", "The
+  answer stopped here." with *Continue* under the chat's last answer when
+  nothing is in progress, a spinner beside each chat in the list whose answer
+  is being written or waits its turn, and the answers in progress asked for
+  again whenever the event stream comes back. A server whose every slot is
+  taken shows the spinner alone until the words for that case are decided.
 - **1.2, inside it: silences instead of totals.** 120 s with no first word,
   60 s between words, on a stream reader of our own (`crate::stream`:
   HTTP/1.1, chunked or not, server-sent events read from buffered bytes),
