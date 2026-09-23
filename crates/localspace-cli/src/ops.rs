@@ -111,7 +111,9 @@ fn explain(error: anyhow::Error, root: Option<&std::path::Path>) -> anyhow::Erro
 fn describe_computer(cfg: &localspace_server::ServerConfig) {
     use localspace_core::{engine, hardware};
     let binary = engine::find_binary(cfg.llama_server.as_deref(), cfg.data.as_deref());
-    let found = hardware::detect(binary.as_deref(), cfg.data.as_deref());
+    // `doctor` starts no engine of its own: whatever holds the card is
+    // another program's, a running localSpace included.
+    let found = hardware::detect(binary.as_deref(), cfg.data.as_deref(), &[]);
     out!("computer  {}", found.sentence());
     for note in found.notes() {
         out!("          {note}");

@@ -439,15 +439,20 @@ pub fn list_devices(engine: &Path) -> Result<Vec<Gpu>, String> {
 // ---------------------------------------------------------------------------
 
 /// Everything, best effort. `engine` is `llama-server` when there is one;
-/// `storage` is where the models are kept, for the free space.
-pub fn detect(engine: Option<&Path>, storage: Option<&Path>) -> Hardware {
+/// `storage` is where the models are kept, for the free space; `ours` are
+/// engines of ours that may still hold graphics memory, which is then not
+/// counted as other programs'.
+pub fn detect(engine: Option<&Path>, storage: Option<&Path>, ours: &[u32]) -> Hardware {
     // Whatever else is busy while the look is taken (the app's own window
-    // opening, a model copied from a stick being checked) can only make the
-    // memory look slower than it is, never faster. One sample taken last,
-    // two seconds into a first start, read 13 GB/s on a laptop that copies
-    // at 19, and the 7B lost its place as the default to the 1.5B on it
-    // (2026-09-19). So: three samples with the look's other steps between
-    // them, and the best is kept.
+    // opening, a model copied from a stick being checked) makes the memory
+    // look slower than it is. One sample taken last, two seconds into a first
+    // start, read 13 GB/s on a laptop that copies at 19, and the 7B lost its
+    // place as the default to the 1.5B on it (2026-09-19). So: three samples
+    // with the look's other steps between them, and the best is kept. The
+    // best is not always true either: a tester's laptop that reads about 20
+    // read 32.8 once, and the list promised more than the model gave
+    // (2026-09-21); how the figure is taken and used is reworked with the
+    // estimate (docs/DECISIONS.md, 2026-09-23).
     let mut copy_gbps = measure_ram_bandwidth();
     let (gpus, gpu_listing) = match engine {
         None => (Vec::new(), GpuListing::NoEngine),
@@ -460,7 +465,7 @@ pub fn detect(engine: Option<&Path>, storage: Option<&Path>) -> Hardware {
         },
     };
     copy_gbps = copy_gbps.max(measure_ram_bandwidth());
-    let system = system_facts(storage);
+    let system = system_facts(storage, ours);
     copy_gbps = copy_gbps.max(measure_ram_bandwidth());
     let mut gpus = gpus;
     for gpu in &mut gpus {
@@ -559,23 +564,39 @@ struct SystemFacts {
     ram_free_mib: u64,
     disk_free_mib: Option<u64>,
     cpu: Option<String>,
-    /// Each graphics adapter by the name its driver gives it, with the MiB
-    /// of its own memory in use by every program together. Windows only.
-    adapters: Vec<(String, u64)>,
+    /// Each graphics adapter by the name its driver gives it, with what of
+    /// its own memory is in use. Windows only.
+    adapters: Vec<Adapter>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+struct Adapter {
+    name: String,
+    /// In use by every program together, in MiB.
+    used_mib: u64,
+    /// Of that, what the engines of ours that were named to the look hold.
+    ours_mib: u64,
 }
 
 impl SystemFacts {
-    /// What is held of the card the engine calls `name`. Asked before
-    /// anything of localSpace's is on the card, so all of it is other
-    /// programs'. `None` where the operating system does not say, or when
-    /// two cards share the name and the figure could be the other one's.
+    /// What other programs hold of the card the engine calls `name`: what is
+    /// in use, less what our own engines hold. A start of the engine planned
+    /// while the one before it still held its memory once counted 2,999 MiB
+    /// of it as another program's and put 1 layer of 29 on the card
+    /// (2026-09-21); the look is taken with no engine of ours alive, and one
+    /// that is anyway is left out. `None` where the operating system does not
+    /// say, or when two cards share the name and the figure could be the
+    /// other one's.
     fn held_of(&self, name: &str) -> Option<u64> {
         let mut matching = self
             .adapters
             .iter()
-            .filter(|(adapter, _)| adapter.trim().eq_ignore_ascii_case(name.trim()));
+            .filter(|adapter| adapter.name.trim().eq_ignore_ascii_case(name.trim()));
         let first = matching.next()?;
-        matching.next().is_none().then_some(first.1)
+        matching
+            .next()
+            .is_none()
+            .then(|| first.used_mib.saturating_sub(first.ours_mib))
     }
 }
 
@@ -616,10 +637,25 @@ pub fn engine_graphics_memory(_pid: u32) -> Option<EngineGraphicsMemory> {
 }
 
 #[cfg(target_os = "windows")]
-fn system_facts(storage: Option<&Path>) -> SystemFacts {
+fn system_facts(storage: Option<&Path>, ours: &[u32]) -> SystemFacts {
     // One question to the operating system, answered as JSON: the memory in
     // KB, the processor's name, and the free bytes of the models' drive.
     let drive = storage.and_then(drive_letter).unwrap_or('C');
+    // What the engines of ours named to the look hold, under the same LUIDs
+    // as the adapters' use: asked only when there are any.
+    let ours_script = if ours.is_empty() {
+        String::new()
+    } else {
+        let pids: Vec<String> = ours.iter().map(u32::to_string).collect();
+        format!(
+            "$pids = @({}); \
+             Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUProcessMemory \
+             -ErrorAction SilentlyContinue | ForEach-Object {{ \
+             if ($_.Name.ToLower() -match '^pid_(\\d+)_(luid_.+)$' -and $pids -contains [int]$Matches[1]) {{ \
+             $ours[$Matches[2]] = [double]$ours[$Matches[2]] + $_.DedicatedUsage }} }}; ",
+            pids.join(",")
+        )
+    };
     // The adapters: Windows counts each one's memory in use under its LUID
     // (classes whose names are the same in every language, unlike the
     // counters'), and the registry says which name a LUID carries.
@@ -638,12 +674,14 @@ fn system_facts(storage: Option<&Path>) -> SystemFacts {
          $used = @{{}}; \
          Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory \
          -ErrorAction SilentlyContinue | ForEach-Object {{ $used[$_.Name.ToLower()] = $_.DedicatedUsage }}; \
+         $ours = @{{}}; \
+         {ours_script}\
          $adapters = @(); \
          Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\DirectX' -ErrorAction SilentlyContinue | ForEach-Object {{ \
          $p = Get-ItemProperty $_.PSPath; \
          if ($p.Description -and $p.AdapterLuid) {{ \
          $key = ('luid_0x{{0:x8}}_0x{{1:x8}}_phys_0' -f (($p.AdapterLuid -shr 32) -band 0xffffffff), ($p.AdapterLuid -band 0xffffffff)); \
-         if ($used.ContainsKey($key)) {{ $adapters += @{{ name = $p.Description; used = $used[$key] }} }} }} }}; \
+         if ($used.ContainsKey($key)) {{ $adapters += @{{ name = $p.Description; used = $used[$key]; ours = [double]$ours[$key] }} }} }} }}; \
          @{{ total_kb = $os.TotalVisibleMemorySize; free_kb = $os.FreePhysicalMemory; \
          os = ($os.Caption + ' ' + $os.Version); \
          cpu = $cpu; disk_free = $free; adapters = @($adapters) }} | ConvertTo-Json -Compress -Depth 4"
@@ -676,8 +714,12 @@ fn system_facts(storage: Option<&Path>) -> SystemFacts {
                 adapters
                     .iter()
                     .filter_map(|a| {
-                        let used = a["used"].as_f64()? as u64 / 1024 / 1024;
-                        Some((a["name"].as_str()?.to_string(), used))
+                        let mib = |key: &str| a[key].as_f64().map(|bytes| bytes as u64 / 1024 / 1024);
+                        Some(Adapter {
+                            name: a["name"].as_str()?.to_string(),
+                            used_mib: mib("used")?,
+                            ours_mib: mib("ours").unwrap_or(0),
+                        })
                     })
                     .collect()
             })
@@ -685,8 +727,10 @@ fn system_facts(storage: Option<&Path>) -> SystemFacts {
     }
 }
 
+/// Linux does not say what each program holds of a card; nothing is counted
+/// as another program's there, so nothing of ours can be either.
 #[cfg(target_os = "linux")]
-fn system_facts(storage: Option<&Path>) -> SystemFacts {
+fn system_facts(storage: Option<&Path>, _ours: &[u32]) -> SystemFacts {
     let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
     let kb = |key: &str| {
         meminfo
@@ -714,7 +758,7 @@ fn system_facts(storage: Option<&Path>) -> SystemFacts {
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-fn system_facts(_storage: Option<&Path>) -> SystemFacts {
+fn system_facts(_storage: Option<&Path>, _ours: &[u32]) -> SystemFacts {
     SystemFacts::default()
 }
 
@@ -1097,7 +1141,7 @@ mod tests {
 
     #[test]
     fn detection_without_an_engine_still_describes_the_machine() {
-        let hardware = detect(None, None);
+        let hardware = detect(None, None, &[]);
         // In the test log: what the machine that ran this looks like.
         eprintln!(
             "{} | memory moves at {:.1} GB/s | {:?} | {:?}",
@@ -1113,12 +1157,20 @@ mod tests {
         assert!(!hardware.sentence().is_empty());
     }
 
+    fn adapter(name: &str, used_mib: u64, ours_mib: u64) -> Adapter {
+        Adapter {
+            name: name.into(),
+            used_mib,
+            ours_mib,
+        }
+    }
+
     #[test]
     fn what_is_held_of_a_card_is_found_by_its_name_and_never_guessed() {
         let facts = SystemFacts {
             adapters: vec![
-                ("NVIDIA GeForce RTX 3050 Ti Laptop GPU".into(), 50),
-                ("AMD Radeon(TM) Graphics".into(), 300),
+                adapter("NVIDIA GeForce RTX 3050 Ti Laptop GPU", 50, 0),
+                adapter("AMD Radeon(TM) Graphics", 300, 0),
             ],
             ..SystemFacts::default()
         };
@@ -1133,8 +1185,8 @@ mod tests {
         assert_eq!(facts.held_of("NVIDIA GeForce RTX 4060"), None);
         let twins = SystemFacts {
             adapters: vec![
-                ("NVIDIA RTX A4000".into(), 10),
-                ("NVIDIA RTX A4000".into(), 9000),
+                adapter("NVIDIA RTX A4000", 10, 0),
+                adapter("NVIDIA RTX A4000", 9000, 0),
             ],
             ..SystemFacts::default()
         };
@@ -1151,9 +1203,52 @@ mod tests {
     /// whatever language Windows speaks.
     #[test]
     fn the_look_is_answered_whatever_language_windows_speaks() {
-        let facts = system_facts(None);
+        let facts = system_facts(None, &[]);
         assert!(facts.ram_total_mib > 0, "the question was answered");
         assert!(facts.ram_free_mib > 0, "the question was answered");
+    }
+
+    /// The tester's laptop of 2026-09-21, at the start that got 1 layer of
+    /// 29: 2,999 MiB of the card was in use and all of it was counted as
+    /// other programs', though most of it was the engine started half a
+    /// minute before (its plan had put 2,976 MiB there). At the other looks
+    /// of those two days other programs held between 84 and 822 MiB of it.
+    #[test]
+    fn what_our_own_engine_holds_of_a_card_is_never_another_programs() {
+        let facts = SystemFacts {
+            adapters: vec![
+                adapter("AMD Radeon(TM) Graphics", 250, 0),
+                adapter("NVIDIA GeForce RTX 2050", 2999, 2837),
+            ],
+            ..SystemFacts::default()
+        };
+        assert_eq!(facts.held_of("NVIDIA GeForce RTX 2050"), Some(162));
+        assert_eq!(facts.held_of("AMD Radeon(TM) Graphics"), Some(250));
+        // Figures read a moment apart never make it less than nothing.
+        let apart = SystemFacts {
+            adapters: vec![adapter("NVIDIA GeForce RTX 2050", 2900, 2999)],
+            ..SystemFacts::default()
+        };
+        assert_eq!(apart.held_of("NVIDIA GeForce RTX 2050"), Some(0));
+    }
+
+    /// The operating system is asked the same one question when processes of
+    /// ours are named, and still answers all of it: this test's own process
+    /// holds nothing of any card.
+    #[test]
+    fn a_look_that_names_processes_of_ours_still_finds_everything() {
+        let plain = system_facts(None, &[]);
+        let naming = system_facts(None, &[std::process::id()]);
+        assert!(naming.ram_total_mib > 0, "the question was answered");
+        let names = |facts: &SystemFacts| -> Vec<String> {
+            facts.adapters.iter().map(|a| a.name.clone()).collect()
+        };
+        assert_eq!(names(&naming), names(&plain));
+        assert!(
+            naming.adapters.iter().all(|a| a.ours_mib == 0),
+            "{:?}",
+            naming.adapters
+        );
     }
 
     #[test]

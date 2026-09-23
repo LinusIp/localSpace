@@ -165,6 +165,29 @@ the Pictures safety decision; whether Pictures is free or paid.
   nothing else. The app's own logs on that laptop show the English name, so
   it did not strike there; it would have on any Windows that names itself
   in letters beyond plain ASCII, a Russian one among them.
+- **1.1, the restart storm.** What the log shows: the 7B, just downloaded,
+  took half a minute to start on that laptop (its warm-up alone was still
+  running after 25 s), and six starts followed in 45 seconds, each ending
+  the one before; the fourth was planned with the engine before it still on
+  the card, its 2,999 MiB counted as another program's, and got 1 layer of
+  29. The row of a model in Settings → Assistant is the one control that
+  could ask for it again while it started (the first run's button waits,
+  and the window restarts the last model once, as it opens). Now: **asking
+  for the model that starts or runs starts nothing new**, and the log says
+  it was asked for again; **the engine is stopped before the card is looked
+  at**, and Core waits until Windows no longer shows its graphics memory,
+  five seconds at most, the log saying how long it took; **an engine of ours
+  that still holds some after that is left out of what other programs
+  hold**, by its process, under the card's own LUID; and **the row waits
+  while its model starts**. One consequence, accepted: choosing another
+  model stops the one in use before the card is looked at, so if the new one
+  then does not fit the memory as it is found, nothing runs, where the old
+  one used to go on. Tests: the same model asked for three times, twice
+  while it starts and once while it runs, is started once; another model is
+  a new start, planned only after the engine before it has stopped, whose
+  port then answers nothing; what our engine holds is never another
+  program's, with the tester's figures; the look still answers everything
+  when processes of ours are named.
 
 ## 2026-09-20, Sunday's answers: the squeezed mark is fixed before the dry run, two pictures on one page agree, and two findings are written down
 

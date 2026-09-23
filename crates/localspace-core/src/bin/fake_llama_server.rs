@@ -10,7 +10,9 @@
 //! as llama-server does. A model stub that begins `fits N layers` makes it
 //! give up while loading when `-ngl` asks for more, as llama-server does on a
 //! graphics card that refuses; one that contains `chat fails` makes every
-//! chat completion answer 500. Each request is named in the log.
+//! chat completion answer 500; one that contains `loads in N ms` is slow to
+//! load, as a large model is, without a variable every test would share.
+//! Each request is named in the log.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -42,6 +44,11 @@ fn main() {
         .and_then(|path| std::fs::read_to_string(path).ok())
         .unwrap_or_default();
     let chat_fails = stub.contains("chat fails");
+    let load_ms: u64 = stub
+        .split("loads in ")
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next()?.parse().ok())
+        .unwrap_or(load_ms);
     let fits: Option<u32> = Some(stub.as_str()).and_then(|text| {
         text.strip_prefix("fits ")?
             .split_whitespace()

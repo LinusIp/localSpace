@@ -467,7 +467,9 @@ impl Core {
                 let binary =
                     engine::find_binary(cfg.llama_server.as_deref(), cfg.data_dir.as_deref());
                 let models_dir = models_store.clone();
-                std::thread::spawn(move || hardware::detect(binary.as_deref(), Some(&models_dir)))
+                std::thread::spawn(move || {
+                    hardware::detect(binary.as_deref(), Some(&models_dir), &[])
+                })
             }),
             registry: Registry::new(),
             docs: DocStore::new(),
@@ -1384,9 +1386,16 @@ impl Core {
     /// the operating system is asked one question, memory is timed for a
     /// tenth of a second: two or three seconds in all) and kept.
     fn hardware(&mut self) -> hardware::Hardware {
+        self.hardware_leaving_out(&[])
+    }
+
+    /// The same; a look taken now leaves what the engines of ours in `ours`
+    /// hold of a card out of what other programs hold.
+    fn hardware_leaving_out(&mut self, ours: &[u32]) -> hardware::Hardware {
         if let Some(found) = &self.hardware {
             return found.clone();
         }
+        // The look begun as Core started was taken before any engine of ours.
         if let Some(found) = self.looking.take().and_then(|look| look.join().ok()) {
             return self.keep_what_was_found(found);
         }
@@ -1394,7 +1403,7 @@ impl Core {
             self.cfg.llama_server.as_deref(),
             self.cfg.data_dir.as_deref(),
         );
-        let found = hardware::detect(binary.as_deref(), Some(&self.models_dir()));
+        let found = hardware::detect(binary.as_deref(), Some(&self.models_dir()), ours);
         self.keep_what_was_found(found)
     }
 
@@ -1509,7 +1518,26 @@ impl Core {
 
     /// Start the sidecar on a model that is here, with the flags its
     /// placement plan calls for.
+    ///
+    /// Asking again for the model that is starting or running starts
+    /// nothing: the start under way goes on. On 2026-09-21 a tester's clicks
+    /// on a model that took half a minute to start began six engines in 45
+    /// seconds, each one ending the one before.
     fn load_model(&mut self, id: &str) -> Result<()> {
+        if let Some(engine) = &self.engine
+            && engine.model_id == id
+            && engine.starting_or_running()
+        {
+            let now = if engine.state().running {
+                "it runs"
+            } else {
+                "it starts"
+            };
+            self.trace(format!(
+                "engine: {id} was asked for again while {now}; nothing new is started"
+            ));
+            return Ok(());
+        }
         let binary = engine::find_binary(
             self.cfg.llama_server.as_deref(),
             self.cfg.data_dir.as_deref(),
@@ -1525,21 +1553,24 @@ impl Core {
             .models
             .installed_path(id)
             .ok_or_else(|| anyhow::anyhow!("`{id}` is not downloaded yet"))?;
+        // Nothing of ours is on the card while it is looked at and planned
+        // for: the engine that runs or starts is stopped first, and its
+        // memory given back.
+        let still_ours = self.stop_the_engine_before_a_look();
         // A computer below the reference tiers is planned by `fit`, from what
         // it was found to be just now: the card may hold more or less than it
         // did when the verdicts were shown.
-        let fitted = match self.fitted_hardware() {
-            Some(_) => {
-                if self.cfg.hardware.is_none() {
-                    self.hardware = None;
-                }
-                let hardware = self.hardware();
-                let cap = self.layer_caps.lock().unwrap().get(id).copied();
-                self.models
-                    .fitted(id, &hardware, cap)?
-                    .map(|placed| (placed, hardware))
+        let fitted = if self.cfg.machine.tier() == profile::HardwareTier::BelowFloor {
+            if self.cfg.hardware.is_none() {
+                self.hardware = None;
             }
-            None => None,
+            let hardware = self.hardware_leaving_out(&still_ours);
+            let cap = self.layer_caps.lock().unwrap().get(id).copied();
+            self.models
+                .fitted(id, &hardware, cap)?
+                .map(|placed| (placed, hardware))
+        } else {
+            None
         };
         // Loading is not evidence of fitting: the look at the engine once a
         // start is over, which may have it started again with fewer layers.
@@ -1580,9 +1611,6 @@ impl Core {
                 ],
             }
         };
-        if let Some(old) = self.engine.take() {
-            old.stop();
-        }
         let log_dir = self
             .cfg
             .data_dir
@@ -1622,6 +1650,48 @@ impl Core {
         }
         self.broadcast_environment();
         Ok(())
+    }
+
+    /// Stops the engine of ours that runs or starts, and waits until the
+    /// operating system has its graphics memory back, so that the look that
+    /// follows sees only what other programs hold: on 2026-09-21 a start
+    /// planned beside the engine before it counted 2,999 MiB of that
+    /// engine's as another program's and put 1 layer of 29 on the card.
+    /// Returns the process that still held some when the wait ran out, for
+    /// the look to leave out; normally none.
+    fn stop_the_engine_before_a_look(&mut self) -> Vec<u32> {
+        // Until the counters no longer show the process; five seconds at
+        // most, which cost less than a wrong plan.
+        const WAIT_FOR_MEMORY: std::time::Duration = std::time::Duration::from_secs(5);
+        let Some(old) = self.engine.take() else {
+            return Vec::new();
+        };
+        let pid = old.pid();
+        old.stop();
+        let began = std::time::Instant::now();
+        let still_held = pid.filter(|&pid| loop {
+            match hardware::engine_graphics_memory(pid) {
+                Some(held) if held.dedicated_mib > 0 => {}
+                _ => break false,
+            }
+            if began.elapsed() >= WAIT_FOR_MEMORY {
+                break true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        });
+        self.trace(match still_held {
+            None => format!(
+                "engine: stopped llama-server for {} before the card is looked at again ({:.1} s)",
+                old.model_id,
+                began.elapsed().as_secs_f32()
+            ),
+            Some(_) => format!(
+                "engine: stopped llama-server for {}; it still held graphics memory after {} s, which the look leaves out",
+                old.model_id,
+                WAIT_FOR_MEMORY.as_secs()
+            ),
+        });
+        still_held.into_iter().collect()
     }
 
     /// What the engine reads once a model has loaded: the part of the prompt

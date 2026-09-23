@@ -302,6 +302,17 @@ impl Engine {
         self.shared.status.lock().unwrap().clone()
     }
 
+    /// Loading or answering: a start of it is under way or done, and asking
+    /// for the same model again joins it.
+    pub fn starting_or_running(&self) -> bool {
+        matches!(self.status(), Status::Loading | Status::Ready)
+    }
+
+    /// The process it is now: a load that did not hold replaces it.
+    pub fn pid(&self) -> Option<u32> {
+        self.shared.child.lock().unwrap().as_ref().map(Child::id)
+    }
+
     pub fn state(&self) -> proto::EngineState {
         let since = self.shared.started.elapsed().as_secs();
         match self.status() {

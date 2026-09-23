@@ -375,6 +375,129 @@ fn a_download_with_no_room_for_it_is_refused_before_it_starts_and_names_the_plac
     }
 }
 
+/// The laptop again, with two models whose stubs take `load_ms` to load, as
+/// a model of several GB does, and the events Core sends.
+fn core_with_two_slow_models(dir: &Path, load_ms: u64) -> (Core, Arc<Mutex<Vec<proto::Event>>>) {
+    let catalog = data_dir_with_model(dir);
+    let stub = format!("loads in {load_ms} ms");
+    let entry = |id: &str, title: &str| {
+        serde_json::json!({
+            "id": id, "title": title, "params_b": 0.1, "bytes": stub.len(), "context_len": 2048,
+            "repo": format!("example/{id}"), "files": [format!("{id}.gguf")],
+            "tensor": {"core_bytes": 16, "routed_expert_bytes": 0, "layers": 2, "moe": null,
+                       "kv_bytes_per_token_fp16": 256}
+        })
+    };
+    for id in ["tiny", "other"] {
+        std::fs::write(dir.join("models").join(format!("{id}.gguf")), &stub).unwrap();
+    }
+    let models = serde_json::json!({"version": 1, "models": [entry("tiny", "Tiny"), entry("other", "Other")]});
+    std::fs::write(catalog.join("catalog.json"), models.to_string()).unwrap();
+    let (machine, hardware) = an_ordinary_laptop();
+    let mut cfg = Config::personal("tester");
+    cfg.machine = machine;
+    cfg.hardware = Some(hardware);
+    cfg.data_dir = Some(dir.to_path_buf());
+    cfg.models_dir = Some(catalog);
+    cfg.llama_server = Some(PathBuf::from(FAKE));
+    let mut core = Core::new(cfg).expect("creating Core");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink = events.clone();
+    core.set_event_sink(Box::new(move |_to, ev| sink.lock().unwrap().push(ev)));
+    (core, events)
+}
+
+fn load(id: &str) -> proto::Request {
+    proto::Request::LoadModel { id: id.into() }
+}
+
+fn traces(events: &Mutex<Vec<proto::Event>>) -> Vec<String> {
+    events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|e| match e {
+            proto::Event::TraceLine { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The port in an engine's state, "… on 127.0.0.1:<port>".
+fn port_in(state: &proto::EngineState) -> u16 {
+    state
+        .detail
+        .split("127.0.0.1:")
+        .nth(1)
+        .map(|rest| rest.chars().take_while(char::is_ascii_digit).collect::<String>())
+        .and_then(|digits| digits.parse().ok())
+        .expect("the engine's port in its state")
+}
+
+/// The restart storm of 2026-09-21: a model that took half a minute to
+/// start was clicked again and again, and every click began a new engine
+/// that ended the one before. Asked for again while it starts, or once it
+/// runs, it is started once.
+#[test]
+fn a_model_asked_for_again_while_it_starts_is_started_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut core, events) = core_with_two_slow_models(dir.path(), 3000);
+    assert!(matches!(core.handle(load("tiny")), proto::Response::Ok));
+    let starting = core.environment().engine;
+    assert!(starting.loading, "{starting:?}");
+    for _ in 0..2 {
+        assert!(matches!(core.handle(load("tiny")), proto::Response::Ok));
+    }
+    let running = wait_until(&core, "the one start to answer", |s| s.running);
+    assert_eq!(port_in(&running), port_in(&starting), "the same engine");
+    assert!(matches!(core.handle(load("tiny")), proto::Response::Ok));
+
+    let traces = traces(&events);
+    let started = traces.iter().filter(|t| t.starts_with("engine: started")).count();
+    assert_eq!(started, 1, "{traces:#?}");
+    let again: Vec<&String> = traces
+        .iter()
+        .filter(|t| t.contains("was asked for again"))
+        .collect();
+    assert_eq!(again.len(), 3, "{traces:#?}");
+    assert!(again[..2].iter().all(|t| t.contains("while it starts")), "{again:#?}");
+    assert!(again[2].contains("while it runs"), "{again:#?}");
+    core.handle(proto::Request::UnloadModel);
+}
+
+/// And the other side of it: another model is a new start, and the engine
+/// before it is stopped before the card is looked at and planned for, so
+/// that its memory is never counted as another program's.
+#[test]
+fn another_model_is_planned_only_once_the_engine_before_it_has_stopped() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut core, events) = core_with_two_slow_models(dir.path(), 300);
+    assert!(matches!(core.handle(load("tiny")), proto::Response::Ok));
+    let first = wait_until(&core, "the first model to answer", |s| s.running);
+
+    assert!(matches!(core.handle(load("other")), proto::Response::Ok));
+    let traces = traces(&events);
+    let stopped = traces.iter().position(|t| {
+        t.starts_with("engine: stopped llama-server for tiny before the card is looked at again")
+    });
+    let planned = traces.iter().rposition(|t| t.starts_with("fit: "));
+    let started = traces
+        .iter()
+        .rposition(|t| t.starts_with("engine: started") && t.contains(" for other "));
+    assert!(stopped.is_some(), "{traces:#?}");
+    assert!(stopped < planned && planned < started, "{traces:#?}");
+    // The engine before it is gone, not merely forgotten.
+    let old = port_in(&first);
+    assert!(
+        ureq::get(&format!("http://127.0.0.1:{old}/health")).call().is_err(),
+        "nothing answers on the first engine's port any more"
+    );
+    wait_until(&core, "the second model to answer", |s| {
+        s.running && s.model.as_deref() == Some("other")
+    });
+    core.handle(proto::Request::UnloadModel);
+}
+
 #[test]
 fn a_load_that_did_not_hold_is_started_again_as_the_look_says_before_anyone_is_told() {
     use localspace_core::engine::{AfterLoad, Engine, LoadOutcome};
