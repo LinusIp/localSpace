@@ -153,6 +153,19 @@ early.
 (one of ten came back); the canvas decision; the personalisation memory rule;
 the Pictures safety decision; whether Pictures is free or paid.
 
+**Built, and found while building:**
+- **The look lost its whole answer on a Windows that names itself in another
+  language** (found on 2026-09-23 by the first test of 1.1, and fixed first).
+  PowerShell answers in the console's code page unless told otherwise; on the
+  development laptop, asked with its Russian settings, Windows called itself
+  "Майкрософт Windows 11 Домашняя", which is not UTF-8, and the answer was
+  thrown away with it: no memory, no free disk, no card in use by others.
+  The question now asks for UTF-8, and the answer is read leniently all the
+  same, so that one character in another encoding costs that character and
+  nothing else. The app's own logs on that laptop show the English name, so
+  it did not strike there; it would have on any Windows that names itself
+  in letters beyond plain ASCII, a Russian one among them.
+
 ## 2026-09-20, Sunday's answers: the squeezed mark is fixed before the dry run, two pictures on one page agree, and two findings are written down
 
 The user's answers to the report on the landing pictures

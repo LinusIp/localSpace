@@ -623,8 +623,16 @@ fn system_facts(storage: Option<&Path>) -> SystemFacts {
     // The adapters: Windows counts each one's memory in use under its LUID
     // (classes whose names are the same in every language, unlike the
     // counters'), and the registry says which name a LUID carries.
+    //
+    // UTF-8, asked for first: PowerShell otherwise answers in the console's
+    // code page, and a Windows in another language names itself in it
+    // ("Майкрософт Windows 11 Домашняя" on the development laptop, read
+    // with its Russian settings): not UTF-8, and the whole answer was thrown
+    // away with it, the memory, the disk and the cards included (found on
+    // 2026-09-23).
     let script = format!(
-        "$os = Get-CimInstance Win32_OperatingSystem; \
+        "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; \
+         $os = Get-CimInstance Win32_OperatingSystem; \
          $cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name; \
          $free = ([System.IO.DriveInfo]::new('{drive}:\\')).AvailableFreeSpace; \
          $used = @{{}}; \
@@ -646,7 +654,11 @@ fn system_facts(storage: Option<&Path>) -> SystemFacts {
     else {
         return SystemFacts::default();
     };
-    let Ok(json) = serde_json::from_slice::<serde_json::Value>(&out.stdout) else {
+    // Read leniently as well: one character in another encoding costs that
+    // character, never the memory, the disk and the cards with it.
+    let text = String::from_utf8_lossy(&out.stdout);
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}'))
+    else {
         return SystemFacts::default();
     };
     // For the log a person may be asked to send: which Windows this is.
@@ -1131,6 +1143,17 @@ mod tests {
             None,
             "which of the two is not known"
         );
+    }
+
+    /// On the development laptop, asked with its Russian settings, Windows
+    /// named itself in the console's code page and the whole answer was lost
+    /// with it: no memory, no disk, no cards (2026-09-23). It is read,
+    /// whatever language Windows speaks.
+    #[test]
+    fn the_look_is_answered_whatever_language_windows_speaks() {
+        let facts = system_facts(None);
+        assert!(facts.ram_total_mib > 0, "the question was answered");
+        assert!(facts.ram_free_mib > 0, "the question was answered");
     }
 
     #[test]
