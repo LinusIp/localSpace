@@ -264,4 +264,19 @@ where they were put, with no GPU (the CPU fallback's first step); the app
 makes its data folder, starts, serves its client and opens its window; a
 second launch gives way to the first; the uninstaller removes the program and
 leaves the data. What it cannot: SmartScreen and Smart App Control, a real
-GPU, and what a person sees. Those belong to a dry run on a real machine.
+GPU, a Windows in another language, and what a person sees. Those belong to
+runs on real machines, before a build ships:
+
+- **A dry run on a machine that is not the builder's**, from the link a
+  person will get, following the sheet to the letter
+  (`docs/test-a/RUNBOOK.md`).
+- **Smart App Control on**: the development laptop has it on, and the
+  release build is installed and started there.
+- **A Windows that speaks another language** (ruled 2026-09-23): the release
+  build runs at least once on a Windows whose answers are not in English,
+  and the development laptop answers in Russian. Read the first lines of
+  `app.log`: the operating system's name, the system memory, every graphics
+  card and what other programs hold of it must all be there. The build Test
+  A shipped told such a Windows it had "1 GB of system memory" and offered
+  only the smallest model. A build checked only on English Windows has not
+  been checked for the people it is for.

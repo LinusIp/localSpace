@@ -4,6 +4,59 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-23, the plan for 1.6 and 1.7 approved, with additions; a rule for release builds
+
+The founder's answer to the plan for Stop and chats that stay usable
+(`23-localspace-concurrency-plan-approval.md`). The plan stands as proposed:
+a turn becomes work beside Core's queue instead of one request that holds it;
+each answer carries the person and the chat it belongs to; at most one answer
+per person, up to N people at once where the engine has N slots (N is 1 on a
+person's own computer), at half a day more than hard-coding one; Stop and the
+silence limits through a stream reader of our own instead of `ureq` for the
+model's answer.
+
+- **Every release build runs at least once on a Windows that speaks another
+  language before it ships**: the development laptop, which answers in
+  Russian. It stands in `docs/BUILD.md`'s list beside the dry run and the
+  Smart App Control run. Earned by the language fault of 2026-09-23: the
+  build Test A shipped told such a Windows it had 1 GB of system memory and
+  offered only the 1.5B, "the worst failure this product can have", in a
+  market that runs Windows in Russian and Uzbek. The founder is reading the
+  forms' question 3 for "1 GB of system memory".
+- **Stop takes effect at a safe point, never in the middle of a change.**
+  During streaming, the connection is closed at once and what arrived is
+  kept. While a tool call runs in Core's queue, the call finishes completely
+  and the turn stops before the next model step. While a turn waits on an
+  approval, the pending approval is cancelled, the call it proposed is not
+  made, and the person is told in plain words.
+- **A stopped answer is kept**: it stays in the chat, marked as stopped, and
+  it is part of what the model reads on the next turn, so that "go on from
+  there" works.
+- **The stream reader is tested for what `ureq` handled quietly**: a
+  multi-byte character whose bytes arrive in separate reads (bytes are
+  buffered and only complete characters decoded: Russian and Uzbek text
+  splits them constantly), an event split across chunks and several events
+  in one chunk, the engine going away mid-answer (treated as a stop: what
+  came is kept, "The answer stopped here." with *Continue*), and the silence
+  limits firing before the first word and between words, each logged with
+  the prompt's length. The rest of the test list stands.
+- **Answers to the three questions.** The busy first start goes with 1.3
+  (document 22 said both; both depend on the same memory figure). A person's
+  second chat waits even with a free slot: the ledger is one person's, and on
+  a shared server a slot is someone else's turn. The words for a chat that
+  waits: **"Waiting for the answer in your other chat to finish. This one
+  will start by itself."** (without the second sentence people send the
+  message again). Waiting because other people fill every slot of a server
+  is a different case, the spec's "server busy" queue, which comes later and
+  does not reuse this sentence.
+- **For the 1.3 batch**: when a newly chosen model fails to load, the
+  message offers **"Go back to [the previous model]"** in one click; and when
+  the only graphics listed are integrated, the look asks the engine once
+  more after about two seconds before planning, so that a discrete card that
+  was asleep is not missed, keeping the log line of what was listed.
+- **The deployment spec's `[scheduler] per_user_concurrent`**, whose example
+  is 2, is 1 by this ruling until the scheduler's settings are built.
+
 ## 2026-09-23, after Test A: the plan of documents 16 to 22, and the answers to the estimates
 
 The founder's reading of the laptop test and the plan that follows from it:
