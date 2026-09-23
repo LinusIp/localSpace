@@ -16,7 +16,9 @@
 //! (twenty words, a pause between each), `stalls before the first piece`,
 //! `stalls after N pieces`, `dies after N pieces` (the connection closes
 //! mid-answer), `writes in Russian` (every event's bytes in two writes, split
-//! inside a letter). Each request is named in the log.
+//! inside a letter). An answer begun for it (the last message is the
+//! assistant's) is carried on, its words said again first, as llama-server's
+//! prefill does. Each request is named in the log.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -174,10 +176,15 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
 
     // Core's chat turns ask to stream: answer as llama-server does, in
     // server-sent events, the reply in two pieces, then the usage, then the end.
-    let streamed = serde_json::from_slice::<serde_json::Value>(&body)
-        .ok()
-        .and_then(|v| v.get("stream").and_then(|s| s.as_bool()))
-        .unwrap_or(false);
+    let request = serde_json::from_slice::<serde_json::Value>(&body).unwrap_or_default();
+    let streamed = request["stream"].as_bool().unwrap_or(false);
+    let begun = request["messages"]
+        .as_array()
+        .and_then(|messages| messages.last())
+        .filter(|last| last["role"] == "assistant")
+        .and_then(|last| last["content"].as_str())
+        .unwrap_or_default()
+        .to_string();
     if streamed && path.starts_with("/v1/chat/completions") {
         let chunk = |delta: &str, finish: &str| {
             format!(
@@ -215,7 +222,7 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
                 return;
             }
             let delta = if i == 0 {
-                serde_json::json!({"role": "assistant", "content": piece})
+                serde_json::json!({"role": "assistant", "content": format!("{begun}{piece}")})
             } else {
                 serde_json::json!({"content": piece})
             };

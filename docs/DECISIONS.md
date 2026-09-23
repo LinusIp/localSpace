@@ -72,9 +72,10 @@ model's answer.
   (`ApprovalWithdrawn`), its call not made, and the person reads "Stopped.
   The change that waited for your approval was not made." A stopped answer
   stays in its chat, marked (`ChatMessage::stopped`), and the model reads it
-  with "[the answer stopped here]"; *Continue* asks the model, in a line
-  that is never kept in the chat, to carry on, and its words join the
-  answer. The window keeps each chat's answer apart: Stop for the chat on
+  with "[the answer stopped here]"; *Continue* hands the stopped words to
+  the engine as the start of its reply, which the model carries on
+  (llama-server's prefill; no tool is offered for that step), and what it
+  adds joins the answer. The window keeps each chat's answer apart: Stop for the chat on
   screen, "Waiting for the answer in your other chat to finish. This one
   will start by itself.", "The answer stopped here." with *Continue* under
   the chat's last answer when nothing is in progress, a spinner beside a
@@ -102,7 +103,13 @@ model's answer.
   end, so a turn takes its worker out first. A way back into Core's own
   queue held strongly would keep Core's thread, and so the engine, alive
   after the app closed: it is held weakly, and a test drops the transport
-  and sees the engine go.
+  and sees the engine go. *Continue* was first built as a line asking the
+  model to go on from exactly where it stopped: on this laptop Qwen2.5 3B
+  began its answer again instead, and the joined text read "…provide the
+  information in aIt seems that…". Handed the words as the start of its
+  reply, it carries on mid-sentence. The engine says those words again at
+  the start of its stream; Core drops them, so they are neither shown nor
+  kept twice.
 - **The builder's choices, to be corrected if wrong**: a second message in
   a chat whose answer is being written is refused ("An answer is still
   being written in this chat. Stop it, or wait for it to finish."; the

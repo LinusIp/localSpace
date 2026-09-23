@@ -315,6 +315,48 @@ fn a_stop_mid_answer_keeps_what_came_marked_as_stopped() {
     assert_eq!(bench.words_to("anna", &chat), shown);
 }
 
+/// Continue carries a stopped answer on: the engine is handed its words as
+/// the start of its reply and says them again first, as llama-server does;
+/// only what it adds reaches the person, and it joins the answer.
+#[test]
+fn continue_carries_a_stopped_answer_on_without_saying_it_twice() {
+    let bench = Bench::new(SLOWLY, 1, Silence::ANSWER);
+    let anna = person("anna");
+    let chat = bench.send(&anna, "Tell me something long.");
+    bench.wait_for("anna", "three words", |events| {
+        events
+            .iter()
+            .filter(|e| matches!(e, proto::Event::AssistantDelta { .. }))
+            .count()
+            >= 3
+    });
+    bench.ask(&anna, proto::Request::CancelTurn { conversation: None });
+    bench.ended("anna", &chat, TurnState::Stopped);
+    let kept = bench.transcript(&anna).last().unwrap().content.clone();
+    assert!(kept.starts_with("word1 word2 word3 "), "{kept}");
+
+    assert!(matches!(
+        bench.ask(
+            &anna,
+            proto::Request::ContinueAnswer {
+                conversation: Some(chat.clone())
+            }
+        ),
+        proto::Response::Transcript { .. }
+    ));
+    bench.ended("anna", &chat, TurnState::Done);
+    let messages = bench.transcript(&anna);
+    assert_eq!(messages.len(), 2, "{messages:#?}");
+    assert!(!messages[1].stopped);
+    let whole = format!("{kept}{TWENTY_WORDS}");
+    assert_eq!(messages[1].content, whole);
+    assert_eq!(
+        bench.words_to("anna", &chat),
+        whole,
+        "the words kept were not shown twice"
+    );
+}
+
 /// One answer at a time for a person: a message in a second chat waits, says
 /// so, and starts by itself.
 #[test]

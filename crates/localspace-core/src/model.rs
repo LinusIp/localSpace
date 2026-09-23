@@ -57,6 +57,10 @@ pub struct ChatRequest {
     pub tools: Vec<proto::ExposedTool>,
     /// GBNF for backends that accept one; ignored by those that do not.
     pub grammar: Option<String>,
+    /// The words of an answer that stopped, when it is carried on: they are
+    /// the start of the model's reply, which it continues, and only what it
+    /// adds comes back.
+    pub begun: Option<String>,
     pub max_tokens: u32,
     pub temperature: f32,
     pub class: RequestClass,
@@ -68,6 +72,7 @@ impl ChatRequest {
             prompt,
             tools: Vec::new(),
             grammar: None,
+            begun: None,
             max_tokens: 1024,
             temperature: 0.2,
             class: RequestClass::Interactive,
@@ -231,7 +236,7 @@ impl ModelWorker for OpenAiWorker {
     fn chat(&self, req: &ChatRequest) -> Result<ChatReply> {
         let mut body = json!({
             "model": self.model,
-            "messages": [{"role": "user", "content": req.prompt}],
+            "messages": messages(req),
             "max_tokens": req.max_tokens,
             "temperature": req.temperature,
             "stream": false,
@@ -242,7 +247,8 @@ impl ModelWorker for OpenAiWorker {
         }
 
         let res = self.post("/chat/completions", body)?;
-        parse_openai_reply(&res)
+        let again = SaidAgain::new(req.begun.as_deref().unwrap_or_default());
+        Ok(again.carried_on(parse_openai_reply(&res)?))
     }
 
     fn chat_streaming(
@@ -262,7 +268,7 @@ impl ModelWorker for OpenAiWorker {
     ) -> Result<ChatReply> {
         let mut body = json!({
             "model": self.model,
-            "messages": [{"role": "user", "content": req.prompt}],
+            "messages": messages(req),
             "max_tokens": req.max_tokens,
             "temperature": req.temperature,
             "stream": true,
@@ -273,35 +279,39 @@ impl ModelWorker for OpenAiWorker {
             body["tool_choice"] = json!("auto");
         }
         let url = format!("{}/chat/completions", self.base_url);
-        // The engine, and a model on the organisation's network: read on a
-        // socket of our own, which a stop shuts and a silence ends.
-        if url.starts_with("http://") {
-            return crate::stream::post_and_read(
+        let mut again = SaidAgain::new(req.begun.as_deref().unwrap_or_default());
+        let mut pass = |piece: &str| again.pass(piece, on_delta);
+        let reply = if url.starts_with("http://") {
+            // The engine, and a model on the organisation's network: read on
+            // a socket of our own, which a stop shuts and a silence ends.
+            crate::stream::post_and_read(
                 &url,
                 self.api_key.as_deref(),
                 &body,
                 silence,
                 stop,
-                on_delta,
-            );
-        }
-        // A model behind TLS, connected under Advanced: `ureq` reads it,
-        // stopped at its next piece, with no limit on how long a model that
-        // is writing may take, only on the wait for its first word.
-        let mut request = ureq::post(&url)
-            .config()
-            .timeout_global(None)
-            .timeout_recv_response(Some(silence.before_first_word))
-            .build();
-        if let Some(k) = &self.api_key {
-            request = request.header("Authorization", &format!("Bearer {k}"));
-        }
-        let mut res = request
-            .send_json(&body)
-            .map_err(|e| anyhow::anyhow!("{e}"))
-            .with_context(|| format!("POST {url}"))?;
-        let reader = std::io::BufReader::new(res.body_mut().as_reader());
-        read_sse(reader, on_delta, stop)
+                &mut pass,
+            )?
+        } else {
+            // A model behind TLS, connected under Advanced: `ureq` reads it,
+            // stopped at its next piece, with no limit on how long a model
+            // that is writing may take, only on the wait for its first word.
+            let mut request = ureq::post(&url)
+                .config()
+                .timeout_global(None)
+                .timeout_recv_response(Some(silence.before_first_word))
+                .build();
+            if let Some(k) = &self.api_key {
+                request = request.header("Authorization", &format!("Bearer {k}"));
+            }
+            let mut res = request
+                .send_json(&body)
+                .map_err(|e| anyhow::anyhow!("{e}"))
+                .with_context(|| format!("POST {url}"))?;
+            let reader = std::io::BufReader::new(res.body_mut().as_reader());
+            read_sse(reader, &mut pass, stop)?
+        };
+        Ok(again.carried_on(reply))
     }
 
     fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
@@ -380,6 +390,66 @@ pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {
         prompt_tokens: res["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as u32,
         completion_tokens: res["usage"]["completion_tokens"].as_u64().unwrap_or(0) as u32,
     })
+}
+
+/// The messages of a request: the prompt as the person's, then, when an
+/// answer that stopped is carried on, its words as the start of the model's
+/// reply. The engine continues a last message of the assistant's instead of
+/// answering after it (llama-server's prefill, on by default).
+fn messages(req: &ChatRequest) -> J {
+    let mut messages = vec![json!({"role": "user", "content": req.prompt})];
+    if let Some(begun) = req.begun.as_deref().filter(|b| !b.is_empty()) {
+        messages.push(json!({"role": "assistant", "content": begun}));
+    }
+    J::Array(messages)
+}
+
+/// An answer carried on, as it comes back. llama-server (b10869) says the
+/// words it was given again at the start of its stream, before what the model
+/// adds; only what the model adds is passed on and kept. From a backend that
+/// does not say them again, everything is.
+struct SaidAgain<'a> {
+    begun: &'a str,
+    held: String,
+    past: bool,
+}
+
+impl<'a> SaidAgain<'a> {
+    fn new(begun: &'a str) -> SaidAgain<'a> {
+        SaidAgain {
+            begun,
+            held: String::new(),
+            past: begun.is_empty(),
+        }
+    }
+
+    fn pass(&mut self, piece: &str, on_delta: &mut dyn FnMut(&str)) {
+        if self.past {
+            on_delta(piece);
+            return;
+        }
+        self.held.push_str(piece);
+        // Perhaps still the begun words, said again: wait for more.
+        if self.held.len() < self.begun.len() && self.begun.starts_with(self.held.as_str()) {
+            return;
+        }
+        self.past = true;
+        let held = std::mem::take(&mut self.held);
+        let added = held.strip_prefix(self.begun).unwrap_or(&held);
+        if !added.is_empty() {
+            on_delta(added);
+        }
+    }
+
+    /// The whole reply, with what the model added as its text.
+    fn carried_on(&self, mut reply: ChatReply) -> ChatReply {
+        if !self.begun.is_empty()
+            && let Some(added) = reply.text.strip_prefix(self.begun)
+        {
+            reply.text = added.to_string();
+        }
+        reply
+    }
 }
 
 /// An OpenAI-style server-sent event stream, read to the end: text deltas go
@@ -731,6 +801,64 @@ impl Streamer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What an answer carried on passes to the person, piece by piece.
+    fn passed(begun: &str, pieces: &[&str]) -> Vec<String> {
+        let mut again = SaidAgain::new(begun);
+        let mut passed = Vec::new();
+        for piece in pieces {
+            again.pass(piece, &mut |p| passed.push(p.to_string()));
+        }
+        passed
+    }
+
+    #[test]
+    fn an_answer_carried_on_passes_only_what_the_model_adds() {
+        // Said again in the first piece, as llama-server does.
+        assert_eq!(
+            passed("Once upon", &["Once upon a", " time"]),
+            [" a", " time"]
+        );
+        // Said again across pieces.
+        assert_eq!(
+            passed("Once upon", &["Once", " up", "on a", " time"]),
+            [" a", " time"]
+        );
+        // Not said again: everything passes.
+        assert_eq!(passed("Once upon", &[" a", " time"]), [" a", " time"]);
+        // Said again, and nothing added.
+        assert!(passed("Once upon", &["Once upon"]).is_empty());
+        // Nothing begun.
+        assert_eq!(passed("", &["Hello"]), ["Hello"]);
+
+        let again = SaidAgain::new("Once upon");
+        let reply = |text: &str| ChatReply {
+            text: text.into(),
+            ..Default::default()
+        };
+        assert_eq!(again.carried_on(reply("Once upon a time")).text, " a time");
+        assert_eq!(again.carried_on(reply(" a time")).text, " a time");
+    }
+
+    #[test]
+    fn the_words_of_an_answer_carried_on_are_the_start_of_the_models_reply() {
+        let mut req = ChatRequest::new("the prompt".into());
+        assert_eq!(
+            messages(&req),
+            json!([{"role": "user", "content": "the prompt"}])
+        );
+        req.begun = Some("Once upon".into());
+        assert_eq!(
+            messages(&req),
+            json!([
+                {"role": "user", "content": "the prompt"},
+                {"role": "assistant", "content": "Once upon"}
+            ])
+        );
+        // An answer stopped before its first word begins nothing.
+        req.begun = Some(String::new());
+        assert_eq!(messages(&req).as_array().map(Vec::len), Some(1));
+    }
 
     struct Fake {
         id: &'static str,

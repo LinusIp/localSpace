@@ -41,10 +41,6 @@ detail.
 /// conversation it reads, so that "go on from there" can be answered.
 pub const STOPPED_HERE: &str = "[the answer stopped here]";
 
-/// What *Continue* asks, as the person's line at the end of the prompt, never
-/// kept in the chat: the model's words join the answer that stopped.
-pub const CONTINUE: &str = "Continue your last answer from exactly where it stopped. Do not repeat what you already wrote.";
-
 /// The four segments, kept separate so a caller can measure prefix stability.
 #[derive(Debug, Clone)]
 pub struct Prompt {

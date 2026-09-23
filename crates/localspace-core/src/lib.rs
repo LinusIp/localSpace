@@ -1762,6 +1762,7 @@ impl Core {
             prompt: format!("{stable}\n\n"),
             tools: active.tools,
             grammar: None,
+            begun: None,
             max_tokens: 1,
             temperature: 0.0,
             class: model::RequestClass::Interactive,

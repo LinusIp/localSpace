@@ -68,10 +68,8 @@ pub fn continue_answer(core: &mut Core, conversation: Option<String>) -> proto::
     }
     let (user, workspace) = (core.active.user.clone(), core.workspace.clone());
     let stopped = messages(core, &user, &workspace, &conversation)
-        .iter()
-        .rev()
-        .find(|m| m.role == proto::Role::Assistant)
-        .is_some_and(|m| m.stopped);
+        .last()
+        .is_some_and(|m| m.role == proto::Role::Assistant && m.stopped);
     if !stopped {
         return refusal("There is no stopped answer to carry on in this chat.");
     }
@@ -351,7 +349,7 @@ fn ask_the_model(core: &mut Core, id: u64) {
         turn.caller.user.clone(),
         turn.workspace.clone(),
         turn.conversation.clone(),
-        turn.continuing,
+        turn.continuing && turn.steps == 0,
         turn.stop.clone(),
     );
 
@@ -366,9 +364,19 @@ fn ask_the_model(core: &mut Core, id: u64) {
     }
     let blocks = core.context_blocks();
     let mut messages = messages(core, &user, &workspace, &conversation);
-    if continuing {
-        messages.push(message(proto::Role::User, prompt::CONTINUE));
-    }
+    // Carrying on an answer that stopped: its words are handed to the model
+    // as the start of its reply, which it continues, and the step offers no
+    // tool. Asked in words to go on from where it stopped, a model a laptop
+    // runs began its answer again (Qwen2.5 3B, 2026-09-23). An answer that
+    // stopped before its first word is simply answered.
+    let begun = if continuing {
+        messages
+            .pop_if(|m| m.role == proto::Role::Assistant && m.stopped)
+            .map(|m| m.content)
+            .filter(|words| !words.is_empty())
+    } else {
+        None
+    };
     let p = prompt::build(
         &core.cfg.profile,
         &active,
@@ -383,16 +391,22 @@ fn ask_the_model(core: &mut Core, id: u64) {
             core.cfg.profile.prompt_tokens_per_step
         ));
     }
-    let grammar = core.grammars.compile(&active.tools);
-    core.trace(format!(
-        "active set {} tools, grammar {}",
-        active.tools.len(),
-        grammar.hash
-    ));
+    let (tools, grammar) = if begun.is_some() {
+        (Vec::new(), None)
+    } else {
+        let grammar = core.grammars.compile(&active.tools);
+        core.trace(format!(
+            "active set {} tools, grammar {}",
+            active.tools.len(),
+            grammar.hash
+        ));
+        (active.tools.clone(), Some(grammar.gbnf))
+    };
     let request = model::ChatRequest {
         prompt: p.render(),
-        tools: active.tools.clone(),
-        grammar: Some(grammar.gbnf),
+        tools,
+        grammar,
+        begun,
         max_tokens: 1024,
         temperature: 0.2,
         class: model::RequestClass::Interactive,
@@ -956,7 +970,7 @@ mod tests {
     /// what is under test rather than a model.
     struct Script {
         replies: Mutex<Vec<ChatReply>>,
-        seen: Mutex<Vec<String>>,
+        seen: Mutex<Vec<ChatRequest>>,
     }
 
     impl Script {
@@ -980,7 +994,7 @@ mod tests {
             }
         }
         fn chat(&self, req: &ChatRequest) -> Result<ChatReply> {
-            self.seen.lock().unwrap().push(req.prompt.clone());
+            self.seen.lock().unwrap().push(req.clone());
             let mut r = self.replies.lock().unwrap();
             if r.is_empty() {
                 Ok(ChatReply {
@@ -1092,12 +1106,13 @@ mod tests {
         let mut core = core_with(script);
         turn(&mut core, "hello");
 
-        let prompts = seen.seen.lock().unwrap();
-        assert_eq!(prompts.len(), 1);
-        assert!(prompts[0].contains("[tools]"));
-        assert!(prompts[0].contains("find_capability"));
-        assert!(prompts[0].contains("[conversation]"));
-        assert!(prompts[0].contains("hello"));
+        let requests = seen.seen.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        let prompt = &requests[0].prompt;
+        assert!(prompt.contains("[tools]"));
+        assert!(prompt.contains("find_capability"));
+        assert!(prompt.contains("[conversation]"));
+        assert!(prompt.contains("hello"));
     }
 
     /// A Core whose transport is this test: what its turns post back is
@@ -1289,14 +1304,15 @@ mod tests {
         core.record_conversation();
 
         turn(&mut core, "go on from there");
-        let prompts = seen.seen.lock().unwrap();
-        assert!(prompts[0].contains("Once upon a time"), "{}", prompts[0]);
-        assert!(prompts[0].contains(prompt::STOPPED_HERE), "{}", prompts[0]);
+        let prompt = seen.seen.lock().unwrap()[0].prompt.clone();
+        assert!(prompt.contains("Once upon a time"), "{prompt}");
+        assert!(prompt.contains(prompt::STOPPED_HERE), "{prompt}");
         assert!(core.transcript[1].stopped, "it stays marked");
     }
 
-    /// Continue carries on in the same answer: its words join the ones that
-    /// came, and the answer is no longer marked as stopped.
+    /// Continue carries on in the same answer: the model is handed its words
+    /// as the start of its reply, with no tool offered; what it adds joins
+    /// them, and the answer is no longer marked as stopped.
     #[test]
     fn continuing_a_stopped_answer_joins_its_words_to_it() {
         let script = Script::new(vec![ChatReply {
@@ -1318,7 +1334,14 @@ mod tests {
         let answer = &core.transcript[1];
         assert_eq!(answer.content, "Once upon a time they lived happily.");
         assert!(!answer.stopped);
-        assert!(seen.seen.lock().unwrap()[0].contains(prompt::CONTINUE));
+        let request = seen.seen.lock().unwrap()[0].clone();
+        assert_eq!(request.begun.as_deref(), Some("Once upon a time"));
+        assert!(request.tools.is_empty() && request.grammar.is_none());
+        assert!(
+            !request.prompt.contains(prompt::STOPPED_HERE),
+            "the stopped words are the reply's start, not part of the chat read: {}",
+            request.prompt
+        );
 
         // With nothing stopped, there is nothing to carry on.
         match core.handle(proto::Request::ContinueAnswer { conversation: None }) {
