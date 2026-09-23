@@ -38,6 +38,7 @@ pub mod prompt;
 pub mod registry;
 pub mod runtime;
 pub mod store;
+pub mod stream;
 pub mod task;
 pub mod tools;
 pub mod transport;

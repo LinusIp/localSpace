@@ -12,6 +12,7 @@
 //! `/metrics`, and a deployment where the big model takes more than 60 % of calls
 //! is misconfigured.
 
+use crate::stream::{Cut, Silence, Stop};
 use anyhow::{Context, Result, bail};
 use localspace_proto as proto;
 use serde_json::{Value as J, json};
@@ -102,6 +103,28 @@ pub trait ModelWorker: Send + Sync {
         let reply = self.chat(req)?;
         if !reply.text.is_empty() {
             on_delta(&reply.text);
+        }
+        Ok(reply)
+    }
+    /// `chat_streaming`, which `stop` ends from another thread and which
+    /// ends by itself when the model is silent for longer than `silence`
+    /// allows; an answer that ends early is an error caused by a [`Cut`].
+    /// A backend that cannot be stopped part-way is stopped when its answer
+    /// comes whole, and nothing of it is passed on.
+    fn chat_streaming_until(
+        &self,
+        req: &ChatRequest,
+        on_delta: &mut dyn FnMut(&str),
+        stop: &Stop,
+        _silence: Silence,
+    ) -> Result<ChatReply> {
+        let reply = self.chat_streaming(req, &mut |piece| {
+            if !stop.asked() {
+                on_delta(piece);
+            }
+        })?;
+        if stop.asked() {
+            return Err(Cut::Stopped.into());
         }
         Ok(reply)
     }
@@ -227,6 +250,16 @@ impl ModelWorker for OpenAiWorker {
         req: &ChatRequest,
         on_delta: &mut dyn FnMut(&str),
     ) -> Result<ChatReply> {
+        self.chat_streaming_until(req, on_delta, &Stop::default(), Silence::ANSWER)
+    }
+
+    fn chat_streaming_until(
+        &self,
+        req: &ChatRequest,
+        on_delta: &mut dyn FnMut(&str),
+        stop: &Stop,
+        silence: Silence,
+    ) -> Result<ChatReply> {
         let mut body = json!({
             "model": self.model,
             "messages": [{"role": "user", "content": req.prompt}],
@@ -240,9 +273,25 @@ impl ModelWorker for OpenAiWorker {
             body["tool_choice"] = json!("auto");
         }
         let url = format!("{}/chat/completions", self.base_url);
+        // The engine, and a model on the organisation's network: read on a
+        // socket of our own, which a stop shuts and a silence ends.
+        if url.starts_with("http://") {
+            return crate::stream::post_and_read(
+                &url,
+                self.api_key.as_deref(),
+                &body,
+                silence,
+                stop,
+                on_delta,
+            );
+        }
+        // A model behind TLS, connected under Advanced: `ureq` reads it,
+        // stopped at its next piece, with no limit on how long a model that
+        // is writing may take, only on the wait for its first word.
         let mut request = ureq::post(&url)
             .config()
-            .timeout_global(Some(self.timeout))
+            .timeout_global(None)
+            .timeout_recv_response(Some(silence.before_first_word))
             .build();
         if let Some(k) = &self.api_key {
             request = request.header("Authorization", &format!("Bearer {k}"));
@@ -252,7 +301,7 @@ impl ModelWorker for OpenAiWorker {
             .map_err(|e| anyhow::anyhow!("{e}"))
             .with_context(|| format!("POST {url}"))?;
         let reader = std::io::BufReader::new(res.body_mut().as_reader());
-        read_sse(reader, on_delta)
+        read_sse(reader, on_delta, stop)
     }
 
     fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
@@ -336,24 +385,35 @@ pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {
 /// An OpenAI-style server-sent event stream, read to the end: text deltas go
 /// to `on_delta` as they arrive, tool-call deltas are assembled by index, and
 /// the last event's usage is kept.
+///
+/// Lines are cut from buffered bytes before they are decoded, so a character
+/// whose bytes came in separate reads is whole. `stop` is looked at every
+/// line. A stream that ends before the model said it was finished (`[DONE]`,
+/// or a reason for finishing) was cut, and says so: [`Cut::Lost`].
 pub fn read_sse<R: std::io::BufRead>(
     reader: R,
     on_delta: &mut dyn FnMut(&str),
+    stop: &Stop,
 ) -> Result<ChatReply> {
     let mut text = String::new();
     // (id, name, arguments) per tool-call index; arguments arrive in pieces.
     let mut calls: Vec<(String, String, String)> = Vec::new();
     let mut prompt_tokens = 0u32;
     let mut completion_tokens = 0u32;
+    let mut finished = false;
     for line in reader.lines() {
-        let line = line
-            .map_err(|e| anyhow::anyhow!("{e}"))
-            .context("reading the model's stream")?;
+        if stop.asked() {
+            return Err(Cut::Stopped.into());
+        }
+        // The read error itself is kept, for a reader that tells a silence
+        // from a lost connection by it.
+        let line = line.context("reading the model's stream")?;
         let Some(data) = line.strip_prefix("data:") else {
             continue;
         };
         let data = data.trim();
         if data == "[DONE]" {
+            finished = true;
             break;
         }
         let Ok(event) = serde_json::from_str::<J>(data) else {
@@ -374,6 +434,9 @@ pub fn read_sse<R: std::io::BufRead>(
         let Some(choice) = event["choices"].get(0) else {
             continue;
         };
+        if choice["finish_reason"].is_string() {
+            finished = true;
+        }
         let delta = &choice["delta"];
         if let Some(piece) = delta["content"].as_str()
             && !piece.is_empty()
@@ -400,6 +463,12 @@ pub fn read_sse<R: std::io::BufRead>(
         }
     }
 
+    if stop.asked() {
+        return Err(Cut::Stopped.into());
+    }
+    if !finished {
+        return Err(Cut::Lost.into());
+    }
     let mut proposed = Vec::new();
     for (i, (id, name, args)) in calls.into_iter().enumerate() {
         if name.is_empty() {
@@ -575,6 +644,19 @@ impl Router {
         req: &ChatRequest,
         on_delta: &mut dyn FnMut(&str),
     ) -> Result<ChatReply> {
+        self.chat_streaming_until(role, req, on_delta, &Stop::default(), Silence::ANSWER)
+    }
+
+    /// `chat_streaming`, ended by `stop` or by a silence longer than
+    /// `silence` allows: see [`ModelWorker::chat_streaming_until`].
+    pub fn chat_streaming_until(
+        &self,
+        role: WorkerRole,
+        req: &ChatRequest,
+        on_delta: &mut dyn FnMut(&str),
+        stop: &Stop,
+        silence: Silence,
+    ) -> Result<ChatReply> {
         let worker = self
             .worker(role)
             .context("no model is loaded in this environment")?;
@@ -584,7 +666,10 @@ impl Router {
         } else {
             self.metrics.chat_calls.fetch_add(1, Ordering::Relaxed);
         }
-        let reply = with_a_bare_call_read(worker.chat_streaming(req, on_delta)?, req);
+        let reply = with_a_bare_call_read(
+            worker.chat_streaming_until(req, on_delta, stop, silence)?,
+            req,
+        );
         self.metrics
             .prompt_tokens
             .fetch_add(reply.prompt_tokens as u64, Ordering::Relaxed);
