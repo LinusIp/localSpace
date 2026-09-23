@@ -4,6 +4,155 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-23, after Test A: the plan of documents 16 to 22, and the answers to the estimates
+
+The founder's reading of the laptop test and the plan that follows from it:
+`16-localspace-test-a-feedback-plan.md` (the testers' seventeen items,
+triaged), `17-localspace-tester-log-findings.md` (the one full tester log,
+read line by line), `18-localspace-catalog-refresh.md`,
+`19-localspace-image-generation-plan.md`, `20-localspace-tool-ecosystem.md`,
+**`21-localspace-agent-prompt-after-test-a.md`, the plan, which replaces
+document 3 and the daily answers after it**, and
+`22-localspace-answers-to-estimates.md`, the answers to the builder's reply
+of the same day (estimates, what needs other machines, where the documents
+and the code disagreed, why the app locks during an answer). The
+specifications stay the source of truth for the architecture; document 21
+says what is built next, in what order, under which rules.
+
+**What the test showed.** Ten or more testers on their own laptops; one sent
+a full `app.log` (build d9bcb171, the portable zip run from `D:\`, an RTX 2050
+beside AMD integrated graphics, a Ryzen 5 7535HS, 16 GB, 21 and 22
+September). Nobody complained about speed, the install, the look at the
+computer or the model recommended; fifteen of the seventeen items are things
+other chat apps do and this one does not. The log shows hybrid graphics
+chosen right (`--device Vulkan1` at every start), both downloads checked,
+Delete freeing what it should, the 14B calling canvas tools, the tester
+coming back three times in two days, and five bugs (document 17). The other
+log the founder received (build dd1c470a, 19 September) is the development
+laptop's own: its lines are in that laptop's `app.log`. The installer has no
+field log; the one log came from the portable zip.
+
+**Standing rules added** (document 21 §2); every earlier rule stands:
+- **Installing a tool costs something only while that tool is in use.**
+- **A slow model is shown as information, not as a warning**: the tester
+  chose the slow 14B on purpose, for better answers.
+- **The app decides what is on the graphics card, never a tool.**
+- Test the release build; read what the model says, not whether a script
+  ended; what is sent is what was dry-run.
+- The default recommendation offers only models whose licence allows
+  commercial use (for an image model: of the model and of its pictures); a
+  model is the default only after the message script with its answers read;
+  moving the engine's pin is a regression event for every catalog model.
+
+**Phase 1, in this order** (answer 10). About three weeks, not one: Phases 1
+to 3 are about seven to ten weeks (document 22 §1).
+1. **1.1, the restart storm**: starting a model is idempotent while a load is
+   in flight; nothing is measured or planned while an engine of ours is
+   alive; our own engine is left out of "held by other programs".
+2. **1.6 Stop and 1.7 other chats usable, with 1.2 inside them**, one change:
+   the Stop button exists and has never stopped anything, because Core does
+   one request at a time and a turn is one request (the builder's reading).
+   **The worker is built for N answers at once where the engine has N
+   slots** (document 22 §2): on a person's computer N is 1 and a message in a
+   second chat waits its turn, says so and has its own Stop (answer 1); on a
+   server N is the engine's `--parallel`; the spec's queue ("server busy,
+   position N") comes later and the worker must not block it. If N costs
+   meaningfully more than one, the builder says so before starting. **1.2**:
+   idle limits replace the total ones, 120 s with no first word and 60 s
+   between words, and every firing is logged with the prompt's length
+   (answer 2); the answer that came stays, with "The answer stopped here." and
+   a *Continue* link that carries on in the same answer (answer 3).
+3. **The task ledger after the conversation** (answer 8), with a test that two
+   consecutive turns' prompts match up to the new message. It was bug 3's
+   cause: rebuilt every turn, it sat between the part the engine keeps and
+   the conversation. Sending turns as turns (4.2) stays in Phase 4, for the
+   tool talk that leaks into answers.
+4. **1.3 with 1.4**: the estimate for a model that sits mostly in system
+   memory, and the card table (the RTX 2050, the RTX 3050 6 GB, the MX series
+   and the rest of that end of the range).
+5. **1.5**: one look at the computer when the app starts.
+6. **1.8 to 1.11**: New chat reuses the empty one; rename and delete from a
+   menu on a chat's row, delete asking once; the model list always open (the
+   "Hide the models that can be added" toggle is deleted); the line under the
+   composer becomes **"localSpace can make mistakes."** (answer 7). With 1.10
+   the verdict *Too slow for everyday use* becomes **"Slower than you read"**
+   (answer 6), and the verdict is made to stand out in its row if that is a
+   change of styling under half a day; otherwise it stays on the design list
+   (document 22 §5).
+7. The first run and the list say how long a download will take at the speed
+   it is getting.
+8. **1.12**, last: closing the window quits when nothing is running; while an
+   answer or a download runs, localSpace stays in the notification area with
+   *Open* and *Quit* (answer 4) and says when it is done with a Windows
+   notification: **`tauri-plugin-notification` is approved** (answer 5).
+
+**The busy first start is in Phase 1** (document 22 §5 and answer 9). The log
+shows the memory reading going both ways: 11.9 GB/s at an ordinary start on a
+laptop that reads about 20, and 32.8 GB/s at a start after which the list
+said "at least 10 words a second" and the model gave about 7. A noisy reading
+can over-promise, which breaks the honesty rule. It is fixed together with
+1.3, since both depend on the same figure.
+
+**Test B does not come before 1.6 and 1.7** (document 22 §2): a server's Core
+handles one request at a time for everyone, so one person's answer holds
+every other person's app until it ends, and a Test B run first would measure
+only that. Once 1.1, 1.6, 1.7, 1.2 and the ledger are done, the founder
+chooses between Test B next, with the smaller Phase 1 items after it, and the
+rest of Phase 1 first; the builder asks then.
+
+**Phase 2, the catalog** (document 18), beside Phase 1 where the machine
+allows. The defaults proposed: Qwen3.5-4B for 4 GB cards, Qwen3.5-9B for
+8 GB, Ministral 3 14B for 16 GB; beside them Ministral 3 3B and 8B,
+SmolLM3-3B, Granite 4.2 3B and 8B, Gemma 4 E2B, E4B and 12B and gpt-oss-20b,
+and for large machines Qwen3.6-35B-A3B, Gemma 4 26B-A4B, GLM-4.7-Flash,
+Qwen3.8-27B and Mistral Small 3.2 24B. Each passes the gate: downloaded,
+checked, **loaded on the pinned engine with its answers correct** ("loads"
+and "answers correctly" are separate facts), through the message script, its
+answers read, `exercised_on` recorded. Whatever needs a newer engine moves the
+pin once, and the whole catalog is run again. Order: Qwen3.5-4B and 9B,
+Ministral 3, Gemma 4 and Granite 4.2, the large models last. Qwen2.5 0.5B,
+1.5B and 3B leave the recommendation once their replacements have passed and
+stay in the list. **The CI check of every catalog address comes before the new
+entries** (document 22 §5). **The Bonsai spike** (Ternary Bonsai 2 27B), after
+Phase 1, two days at most: PrismML's own Windows Vulkan release binary, pinned
+by SHA-256; if there is none, the spike stops and says so. Building the fork
+from source is not part of it (document 22 §4).
+
+**Phase 3, Test B** (the earlier items 5 to 7): "Connect to your
+organisation" at the first run, where the app looks at no hardware and
+downloads no model; TLS on a network without a company authority; a latency
+check across a real network; the Linux tarball; the server starting its model
+again after a crash or a reboot; two accounts on two machines. **For Test B,
+TLS ends at a reverse proxy** in front of `serve` (`tls = "behind-proxy"`,
+Core unchanged), and the desktop app's Rust side pins that proxy's
+certificate while the window talks to it over loopback, as ruled on
+18 September (that day's answers 5 and 6). Browser access is not part of
+Test B. TLS inside Core, with the approved `rcgen` and `tokio-rustls`, comes
+after it (document 22 §3).
+
+**After them, unchanged** (document 21 §6 to §9): Phase 4 is 4.1 the signed
+catalog index first, 4.2 turns as turns, 4.3 tools offered by relevance (a
+one-line index of every installed tool always, a tool's actions only while it
+is in play, the fixed prompt measured with 0, 1, 3 and 5 tools), 4.4 dark
+mode, 4.5 mathematics and markdown rendered, 4.6 attachments and document
+reading built properly, **with the path by which what a read tool brings back
+reaches the model** (document 22 §5), and 4.7 pictures as input, with a vision
+model. Phase 5 is branching of answers (after checking what the version
+history already gives), personalisation memory (its rule written before any
+code) and the canvas (the founder decides: finish it or stop shipping it).
+Phase 6 is the tools as one ecosystem (document 20: the app schedules the
+card, typed formats end to end, one approval and one undo per task, a chain
+script per model band) and Pictures (document 19: stable-diffusion.cpp inside
+the tool's package, image models in the catalog, the founder's written safety
+decision before any code, its checks a condition of publishing). Out of scope:
+image generation before Phase 6, pooling machines, single sign-on, promising
+models larger than a machine can run, anything from a later phase started
+early.
+
+**Waiting on the founder**: the code-signing certificate; more tester logs
+(one of ten came back); the canvas decision; the personalisation memory rule;
+the Pictures safety decision; whether Pictures is free or paid.
+
 ## 2026-09-20, Sunday's answers: the squeezed mark is fixed before the dry run, two pictures on one page agree, and two findings are written down
 
 The user's answers to the report on the landing pictures
