@@ -6,4 +6,10 @@ export type ChatMessage = { role: Role, content: string,
 /**
  * Present on assistant messages that called tools.
  */
-tool_calls: Array<ToolCallRecord>, };
+tool_calls: Array<ToolCallRecord>, 
+/**
+ * An answer that ended before the model finished it: stopped by the
+ * person, or ended by itself (silence, the engine gone). What came is
+ * kept, and the model reads it on the next turn.
+ */
+stopped: boolean, };

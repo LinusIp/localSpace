@@ -13,8 +13,27 @@ import { TopBar } from "../components/TopBar";
 import { greeting } from "../lib/time";
 import { modelLabel } from "../lib/models";
 
+/** The answer in progress in the chat on screen: its words so far, where it
+ *  stands, the tool calls at work for it, and whether it carries on a
+ *  stopped answer. */
+function useChatInProgress() {
+  const chat = useSession((s) => s.currentConversation);
+  const streaming = useSession((s) => s.streaming[chat] ?? "");
+  const turn = useSession((s) => s.turns[chat] ?? null);
+  const liveCalls = useSession((s) => s.liveCalls[chat] ?? NO_CALLS);
+  const continuing = useSession((s) => s.continuing[chat] ?? false);
+  return { streaming, turn, liveCalls, continuing };
+}
+
+const NO_CALLS: LiveToolCall[] = [];
+
+/** Said while an answer waits for the person's other chat (ruled 2026-09-23):
+ *  without the second sentence people send the message again. */
+const WAITS_FOR_ANOTHER_CHAT = "Waiting for the answer in your other chat to finish. This one will start by itself.";
+
 export function ChatPage() {
-  const { conversations, currentConversation, transcript, streaming } = useSession();
+  const { conversations, currentConversation, transcript } = useSession();
+  const { streaming } = useChatInProgress();
   const shown = transcript.filter((m) => m.role === "user" || m.role === "assistant");
   const empty = shown.length === 0 && !streaming;
   const title = conversations.find((c) => c.id === currentConversation)?.title;
@@ -28,15 +47,19 @@ export function ChatPage() {
 
 /** The conversation itself: the page's body, and the board's drawer. */
 export function Conversation({ compact }: { compact?: boolean }) {
-  const { transcript, streaming, busy, liveCalls, approvals } = useSession();
+  const { transcript, approvals } = useSession();
+  const { streaming, turn, liveCalls, continuing } = useChatInProgress();
   const shown = transcript.filter((m) => m.role === "user" || m.role === "assistant");
   const bottom = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState("");
   const empty = shown.length === 0 && !streaming;
+  // Carrying on a stopped answer: its new words join it, in its place.
+  const last = shown[shown.length - 1];
+  const joining = continuing && last?.role === "assistant" && last.stopped;
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
-  }, [shown.length, streaming, liveCalls.length]);
+  }, [shown.length, streaming, liveCalls.length, turn]);
 
   if (empty) {
     return (
@@ -56,24 +79,42 @@ export function Conversation({ compact }: { compact?: boolean }) {
     <div className="chat">
       <div className="chat-scroll">
         <div className="chat-thread">
-          {shown.map((m, i) => (
-            <Message key={i} message={m} />
-          ))}
-          {(streaming || (busy && liveCalls.length > 0)) && (
+          {shown.map((m, i) => {
+            const isLast = i === shown.length - 1;
+            return (
+              <Message
+                key={i}
+                message={m}
+                joined={isLast && joining ? streaming : null}
+                mayContinue={isLast && !turn}
+              />
+            );
+          })}
+          {turn && !joining && (
             <div className="message">
               <AssistantAvatar />
               <div className="message-body">
                 {liveCalls.map((c) => (
                   <LiveWork key={c.id} call={c} />
                 ))}
-                {streaming ? (
+                {turn === "waits_for_another_chat" ? (
+                  <span className="message-work">
+                    <SpinnerIcon size={14} className="ls-spin" /> {WAITS_FOR_ANOTHER_CHAT}
+                  </span>
+                ) : streaming ? (
                   <div className="prose-chat">
                     <Markdown text={streaming} />
                   </div>
-                ) : (
+                ) : turn === "writing" ? (
                   <span className="message-work">
                     <SpinnerIcon size={14} className="ls-spin" /> Thinking…
                   </span>
+                ) : (
+                  turn === "waits_for_the_model" && (
+                    <span className="message-work">
+                      <SpinnerIcon size={14} className="ls-spin" />
+                    </span>
+                  )
                 )}
               </div>
             </div>
@@ -156,7 +197,13 @@ function PersonAvatar() {
   );
 }
 
-function Message({ message }: { message: ChatMessage }) {
+/**
+ * One message. An answer that stopped says so under its words, with
+ * *Continue* when it is the chat's last and nothing is in progress; while it
+ * is carried on, `joined` holds the new words, shown in its place.
+ */
+function Message({ message, joined, mayContinue }: { message: ChatMessage; joined: string | null; mayContinue: boolean }) {
+  const continueAnswer = useSession((s) => s.continueAnswer);
   if (message.role === "user") {
     return (
       <div className="message">
@@ -165,6 +212,7 @@ function Message({ message }: { message: ChatMessage }) {
       </div>
     );
   }
+  const text = joined === null ? message.content : message.content + joined;
   return (
     <div className="message">
       <AssistantAvatar />
@@ -172,9 +220,22 @@ function Message({ message }: { message: ChatMessage }) {
         {message.tool_calls.map((c) => (
           <Work key={c.id} call={c} />
         ))}
-        {message.content && (
+        {text && (
           <div className="prose-chat">
-            <Markdown text={message.content} />
+            <Markdown text={text} />
+          </div>
+        )}
+        {joined === null && message.stopped && (
+          <div className="message-stopped">
+            The answer stopped here.
+            {mayContinue && (
+              <>
+                {" "}
+                <button type="button" className="link green" onClick={() => void continueAnswer()}>
+                  Continue
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -237,7 +298,9 @@ function ApprovalCard({ id, kind, prompt }: { id: string; kind: string; prompt: 
 }
 
 function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (text: string) => void; placeholder: string }) {
-  const { busy, send, cancel, environment, catalogModels, goSettings } = useSession();
+  const { send, cancel, environment, catalogModels, goSettings } = useSession();
+  // This chat's answer is being written, or waits: Stop, for this chat only.
+  const busy = useChatInProgress().turn !== null;
   const box = useRef<HTMLTextAreaElement>(null);
   const model = environment?.model ?? null;
 

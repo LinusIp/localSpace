@@ -228,9 +228,10 @@ impl App {
                 self.env = Some(env);
                 self.pending_env_refresh = true;
             }
+            // Answering a message, it comes at once, before the answer: that
+            // `busy` follows is in the turn's own events.
             R::Transcript { messages } => {
                 self.transcript = messages;
-                self.busy = false;
             }
             R::History { commits } => self.history = commits,
             R::Catalog { entries } => self.catalog = entries,
@@ -339,7 +340,7 @@ It runs as a native process. Its stated reason: {reason}"
             E::EnvironmentOutdated => {
                 self.send(proto::Request::GetEnvironment);
             }
-            E::AssistantDelta { .. } | E::AssistantDone => {
+            E::AssistantDelta { .. } | E::AssistantDone { .. } => {
                 self.send(proto::Request::GetTranscript);
             }
             E::ToolCallStarted { tool, .. } => self.trace.push(format!("-> {tool}")),
@@ -396,6 +397,14 @@ It runs as a native process. Its stated reason: {reason}"
                 self.widget_views.insert((harness, view), root);
             }
             E::ApprovalRequest { id, kind, prompt } => self.approvals.push((id, kind, prompt)),
+            E::ApprovalWithdrawn { id } => self.approvals.retain(|(asked, _, _)| *asked != id),
+            // Busy while an answer is being written, or waits to be.
+            E::TurnChanged { state, .. } => {
+                self.busy = !matches!(
+                    state,
+                    proto::TurnState::Done | proto::TurnState::Stopped | proto::TurnState::Cut
+                );
+            }
             E::SurfaceSlow { harness, view, ms } => {
                 self.trace.push(format!("{harness}/{view} took {ms:.1} ms"))
             }

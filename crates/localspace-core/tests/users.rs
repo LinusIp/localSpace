@@ -97,6 +97,7 @@ fn each_user_has_their_own_conversation_ledger_focus_and_board_over_one_environm
         &anna,
         proto::Request::SendMessage {
             text: "Anna's question".into(),
+            conversation: None,
         },
     );
     assert_eq!(
@@ -235,7 +236,9 @@ fn each_user_has_their_own_conversation_ledger_focus_and_board_over_one_environm
             *to == To::User("ben".into())
                 && matches!(
                     ev,
-                    proto::Event::AssistantDone | proto::Event::TaskChanged(_)
+                    proto::Event::AssistantDone { .. }
+                        | proto::Event::TurnChanged { .. }
+                        | proto::Event::TaskChanged(_)
                 )
         }),
         "Anna's turn and ledger never reached Ben"
@@ -270,6 +273,7 @@ fn the_local_user_of_a_personal_core_is_its_admin_and_handle_is_theirs() {
     // `handle` is the local user's `handle_as`: the same state either way.
     core.handle(proto::Request::SendMessage {
         text: "through handle".into(),
+        conversation: None,
     });
     assert_eq!(transcript(&mut core, &local).len(), 2);
     let other = member("ben");

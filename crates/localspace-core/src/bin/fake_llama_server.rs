@@ -12,11 +12,47 @@
 //! graphics card that refuses; one that contains `chat fails` makes every
 //! chat completion answer 500; one that contains `loads in N ms` is slow to
 //! load, as a large model is, without a variable every test would share.
-//! Each request is named in the log.
+//! How a streamed answer comes is said by the stub too: `streams slowly`
+//! (twenty words, a pause between each), `stalls before the first piece`,
+//! `stalls after N pieces`, `dies after N pieces` (the connection closes
+//! mid-answer), `writes in Russian` (every event's bytes in two writes, split
+//! inside a letter). Each request is named in the log.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::{Duration, Instant};
+
+/// How the answers of this start come, from its model stub.
+#[derive(Clone, Default)]
+struct Style {
+    chat_fails: bool,
+    slowly: bool,
+    stall_before_first: bool,
+    stall_after: Option<usize>,
+    die_after: Option<usize>,
+    russian: bool,
+}
+
+impl Style {
+    fn of(stub: &str) -> Style {
+        let count = |phrase: &str| {
+            stub.split(phrase)
+                .nth(1)
+                .and_then(|rest| rest.split_whitespace().next()?.parse().ok())
+        };
+        Style {
+            chat_fails: stub.contains("chat fails"),
+            slowly: stub.contains("streams slowly"),
+            stall_before_first: stub.contains("stalls before the first piece"),
+            stall_after: count("stalls after "),
+            die_after: count("dies after "),
+            russian: stub.contains("writes in Russian"),
+        }
+    }
+}
+
+/// Long enough for any test to have given up on the answer.
+const STALL: Duration = Duration::from_secs(600);
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -43,7 +79,7 @@ fn main() {
     let stub = named("-m")
         .and_then(|path| std::fs::read_to_string(path).ok())
         .unwrap_or_default();
-    let chat_fails = stub.contains("chat fails");
+    let style = Style::of(&stub);
     let load_ms: u64 = stub
         .split("loads in ")
         .nth(1)
@@ -75,11 +111,12 @@ fn main() {
     for stream in listener.incoming().flatten() {
         let ready = started.elapsed() >= Duration::from_millis(load_ms);
         let alias = alias.clone();
-        std::thread::spawn(move || handle(stream, ready, &alias, chat_fails));
+        let style = style.clone();
+        std::thread::spawn(move || handle(stream, ready, &alias, &style));
     }
 }
 
-fn handle(mut stream: TcpStream, ready: bool, alias: &str, chat_fails: bool) {
+fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut request_line = String::new();
     if reader.read_line(&mut request_line).is_err() {
@@ -125,7 +162,7 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, chat_fails: bool) {
         return;
     }
 
-    if chat_fails && path.starts_with("/v1/chat/completions") {
+    if style.chat_fails && path.starts_with("/v1/chat/completions") {
         let json = r#"{"error":{"code":500,"message":"on purpose","type":"server_error"}}"#;
         let _ = write!(
             stream,
@@ -147,20 +184,76 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, chat_fails: bool) {
                 r#"data: {{"id":"chatcmpl-fake","object":"chat.completion.chunk","model":"{alias}","choices":[{{"index":0,"delta":{delta},"finish_reason":{finish}}}]}}"#
             )
         };
-        let events = [
-            chunk(r#"{"role":"assistant","content":"hello "}"#, "null"),
-            chunk(r#"{"content":"from the fake engine"}"#, "null"),
-            chunk("{}", r#""stop""#),
-            format!(
-                r#"data: {{"id":"chatcmpl-fake","object":"chat.completion.chunk","model":"{alias}","choices":[],"usage":{{"prompt_tokens":12,"completion_tokens":6,"total_tokens":18}}}}"#
-            ),
-            "data: [DONE]".to_string(),
-        ];
+        let pieces: Vec<String> = if style.russian {
+            ["Привет, ", "мир! ", "Как ", "дела?"]
+                .map(String::from)
+                .to_vec()
+        } else if style.slowly || style.stall_after.is_some() || style.die_after.is_some() {
+            (1..=20).map(|i| format!("word{i} ")).collect()
+        } else {
+            ["hello ", "from the fake engine"]
+                .map(String::from)
+                .to_vec()
+        };
         let _ = write!(
             stream,
             "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
         );
-        for event in events {
+        let _ = stream.flush();
+        let _ = stream.set_nodelay(true);
+        if style.stall_before_first {
+            std::thread::sleep(STALL);
+            return;
+        }
+        for (i, piece) in pieces.iter().enumerate() {
+            if style.die_after == Some(i) {
+                eprintln!("fake llama-server: going away mid-answer");
+                return;
+            }
+            if style.stall_after == Some(i) {
+                std::thread::sleep(STALL);
+                return;
+            }
+            let delta = if i == 0 {
+                serde_json::json!({"role": "assistant", "content": piece})
+            } else {
+                serde_json::json!({"content": piece})
+            };
+            let event = format!("{}\n\n", chunk(&delta.to_string(), "null")).into_bytes();
+            if style.russian {
+                // The first byte of the first letter written in two bytes,
+                // then the rest: one letter split between two writes.
+                let at = event
+                    .iter()
+                    .position(|&b| b >= 0xC0)
+                    .map_or(event.len(), |at| at + 1);
+                if stream.write_all(&event[..at]).is_err() {
+                    return;
+                }
+                let _ = stream.flush();
+                std::thread::sleep(Duration::from_millis(30));
+                if stream.write_all(&event[at..]).is_err() {
+                    return;
+                }
+            } else if stream.write_all(&event).is_err() {
+                // The reader went away: a stop, as the real engine sees one.
+                eprintln!("fake llama-server: the reader went away");
+                return;
+            }
+            let _ = stream.flush();
+            if style.slowly {
+                std::thread::sleep(Duration::from_millis(150));
+            }
+        }
+        let tail = [
+            chunk("{}", r#""stop""#),
+            format!(
+                r#"data: {{"id":"chatcmpl-fake","object":"chat.completion.chunk","model":"{alias}","choices":[],"usage":{{"prompt_tokens":12,"completion_tokens":{},"total_tokens":18}}}}"#,
+                pieces.len()
+            ),
+            "data: [DONE]".to_string(),
+        ];
+        for event in tail {
             let _ = write!(stream, "{event}\n\n");
         }
         let _ = stream.flush();

@@ -18,11 +18,12 @@ import type { ModelCatalogEntry } from "./ModelCatalogEntry";
 import type { ModelInfo } from "./ModelInfo";
 import type { Task } from "./Task";
 import type { ToolOutcome } from "./ToolOutcome";
+import type { TurnInfo } from "./TurnInfo";
 import type { UserInfo } from "./UserInfo";
 import type { Widget } from "./Widget";
 import type { WorkspaceInfo } from "./WorkspaceInfo";
 
-export type Response = "ok" | { "environment": EnvironmentState } | { "transcript": { messages: Array<ChatMessage>, } } | { "tool_result": ToolOutcome } | { "surface_module": { bytes: Array<number>, shape_schema: number, 
+export type Response = "ok" | { "environment": EnvironmentState } | { "transcript": { messages: Array<ChatMessage>, } } | { "turns": { list: Array<TurnInfo>, } } | { "tool_result": ToolOutcome } | { "surface_module": { bytes: Array<number>, shape_schema: number, 
 /**
  * The heap limit the Client must enforce on this surface.
  */

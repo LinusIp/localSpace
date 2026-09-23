@@ -178,21 +178,33 @@ mod tests {
         let mut for_anna = session.subscribe("anna");
         let mut for_ben = session.subscribe("ben");
 
-        // Anna's turn: her events, none of them Ben's.
+        // Anna's turn: her events, none of them Ben's. The message is answered
+        // beside Core's queue, so its end comes after the call returns.
         session
             .call_as(
                 &anna,
                 proto::Request::SendMessage {
                     text: "hello".into(),
+                    conversation: None,
                 },
             )
             .await
             .unwrap();
-        let annas = drain(&mut for_anna);
+        let mut annas = Vec::new();
+        for _ in 0..200 {
+            annas.extend(drain(&mut for_anna));
+            if annas
+                .iter()
+                .any(|ev| matches!(ev, proto::Event::AssistantDone { .. }))
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
         assert!(
             annas
                 .iter()
-                .any(|ev| matches!(ev, proto::Event::AssistantDone)),
+                .any(|ev| matches!(ev, proto::Event::AssistantDone { .. })),
             "{annas:?}"
         );
         assert!(

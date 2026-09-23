@@ -137,13 +137,38 @@ impl Store {
             c.updated_ms = now_ms;
         }
         c.messages = messages.to_vec();
-        if c.title == "New chat"
-            && let Some(first) = c.messages.iter().find(|m| m.role == proto::Role::User)
-        {
-            c.title = title_from(&first.content);
-        }
+        titled(c);
         let snapshot = c.clone();
         self.persist(&snapshot);
+    }
+
+    /// The messages of one conversation of this set, current or not.
+    pub fn messages_of(&self, id: &str) -> Option<&[proto::ChatMessage]> {
+        self.conversations
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.messages.as_slice())
+    }
+
+    /// Change a conversation of this set that is not the current one (the
+    /// current one's messages are Core's transcript, written with
+    /// [`Store::record`]): an answer written while its person reads another
+    /// chat. Written through; false when the set has none by that id.
+    pub fn update(
+        &mut self,
+        id: &str,
+        now_ms: u64,
+        change: impl FnOnce(&mut Vec<proto::ChatMessage>),
+    ) -> bool {
+        let Some(c) = self.conversations.iter_mut().find(|c| c.id == id) else {
+            return false;
+        };
+        change(&mut c.messages);
+        c.updated_ms = now_ms;
+        titled(c);
+        let snapshot = c.clone();
+        self.persist(&snapshot);
+        true
     }
 
     pub fn select(&mut self, id: &str) -> Option<&Conversation> {
@@ -259,6 +284,59 @@ impl Store {
     }
 }
 
+/// A chat still called "New chat" takes its title from its first message.
+fn titled(c: &mut Conversation) {
+    if c.title == "New chat"
+        && let Some(first) = c.messages.iter().find(|m| m.role == proto::Role::User)
+    {
+        c.title = title_from(&first.content);
+    }
+}
+
+/// The messages of a conversation of a workspace its person is not in at
+/// the moment: an answer goes on being written there after they move.
+pub fn messages_elsewhere(
+    db: &store::Store,
+    user: &str,
+    workspace: &str,
+    id: &str,
+) -> Option<Vec<proto::ChatMessage>> {
+    db.conversations(user, workspace)
+        .ok()?
+        .into_iter()
+        .find(|c| c.id == id)
+        .map(|c| c.messages)
+}
+
+/// A change to such a conversation, written through; false when there is
+/// none by that id.
+pub fn update_elsewhere(
+    db: &store::Store,
+    user: &str,
+    workspace: &str,
+    id: &str,
+    now_ms: u64,
+    change: impl FnOnce(&mut Vec<proto::ChatMessage>),
+) -> bool {
+    let Some(mut c) = db
+        .conversations(user, workspace)
+        .ok()
+        .and_then(|all| all.into_iter().find(|c| c.id == id))
+    else {
+        return false;
+    };
+    change(&mut c.messages);
+    c.updated_ms = now_ms;
+    titled(&mut c);
+    match db.put_conversation(user, workspace, &c) {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::warn!("conversation {id} not written: {e:#}");
+            false
+        }
+    }
+}
+
 /// The first line of the first message, cut to a title's length.
 pub fn title_from(text: &str) -> String {
     let line = text.lines().next().unwrap_or("").trim();
@@ -282,6 +360,7 @@ mod tests {
             role: proto::Role::User,
             content: text.into(),
             tool_calls: Vec::new(),
+            stopped: false,
         }
     }
 

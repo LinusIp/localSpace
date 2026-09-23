@@ -1698,6 +1698,7 @@ fn an_agent_turn_puts_three_red_stickies_on_the_board() {
 
     core.handle(proto::Request::SendMessage {
         text: "Put the three risks on the board as red stickies.".into(),
+        conversation: None,
     });
 
     let listed = board(&mut core);
@@ -1746,6 +1747,7 @@ fn a_tool_outside_the_active_set_is_refused_to_the_agent() {
 
     core.handle(proto::Request::SendMessage {
         text: "add a sticky".into(),
+        conversation: None,
     });
 
     assert_eq!(
@@ -1753,6 +1755,80 @@ fn a_tool_outside_the_active_set_is_refused_to_the_agent() {
         0,
         "a tool the model was never shown must not be callable"
     );
+}
+
+/// Stop while an answer waits on the person's approval: the approval is
+/// withdrawn, the call it proposed is not made, and the person is told
+/// (docs/DECISIONS.md, 2026-09-23, the plan for 1.6 and 1.7).
+#[test]
+fn a_stop_while_an_approval_is_waited_on_withdraws_it_and_changes_nothing() {
+    let Some(mut core) = core() else { return };
+    call(&mut core, "canvas.add_sticky", json!({"text": "keep me"}));
+    let id = board(&mut core)["shapes"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    core.router().write().unwrap().chat =
+        Some(Script::calls(vec![("canvas.delete", json!({"id": id}))]));
+    let events: Arc<Mutex<Vec<proto::Event>>> = Arc::default();
+    let into = events.clone();
+    core.set_event_sink(Box::new(move |_to, event| into.lock().unwrap().push(event)));
+
+    core.handle(proto::Request::SendMessage {
+        text: "Remove the sticky.".into(),
+        conversation: None,
+    });
+    let asked = events
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|e| match e {
+            proto::Event::ApprovalRequest { id, .. } => Some(id.clone()),
+            _ => None,
+        })
+        .expect("an approval is asked for");
+    assert!(matches!(
+        core.handle(proto::Request::ListTurns),
+        proto::Response::Turns { list }
+            if list.len() == 1 && list[0].state == proto::TurnState::AwaitsApproval
+    ));
+
+    assert!(matches!(
+        core.handle(proto::Request::CancelTurn { conversation: None }),
+        proto::Response::Ok
+    ));
+    {
+        let events = events.lock().unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, proto::Event::ApprovalWithdrawn { id } if *id == asked))
+        );
+        assert!(events.iter().any(
+            |e| matches!(e, proto::Event::Notice { text, .. } if text.contains("was not made"))
+        ));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            proto::Event::TurnChanged {
+                state: proto::TurnState::Stopped,
+                ..
+            }
+        )));
+    }
+    assert_eq!(
+        board(&mut core)["shapes"].as_array().unwrap().len(),
+        1,
+        "nothing was deleted"
+    );
+    // The withdrawn approval can no longer be given.
+    assert!(matches!(
+        core.handle(proto::Request::Approve {
+            id: asked,
+            granted: true
+        }),
+        proto::Response::Error { .. }
+    ));
+    assert_eq!(board(&mut core)["shapes"].as_array().unwrap().len(), 1);
 }
 
 #[test]

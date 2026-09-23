@@ -42,6 +42,7 @@ pub mod stream;
 pub mod task;
 pub mod tools;
 pub mod transport;
+pub mod turns;
 pub mod types;
 pub mod widgets;
 
@@ -88,7 +89,14 @@ pub const CORE_TOOLS: &[&str] = &[
 /// document, and never anything a person typed or was answered. The name
 /// of the person's folder is taken out of every path.
 fn log_event(ev: &proto::Event) {
-    const OWN: [&str; 5] = ["engine:", "models:", "planner:", "fit:", "computer:"];
+    const OWN: [&str; 6] = [
+        "engine:",
+        "models:",
+        "planner:",
+        "fit:",
+        "computer:",
+        "answer:",
+    ];
     match ev {
         proto::Event::TraceLine { text } if OWN.iter().any(|own| text.starts_with(own)) => {
             tracing::info!("{}", without_the_home(text))
@@ -172,6 +180,13 @@ pub struct Config {
     /// How long a shell window stays on a board after its last word
     /// (`Request::Presence`); windows announce every twenty seconds.
     pub presence_ttl_ms: u64,
+    /// How many answers the engine writes at once, its slots: one on a
+    /// person's own computer, where a message in a second chat waits its
+    /// turn; on a server, that many people are answered at once.
+    pub slots: usize,
+    /// How long a model may be silent before its answer is taken to have
+    /// stopped (1.2 of the plan after Test A).
+    pub silence: stream::Silence,
 }
 
 impl Config {
@@ -194,6 +209,8 @@ impl Config {
             llama_server: None,
             session_ttl_ms: 12 * 60 * 60 * 1000,
             presence_ttl_ms: 45_000,
+            slots: 1,
+            silence: stream::Silence::ANSWER,
         }
     }
 
@@ -217,6 +234,8 @@ struct Pending {
     params: J,
     /// Continue the agent turn after the user answers.
     resume_agent: bool,
+    /// The turn that asked, which waits for the answer.
+    turn: Option<u64>,
 }
 
 /// Who a request is made as: the server's session, or the local user of a
@@ -399,6 +418,20 @@ pub struct Core {
     /// list is asked for often, and the look costs most of a second.
     disk_free: Option<(std::time::Instant, Option<u64>)>,
     next_approval: u64,
+    /// Answers being written or waiting, oldest first (`turns`).
+    turns: Vec<turns::Turn>,
+    next_turn: u64,
+    /// Where a turn's work beside Core's queue comes back to it. A Core with
+    /// no transport has none, and a turn runs to its end in its request.
+    inbox: Option<Arc<dyn Fn(turns::Internal) + Send + Sync>>,
+    /// The turn whose tool call runs now: an approval it asks for is its.
+    turn_at_work: Option<u64>,
+    /// A turn's next steps, where no transport takes them: done before the
+    /// request that started the turn returns.
+    inline: std::collections::VecDeque<turns::Internal>,
+    /// Take a turn's steps inline even with a transport: evals read the
+    /// document right after each turn.
+    run_inline: bool,
 }
 
 impl Core {
@@ -501,6 +534,12 @@ impl Core {
             next_approval: 1,
             active: Caller::local(&cfg.user),
             users: HashMap::new(),
+            turns: Vec::new(),
+            next_turn: 1,
+            inbox: None,
+            turn_at_work: None,
+            inline: std::collections::VecDeque::new(),
+            run_inline: false,
             cfg,
         };
 
@@ -529,6 +568,19 @@ impl Core {
 
     pub fn set_event_sink(&mut self, sink: Box<dyn Fn(To, proto::Event) + Send + Sync>) {
         self.events = Some(Arc::from(sink));
+    }
+
+    /// Where a turn's work beside Core's queue comes back to it: set by the
+    /// transport that runs Core's thread, which hands each message to
+    /// [`Core::internal`] in its turn among the requests.
+    pub fn set_inbox(&mut self, inbox: Box<dyn Fn(turns::Internal) + Send + Sync>) {
+        self.inbox = Some(Arc::from(inbox));
+    }
+
+    /// A turn's work, come back: a model step that ended, or the turn's next
+    /// step. Handled as the turn's person.
+    pub fn internal(&mut self, message: turns::Internal) {
+        agent::internal(self, message);
     }
 
     /// The sink for Core's own threads — downloads, the engine supervisor —
@@ -2052,6 +2104,7 @@ impl Core {
                     tool: tool.to_string(),
                     params: params.clone(),
                     resume_agent: true,
+                    turn: self.turn_at_work,
                 },
             );
             self.emit(proto::Event::ApprovalRequest {
@@ -2463,6 +2516,7 @@ impl Core {
                                 tool: "web.fetch".into(),
                                 params: params.clone(),
                                 resume_agent: true,
+                                turn: self.turn_at_work,
                             },
                         );
                         let prompt = format!("Allow this environment to fetch from `{domain}`?");
@@ -3647,17 +3701,10 @@ impl Core {
                 proto::Response::Ok
             }
 
-            R::SendMessage { text } => {
-                agent::turn(self, &text);
-                proto::Response::Transcript {
-                    messages: self.transcript.clone(),
-                }
-            }
-
-            R::CancelTurn => {
-                self.run = None;
-                proto::Response::Ok
-            }
+            R::SendMessage { text, conversation } => agent::send(self, conversation, &text),
+            R::CancelTurn { conversation } => agent::cancel(self, conversation),
+            R::ListTurns => agent::list(self),
+            R::ContinueAnswer { conversation } => agent::continue_answer(self, conversation),
 
             R::GetTranscript => proto::Response::Transcript {
                 messages: self.transcript.clone(),
@@ -3710,6 +3757,8 @@ impl Core {
             }
 
             R::DeleteConversation { id } => {
+                // Its answer, being written or waiting, ends first.
+                agent::forget(self, &id);
                 self.record_conversation();
                 if !self.conversations.delete(&id, dag::now_ms()) {
                     return proto::Response::Error {
@@ -3744,6 +3793,9 @@ impl Core {
                 };
                 if !granted {
                     self.notice(proto::NoticeLevel::Info, "declined");
+                    if p.resume_agent {
+                        agent::declined(self, p.turn);
+                    }
                     return proto::Response::Ok;
                 }
                 if id.starts_with("egress:")
@@ -3754,13 +3806,19 @@ impl Core {
                 }
                 // Run it as the user: they just authorised this exact call.
                 let outcome = self.call_tool(&p.tool, &p.params.clone(), proto::Author::User);
+                let conversation = p
+                    .turn
+                    .and_then(|turn| self.turns.iter().find(|t| t.id == turn))
+                    .map(|t| t.conversation.clone())
+                    .unwrap_or_else(|| self.conversations.current.clone());
                 self.emit(proto::Event::ToolCallFinished {
+                    conversation,
                     id: id.clone(),
                     tool: p.tool.clone(),
                     outcome: outcome.clone(),
                 });
                 if p.resume_agent {
-                    agent::resume(self, &p.tool, &p.params, outcome.clone());
+                    agent::resume(self, p.turn, &p.tool, &p.params, outcome.clone());
                 }
                 proto::Response::ToolResult(outcome)
             }

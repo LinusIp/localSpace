@@ -40,9 +40,29 @@ pub trait Backend: Send + Sync {
     fn set_wake(&self, _wake: Wake) {}
 }
 
+/// What Core's thread takes in, in order: a request, or a turn's work come
+/// back from beside the queue (`crate::turns`).
+enum ToCore<C> {
+    Request(u64, C, proto::Request),
+    Internal(crate::turns::Internal),
+}
+
+/// Hands Core the way back into its own queue. Held weakly: Core's thread
+/// ends when the transport's last sender goes, and with it Core, whose
+/// engine is stopped as it goes. A strong sender inside Core would keep the
+/// thread, and the engine, alive for ever.
+fn give_the_way_back<C: Send + 'static>(core: &mut crate::Core, to_core: &Arc<Sender<ToCore<C>>>) {
+    let back = Arc::downgrade(to_core);
+    core.set_inbox(Box::new(move |message| {
+        if let Some(to_core) = back.upgrade() {
+            let _ = to_core.send(ToCore::Internal(message));
+        }
+    }));
+}
+
 /// Desktop transport: Core on its own thread, typed values over channels.
 pub struct InProcess {
-    to_core: Sender<(u64, proto::Request)>,
+    to_core: Arc<Sender<ToCore<()>>>,
     from_core: Mutex<Receiver<Incoming>>,
     next_id: AtomicU64,
     wake: Arc<Mutex<Option<Wake>>>,
@@ -61,7 +81,8 @@ impl InProcess {
     /// are synchronous in-memory operations there, and the only I/O on the hot path
     /// is the append to the commit log.
     pub fn spawn(mut core: crate::Core) -> InProcess {
-        let (to_core, core_rx) = std::sync::mpsc::channel::<(u64, proto::Request)>();
+        let (to_core, core_rx) = std::sync::mpsc::channel::<ToCore<()>>();
+        let to_core = Arc::new(to_core);
         let (core_tx, from_core) = std::sync::mpsc::channel::<Incoming>();
         let wake: Arc<Mutex<Option<Wake>>> = Arc::new(Mutex::new(None));
 
@@ -73,6 +94,7 @@ impl InProcess {
             let _ = event_tx.send(Incoming::Event(ev));
             notify(&event_wake);
         }));
+        give_the_way_back(&mut core, &to_core);
 
         let thread_wake = wake.clone();
         std::thread::Builder::new()
@@ -84,13 +106,14 @@ impl InProcess {
                 let housekeeping = std::time::Duration::from_secs(15);
                 loop {
                     match core_rx.recv_timeout(housekeeping) {
-                        Ok((id, req)) => {
+                        Ok(ToCore::Request(id, (), req)) => {
                             let response = core.handle(req);
                             if core_tx.send(Incoming::Response { id, response }).is_err() {
                                 break;
                             }
                             notify(&thread_wake);
                         }
+                        Ok(ToCore::Internal(message)) => core.internal(message),
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => core.tick(),
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     }
@@ -119,7 +142,7 @@ pub enum Outgoing {
 /// request made as its caller, each event tagged with whom it is for. The
 /// server's pump drains it and routes.
 pub struct Hub {
-    to_core: Sender<(u64, crate::Caller, proto::Request)>,
+    to_core: Arc<Sender<ToCore<crate::Caller>>>,
     from_core: Mutex<Receiver<Outgoing>>,
     next_id: AtomicU64,
     wake: Arc<Mutex<Option<Wake>>>,
@@ -129,7 +152,8 @@ impl Hub {
     /// Take ownership of a Core and run it on its own thread, as `InProcess`
     /// does, with a caller on every request.
     pub fn spawn(mut core: crate::Core) -> Hub {
-        let (to_core, core_rx) = std::sync::mpsc::channel::<(u64, crate::Caller, proto::Request)>();
+        let (to_core, core_rx) = std::sync::mpsc::channel::<ToCore<crate::Caller>>();
+        let to_core = Arc::new(to_core);
         let (core_tx, from_core) = std::sync::mpsc::channel::<Outgoing>();
         let wake: Arc<Mutex<Option<Wake>>> = Arc::new(Mutex::new(None));
 
@@ -139,6 +163,7 @@ impl Hub {
             let _ = event_tx.send(Outgoing::Event { to, event });
             notify(&event_wake);
         }));
+        give_the_way_back(&mut core, &to_core);
 
         let thread_wake = wake.clone();
         std::thread::Builder::new()
@@ -147,13 +172,14 @@ impl Hub {
                 let housekeeping = std::time::Duration::from_secs(15);
                 loop {
                     match core_rx.recv_timeout(housekeeping) {
-                        Ok((id, caller, req)) => {
+                        Ok(ToCore::Request(id, caller, req)) => {
                             let response = core.handle_as(&caller, req);
                             if core_tx.send(Outgoing::Response { id, response }).is_err() {
                                 break;
                             }
                             notify(&thread_wake);
                         }
+                        Ok(ToCore::Internal(message)) => core.internal(message),
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => core.tick(),
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     }
@@ -173,7 +199,7 @@ impl Hub {
     /// the id returned.
     pub fn request_as(&self, caller: &crate::Caller, req: proto::Request) -> u64 {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let _ = self.to_core.send((id, caller.clone(), req));
+        let _ = self.to_core.send(ToCore::Request(id, caller.clone(), req));
         id
     }
 
@@ -191,7 +217,7 @@ impl Hub {
 impl Backend for InProcess {
     fn request(&self, req: proto::Request) -> u64 {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let _ = self.to_core.send((id, req));
+        let _ = self.to_core.send(ToCore::Request(id, (), req));
         id
     }
 

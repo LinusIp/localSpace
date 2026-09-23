@@ -885,7 +885,10 @@ impl App {
                             let text = std::mem::take(&mut self.input);
                             self.busy = true;
                             self.rail = RailTab::Agent;
-                            self.send(proto::Request::SendMessage { text });
+                            self.send(proto::Request::SendMessage {
+                                text,
+                                conversation: None,
+                            });
                         }
                     });
             });

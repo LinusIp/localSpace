@@ -119,12 +119,14 @@ try {
       const shapesBefore = (await doc()).shapes.length;
       await request("new_conversation");
       step("asking the agent for a plan on the board, in a new conversation");
-      // Core answers a message when its turn is over, however it ended: with
-      // the assistant's reply, or stopped at Core's cap on tool calls, which a
-      // small model can reach. So the user's edit below never interleaves
-      // with the agent's commits.
-      const answer = await request({ send_message: { text: "Add a yellow sticky that says \"Plan: design, build, launch\"." } });
+      // Core answers a message at once and writes the answer beside its
+      // queue: the walk waits until no answer is in progress, however it
+      // ended (with the assistant's reply, or at Core's cap on tool calls,
+      // which a small model can reach), so that the user's edit below never
+      // interleaves with the agent's commits.
+      const answer = await request({ send_message: { text: "Add a yellow sticky that says \"Plan: design, build, launch\".", conversation: null } });
       if (answer && typeof answer === "object" && "error" in answer) step(`the turn ended with an error: ${JSON.stringify(answer.error).slice(0, 200)}`);
+      await until("the answer to end", async () => (await request("list_turns")).turns.list.length === 0, 300000);
       const settled = await doc();
       agentAdded = settled.shapes.length - shapesBefore;
       await until("the frame to show the document as it is", async () => (await state()).shapes === settled.shapes.length + settled.frames.length, 15000);

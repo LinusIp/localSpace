@@ -686,6 +686,46 @@ impl Router {
     pub fn info(&self) -> Option<proto::ModelInfo> {
         self.chat.as_ref().map(|w| w.info())
     }
+
+    /// What an answer is read with: the chat worker and the counters, taken
+    /// out of the router, so that nothing holds the router while an answer
+    /// is written. Stopping or changing the engine takes the router for
+    /// writing, and would otherwise wait for the answer to end. `None` with
+    /// no model loaded.
+    pub fn for_a_turn(&self) -> Option<Streamer> {
+        Some(Streamer {
+            worker: self.worker(WorkerRole::Chat)?,
+            metrics: self.metrics.clone(),
+        })
+    }
+}
+
+/// The chat worker, as an answer reads it: see [`Router::for_a_turn`].
+pub struct Streamer {
+    worker: Arc<dyn ModelWorker>,
+    metrics: Arc<Metrics>,
+}
+
+impl Streamer {
+    /// [`Router::chat_streaming_until`], with the worker taken out.
+    pub fn chat_streaming_until(
+        &self,
+        req: &ChatRequest,
+        on_delta: &mut dyn FnMut(&str),
+        stop: &Stop,
+        silence: Silence,
+    ) -> Result<ChatReply> {
+        self.metrics.chat_calls.fetch_add(1, Ordering::Relaxed);
+        let reply = with_a_bare_call_read(
+            self.worker
+                .chat_streaming_until(req, on_delta, stop, silence)?,
+            req,
+        );
+        self.metrics
+            .prompt_tokens
+            .fetch_add(reply.prompt_tokens as u64, Ordering::Relaxed);
+        Ok(reply)
+    }
 }
 
 #[cfg(test)]

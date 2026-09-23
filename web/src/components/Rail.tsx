@@ -4,7 +4,7 @@
 // remembered with the user, not the browser.
 
 import { useEffect, useState } from "react";
-import { BoardIcon, ChatIcon, Dialog, FileIcon, HelpIcon, PeopleIcon, PlusIcon, SettingsIcon, SidebarIcon, StoreIcon } from "@localspace/ui";
+import { BoardIcon, ChatIcon, Dialog, FileIcon, HelpIcon, PeopleIcon, PlusIcon, SettingsIcon, SidebarIcon, SpinnerIcon, StoreIcon } from "@localspace/ui";
 import { documents } from "../api/client";
 import { useSession } from "../store";
 import { bus } from "../surfaces/bus";
@@ -71,7 +71,7 @@ function AllChats({ open, onClose }: { open: boolean; onClose: () => void }) {
 }
 
 export function Rail() {
-  const { me, page, board, environment, conversations, currentConversation, railCollapsed, boardRailOpen, setRail, go, goSettings, goAdmin, openBoard, newConversation, selectConversation } =
+  const { me, page, board, environment, conversations, currentConversation, turns, railCollapsed, boardRailOpen, setRail, go, goSettings, goAdmin, openBoard, newConversation, selectConversation } =
     useSession();
   const admin = me?.roles.includes("admin") && me.topology === "organisation";
   // On the board the rail is icons by default (screen 4); elsewhere it is
@@ -166,9 +166,11 @@ export function Rail() {
                 key={c.id}
                 type="button"
                 className={`rail-chat${c.id === currentConversation && page === "chat" ? " on" : ""}`}
-                title={c.title}
+                title={turns[c.id] ? `${c.title} (an answer is being written)` : c.title}
                 onClick={() => void selectConversation(c.id)}
               >
+                {/* Its answer is being written, or waits: seen from any other chat. */}
+                {turns[c.id] && <SpinnerIcon size={12} className="ls-spin rail-writing" />}
                 {c.messages === 0 ? "New chat" : c.title}
               </button>
             ))}

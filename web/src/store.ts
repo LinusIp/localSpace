@@ -28,6 +28,7 @@ import type {
   SurfaceKind,
   Task,
   ToolOutcome,
+  TurnState,
   UserInfo,
   UserRole,
   ViewDesc,
@@ -77,10 +78,15 @@ export type Session = {
   live: boolean;
   notices: Notice[];
   transcript: ChatMessage[];
-  /** The assistant's message in progress, from `assistant_delta` events. */
-  streaming: string;
-  busy: boolean;
-  liveCalls: LiveToolCall[];
+  /** Each chat's answer in progress, from `assistant_delta` events. */
+  streaming: Record<string, string>;
+  /** The chats whose answers are being written, or wait, and where they
+   *  stand. An answer that ended is not here. */
+  turns: Record<string, TurnState>;
+  /** Each chat's tool calls at work for its answer in progress. */
+  liveCalls: Record<string, LiveToolCall[]>;
+  /** The chats whose stopped answer is being carried on: its words join it. */
+  continuing: Record<string, boolean>;
   approvals: Approval[];
   trace: string[];
   task: Task | null;
@@ -139,8 +145,13 @@ export type Session = {
 
   refreshEnvironment: () => Promise<void>;
   refreshTranscript: () => Promise<void>;
+  /** A message in the chat on screen; its answer comes by events. */
   send: (text: string) => Promise<void>;
+  /** Stop the answer in the chat on screen. */
   cancel: () => Promise<void>;
+  /** Carry on the stopped answer in the chat on screen. */
+  continueAnswer: () => Promise<void>;
+  refreshTurns: () => Promise<void>;
   approve: (id: string, granted: boolean) => Promise<void>;
   refreshTask: () => Promise<void>;
   refreshActive: () => Promise<void>;
@@ -197,14 +208,25 @@ export type Session = {
 const KEEP_NOTICES = 50;
 const KEEP_TRACE = 300;
 
+/** An answer that is over: its chat has nothing in progress any more. */
+const ENDED: TurnState[] = ["done", "stopped", "cut"];
+
+/** A copy of `map` without `key`. */
+function without<T>(map: Record<string, T>, key: string): Record<string, T> {
+  const next = { ...map };
+  delete next[key];
+  return next;
+}
+
 /** The state that is one user's, cleared when they sign out. */
 const EMPTY = {
   environment: null,
   notices: [] as Notice[],
   transcript: [] as ChatMessage[],
-  streaming: "",
-  busy: false,
-  liveCalls: [] as LiveToolCall[],
+  streaming: {} as Record<string, string>,
+  turns: {} as Record<string, TurnState>,
+  liveCalls: {} as Record<string, LiveToolCall[]>,
+  continuing: {} as Record<string, boolean>,
   approvals: [] as Approval[],
   trace: [] as string[],
   task: null,
@@ -278,7 +300,16 @@ export const useSession = createStore<Session>((set, get) => {
     go: (page) => set({ page }),
     goSettings: (pane) => set({ page: "settings", settingsPane: pane }),
     goAdmin: (pane) => set({ page: "admin", adminPane: pane }),
-    setLive: (live) => set({ live }),
+    setLive: (live) => {
+      const was = get().live;
+      set({ live });
+      // The events sent while the stream was down are lost: ask where the
+      // answers stand, and read the chat on screen again.
+      if (live && !was) {
+        void get().refreshTurns();
+        void get().refreshTranscript();
+      }
+    },
     notify: (level, text) =>
       set((s) => ({ notices: [...s.notices.slice(1 - KEEP_NOTICES), { level, text, at: Date.now() }] })),
     traceLine: (text) => set((s) => ({ trace: [...s.trace.slice(1 - KEEP_TRACE), text] })),
@@ -348,30 +379,43 @@ export const useSession = createStore<Session>((set, get) => {
     },
 
     onEvent: (event) => {
-      if (event === "assistant_done") {
-        set({ streaming: "" });
-        void get().refreshTranscript();
-        return;
-      }
       if (typeof event === "string") {
         if (event === "environment_outdated") void get().refreshEnvironment();
         return;
       }
       if ("environment_changed" in event) set({ environment: event.environment_changed });
-      else if ("assistant_delta" in event)
-        set((s) => ({ streaming: s.streaming + event.assistant_delta.text }));
-      else if ("tool_call_started" in event) {
-        const { id, tool, params } = event.tool_call_started;
+      else if ("assistant_delta" in event) {
+        const { conversation, text } = event.assistant_delta;
+        set((s) => ({ streaming: { ...s.streaming, [conversation]: (s.streaming[conversation] ?? "") + text } }));
+      } else if ("assistant_done" in event) {
+        const chat = event.assistant_done.conversation;
+        const clear = () =>
+          set((s) => ({ streaming: without(s.streaming, chat), liveCalls: without(s.liveCalls, chat), continuing: without(s.continuing, chat) }));
+        // The chat on screen keeps its words until the kept answer replaces
+        // them, so that nothing blinks.
+        if (chat === get().currentConversation) void get().refreshTranscript().then(clear);
+        else clear();
+        void get().refreshConversations();
+        void get().refreshTask();
+        void get().refreshHistory();
+      } else if ("turn_changed" in event) {
+        const { conversation, state } = event.turn_changed;
+        set((s) => ({ turns: ENDED.includes(state) ? without(s.turns, conversation) : { ...s.turns, [conversation]: state } }));
+      } else if ("tool_call_started" in event) {
+        const { conversation, id, tool, params } = event.tool_call_started;
         set((s) => ({
-          liveCalls: [...s.liveCalls, { id, tool, params, outcome: null, at: Date.now() }],
+          liveCalls: { ...s.liveCalls, [conversation]: [...(s.liveCalls[conversation] ?? []), { id, tool, params, outcome: null, at: Date.now() }] },
           trace: [...s.trace.slice(1 - KEEP_TRACE), `→ ${tool}`],
         }));
       } else if ("tool_call_finished" in event) {
-        const { id, tool, outcome } = event.tool_call_finished;
+        const { conversation, id, tool, outcome } = event.tool_call_finished;
         set((s) => ({
-          liveCalls: s.liveCalls.map((c) => (c.id === id ? { ...c, outcome } : c)),
+          liveCalls: { ...s.liveCalls, [conversation]: (s.liveCalls[conversation] ?? []).map((c) => (c.id === id ? { ...c, outcome } : c)) },
           trace: [...s.trace.slice(1 - KEEP_TRACE), `← ${tool}: ${outcomeLine(outcome)}`],
         }));
+      } else if ("approval_withdrawn" in event) {
+        const { id } = event.approval_withdrawn;
+        set((s) => ({ approvals: s.approvals.filter((a) => a.id !== id) }));
       } else if ("doc_patch" in event) bus.emit("doc_patch", event.doc_patch);
       else if ("doc_changed" in event) bus.emit("doc_changed", event.doc_changed);
       else if ("harness_message" in event) bus.emit("harness_message", event.harness_message);
@@ -398,8 +442,9 @@ export const useSession = createStore<Session>((set, get) => {
         const { board, people } = event.presence;
         set((s) => ({ present: { ...s.present, [board]: people } }));
       } else if ("conversation_changed" in event) {
-        // This or another client switched, created or deleted one.
-        set({ currentConversation: event.conversation_changed.current, streaming: "", liveCalls: [] });
+        // This or another client switched, created or deleted one. What is
+        // in progress in each chat stays that chat's.
+        set({ currentConversation: event.conversation_changed.current });
         void get().refreshConversations();
         void get().refreshTranscript();
       } else if ("engine_changed" in event) {
@@ -423,23 +468,38 @@ export const useSession = createStore<Session>((set, get) => {
       });
     },
     send: async (text) => {
+      const chat = get().currentConversation;
+      // Being written until Core says where it stands, so that nothing is
+      // sent twice meanwhile.
       set((s) => ({
-        busy: true,
-        streaming: "",
-        liveCalls: [],
-        transcript: [...s.transcript, { role: "user", content: text, tool_calls: [] }],
+        turns: { ...s.turns, [chat]: "writing" },
+        transcript: [...s.transcript, { role: "user", content: text, tool_calls: [], stopped: false }],
       }));
-      await attempt(async () => {
-        const transcript = pick(await call({ send_message: { text } }), "transcript");
-        if (transcript) set({ transcript: transcript.messages });
-      });
-      set({ busy: false, streaming: "" });
-      void get().refreshTask();
-      void get().refreshHistory();
+      const transcript = await attempt(async () => pick(await call({ send_message: { text, conversation: chat } }), "transcript"));
+      if (!transcript) {
+        // Refused, or not reached: the chat as Core has it.
+        set((s) => ({ turns: without(s.turns, chat) }));
+        void get().refreshTranscript();
+        return;
+      }
+      if (get().currentConversation === chat) set({ transcript: transcript.messages });
       void get().refreshConversations();
     },
     cancel: async () => {
-      await attempt(() => call("cancel_turn"));
+      const chat = get().currentConversation;
+      await attempt(() => call({ cancel_turn: { conversation: chat } }));
+    },
+    continueAnswer: async () => {
+      const chat = get().currentConversation;
+      set((s) => ({ turns: { ...s.turns, [chat]: "writing" }, continuing: { ...s.continuing, [chat]: true } }));
+      const answered = await attempt(() => call({ continue_answer: { conversation: chat } }));
+      if (!answered) set((s) => ({ turns: without(s.turns, chat), continuing: without(s.continuing, chat) }));
+    },
+    refreshTurns: async () => {
+      await attempt(async () => {
+        const turns = pick(await call("list_turns"), "turns");
+        if (turns) set({ turns: Object.fromEntries(turns.list.map((t) => [t.conversation, t.state])) });
+      });
     },
     approve: async (id, granted) => {
       set((s) => ({ approvals: s.approvals.filter((a) => a.id !== id) }));
@@ -484,20 +544,20 @@ export const useSession = createStore<Session>((set, get) => {
     newConversation: async () => {
       await attempt(async () => {
         const c = pick(await call("new_conversation"), "conversations");
-        if (c) set({ conversations: c.list, currentConversation: c.current, transcript: [], streaming: "", liveCalls: [], task: null, page: "chat" });
+        if (c) set({ conversations: c.list, currentConversation: c.current, transcript: [], task: null, page: "chat" });
       });
     },
     selectConversation: async (id) => {
       await attempt(async () => {
         const c = pick(await call({ select_conversation: { id } }), "conversations");
-        if (c) set({ conversations: c.list, currentConversation: c.current, streaming: "", liveCalls: [], page: "chat" });
+        if (c) set({ conversations: c.list, currentConversation: c.current, page: "chat" });
       });
       await get().refreshTranscript();
     },
     deleteConversation: async (id) => {
       await attempt(async () => {
         const c = pick(await call({ delete_conversation: { id } }), "conversations");
-        if (c) set({ conversations: c.list, currentConversation: c.current, streaming: "", liveCalls: [] });
+        if (c) set({ conversations: c.list, currentConversation: c.current });
       });
       await get().refreshTranscript();
     },
@@ -667,7 +727,7 @@ export const useSession = createStore<Session>((set, get) => {
         return true;
       });
       if (ok) {
-        set({ transcript: [], streaming: "", liveCalls: [], panels: [], board: null, page: "chat" });
+        set({ transcript: [], panels: [], board: null, page: "chat" });
         await get().refreshConversations();
         await get().refreshTranscript();
         await get().refreshWorkspaces();

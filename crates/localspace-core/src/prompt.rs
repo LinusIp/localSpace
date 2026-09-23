@@ -36,6 +36,15 @@ their format in a reply.
 detail.
 - Say plainly when something failed. Do not claim a change you did not make.";
 
+/// What the model reads after an answer that ended before it finished:
+/// stopped by the person, or cut short. The answer is part of the
+/// conversation it reads, so that "go on from there" can be answered.
+pub const STOPPED_HERE: &str = "[the answer stopped here]";
+
+/// What *Continue* asks, as the person's line at the end of the prompt, never
+/// kept in the chat: the model's words join the answer that stopped.
+pub const CONTINUE: &str = "Continue your last answer from exactly where it stopped. Do not repeat what you already wrote.";
+
 /// The four segments, kept separate so a caller can measure prefix stability.
 #[derive(Debug, Clone)]
 pub struct Prompt {
@@ -169,6 +178,10 @@ fn render_message(m: &proto::ChatMessage) -> String {
         proto::Role::Tool => "tool",
     };
     let mut out = format!("{who}: {}", m.content);
+    if m.stopped {
+        out.push(' ');
+        out.push_str(STOPPED_HERE);
+    }
     for call in &m.tool_calls {
         out.push_str(&format!("\n  -> {}({})", call.tool, call.params));
         match &call.outcome {
@@ -235,6 +248,7 @@ mod tests {
             role,
             content: text.into(),
             tool_calls: Vec::new(),
+            stopped: false,
         }
     }
 

@@ -151,6 +151,7 @@ fn loading_a_model_starts_the_sidecar_and_a_chat_turn_goes_through_it() {
     // A turn through the sidecar.
     match core.handle(proto::Request::SendMessage {
         text: "hello".into(),
+        conversation: None,
     }) {
         proto::Response::Transcript { messages } => {
             let reply = messages
@@ -865,6 +866,7 @@ fn a_real_card_smaller_than_the_model_ends_with_a_plan_that_holds() {
     let asked = Instant::now();
     match core.handle(proto::Request::SendMessage {
         text: "Say hello in five words.".into(),
+        conversation: None,
     }) {
         proto::Response::Transcript { messages } => {
             let reply = messages

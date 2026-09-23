@@ -56,6 +56,8 @@ export type { ToolCallRecord } from "./ToolCallRecord";
 export type { ToolKind } from "./ToolKind";
 export type { ToolOutcome } from "./ToolOutcome";
 export type { Topology } from "./Topology";
+export type { TurnInfo } from "./TurnInfo";
+export type { TurnState } from "./TurnState";
 export type { UserInfo } from "./UserInfo";
 export type { UserRole } from "./UserRole";
 export type { ViewDesc } from "./ViewDesc";

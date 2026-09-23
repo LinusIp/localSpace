@@ -37,6 +37,7 @@ fn a_message_lands_in_the_current_conversation_and_names_it() {
     // No model is loaded: the turn still records the message and the reply.
     core.handle(proto::Request::SendMessage {
         text: "What is on the board right now?".into(),
+        conversation: None,
     });
     let (list, _) = conversations(&mut core);
     assert_eq!(list[0].title, "What is on the board right now?");
@@ -52,6 +53,7 @@ fn switching_conversations_switches_the_transcript_and_survives_a_restart() {
         let mut core = core_in(dir.path());
         core.handle(proto::Request::SendMessage {
             text: "first conversation".into(),
+            conversation: None,
         });
         first = conversations(&mut core).1;
 
@@ -68,6 +70,7 @@ fn switching_conversations_switches_the_transcript_and_survives_a_restart() {
         );
         core.handle(proto::Request::SendMessage {
             text: "second conversation".into(),
+            conversation: None,
         });
         assert_eq!(transcript(&mut core)[0].content, "second conversation");
 

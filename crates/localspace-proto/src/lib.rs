@@ -510,6 +510,43 @@ pub struct ChatMessage {
     /// Present on assistant messages that called tools.
     #[serde(default)]
     pub tool_calls: Vec<ToolCallRecord>,
+    /// An answer that ended before the model finished it: stopped by the
+    /// person, or ended by itself (silence, the engine gone). What came is
+    /// kept, and the model reads it on the next turn.
+    #[serde(default)]
+    pub stopped: bool,
+}
+
+/// Where the answer to a chat's last message is.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnState {
+    /// Waits for the answer in another of this person's chats to finish:
+    /// one answer at a time for a person.
+    WaitsForAnotherChat,
+    /// Waits for the model to be free: every answer it can write at once is
+    /// taken, by other people (a server).
+    WaitsForTheModel,
+    /// Being written: the model writes, or a tool is at work for it.
+    Writing,
+    /// A tool call waits for the person's approval.
+    AwaitsApproval,
+    /// The model finished it.
+    Done,
+    /// The person stopped it; what came is kept.
+    Stopped,
+    /// It ended by itself before the model finished: the model went silent
+    /// for too long, or the engine went away. What came is kept.
+    Cut,
+}
+
+/// A chat whose answer is being written, or waits.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct TurnInfo {
+    pub conversation: String,
+    pub state: TurnState,
 }
 
 #[derive(
@@ -958,10 +995,27 @@ pub enum Request {
     },
 
     // --- conversation ---
+    /// A message in one of the caller's chats; the answer is written beside
+    /// Core's queue and comes as events. The chat on screen when none is named.
     SendMessage {
         text: String,
+        #[serde(default)]
+        conversation: Option<String>,
     },
-    CancelTurn,
+    /// Stop the answer being written, or waiting, in one of the caller's
+    /// chats (the one on screen when none is named). Nothing to stop is not
+    /// an error.
+    CancelTurn {
+        #[serde(default)]
+        conversation: Option<String>,
+    },
+    /// The caller's chats whose answers are being written or wait.
+    ListTurns,
+    /// Carry on the answer that stopped, as part of the same answer.
+    ContinueAnswer {
+        #[serde(default)]
+        conversation: Option<String>,
+    },
     GetTranscript,
     /// Answer an inline approval (tool confirm, egress domain, capability grant).
     Approve {
@@ -1278,6 +1332,9 @@ pub enum Response {
     Transcript {
         messages: Vec<ChatMessage>,
     },
+    Turns {
+        list: Vec<TurnInfo>,
+    },
     ToolResult(ToolOutcome),
     SurfaceModule {
         bytes: Vec<u8>,
@@ -1453,17 +1510,28 @@ pub enum Event {
     /// the model — so every user's view of the environment is stale; each
     /// asks for its own again.
     EnvironmentOutdated,
-    /// Streamed assistant text.
+    /// Streamed assistant text, for the chat it is the answer in.
     AssistantDelta {
+        conversation: String,
         text: String,
     },
-    AssistantDone,
+    /// The answer in `conversation` is written, or ended: read it again.
+    AssistantDone {
+        conversation: String,
+    },
+    /// Where the answer in `conversation` is.
+    TurnChanged {
+        conversation: String,
+        state: TurnState,
+    },
     ToolCallStarted {
+        conversation: String,
         id: String,
         tool: String,
         params: Json,
     },
     ToolCallFinished {
+        conversation: String,
         id: String,
         tool: String,
         outcome: ToolOutcome,
@@ -1496,6 +1564,10 @@ pub enum Event {
         id: String,
         kind: ApprovalKind,
         prompt: String,
+    },
+    /// An approval that is no longer asked for: its answer was stopped.
+    ApprovalWithdrawn {
+        id: String,
     },
     /// Surface exceeded its frame budget.
     SurfaceSlow {
@@ -1612,12 +1684,13 @@ mod tests {
             id: 7,
             body: Body::Request(Request::SendMessage {
                 text: "hello".into(),
+                conversation: None,
             }),
         };
         let bytes = encode(&env).unwrap();
         let back = decode(&bytes).unwrap();
         match back.body {
-            Body::Request(Request::SendMessage { text }) => assert_eq!(text, "hello"),
+            Body::Request(Request::SendMessage { text, .. }) => assert_eq!(text, "hello"),
             other => panic!("wrong body: {other:?}"),
         }
         assert_eq!(back.id, 7);
@@ -1649,6 +1722,7 @@ mod tests {
         let env = Envelope {
             id: 2,
             body: Body::Event(Event::ToolCallFinished {
+                conversation: "c_1".into(),
                 id: "t1".into(),
                 tool: "canvas.add_shape".into(),
                 outcome: ToolOutcome::Ok {

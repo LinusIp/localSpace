@@ -57,6 +57,60 @@ model's answer.
 - **The deployment spec's `[scheduler] per_user_concurrent`**, whose example
   is 2, is 1 by this ruling until the scheduler's settings are built.
 
+**Built** (the same day):
+- **1.6 and 1.7: an answer is written beside Core's queue.** A message
+  starts its answer and returns at once (`crate::turns`, `crate::agent`).
+  The model is read on a thread of its own; its words, its tool calls and
+  where it stands go out as events that name their chat (`TurnChanged`:
+  waits for another chat, waits for the model, writing, awaits approval,
+  done, stopped, cut); what it asks of tools comes back through Core's
+  queue one call at a time. One answer at a time for a person; as many
+  people at once as `Config::slots`, which is 1, until the server's setting
+  is decided. Stop takes effect at the safe points ruled: the model's step
+  ends within a fifth of a second and keeps what came; a tool call at work
+  finishes and the next is not begun; an approval waited on is withdrawn
+  (`ApprovalWithdrawn`), its call not made, and the person reads "Stopped.
+  The change that waited for your approval was not made." A stopped answer
+  stays in its chat, marked (`ChatMessage::stopped`), and the model reads it
+  with "[the answer stopped here]"; *Continue* asks the model, in a line
+  that is never kept in the chat, to carry on, and its words join the
+  answer. The window keeps each chat's answer apart: Stop for the chat on
+  screen, "Waiting for the answer in your other chat to finish. This one
+  will start by itself.", "The answer stopped here." with *Continue* under
+  the chat's last answer when nothing is in progress, a spinner beside a
+  chat in the list while its answer is written, and the answers in
+  progress asked for again whenever the event stream comes back. A server
+  whose every slot is taken shows the spinner alone until the words for
+  that case are decided.
+- **1.2, inside it: silences instead of totals.** 120 s with no first word,
+  60 s between words, on a stream reader of our own (`crate::stream`:
+  HTTP/1.1, chunked or not, server-sent events read from buffered bytes),
+  tested for a letter split between two reads, an event split across chunks
+  and several in one, the engine going away, both silences and Stop. An
+  answer cut short keeps what came and ends as "cut", "The answer stopped
+  here." and *Continue* in the chat, and `app.log` says why, with the
+  prompt's length ("answer: step 0, cut: the model wrote nothing for 60 s
+  after its last word, …, prompt of about 4235 tokens"). The server's
+  300-second limit on a request no longer applies to answers. A model
+  reached over TLS (connected under Advanced) is still read by `ureq`,
+  without the total limit.
+- **Found while building, and handled.** On Windows a socket shut from
+  another thread does not wake a read already waiting on it: the reader
+  waits in steps of a fifth of a second and looks at Stop between them. A
+  turn must not hold the model router while it writes: stopping or changing
+  the engine takes the router for writing and would wait for the answer to
+  end, so a turn takes its worker out first. A way back into Core's own
+  queue held strongly would keep Core's thread, and so the engine, alive
+  after the app closed: it is held weakly, and a test drops the transport
+  and sees the engine go.
+- **The builder's choices, to be corrected if wrong**: a second message in
+  a chat whose answer is being written is refused ("An answer is still
+  being written in this chat. Stop it, or wait for it to finish."; the
+  window does not send one); a declined approval ends the answer; a person
+  who moves to another workspace while an answer is written sees it stop,
+  "The answer stopped when you moved to another workspace."; evals take
+  their turns to the end inside the request, as before.
+
 ## 2026-09-23, after Test A: the plan of documents 16 to 22, and the answers to the estimates
 
 The founder's reading of the laptop test and the plan that follows from it:
