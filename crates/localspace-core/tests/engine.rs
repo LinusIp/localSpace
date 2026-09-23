@@ -429,7 +429,11 @@ fn port_in(state: &proto::EngineState) -> u16 {
         .detail
         .split("127.0.0.1:")
         .nth(1)
-        .map(|rest| rest.chars().take_while(char::is_ascii_digit).collect::<String>())
+        .map(|rest| {
+            rest.chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+        })
         .and_then(|digits| digits.parse().ok())
         .expect("the engine's port in its state")
 }
@@ -453,14 +457,20 @@ fn a_model_asked_for_again_while_it_starts_is_started_once() {
     assert!(matches!(core.handle(load("tiny")), proto::Response::Ok));
 
     let traces = traces(&events);
-    let started = traces.iter().filter(|t| t.starts_with("engine: started")).count();
+    let started = traces
+        .iter()
+        .filter(|t| t.starts_with("engine: started"))
+        .count();
     assert_eq!(started, 1, "{traces:#?}");
     let again: Vec<&String> = traces
         .iter()
         .filter(|t| t.contains("was asked for again"))
         .collect();
     assert_eq!(again.len(), 3, "{traces:#?}");
-    assert!(again[..2].iter().all(|t| t.contains("while it starts")), "{again:#?}");
+    assert!(
+        again[..2].iter().all(|t| t.contains("while it starts")),
+        "{again:#?}"
+    );
     assert!(again[2].contains("while it runs"), "{again:#?}");
     core.handle(proto::Request::UnloadModel);
 }
@@ -489,7 +499,9 @@ fn another_model_is_planned_only_once_the_engine_before_it_has_stopped() {
     // The engine before it is gone, not merely forgotten.
     let old = port_in(&first);
     assert!(
-        ureq::get(&format!("http://127.0.0.1:{old}/health")).call().is_err(),
+        ureq::get(&format!("http://127.0.0.1:{old}/health"))
+            .call()
+            .is_err(),
         "nothing answers on the first engine's port any more"
     );
     wait_until(&core, "the second model to answer", |s| {

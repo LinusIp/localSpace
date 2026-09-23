@@ -1669,15 +1669,17 @@ impl Core {
         let pid = old.pid();
         old.stop();
         let began = std::time::Instant::now();
-        let still_held = pid.filter(|&pid| loop {
-            match hardware::engine_graphics_memory(pid) {
-                Some(held) if held.dedicated_mib > 0 => {}
-                _ => break false,
+        let still_held = pid.filter(|&pid| {
+            loop {
+                match hardware::engine_graphics_memory(pid) {
+                    Some(held) if held.dedicated_mib > 0 => {}
+                    _ => break false,
+                }
+                if began.elapsed() >= WAIT_FOR_MEMORY {
+                    break true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(250));
             }
-            if began.elapsed() >= WAIT_FOR_MEMORY {
-                break true;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(250));
         });
         self.trace(match still_held {
             None => format!(

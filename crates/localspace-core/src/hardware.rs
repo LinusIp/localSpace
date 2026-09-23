@@ -714,7 +714,8 @@ fn system_facts(storage: Option<&Path>, ours: &[u32]) -> SystemFacts {
                 adapters
                     .iter()
                     .filter_map(|a| {
-                        let mib = |key: &str| a[key].as_f64().map(|bytes| bytes as u64 / 1024 / 1024);
+                        let mib =
+                            |key: &str| a[key].as_f64().map(|bytes| bytes as u64 / 1024 / 1024);
                         Some(Adapter {
                             name: a["name"].as_str()?.to_string(),
                             used_mib: mib("used")?,
