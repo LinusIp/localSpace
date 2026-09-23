@@ -166,15 +166,18 @@ function AssistantPane() {
           )}
           {here.map((m) => {
             const on = m.id === current;
+            // Clicked again while it starts, it would begin once more (the
+            // restart storm of 2026-09-21): the row waits with the person.
+            const starting = !on && !!environment?.engine.loading && environment.engine.model === m.id;
             return (
               <div key={m.id} className="opt-row">
-                <button type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} onClick={() => !on && void loadModel(m.id)} disabled={willNotFit(m)}>
+                <button type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} onClick={() => !on && !starting && void loadModel(m.id)} disabled={willNotFit(m) || starting}>
                   <span className={`radio${on ? " on" : ""}`} />
                   <span style={{ flex: 1 }}>
                     <span className="opt-title">
                       {m.title}
                       {on && <span className="pill green">In use</span>}
-                      {!on && environment?.engine.loading && environment.engine.model === m.id && <span className="pill amber">Starting up…</span>}
+                      {starting && <span className="pill amber">Starting up…</span>}
                     </span>
                     <div className="opt-body">
                       {modelReason(m)}
