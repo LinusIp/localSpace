@@ -3329,6 +3329,8 @@ impl Core {
             }
         }
         if self.workspace != ws.id {
+            let leaving = self.workspace.clone();
+            agent::stop_on_leaving(self, &leaving);
             self.record_conversation();
             self.workspace = ws.id.clone();
             let user = self.active.user.clone();

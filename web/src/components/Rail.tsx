@@ -221,28 +221,64 @@ export function Rail() {
 
 /** In an organisation the workspace the user is in, and the way to another they belong to. */
 function WorkspaceName() {
-  const { me, environment, workspaces, refreshWorkspaces, selectWorkspace } = useSession();
+  const { me, environment, workspaces, conversations, turns, refreshWorkspaces, selectWorkspace } = useSession();
   const organisation = me?.topology === "organisation";
+  // The workspace asked for while an answer runs, until the person says.
+  const [asking, setAsking] = useState<string | null>(null);
   useEffect(() => {
     if (organisation) void refreshWorkspaces();
   }, [organisation, refreshWorkspaces]);
   if (!organisation || !environment) return null;
   const mine = workspaces.filter((w) => w.mine !== null);
   if (mine.length <= 1) return null;
+  // A switch stops the person's answers, for now: it says so first, and
+  // never stops one silently (ruled 2026-09-24).
+  const running = Object.keys(turns)[0];
+  const runningIn = running === undefined ? null : (conversations.find((c) => c.id === running)?.title ?? "another chat");
   return (
-    <select
-      className="rail-workspace"
-      aria-label="Workspace"
-      value={environment.workspace_id}
-      onChange={(e) => {
-        if (e.target.value !== environment.workspace_id) void selectWorkspace(e.target.value);
-      }}
-    >
-      {mine.map((w) => (
-        <option key={w.id} value={w.id}>
-          {w.personal_to ? "Personal" : w.name}
-        </option>
-      ))}
-    </select>
+    <>
+      <select
+        className="rail-workspace"
+        aria-label="Workspace"
+        value={environment.workspace_id}
+        onChange={(e) => {
+          const to = e.target.value;
+          if (to === environment.workspace_id) return;
+          if (runningIn === null) void selectWorkspace(to);
+          else setAsking(to);
+        }}
+      >
+        {mine.map((w) => (
+          <option key={w.id} value={w.id}>
+            {w.personal_to ? "Personal" : w.name}
+          </option>
+        ))}
+      </select>
+      <Dialog
+        open={asking !== null}
+        title="Switch workspace"
+        onClose={() => setAsking(null)}
+        actions={
+          <>
+            <button type="button" className="btn" onClick={() => setAsking(null)}>
+              Stay
+            </button>
+            <button
+              type="button"
+              className="btn solid"
+              onClick={() => {
+                const to = asking;
+                setAsking(null);
+                if (to !== null) void selectWorkspace(to);
+              }}
+            >
+              Switch
+            </button>
+          </>
+        }
+      >
+        <p style={{ marginTop: 0 }}>An answer is being written in "{runningIn}". Switching will stop it.</p>
+      </Dialog>
+    </>
   );
 }

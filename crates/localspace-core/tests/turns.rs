@@ -525,6 +525,81 @@ fn an_answer_lands_in_its_own_chat_after_the_person_switched() {
     assert!(bench.words_to("anna", &now_on_screen).is_empty());
 }
 
+/// Moving to another workspace stops the person's answer there at once, as
+/// Stop does, and says so; what came is kept in its own chat
+/// (docs/DECISIONS.md, 2026-09-24).
+#[test]
+fn moving_to_another_workspace_stops_the_answer_and_says_so() {
+    let bench = Bench::new(SLOWLY, 1, Silence::ANSWER);
+    let anna = person("anna");
+    let chat = bench.send(&anna, "Tell me something long.");
+    bench.wait_for("anna", "three words", |events| {
+        events
+            .iter()
+            .filter(|e| matches!(e, proto::Event::AssistantDelta { .. }))
+            .count()
+            >= 3
+    });
+    let elsewhere = match bench.ask(
+        &anna,
+        proto::Request::CreateWorkspace {
+            name: "Elsewhere".into(),
+        },
+    ) {
+        proto::Response::Workspaces(list) => {
+            list.into_iter()
+                .find(|w| w.name == "Elsewhere")
+                .expect("the new workspace is listed")
+                .id
+        }
+        other => panic!("{other:?}"),
+    };
+
+    let moved_at = Instant::now();
+    assert!(matches!(
+        bench.ask(
+            &anna,
+            proto::Request::SelectWorkspace {
+                workspace: elsewhere,
+                reason: None
+            }
+        ),
+        proto::Response::Environment(_)
+    ));
+    bench.ended("anna", &chat, TurnState::Stopped);
+    assert!(
+        moved_at.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        moved_at.elapsed()
+    );
+    assert!(bench.events_of("anna").iter().any(|e| matches!(
+        e,
+        proto::Event::Notice { text, .. } if text.contains("moved to another workspace")
+    )));
+
+    // Back where it was asked: what came is kept, marked as stopped.
+    let shown = bench.words_to("anna", &chat);
+    bench.ask(
+        &anna,
+        proto::Request::SelectWorkspace {
+            workspace: "ws_anna".into(),
+            reason: None,
+        },
+    );
+    bench.ask(
+        &anna,
+        proto::Request::SelectConversation { id: chat.clone() },
+    );
+    let answer = bench.transcript(&anna).last().unwrap().clone();
+    assert!(answer.stopped, "{answer:?}");
+    assert_eq!(answer.content, shown);
+    assert!(
+        answer.content.len() < TWENTY_WORDS.len(),
+        "{}",
+        answer.content
+    );
+}
+
 fn a_cut_line(events: &[proto::Event]) -> Option<String> {
     events.iter().find_map(|e| match e {
         proto::Event::TraceLine { text }

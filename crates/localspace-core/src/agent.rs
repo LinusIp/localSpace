@@ -177,6 +177,37 @@ pub fn declined(core: &mut Core, turn: Option<u64>, tool: &str) {
     drain(core);
 }
 
+/// The person moves to another workspace: their answers there stop now, at
+/// their safe points, as Stop stops them, and they are told once. Left
+/// running, an answer's next step would act on the workspace they moved to.
+/// The window asks before the switch (docs/DECISIONS.md, 2026-09-24).
+pub fn stop_on_leaving(core: &mut Core, workspace: &str) {
+    let user = core.active.user.clone();
+    let leaving: Vec<u64> = core
+        .turns
+        .iter()
+        .filter(|t| t.caller.user == user && t.workspace == workspace)
+        .map(|t| t.id)
+        .collect();
+    if leaving.is_empty() {
+        return;
+    }
+    // Every one asked first, so that none that waits is begun meanwhile.
+    let states: Vec<(u64, Option<TurnState>)> =
+        leaving.iter().map(|&id| (id, stop(core, id))).collect();
+    for (id, state) in states {
+        // Being written, it ends at its own safe point: see `replied`.
+        if state.is_some_and(|s| s != TurnState::Writing) {
+            end(core, id, TurnState::Stopped);
+        }
+    }
+    core.notice(
+        proto::NoticeLevel::Info,
+        "The answer stopped when you moved to another workspace.",
+    );
+    drain(core);
+}
+
 /// A turn's work, come back through Core's queue.
 pub fn internal(core: &mut Core, message: Internal) {
     handle(core, message);
