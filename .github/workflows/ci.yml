@@ -11,6 +11,13 @@
 # that builds Rust, and every job has a timeout, so a broken commit costs
 # minutes rather than an hour.
 #
+# Started by hand only, until the runner allowance resets in October: every
+# check runs on the build machine first, in WSL, with `scripts/check.sh`,
+# which runs exactly the jobs below, and nothing is pushed that it fails on
+# (docs/DECISIONS.md, 2026-09-24). In October this runs once by hand on the
+# head, as the check from a clean computer, before automatic runs are
+# decided on again.
+#
 # Runners are pinned labels, never a moving alias. Core and the server always
 # build and test on Linux, which is what organisations deploy. The Tauri
 # shell builds there too, with the packages below (run 12 of this workflow
@@ -21,8 +28,6 @@
 name: ci
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
     inputs:
       w32_gate:
@@ -33,7 +38,7 @@ on:
 permissions:
   contents: read
 
-# A push supersedes the run of the push before it on the same branch: the
+# A run started again supersedes the one before it on the same branch: the
 # older run is cancelled rather than finished for nothing.
 concurrency:
   group: ci-${{ github.ref }}
@@ -247,6 +252,41 @@ jobs:
           path: |
             ${{ runner.temp }}/serve.log
             ${{ runner.temp }}/org-serve.log
+
+  message-script:
+    # The script that judges answers, run against the test engine: it judges
+    # nothing there, but every message must be answered and Continue must
+    # carry through, which would have caught 1.6 and 1.7 breaking it without
+    # a test failing (docs/DECISIONS.md, 2026-09-24).
+    name: the message script against the test engine (every message answered, Continue carried through)
+    runs-on: ubuntu-24.04
+    needs: rust
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            . -> target
+          cache-on-failure: true
+      - name: the server and the test engine
+        run: cargo build --release -p localspace-cli -p localspace-core --bin localspace --bin fake_llama_server
+      - name: every message answered, Continue carried through
+        run: scripts/message-script-fake.sh target/release/localspace target/release/fake_llama_server "$RUNNER_TEMP/message-script"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: message-script
+          path: |
+            ${{ runner.temp }}/message-script/serve.log
+            ${{ runner.temp }}/message-script/answers.md
 
   w32-gate:
     name: the canvas gate on W32, from its recorded measurement

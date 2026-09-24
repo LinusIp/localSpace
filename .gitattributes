@@ -1,1 +1,3 @@
 *.redb binary
+# Shell scripts run in WSL and on Linux runners: never with CRLF.
+*.sh text eol=lf

@@ -105,7 +105,7 @@ take gigabytes. So `.cargo/config.toml` caps cargo at four jobs and the `dev`
 profile carries line-table debug info only (a full-debug target is 59 GB; with
 line tables, 11 GB). Run the one or two suites you are working on, for
 instance `cargo test -p localspace-core --test roles`; leave
-`cargo test --workspace` to CI, which does it warm in about six minutes. If an
+`cargo test --workspace` to `scripts/check.sh` in WSL (below). If an
 editor runs rust-analyzer on the same checkout, give it its own target
 directory (`rust-analyzer.cargo.targetDir: true`), or the two builds keep
 invalidating each other. Never run a build beside a test server and a
@@ -114,6 +114,38 @@ headless browser. `cargo clean` when the target directory has grown stale.
 See [PERFORMANCE.md](PERFORMANCE.md): `LOCALSPACE_PERF=1` prints per-second frame
 costs and gaps, `LOCALSPACE_PERF_SPIN=1` measures the ceiling of the display path,
 and the `gpu:` line names the adapter in use.
+
+## Checking before a push
+
+Until the runner allowance resets in October, `ci` runs only when started by
+hand, and nothing runs on GitHub's computers otherwise (docs/DECISIONS.md,
+2026-09-24). Every push is checked first on this machine, in WSL, by
+`scripts/check.sh`: the jobs of `.github/workflows/ci.yml`, step for step
+(formatting, lint and types; the web tests, build, sizes and frame times;
+clippy and every test; the two browser walks and the audit; the message
+script against the test engine), on a clean copy of the commit about to be
+pushed, cloned into `~/localspace-check` and built on WSL's own disk.
+**Nothing is pushed that it fails on**, and every report carries the commit
+and its last line. It runs in Linux, where Smart App Control has no say.
+
+```bash
+wsl -d Ubuntu-24.04 --cd "C:\Users\Progress service\Desktop\localSpace" -- bash -lc scripts/check.sh
+```
+
+`--w32-gate` adds the W32 canvas gate, as `ci`'s input of the same name
+does; a commit other than HEAD can be named. The first run builds
+everything, debug and release (about 25 GB on WSL's disk, which grows on
+C:); later runs are incremental.
+
+Setting WSL up is the machine owner's, once, since it needs an administrator,
+a restart and a password: in PowerShell as administrator,
+`wsl --install -d Ubuntu-24.04`, restart Windows, open *Ubuntu 24.04* from
+the Start menu and choose a user name and password; then, in Ubuntu, in this
+repository (`cd "/mnt/c/Users/Progress service/Desktop/localSpace"`),
+`bash scripts/wsl-setup.sh`, which says what it fetches and from where.
+
+In October `ci` runs once by hand on the head, as the check from a clean
+computer, and whether automatic runs come back is decided then.
 
 ## Notes for this machine
 
@@ -196,10 +228,13 @@ path against `fake_llama_server`, a test double this crate builds.
 
 ## The Windows package (the installer and the portable zip)
 
-What a tester installs is built by the `package` workflow
-(`.github/workflows/package.yml`, started by hand or by a `v*` tag), not on a
-laptop: what ten people run is what a commit produced. The same steps by hand,
-on Windows:
+Until October the package is built on this laptop, and only when a release
+is being prepared (docs/DECISIONS.md, 2026-09-24): the `package` workflow
+(`.github/workflows/package.yml`, started by hand or by a `v*` tag) stays
+for later. What ten people run is still what a commit produced: the build is
+of a commit that `scripts/check.sh` passed, **the file the release check runs
+on is the file the testers get**, and its SHA-256 goes into the report. The
+steps, on Windows:
 
 ```bash
 (cd web && npm ci && npm run build)
@@ -234,7 +269,13 @@ is missing.
   begin again, and `app.log` must not say "continue: the engine did not
   begin its reply …". Today's engine says the handed words again, exactly,
   and Core drops them; a new pin may not, and then Core drops nothing and
-  says so in that line.
+  says so in that line;
+- how the engine divides `-c` between its slots, read from its `/props`
+  and `/slots` under `--parallel 1`, `--parallel 2` and no `--parallel`
+  (docs/DECISIONS.md, 2026-09-24): b10869 splits `-c` evenly under
+  `--parallel N`, shares one pool of `-c` between all slots without it or
+  with `--kv-unified`, and Core's `--parallel N -c N×C` promise rests on the
+  first.
 
 The installer is per-user (`%LOCALAPPDATA%\Programs\localSpace`, no
 administrator prompt) and asks nothing but the usual folder page. It does not

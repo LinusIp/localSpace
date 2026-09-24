@@ -6,6 +6,12 @@
 // which tools were reached for is written down for a person to judge.
 //
 //   node scripts/message-script.mjs <origin> <token> <model id> [--out <file.md>]
+//       [--stop-after <words>] [--check]
+//
+// `--check` ends with an error when a message gets no answer or Continue does
+// not carry through: that is what CI and scripts/check.sh run against the
+// test engine (docs/DECISIONS.md, 2026-09-24), which has nothing to judge but
+// would have caught the script reading every chat before its answer came.
 //
 // Needs a running `localspace serve --personal` with the model on disk; use a
 // fresh data folder, which is what a tester has. One model at a time.
@@ -25,11 +31,18 @@
 import { writeFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
-const outAt = args.indexOf("--out");
-const out = outAt >= 0 ? args[outAt + 1] : undefined;
-const [origin, token, model] = args.filter((a, i) => !a.startsWith("--") && i !== outAt + 1);
+/** The value after a flag, and the positions it and the flag take. */
+const option = (flag) => {
+  const at = args.indexOf(flag);
+  return at >= 0 ? { value: args[at + 1], at } : { value: undefined, at: -1 };
+};
+const out = option("--out");
+const stopAfter = option("--stop-after");
+const check = args.includes("--check");
+const taken = new Set([out.at + 1, stopAfter.at + 1].filter((i) => i > 0));
+const [origin, token, model] = args.filter((a, i) => !a.startsWith("--") && !taken.has(i));
 if (!origin || !token || !model) {
-  console.error("usage: node scripts/message-script.mjs <origin> <token> <model id> [--out <file.md>]");
+  console.error("usage: node scripts/message-script.mjs <origin> <token> <model id> [--out <file.md>] [--stop-after <words>] [--check]");
   process.exit(2);
 }
 
@@ -65,7 +78,10 @@ const SCRIPT = [
 ];
 
 /** The message whose answer is stopped and carried on, and after how many words. */
-const CONTINUE = { text: "Explain in about 500 words how a lighthouse works and why lighthouses were built where they were.", stopAfter: 30 };
+const CONTINUE = {
+  text: "Explain in about 500 words how a lighthouse works and why lighthouses were built where they were.",
+  stopAfter: Number(stopAfter.value ?? 30),
+};
 
 /** Longest an answer may take here; Core's own limits are on silence, not on length. */
 const ANSWER_MS = 600000;
@@ -161,7 +177,7 @@ async function run() {
     results.push({ name: item.name, turns });
   }
 
-  // Continue: an answer stopped after thirty words, then carried on.
+  // Continue: an answer stopped after a number of words, then carried on.
   await request("new_conversation");
   const chat = await currentChat();
   const carried = { stoppedAfter: 0, kept: "", added: "", whole: undefined, note: "" };
@@ -220,6 +236,16 @@ async function run() {
   }
   lines.push("");
   const report = lines.join("\n");
-  if (out) writeFileSync(out, report);
+  if (out.value) writeFileSync(out.value, report);
   else console.log(report);
+
+  // With --check, one line, and an error when anything went unanswered.
+  const turnsIn = results.flatMap((item) => item.turns);
+  const unanswered = turnsIn.filter((t) => t.error || !t.reply).length;
+  const carriedThrough = !carried.note && carried.whole === true;
+  if (check) {
+    const how = carriedThrough ? "carried through" : `did not carry through (${carried.note || "the answer did not end whole"})`;
+    console.error(`message script: ${turnsIn.length - unanswered} of ${turnsIn.length} messages answered; Continue ${how}`);
+    if (unanswered > 0 || !carriedThrough) process.exitCode = 1;
+  }
 }

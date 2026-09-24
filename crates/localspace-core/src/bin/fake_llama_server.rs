@@ -18,7 +18,10 @@
 //! mid-answer), `writes in Russian` (every event's bytes in two writes, split
 //! inside a letter). An answer begun for it (the last message is the
 //! assistant's) is carried on, its words said again first, as llama-server's
-//! prefill does. Each request is named in the log.
+//! prefill does. Asked for `--list-devices`, it lists none and ends, as
+//! llama-server does on a computer with no graphics card, so that a server
+//! run on it looks at the machine without waiting. Each request is named in
+//! the log.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -58,6 +61,10 @@ const STALL: Duration = Duration::from_secs(600);
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--list-devices") {
+        let _ = write!(std::io::stdout(), "Available devices:\n  (none)\n");
+        return;
+    }
     let port: u16 = args
         .windows(2)
         .find(|w| w[0] == "--port")
