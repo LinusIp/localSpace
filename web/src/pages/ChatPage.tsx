@@ -31,6 +31,11 @@ const NO_CALLS: LiveToolCall[] = [];
  *  without the second sentence people send the message again. */
 const WAITS_FOR_ANOTHER_CHAT = "Waiting for the answer in your other chat to finish. This one will start by itself.";
 
+/** Said while every slot of the organisation's server is taken (ruled
+ *  2026-09-24): "server", since the person has no choice to make about the
+ *  model here. */
+const WAITS_FOR_THE_SERVER = "The server is answering other people right now. This one will start by itself.";
+
 /** Said where a proposal the person declined stood (ruled 2026-09-24). */
 const DECLINED = "You declined this change. The answer stopped here.";
 
@@ -123,7 +128,7 @@ export function Conversation({ compact }: { compact?: boolean }) {
                 ) : (
                   turn === "waits_for_the_model" && (
                     <span className="message-work">
-                      <SpinnerIcon size={14} className="ls-spin" />
+                      <SpinnerIcon size={14} className="ls-spin" /> {WAITS_FOR_THE_SERVER}
                     </span>
                   )
                 )}
