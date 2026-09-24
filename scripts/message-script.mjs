@@ -14,6 +14,13 @@
 // machine and a person has read what came back: that day is the entry's
 // `exercised_on` in models/catalog.json, and the answers belong in
 // docs/test-a/MESSAGE-SCRIPT.md under a heading with the model's title.
+//
+// A message is answered beside Core's queue (docs/DECISIONS.md, 2026-09-23):
+// sending it returns at once, and the script waits for the answer to end
+// before reading it. The last step is Continue, which runs on every catalog
+// default whenever the engine's pin moves (docs/DECISIONS.md, 2026-09-24): an
+// answer is stopped after thirty words and carried on, and the join is written
+// down for a person to read.
 
 import { writeFileSync } from "node:fs";
 
@@ -57,8 +64,16 @@ const SCRIPT = [
   },
 ];
 
+/** The message whose answer is stopped and carried on, and after how many words. */
+const CONTINUE = { text: "Explain in about 500 words how a lighthouse works and why lighthouses were built where they were.", stopAfter: 30 };
+
+/** Longest an answer may take here; Core's own limits are on silence, not on length. */
+const ANSWER_MS = 600000;
+
 const headers = { Authorization: `Bearer ${token}`, "content-type": "application/json" };
-const request = async (body, ms = 280000) => {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const words = (s) => s.split(/\s+/).filter(Boolean);
+const request = async (body, ms = 60000) => {
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), ms);
   try {
@@ -71,54 +86,140 @@ const request = async (body, ms = 280000) => {
   }
 };
 const environment = async () => (await (await fetch(`${origin}/api/v1/environment`, { headers })).json()).environment;
+const currentChat = async () => (await request("list_conversations")).conversations?.current;
+const transcript = async () => (await request("get_transcript")).transcript?.messages ?? [];
 
-const began = Date.now();
-const loaded = await request({ load_model: { id: model } });
-if (loaded && typeof loaded === "object" && "error" in loaded) throw new Error(`the model could not be loaded: ${JSON.stringify(loaded.error)}`);
-while (!(await environment()).engine.running) {
-  if (Date.now() - began > 600000) throw new Error("the engine did not come up in ten minutes");
-  await new Promise((r) => setTimeout(r, 500));
-}
-const readyAfter = (Date.now() - began) / 1000;
-const entry = ((await request("list_model_catalog")).model_catalog?.entries ?? []).find((m) => m.id === model);
-
-const results = [];
-for (const item of SCRIPT) {
-  await request("new_conversation");
-  const turns = [];
-  for (const text of item.turns) {
-    const asked = Date.now();
-    const answer = await request({ send_message: { text } });
-    const seconds = (Date.now() - asked) / 1000;
-    const messages = answer.transcript?.messages ?? [];
-    // What this turn added: everything after the last message of the person.
-    const lastUser = messages.map((m) => m.role).lastIndexOf("user");
-    const since = messages.slice(lastUser + 1);
-    const reply = since.filter((m) => m.role === "assistant").pop()?.content?.trim() ?? "";
-    const tools = since.flatMap((m) => (m.tool_calls ?? []).map((c) => c.tool));
-    turns.push({ text, seconds, reply, tools, error: answer.error ? JSON.stringify(answer.error) : undefined });
-    console.error(`${item.name}: ${seconds.toFixed(1)} s${tools.length ? `, tools: ${tools.join(", ")}` : ""}${reply ? "" : "  — NO REPLY"}`);
+/** Waits until nothing is being written or waits to be; false if that took too long. */
+const answerEnds = async () => {
+  const began = Date.now();
+  while (Date.now() - began < ANSWER_MS) {
+    const turns = (await request("list_turns")).turns?.list;
+    if (Array.isArray(turns) && turns.length === 0) return true;
+    await sleep(250);
   }
-  results.push({ name: item.name, turns });
-}
-await request("unload_model");
+  return false;
+};
 
-const cell = (s) => s.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ⏎ ").trim();
-const lines = [];
-lines.push(`### ${entry?.title ?? model}`);
-lines.push("");
-lines.push(`\`${model}\`, through Core on a fresh data folder. Ready after ${readyAfter.toFixed(0)} s. The app says of it here: ${entry ? `"${entry.verdict_label}${entry.speed ? ` · ${entry.speed}` : ""}"; ${entry.placement}` : "nothing (not in the catalog)"}`);
-lines.push("");
-lines.push("| Message | Time | Tools reached for | What came back |");
-lines.push("|---|---|---|---|");
-for (const item of results) {
-  item.turns.forEach((t, i) => {
-    const label = item.turns.length > 1 ? `${item.name} (${i + 1}): ${t.text}` : `${item.name}: ${t.text.length > 90 ? `${t.text.slice(0, 90)}…` : t.text}`;
-    const back = t.error ? `**${t.error}**` : t.reply ? t.reply : "**no reply**";
-    lines.push(`| ${cell(label)} | ${t.seconds.toFixed(1)} s | ${t.tools.length ? t.tools.join(", ") : "none"} | ${cell(back)} |`);
-  });
+/** What the person is sent while answers are written: the words of each chat, as they come. */
+const shown = new Map();
+const socket = new WebSocket(`${origin.replace(/^http/, "ws")}/ws/json?token=${encodeURIComponent(token)}`);
+socket.onmessage = (message) => {
+  const delta = JSON.parse(message.data)?.body?.Event?.assistant_delta;
+  if (delta) shown.set(delta.conversation, (shown.get(delta.conversation) ?? "") + delta.text);
+};
+await new Promise((resolve, reject) => {
+  socket.onopen = resolve;
+  socket.onerror = () => reject(new Error("the event stream could not be opened"));
+});
+
+try {
+  await run();
+} finally {
+  socket.close();
 }
-lines.push("");
-const report = lines.join("\n");
-if (out) writeFileSync(out, report);
-else console.log(report);
+
+async function run() {
+  const began = Date.now();
+  // As the app does first: the list of models, which is when Core finds the
+  // files already on this computer and checks their SHA-256, in the
+  // background. The model can be started once its entry says it is installed.
+  let entry;
+  for (;;) {
+    entry = ((await request("list_model_catalog", ANSWER_MS)).model_catalog?.entries ?? []).find((m) => m.id === model);
+    if (!entry) throw new Error(`no model ${model} in the catalog`);
+    if (entry.installed) break;
+    if (Date.now() - began > ANSWER_MS) throw new Error(`${model} is not on this computer: ${JSON.stringify(entry.download)}`);
+    await sleep(1000);
+  }
+  const loaded = await request({ load_model: { id: model } });
+  if (loaded && typeof loaded === "object" && "error" in loaded) throw new Error(`the model could not be loaded: ${JSON.stringify(loaded.error)}`);
+  while (!(await environment()).engine.running) {
+    if (Date.now() - began > 600000) throw new Error("the engine did not come up in ten minutes");
+    await sleep(500);
+  }
+  const readyAfter = (Date.now() - began) / 1000;
+
+  const results = [];
+  for (const item of SCRIPT) {
+    await request("new_conversation");
+    const turns = [];
+    for (const text of item.turns) {
+      const asked = Date.now();
+      const sent = await request({ send_message: { text } });
+      const ended = sent.error ? false : await answerEnds();
+      const seconds = (Date.now() - asked) / 1000;
+      const messages = await transcript();
+      // What this turn added: everything after the last message of the person.
+      const lastUser = messages.map((m) => m.role).lastIndexOf("user");
+      const since = messages.slice(lastUser + 1);
+      const reply = since.filter((m) => m.role === "assistant").pop()?.content?.trim() ?? "";
+      const tools = since.flatMap((m) => (m.tool_calls ?? []).map((c) => c.tool));
+      const error = sent.error ? JSON.stringify(sent.error) : ended ? undefined : `no end within ${ANSWER_MS / 1000} s`;
+      turns.push({ text, seconds, reply, tools, error });
+      console.error(`${item.name}: ${seconds.toFixed(1)} s${tools.length ? `, tools: ${tools.join(", ")}` : ""}${reply ? "" : "  — NO REPLY"}`);
+    }
+    results.push({ name: item.name, turns });
+  }
+
+  // Continue: an answer stopped after thirty words, then carried on.
+  await request("new_conversation");
+  const chat = await currentChat();
+  const carried = { stoppedAfter: 0, kept: "", added: "", whole: undefined, note: "" };
+  {
+    await request({ send_message: { text: CONTINUE.text } });
+    const asked = Date.now();
+    while (Date.now() - asked < ANSWER_MS) {
+      if (words(shown.get(chat) ?? "").length >= CONTINUE.stopAfter) break;
+      if ((await request("list_turns")).turns?.list?.length === 0) break;
+      await sleep(50);
+    }
+    carried.stoppedAfter = words(shown.get(chat) ?? "").length;
+    await request({ cancel_turn: { conversation: chat } });
+    await answerEnds();
+    const stopped = (await transcript()).at(-1);
+    if (!stopped?.stopped) {
+      carried.note = "the answer ended before it could be stopped: nothing to carry on";
+    } else {
+      carried.kept = stopped.content;
+      await request({ continue_answer: { conversation: chat } });
+      if (!(await answerEnds())) carried.note = `no end within ${ANSWER_MS / 1000} s`;
+      const answer = (await transcript()).at(-1);
+      carried.whole = answer?.stopped === false;
+      carried.added = answer?.content?.startsWith(carried.kept) ? answer.content.slice(carried.kept.length) : (answer?.content ?? "");
+    }
+    console.error(`continue: stopped after ${carried.stoppedAfter} words; ${carried.note || `${words(carried.added).length} words added`}`);
+  }
+  await request("unload_model");
+
+  const cell = (s) => s.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ⏎ ").trim();
+  const lines = [];
+  lines.push(`### ${entry?.title ?? model}`);
+  lines.push("");
+  lines.push(`\`${model}\`, through Core on a fresh data folder. Ready after ${readyAfter.toFixed(0)} s. The app says of it here: ${entry ? `"${entry.verdict_label}${entry.speed ? ` · ${entry.speed}` : ""}"; ${entry.placement}` : "nothing (not in the catalog)"}`);
+  lines.push("");
+  lines.push("| Message | Time | Tools reached for | What came back |");
+  lines.push("|---|---|---|---|");
+  for (const item of results) {
+    item.turns.forEach((t, i) => {
+      const label = item.turns.length > 1 ? `${item.name} (${i + 1}): ${t.text}` : `${item.name}: ${t.text.length > 90 ? `${t.text.slice(0, 90)}…` : t.text}`;
+      const back = t.error ? `**${t.error}**` : t.reply ? t.reply : "**no reply**";
+      lines.push(`| ${cell(label)} | ${t.seconds.toFixed(1)} s | ${t.tools.length ? t.tools.join(", ") : "none"} | ${cell(back)} |`);
+    });
+  }
+  lines.push("");
+  lines.push(`**Continue**: "${CONTINUE.text}" stopped after ${carried.stoppedAfter} words, then carried on.`);
+  if (carried.note) {
+    lines.push(`**${carried.note}**`);
+  } else {
+    const last = words(carried.kept).slice(-8).join(" ");
+    const next = words(carried.added).slice(0, 16).join(" ");
+    // An answer that begins again says its opening words a second time.
+    const opening = words(carried.kept).slice(0, 6).join(" ");
+    const beganAgain = opening.length > 0 && words(carried.added).slice(0, 60).join(" ").includes(opening);
+    lines.push(`The join: "…${cell(last)}" ‖ "${cell(next)}…". ${beganAgain ? "**It began its answer again.**" : "It did not begin again."} ${carried.whole ? "The answer ended whole." : "**The answer did not end whole.**"} Whether the engine said the handed words again is in app.log: a line "continue: the engine did not begin its reply …" means it did not, and nothing was dropped.`);
+  }
+  lines.push("");
+  const report = lines.join("\n");
+  if (out) writeFileSync(out, report);
+  else console.log(report);
+}

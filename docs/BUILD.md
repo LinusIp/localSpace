@@ -223,6 +223,19 @@ the files the engine needs are kept. Moving to another release means changing
 the pin and reading the keep list again; the script says when a listed file
 is missing.
 
+**When the pin moves**, before a build with the new engine reaches anyone:
+- the keep list is read again (above);
+- `scripts/message-script.mjs` runs on every model in the catalog, each on a
+  fresh data folder, and the answers are read: moving the pin is a
+  regression event for every catalog model (docs/DECISIONS.md, 2026-09-23);
+- its last step, Continue, is read for every catalog default
+  (docs/DECISIONS.md, 2026-09-24). An answer is stopped after thirty words
+  and carried on: the join must read as one sentence, the answer must not
+  begin again, and `app.log` must not say "continue: the engine did not
+  begin its reply …". Today's engine says the handed words again, exactly,
+  and Core drops them; a new pin may not, and then Core drops nothing and
+  says so in that line.
+
 The installer is per-user (`%LOCALAPPDATA%\Programs\localSpace`, no
 administrator prompt) and asks nothing but the usual folder page. It does not
 download WebView2: Windows 11 always has it, and when it is missing the app's
