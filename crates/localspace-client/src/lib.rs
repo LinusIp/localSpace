@@ -354,6 +354,7 @@ It runs as a native process. Its stated reason: {reason}"
                     proto::ToolOutcome::AwaitingConfirm { .. } => {
                         format!("<- {tool}: waiting for you")
                     }
+                    proto::ToolOutcome::Declined { .. } => format!("<- {tool}: you declined it"),
                     proto::ToolOutcome::Queued { job } => format!("<- {tool} queued as {job}"),
                 };
                 self.trace.push(line);

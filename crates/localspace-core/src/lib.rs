@@ -3793,9 +3793,11 @@ impl Core {
                     };
                 };
                 if !granted {
-                    self.notice(proto::NoticeLevel::Info, "declined");
+                    // An answer's proposal: the chat says it, in its place.
                     if p.resume_agent {
-                        agent::declined(self, p.turn);
+                        agent::declined(self, p.turn, &p.tool);
+                    } else {
+                        self.notice(proto::NoticeLevel::Info, "declined");
                     }
                     return proto::Response::Ok;
                 }

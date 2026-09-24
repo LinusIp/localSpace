@@ -583,6 +583,13 @@ pub enum ToolOutcome {
     AwaitingConfirm {
         prompt: String,
     },
+    /// The person said no when asked, and the call was not made. The model
+    /// reads it so, and does not propose the same change again unknowingly
+    /// (docs/DECISIONS.md, 2026-09-24).
+    Declined {
+        /// The question the person answered.
+        prompt: String,
+    },
     Error {
         message: String,
     },

@@ -1041,6 +1041,9 @@ impl App {
                         proto::ToolOutcome::AwaitingConfirm { prompt } => {
                             (P.amber_soft, P.amber, P.amber, "needs you", prompt.clone())
                         }
+                        proto::ToolOutcome::Declined { prompt } => {
+                            (P.amber_soft, P.amber, P.amber, "declined", prompt.clone())
+                        }
                         proto::ToolOutcome::Queued { job } => {
                             (P.blue_soft, P.blue, P.blue, "queued", format!("job {job}"))
                         }

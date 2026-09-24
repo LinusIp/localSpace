@@ -5,4 +5,8 @@ export type ToolOutcome = { "ok": {
 /**
  * What the model sees — "added 3 shapes, moved 1", never the whole document.
  */
-diff_summary: string, result: Json, commit: string | null, } } | { "denied": { reason: string, } } | { "awaiting_confirm": { prompt: string, } } | { "error": { message: string, } } | { "queued": { job: string, } };
+diff_summary: string, result: Json, commit: string | null, } } | { "denied": { reason: string, } } | { "awaiting_confirm": { prompt: string, } } | { "declined": { 
+/**
+ * The question the person answered.
+ */
+prompt: string, } } | { "error": { message: string, } } | { "queued": { job: string, } };

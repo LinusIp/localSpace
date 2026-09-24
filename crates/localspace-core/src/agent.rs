@@ -143,12 +143,38 @@ pub fn resume(
     drain(core);
 }
 
-/// The person declined the call the turn waited on: the answer ends there.
-pub fn declined(core: &mut Core, turn: Option<u64>) {
-    if let Some(id) = turn {
-        end(core, id, TurnState::Done);
-        drain(core);
-    }
+/// The person declined the call the turn waited on. It is not made, and the
+/// answer stops there, since a small model told to carry on proposes the
+/// same change again; the proposal stays in the chat marked as declined,
+/// which is what the model reads next (docs/DECISIONS.md, 2026-09-24).
+pub fn declined(core: &mut Core, turn: Option<u64>, tool: &str) {
+    let Some(i) = turn.and_then(|id| index(core, id)) else {
+        return;
+    };
+    let turn = &core.turns[i];
+    let (id, user, workspace, conversation) = (
+        turn.id,
+        turn.caller.user.clone(),
+        turn.workspace.clone(),
+        turn.conversation.clone(),
+    );
+    write(core, &user, &workspace, &conversation, |messages| {
+        let waiting = messages
+            .iter_mut()
+            .rev()
+            .flat_map(|m| m.tool_calls.iter_mut())
+            .find(|c| {
+                c.tool == tool && matches!(c.outcome, proto::ToolOutcome::AwaitingConfirm { .. })
+            });
+        if let Some(call) = waiting
+            && let proto::ToolOutcome::AwaitingConfirm { prompt } = &call.outcome
+        {
+            let prompt = prompt.clone();
+            call.outcome = proto::ToolOutcome::Declined { prompt };
+        }
+    });
+    end(core, id, TurnState::Stopped);
+    drain(core);
 }
 
 /// A turn's work, come back through Core's queue.

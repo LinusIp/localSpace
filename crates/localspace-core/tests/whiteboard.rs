@@ -1831,6 +1831,77 @@ fn a_stop_while_an_approval_is_waited_on_withdraws_it_and_changes_nothing() {
     assert_eq!(board(&mut core)["shapes"].as_array().unwrap().len(), 1);
 }
 
+/// Declining an approval ends the answer: the change is not made, the chat
+/// keeps the proposal marked as declined, and that is what the model reads
+/// next (docs/DECISIONS.md, 2026-09-24).
+#[test]
+fn declining_an_approval_ends_the_answer_and_the_model_reads_it_declined() {
+    let Some(mut core) = core() else { return };
+    call(&mut core, "canvas.add_sticky", json!({"text": "keep me"}));
+    let id = board(&mut core)["shapes"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    core.router().write().unwrap().chat =
+        Some(Script::calls(vec![("canvas.delete", json!({"id": id}))]));
+    let events: Arc<Mutex<Vec<proto::Event>>> = Arc::default();
+    let into = events.clone();
+    core.set_event_sink(Box::new(move |_to, event| into.lock().unwrap().push(event)));
+
+    core.handle(proto::Request::SendMessage {
+        text: "Remove the sticky.".into(),
+        conversation: None,
+    });
+    let asked = events
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|e| match e {
+            proto::Event::ApprovalRequest { id, .. } => Some(id.clone()),
+            _ => None,
+        })
+        .expect("an approval is asked for");
+    assert!(matches!(
+        core.handle(proto::Request::Approve {
+            id: asked,
+            granted: false
+        }),
+        proto::Response::Ok
+    ));
+
+    assert!(events.lock().unwrap().iter().any(|e| matches!(
+        e,
+        proto::Event::TurnChanged {
+            state: proto::TurnState::Stopped,
+            ..
+        }
+    )));
+    assert!(matches!(
+        core.handle(proto::Request::ListTurns),
+        proto::Response::Turns { list } if list.is_empty()
+    ));
+    assert_eq!(
+        board(&mut core)["shapes"].as_array().unwrap().len(),
+        1,
+        "nothing was deleted"
+    );
+    let messages = match core.handle(proto::Request::GetTranscript) {
+        proto::Response::Transcript { messages } => messages,
+        other => panic!("{other:?}"),
+    };
+    let outcomes: Vec<&proto::ToolOutcome> = messages
+        .iter()
+        .flat_map(|m| &m.tool_calls)
+        .map(|c| &c.outcome)
+        .collect();
+    assert!(
+        matches!(outcomes.as_slice(), [proto::ToolOutcome::Declined { .. }]),
+        "the proposal is kept once, marked as declined: {messages:#?}"
+    );
+    let read = localspace_core::prompt::render_conversation(&messages, 100_000);
+    assert!(read.contains("declined by the person"), "{read}");
+}
+
 #[test]
 fn the_eval_suite_runs_against_the_installed_package() {
     let Some(mut core) = core() else { return };

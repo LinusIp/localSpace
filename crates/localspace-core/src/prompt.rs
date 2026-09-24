@@ -193,6 +193,11 @@ fn render_message(m: &proto::ChatMessage) -> String {
             proto::ToolOutcome::AwaitingConfirm { prompt } => {
                 out.push_str(&format!("\n  <- awaiting confirmation: {prompt}"));
             }
+            proto::ToolOutcome::Declined { prompt } => {
+                out.push_str(&format!(
+                    "\n  <- declined by the person, so not made: {prompt}"
+                ));
+            }
             proto::ToolOutcome::Queued { job } => {
                 out.push_str(&format!("\n  <- queued as job {job}"));
             }

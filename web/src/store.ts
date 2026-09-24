@@ -741,6 +741,7 @@ export function outcomeLine(outcome: ToolOutcome): string {
   if ("ok" in outcome) return outcome.ok.diff_summary || "done";
   if ("denied" in outcome) return `not allowed: ${outcome.denied.reason}`;
   if ("awaiting_confirm" in outcome) return `waiting for your answer: ${outcome.awaiting_confirm.prompt}`;
+  if ("declined" in outcome) return "you declined this change";
   if ("error" in outcome) return `did not work: ${outcome.error.message}`;
   return `queued as ${outcome.queued.job}`;
 }

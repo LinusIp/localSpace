@@ -31,10 +31,21 @@ const NO_CALLS: LiveToolCall[] = [];
  *  without the second sentence people send the message again. */
 const WAITS_FOR_ANOTHER_CHAT = "Waiting for the answer in your other chat to finish. This one will start by itself.";
 
+/** Said where a proposal the person declined stood (ruled 2026-09-24). */
+const DECLINED = "You declined this change. The answer stopped here.";
+
+/** What the chat shows: the person's messages, the answers, and the
+ *  proposals the person declined; other tool records are the model's. */
+function shownOf(transcript: ChatMessage[]): ChatMessage[] {
+  return transcript.filter(
+    (m) => m.role === "user" || m.role === "assistant" || (m.role === "tool" && m.tool_calls.some((c) => "declined" in c.outcome)),
+  );
+}
+
 export function ChatPage() {
   const { conversations, currentConversation, transcript } = useSession();
   const { streaming } = useChatInProgress();
-  const shown = transcript.filter((m) => m.role === "user" || m.role === "assistant");
+  const shown = shownOf(transcript);
   const empty = shown.length === 0 && !streaming;
   const title = conversations.find((c) => c.id === currentConversation)?.title;
   return (
@@ -49,7 +60,7 @@ export function ChatPage() {
 export function Conversation({ compact }: { compact?: boolean }) {
   const { transcript, approvals } = useSession();
   const { streaming, turn, liveCalls, continuing } = useChatInProgress();
-  const shown = transcript.filter((m) => m.role === "user" || m.role === "assistant");
+  const shown = shownOf(transcript);
   const bottom = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState("");
   const empty = shown.length === 0 && !streaming;
@@ -204,6 +215,16 @@ function PersonAvatar() {
  */
 function Message({ message, joined, mayContinue }: { message: ChatMessage; joined: string | null; mayContinue: boolean }) {
   const continueAnswer = useSession((s) => s.continueAnswer);
+  if (message.role === "tool") {
+    return (
+      <div className="message">
+        <AssistantAvatar />
+        <div className="message-body">
+          <div className="message-stopped">{DECLINED}</div>
+        </div>
+      </div>
+    );
+  }
   if (message.role === "user") {
     return (
       <div className="message">
