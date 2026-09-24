@@ -87,6 +87,10 @@ export type Session = {
   liveCalls: Record<string, LiveToolCall[]>;
   /** The chats whose stopped answer is being carried on: its words join it. */
   continuing: Record<string, boolean>;
+  /** What the person typed in each chat and has not sent: kept while an
+   *  answer is written, when they go to another page or chat, and when a
+   *  send fails, so that it is never lost (ruled 2026-09-24). */
+  drafts: Record<string, string>;
   approvals: Approval[];
   trace: string[];
   task: Task | null;
@@ -145,6 +149,8 @@ export type Session = {
 
   refreshEnvironment: () => Promise<void>;
   refreshTranscript: () => Promise<void>;
+  /** What is typed in a chat, not sent yet. */
+  setDraft: (chat: string, text: string) => void;
   /** A message in the chat on screen; its answer comes by events. */
   send: (text: string) => Promise<void>;
   /** Stop the answer in the chat on screen. */
@@ -227,6 +233,7 @@ const EMPTY = {
   turns: {} as Record<string, TurnState>,
   liveCalls: {} as Record<string, LiveToolCall[]>,
   continuing: {} as Record<string, boolean>,
+  drafts: {} as Record<string, string>,
   approvals: [] as Approval[],
   trace: [] as string[],
   task: null,
@@ -467,6 +474,7 @@ export const useSession = createStore<Session>((set, get) => {
         if (transcript) set({ transcript: transcript.messages });
       });
     },
+    setDraft: (chat, text) => set((s) => ({ drafts: text ? { ...s.drafts, [chat]: text } : without(s.drafts, chat) })),
     send: async (text) => {
       const chat = get().currentConversation;
       // Being written until Core says where it stands, so that nothing is
@@ -477,8 +485,9 @@ export const useSession = createStore<Session>((set, get) => {
       }));
       const transcript = await attempt(async () => pick(await call({ send_message: { text, conversation: chat } }), "transcript"));
       if (!transcript) {
-        // Refused, or not reached: the chat as Core has it.
-        set((s) => ({ turns: without(s.turns, chat) }));
+        // Refused, or not reached: the chat as Core has it, and the words back
+        // in the box, unless something new was typed there meanwhile.
+        set((s) => ({ turns: without(s.turns, chat), drafts: s.drafts[chat] ? s.drafts : { ...s.drafts, [chat]: text } }));
         void get().refreshTranscript();
         return;
       }

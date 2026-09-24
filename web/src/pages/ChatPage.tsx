@@ -2,7 +2,7 @@
 // first message, then the conversation. Tool calls appear as what they did,
 // in words; anything that needs the person's say-so appears as a card.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, CloseIcon, SpinnerIcon, StopIcon } from "@localspace/ui";
 import type { ChatMessage, ToolCallRecord } from "../api/generated";
 import { initialsOf, outcomeLine, useSession } from "../store";
@@ -67,7 +67,10 @@ export function Conversation({ compact }: { compact?: boolean }) {
   const { streaming, turn, liveCalls, continuing } = useChatInProgress();
   const shown = shownOf(transcript);
   const bottom = useRef<HTMLDivElement>(null);
-  const [draft, setDraft] = useState("");
+  // What is typed here belongs to the chat, and stays with it.
+  const chat = useSession((s) => s.currentConversation);
+  const draft = useSession((s) => s.drafts[chat] ?? "");
+  const setDraft = (text: string) => useSession.get().setDraft(chat, text);
   const empty = shown.length === 0 && !streaming;
   // Carrying on a stopped answer: its new words join it, in its place.
   const last = shown[shown.length - 1];
