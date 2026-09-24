@@ -4,6 +4,89 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-24, the answers after 1.6 and 1.7: CI while billing is down, two rules for Continue, and the eight questions
+
+The founder's answers to the report on 1.6 and 1.7
+(`24-localspace-answers-after-concurrency.md`).
+
+- **While GitHub starts no jobs** (the account's billing, the founder's to
+  fix): work goes on and is pushed, but **nothing reaches a tester until CI
+  is green on that exact commit and a package built from it has passed the
+  release check**; no build after `354c26f` does today. When billing is
+  back, first: CI again on the head, whatever clippy then finds in the server
+  and client crates fixed, a package of the head, and the release check again
+  with Continue in it, reported one line per item.
+- **The Windows package is built by hand, for a check or a release being
+  prepared, and on a version tag**; never on a timer or per push. It is the
+  most expensive job there is, and what tipped the account over.
+- **Moving the engine's pin reruns Continue** on every catalog default,
+  beside the rerun of the catalog: that the engine says the handed words
+  again at the start of its stream is its behaviour today, not a promise.
+- **The repeated words are dropped only when the stream begins with exactly
+  them.** Otherwise nothing is dropped, and one line in the log says the
+  engine did not repeat them. Never by length alone: a wrong guess would cut
+  real words out of someone's answer with nobody noticing.
+- **N on a server is the chat worker's `max_batch`**, on three conditions.
+  The planner counts all N chats: the 1.3 layer offload includes N times the
+  per-chat cache, or a server told to write 4 answers at once spills or
+  fails on a machine the planner said fits. How b10869 divides `-c` between
+  its slots (evenly, or one shared pool) is found out, and `-c` is set so
+  that each chat gets at least the context the planner promises; the
+  per-chat context is logged at start, and a start that would leave a chat
+  less than a real prompt needs is refused, saying why (the whiteboard took
+  a prompt to 3,546 tokens in Test A). Defaults: 1 on a person's computer;
+  on a server what the administrator sets, and 1 if nothing is set. **Test
+  B's server is set to 2**, so that the test covers two answers at once.
+- **When every slot is busy** the chat says *"The server is answering other
+  people right now. This one will start by itself."* ("server", not "model":
+  the person has no choice to make about the model here, and it happens only
+  in organisation mode). The spec's position in the queue comes later, with
+  the queue.
+- **The prompt as a system message and turns is done with the ledger after
+  the conversation, as one item**, reversing document 22 (turns as turns in
+  Phase 4): the layout echoed back and "no tool is installed…" opening most
+  answers are the most visible faults, and Continue already hands the engine
+  a reply turn on top of a conversation that is still one block. Conditions:
+  with no tools installed the prompt says nothing about tools, no "no tool is
+  installed" line at all (document 20: a tool costs something only while in
+  use); two consecutive turns' prompts match up to the new message (document
+  22's test); the message script runs on every catalog default before and
+  after, the answers are read, and the answers that echo the layout or open
+  with tool talk are counted before and after. It is estimated first; over
+  three days, the founder decides whether to split it.
+- **An engine left running by a Core that died is stopped at the next
+  start, precisely**, in the 1.3 batch. Never "any engine from our folder":
+  the desktop app and a `localspace serve` may share one install. When Core
+  starts an engine it writes, in its data folder, its own process ID, the
+  engine's, and the engine's start time; at the next start, if that file
+  names a Core no longer running, and the engine is still running from our
+  engine's path with that start time, it is stopped and one line logged;
+  anything else is left alone. **A Windows job object follows**, approved
+  because `windows-sys` is already in `Cargo.lock` (0.61.2, through tokio,
+  Tauri and wasmtime) and that version is used: it covers a crash when it
+  happens; the file stays, for a power cut.
+- **A second message while an answer is written stays refused, without
+  feeling like a refusal**: the send button is Stop meanwhile, the text box
+  stays editable, and what is typed there is never lost.
+- **Declining an approval still ends the answer**, because small models
+  propose the same change again when told to carry on. The chat says *"You
+  declined this change. The answer stopped here."*, and the declined
+  proposal is part of what the model reads next, marked as declined.
+- **A workspace switch still stops a running answer, for now, never
+  silently**: before the switch, *"An answer is being written in [chat
+  name]. Switching will stop it."* with *Switch* and *Stay*. Test A asked to
+  use other chats while an answer runs and to let it run in the background,
+  so this is temporary: what it takes for the answer to carry on and land in
+  its own chat is estimated, and a day or less goes into the 1.3 batch.
+- **Continue keeps handing over the stopped words, with no tool offered.**
+  When the catalog refresh lands, Continue is run on each new default: a
+  model that thinks first (Qwen3.5) may have a template that refuses a
+  prefilled reply, or start a reasoning block mid-sentence; for such a model
+  thinking is off for the Continue step, written in its catalog entry. Never
+  back to the line asking the model to continue.
+- **Next**: the ledger with the prompt as turns, once estimated; after it the
+  founder is asked whether Test B or the rest of Phase 1 comes first.
+
 ## 2026-09-23, the plan for 1.6 and 1.7 approved, with additions; a rule for release builds
 
 The founder's answer to the plan for Stop and chats that stay usable
