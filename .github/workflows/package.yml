@@ -10,9 +10,12 @@
 # lets an unsigned build through, how the engine behaves on a real GPU, and
 # what a person sees. Those are the dry run's, on a real machine.
 #
-# Started by hand, by a version tag, and once a day until the laptop test: a
-# Windows runner costs double minutes, and nothing here changes what `ci`
-# decides about a commit.
+# Started by hand, for a check or for a release being prepared, and by a
+# version tag; never on a timer or per push (docs/DECISIONS.md, 2026-09-24).
+# A Windows runner costs double minutes, this is the most expensive job there
+# is, and nothing here changes what `ci` decides about a commit. The daily
+# run that kept its cache warm until the laptop test is gone, so a first run
+# after a week without one starts cold (81 minutes on 2026-09-18).
 
 name: package
 
@@ -26,10 +29,6 @@ on:
         default: none
   push:
     tags: ["v*"]
-  # Once a day until the laptop test, so that the cache is never cold when a
-  # rebuild matters (docs/DECISIONS.md, 2026-09-18): a cold run is 81 minutes.
-  schedule:
-    - cron: "30 1 * * *"
 
 permissions:
   contents: read
