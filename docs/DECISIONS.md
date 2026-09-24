@@ -87,6 +87,66 @@ The founder's answers to the report on 1.6 and 1.7
 - **Next**: the ledger with the prompt as turns, once estimated; after it the
   founder is asked whether Test B or the rest of Phase 1 comes first.
 
+**Built** (the same day; GitHub still started no jobs, so none of it has
+been through CI):
+- **The package workflow runs by hand and on a version tag only.** It also
+  ran every day at 01:30 UTC, a schedule added to keep its cache warm until
+  the laptop test: twenty runs since 2026-09-18, six of them by the
+  schedule (those of 21, 22 and 23 September rebuilt the same commit,
+  `d9bcb17`), fourteen by hand, 15 to 17 minutes each on a runner that bills
+  double. The cost of removing it: a first run after a week without one
+  starts cold (81 minutes on 2026-09-18). `ci` runs on Linux only, on every
+  push and pull request.
+- **The handed words are dropped only on an exact match** (`model::SaidAgain`):
+  what was held back while it could still be them is passed on however the
+  stream ends, and when the engine does not repeat them `app.log` says
+  "continue: the engine did not begin its reply with the N characters it was
+  handed; nothing was dropped", with the count and never the words.
+- **The message script works again, and ends with Continue.** Since 1.6 and
+  1.7 a message returns before its answer, so the script would have written
+  "no reply" for every message; it now waits for each answer to end, and for
+  its model to be found and checked on a fresh data folder before starting
+  it. Its last step stops an answer after thirty words, read from the event
+  stream, carries it on and writes the join down; `docs/BUILD.md` lists what
+  runs when the pin moves. With Qwen2.5 1.5B: "…or in a dangerous area" +
+  "of the sea, where it can be seen from a distance", and no line in the log.
+- **A declined change** is a tool outcome of its own, `Declined`, carrying
+  the question answered ("denied" stays a refusal by permissions). Core marks
+  the proposal's waiting record declined in place and ends the answer as
+  stopped; the model reads "<- declined by the person, so not made: …"; the
+  chat shows that record, alone of the tool records, as the ruled sentence.
+- **The words when every slot is busy** are in the chat.
+- **What is typed stays with its chat**, kept in the session: the box was
+  editable and Enter left the words in it, but they were lost on going to
+  Settings and back and followed the person into another chat. Checked in
+  the app with a real model: typed while an answer was written, Enter sent
+  nothing, the words survived Settings, another chat and the answer's end,
+  and were sent after it.
+- **A workspace switch asks first, then stops the answers at once.** Found:
+  the switch did not stop an answer, as the report of 1.6 and 1.7 said.
+  Core looked for it only between steps, so the step being written went on
+  to its end in its own chat, and only an answer with another step was
+  stopped. Core now stops the person's answers in the workspace they leave
+  when they leave it, at Stop's safe points, and says so once.
+- **How b10869 divides `-c`** (measured on this laptop, `/props` and
+  `/slots`): with no `--parallel`, which is what Core passes today, the
+  engine runs 4 slots sharing one pool of `-c` (8,192): one answer may use
+  all of it, but answers at once share it. `--parallel 2` splits `-c`
+  evenly (4,096 each); `--parallel 2 --kv-unified` shares one pool of 8,192
+  again; `--kv-unified-per-slot C` sizes a shared pool to N×C with each
+  slot capped at C. So N chats promised C tokens each are `--parallel N`
+  with `-c` = N×C (or `--kv-unified-per-slot C`), and the planner counts N×C.
+- **`windows-sys` 0.61.2** is in `Cargo.lock`, through tokio (mio), Tauri
+  (dirs-sys), wasmtime-wasi and eframe: the job object is approved.
+- **Estimates asked for.** An answer that carries on across a workspace
+  switch: about two to two and a half days, so not in the 1.3 batch. State
+  is kept per person and tool calls act on the active workspace's document,
+  so it needs that state per person *and* workspace, the ledger and the
+  context of the answer's own workspace for its later steps, approvals shown
+  in their own chat, and a word when an answer elsewhere is done. The prompt
+  as a system message and turns with the ledger: about three and a half
+  days, over the three, for the founder to split or not.
+
 ## 2026-09-23, the plan for 1.6 and 1.7 approved, with additions; a rule for release builds
 
 The founder's answer to the plan for Stop and chats that stay usable
