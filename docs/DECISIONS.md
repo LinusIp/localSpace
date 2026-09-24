@@ -4,6 +4,111 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-24, the organisation layer planned (document 26): not before Test B
+
+The founder's plan (`26-localspace-organisation-layer-plan.md`). **Not started,
+and not before Test B is done and the founder says go**; recorded now so that
+nothing built meanwhile goes against it.
+
+- **No separate enterprise system.** One Core, personal and server mode one
+  codebase: every organisation feature is a Core request that checks the
+  caller's role on the server, hiding a button is never the security, and a
+  refused request is logged. One desktop app: an *Organisation* section in
+  Settings for administrators, which staff never see and which does not exist
+  in personal mode. Admin screens in a browser come only when a pilot asks,
+  with a certificate their machines trust (document 22, §3).
+- **No admin screen shows the content of anyone's conversations**: messages,
+  answers, attachments or titles. Load, audit and user screens show counts and
+  times only, and nothing in the layer may make reading them possible, export
+  and backup files readable outside Core included, until the founder decides.
+- **Order.** O1, after Test B: people (the first administrator made at
+  install; add, turn off and reset; the last administrator protected), models
+  (which of the server's models staff may use and which is the default; loaded
+  from a file where there is no internet, checked against the entry's SHA-256
+  and marked "added by your administrator" until the signed index exists),
+  load (plain numbers, and one line of advice only when it is true). O2, one
+  item at a time when a pilot asks: allowed tools (enforced by Core), an audit
+  log (never conversation content), silent rollout. O3 only when a customer
+  requires it: company accounts (AD/LDAP; a new dependency, asked first), the
+  browser admin screens, retention.
+- **It waits on three founder decisions**: whether an administrator may ever
+  read staff conversations (until then, no); how long the server keeps
+  conversations, and whether a person can delete their own for good; who the
+  first pilot is.
+- **The builder's reply now**: what exists, estimates for O1 and each O2 item,
+  anything that conflicts with the spec or an earlier ruling, and whether the
+  installer takes parameters for a silent install.
+
+## 2026-09-24, until October every check runs on this machine; the answers on the prompt item (document 25)
+
+The instructions that came with document 25, and the founder's answers on the
+prompt item (`25-localspace-answers-prompt-item.md`).
+
+**Until the runner allowance resets in October, nothing runs on GitHub's
+computers.**
+- `ci` runs only when started by hand; `package` only by hand or on a version
+  tag. Every commit is still pushed, as a backup.
+- **WSL with Ubuntu on this laptop** (approved; the owner does the install and
+  the restart). `scripts/check.sh` runs exactly what `ci` runs (formatting,
+  clippy, every test, the web checks, the browser walks, the message script)
+  inside it **before every push, and nothing is pushed that it fails on**;
+  every report carries the commit and its result line. Its first run catches
+  up on the commits no CI has seen, and what clippy finds is fixed.
+- **Installers are built on this laptop, only when a release is being
+  prepared.** The file the release check runs on is the file testers get, and
+  its SHA-256 is in the report.
+- **In October** `ci` runs once by hand on the head, as a check from a clean
+  computer, and whether automatic runs come back is decided with the owner.
+- Standing from document 24: nothing reaches testers until CI is green on the
+  head and the release check passes.
+
+**The prompt item:**
+- **The message script runs against the test engine**, as a `ci` job on the
+  Linux runner and in `scripts/check.sh`: it judges nothing, but every message
+  must be answered and Continue must carry through, which would have caught
+  1.6 and 1.7 breaking the script with no test failing.
+- **How the engine splits `-c` between its slots joins the pin-move list**,
+  beside Continue and the catalog rerun: it is engine behaviour too.
+- **One item, 3.5 days**: half a day over the line is cheaper than a second
+  round of before-and-after runs.
+- **With nothing installed from the Store, Core's own tools go too**: no
+  tools, no `find_capability`, no ledger. Someone who installs nothing gets
+  plain chat, which pays for no tools, and it is the most direct fix for the
+  tool talk. Before the ledger goes, whatever reads it besides tool use is
+  found and reported.
+- **What is lost is measured, not guessed**: the message script asks "Draw
+  me a picture of a cat." With nothing installed, a model that says it cannot
+  make pictures is fine: the Store is where people find tools, not the chat.
+  One that pretends (a fake image link, a description passed off as a
+  picture) or writes tool calls into its text gets one sentence in the
+  system prompt, *"You reply in text only. Tools such as Pictures can be
+  added from the Store."*, and runs again, both results reported. Anything
+  else is reported for the founder to decide. The sentence is not added in
+  advance: the last line added about tools is what caused the talk.
+- **The ledger's place is chosen per model by testing its template.** Shape
+  1: a system message after the newest message. Shape 2: added to the end of
+  the newest message, for templates that refuse shape 1 (Ministral 3 14B, a
+  Mistral template, is one of document 18's new defaults, so shape 2 is part
+  of this item); there doc 22's test becomes "the prompts match up to the
+  start of the previous message", one exchange reprocessed a turn. When a
+  model loads, a three-message conversation with shape 1 is rendered through
+  its own template; if that fails, or the system message is missing from the
+  output, shape 2; the choice is logged. A test beats a list of names:
+  families change their templates between versions. With nothing installed
+  there is no ledger, and no choice to make.
+- **The answer that carries on across a workspace switch goes with 1.12.**
+  Until then the *Stay* / *Switch* warning is the rule.
+- **N is `--parallel N -c N×C`, and `--parallel 1` is passed on a person's
+  own computer.** C is the per-chat context the planner promises and its
+  offload counts N×C of cache: one calculation, so the words on screen and
+  the engine's flags cannot disagree. `--kv-unified-per-slot` is measured on
+  the DGX during Test B, the same load with and without, the time to the
+  first word reported: when tools are installed every prompt starts with the
+  same long tool section. No switch without a number.
+- **Next**: the "before" runs with the picture message, and one line of
+  counts (layout echo, tool talk, pretending to make a picture) for each of
+  the four defaults before anything changes.
+
 ## 2026-09-24, the answers after 1.6 and 1.7: CI while billing is down, two rules for Continue, and the eight questions
 
 The founder's answers to the report on 1.6 and 1.7
