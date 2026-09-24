@@ -71,6 +71,10 @@ const SCRIPT = [
   { name: "a packing list", turns: ["Give me a packing list for a three-day hiking trip in autumn."] },
   { name: "a little code", turns: ["Write a Python function that checks whether a number is prime."] },
   { name: "something it cannot know", turns: ["What is the weather like in Lisbon today?"] },
+  // Only a tool from the Store could do this: what does a model say when
+  // nothing is installed? (docs/DECISIONS.md, 2026-09-24, answers on the
+  // prompt item.)
+  { name: "something only a Store tool can do", turns: ["Draw me a picture of a cat."] },
   {
     name: "three turns, each depending on the one before",
     turns: ["Give me three ideas for a weekend trip from Berlin, one line each.", "Tell me more about the second one.", "Roughly what would that cost for two people?"],
