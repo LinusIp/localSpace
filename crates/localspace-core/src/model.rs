@@ -177,6 +177,33 @@ impl OpenAiWorker {
         self
     }
 
+    /// A model behind TLS, connected under Advanced: `ureq` reads it, stopped
+    /// at its next piece, with no limit on how long a model that is writing
+    /// may take, only on the wait for its first word.
+    fn read_over_tls(
+        &self,
+        url: &str,
+        body: &J,
+        silence: Silence,
+        stop: &Stop,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<ChatReply> {
+        let mut request = ureq::post(url)
+            .config()
+            .timeout_global(None)
+            .timeout_recv_response(Some(silence.before_first_word))
+            .build();
+        if let Some(k) = &self.api_key {
+            request = request.header("Authorization", &format!("Bearer {k}"));
+        }
+        let mut res = request
+            .send_json(body)
+            .map_err(|e| anyhow::anyhow!("{e}"))
+            .with_context(|| format!("POST {url}"))?;
+        let reader = std::io::BufReader::new(res.body_mut().as_reader());
+        read_sse(reader, on_delta, stop)
+    }
+
     /// Ask the endpoint what it has loaded. Used by the model picker.
     pub fn list_models(base_url: &str, api_key: Option<&str>) -> Result<Vec<String>> {
         let url = format!("{}/models", base_url.trim_end_matches('/'));
@@ -247,7 +274,7 @@ impl ModelWorker for OpenAiWorker {
         }
 
         let res = self.post("/chat/completions", body)?;
-        let again = SaidAgain::new(req.begun.as_deref().unwrap_or_default());
+        let mut again = SaidAgain::new(req.begun.as_deref().unwrap_or_default());
         Ok(again.carried_on(parse_openai_reply(&res)?))
     }
 
@@ -280,38 +307,27 @@ impl ModelWorker for OpenAiWorker {
         }
         let url = format!("{}/chat/completions", self.base_url);
         let mut again = SaidAgain::new(req.begun.as_deref().unwrap_or_default());
-        let mut pass = |piece: &str| again.pass(piece, on_delta);
-        let reply = if url.starts_with("http://") {
-            // The engine, and a model on the organisation's network: read on
-            // a socket of our own, which a stop shuts and a silence ends.
-            crate::stream::post_and_read(
-                &url,
-                self.api_key.as_deref(),
-                &body,
-                silence,
-                stop,
-                &mut pass,
-            )?
-        } else {
-            // A model behind TLS, connected under Advanced: `ureq` reads it,
-            // stopped at its next piece, with no limit on how long a model
-            // that is writing may take, only on the wait for its first word.
-            let mut request = ureq::post(&url)
-                .config()
-                .timeout_global(None)
-                .timeout_recv_response(Some(silence.before_first_word))
-                .build();
-            if let Some(k) = &self.api_key {
-                request = request.header("Authorization", &format!("Bearer {k}"));
+        let read = {
+            let mut pass = |piece: &str| again.pass(piece, on_delta);
+            if url.starts_with("http://") {
+                // The engine, and a model on the organisation's network: read
+                // on a socket of our own, which a stop shuts and a silence ends.
+                crate::stream::post_and_read(
+                    &url,
+                    self.api_key.as_deref(),
+                    &body,
+                    silence,
+                    stop,
+                    &mut pass,
+                )
+            } else {
+                self.read_over_tls(&url, &body, silence, stop, &mut pass)
             }
-            let mut res = request
-                .send_json(&body)
-                .map_err(|e| anyhow::anyhow!("{e}"))
-                .with_context(|| format!("POST {url}"))?;
-            let reader = std::io::BufReader::new(res.body_mut().as_reader());
-            read_sse(reader, &mut pass, stop)?
         };
-        Ok(again.carried_on(reply))
+        // Whatever was held back as perhaps the handed words, said again, is
+        // passed on however the answer ended, unless it was exactly them.
+        again.finish(on_delta);
+        Ok(again.carried_on(read?))
     }
 
     fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
@@ -404,14 +420,30 @@ fn messages(req: &ChatRequest) -> J {
     J::Array(messages)
 }
 
-/// An answer carried on, as it comes back. llama-server (b10869) says the
-/// words it was given again at the start of its stream, before what the model
-/// adds; only what the model adds is passed on and kept. From a backend that
-/// does not say them again, everything is.
+/// An answer carried on, as it comes back. llama-server (b10869) begins its
+/// stream with the words it was handed, before what the model adds; that is
+/// its behaviour, not a promise, and a new pin may change it. The words are
+/// dropped only when the stream begins with exactly them, never by length:
+/// a wrong guess would cut real words out of an answer with nobody noticing
+/// (docs/DECISIONS.md, 2026-09-24). When it does not, nothing is dropped and
+/// the log says so, once.
 struct SaidAgain<'a> {
     begun: &'a str,
+    /// What came while it could still be the handed words, said again.
     held: String,
-    past: bool,
+    seed: Seed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Seed {
+    /// Nothing was handed over.
+    None,
+    /// Not yet known whether the engine says them again.
+    Waiting,
+    /// It did, exactly: they are not passed on.
+    SaidAgain,
+    /// It did not: everything is passed on.
+    NotSaidAgain,
 }
 
 impl<'a> SaidAgain<'a> {
@@ -419,36 +451,74 @@ impl<'a> SaidAgain<'a> {
         SaidAgain {
             begun,
             held: String::new(),
-            past: begun.is_empty(),
+            seed: if begun.is_empty() {
+                Seed::None
+            } else {
+                Seed::Waiting
+            },
         }
     }
 
     fn pass(&mut self, piece: &str, on_delta: &mut dyn FnMut(&str)) {
-        if self.past {
+        if self.seed != Seed::Waiting {
             on_delta(piece);
             return;
         }
         self.held.push_str(piece);
-        // Perhaps still the begun words, said again: wait for more.
+        // Perhaps still the handed words, said again: wait for more.
         if self.held.len() < self.begun.len() && self.begun.starts_with(self.held.as_str()) {
             return;
         }
-        self.past = true;
         let held = std::mem::take(&mut self.held);
-        let added = held.strip_prefix(self.begun).unwrap_or(&held);
-        if !added.is_empty() {
-            on_delta(added);
+        match held.strip_prefix(self.begun) {
+            Some(added) => {
+                self.seed = Seed::SaidAgain;
+                if !added.is_empty() {
+                    on_delta(added);
+                }
+            }
+            None => {
+                self.not_said_again();
+                on_delta(&held);
+            }
         }
     }
 
-    /// The whole reply, with what the model added as its text.
-    fn carried_on(&self, mut reply: ChatReply) -> ChatReply {
-        if !self.begun.is_empty()
+    /// The stream is over: what was held back was not the handed words
+    /// after all, only as far as they went, and is passed on.
+    fn finish(&mut self, on_delta: &mut dyn FnMut(&str)) {
+        if self.seed == Seed::Waiting && !self.held.is_empty() {
+            let held = std::mem::take(&mut self.held);
+            self.not_said_again();
+            on_delta(&held);
+        }
+    }
+
+    /// The whole reply, with what the model added as its text: the handed
+    /// words come off only where they were said again, exactly. A reply
+    /// that came whole is looked at here.
+    fn carried_on(&mut self, mut reply: ChatReply) -> ChatReply {
+        if self.seed == Seed::Waiting {
+            if reply.text.starts_with(self.begun) {
+                self.seed = Seed::SaidAgain;
+            } else {
+                self.not_said_again();
+            }
+        }
+        if self.seed == Seed::SaidAgain
             && let Some(added) = reply.text.strip_prefix(self.begun)
         {
             reply.text = added.to_string();
         }
         reply
+    }
+
+    fn not_said_again(&mut self) {
+        self.seed = Seed::NotSaidAgain;
+        tracing::info!(
+            "continue: the engine did not begin its reply with the {} characters it was handed; nothing was dropped",
+            self.begun.chars().count()
+        );
     }
 }
 
@@ -802,13 +872,15 @@ impl Streamer {
 mod tests {
     use super::*;
 
-    /// What an answer carried on passes to the person, piece by piece.
+    /// What an answer carried on passes to the person, piece by piece, to
+    /// the stream's end.
     fn passed(begun: &str, pieces: &[&str]) -> Vec<String> {
         let mut again = SaidAgain::new(begun);
         let mut passed = Vec::new();
         for piece in pieces {
             again.pass(piece, &mut |p| passed.push(p.to_string()));
         }
+        again.finish(&mut |p| passed.push(p.to_string()));
         passed
     }
 
@@ -830,14 +902,38 @@ mod tests {
         assert!(passed("Once upon", &["Once upon"]).is_empty());
         // Nothing begun.
         assert_eq!(passed("", &["Hello"]), ["Hello"]);
+    }
 
-        let again = SaidAgain::new("Once upon");
+    /// Only an exact match is dropped: a start that is the handed words
+    /// only as far as it goes, or that turns away from them, is all passed
+    /// on, and kept.
+    #[test]
+    fn nothing_is_dropped_unless_the_handed_words_come_back_exactly() {
+        // Part of the words, then the end of the stream.
+        assert_eq!(passed("Once upon", &["Once up"]), ["Once up"]);
+        // A start that turns away from them.
+        assert_eq!(passed("Once upon", &["Once", " more"]), ["Once more"]);
+        assert_eq!(passed("Once upon", &["Once upOn a"]), ["Once upOn a"]);
+
         let reply = |text: &str| ChatReply {
             text: text.into(),
             ..Default::default()
         };
+        // A reply that came whole.
+        let mut again = SaidAgain::new("Once upon");
         assert_eq!(again.carried_on(reply("Once upon a time")).text, " a time");
+        let mut again = SaidAgain::new("Once upon");
         assert_eq!(again.carried_on(reply(" a time")).text, " a time");
+        let mut again = SaidAgain::new("Once upon");
+        assert_eq!(again.carried_on(reply("Once up")).text, "Once up");
+        // After a stream that did not say them again, the reply keeps all.
+        let mut again = SaidAgain::new("Once upon");
+        again.pass("Once more", &mut |_| {});
+        assert_eq!(again.carried_on(reply("Once more")).text, "Once more");
+        // After one that did, only what was added.
+        let mut again = SaidAgain::new("Once upon");
+        again.pass("Once upon a", &mut |_| {});
+        assert_eq!(again.carried_on(reply("Once upon a")).text, " a");
     }
 
     #[test]
