@@ -4,6 +4,41 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-25, before the repository is made public: the answers to the scan
+
+The owner's answers to the scan before the switch. The scan found no secret
+in any commit, commit message or Actions log. The founder makes the
+repository public only once items 1 to 4 and 8 below are done.
+
+- **The crates point at `LICENSE`** ("Copyright 2026 localSpace. All rights
+  reserved."): `license-file = "LICENSE"` and `publish = false` for the
+  workspace, instead of `MIT OR Apache-2.0`, and the landing page no longer
+  says "MIT or Apache-2.0". Such a line in a public repository could be read
+  as granting an open-source licence.
+- **No account name in the files**: a generic path in `docs/BUILD.md`, and
+  the app screenshots cropped. What is already in the history stays, which
+  is accepted because it is only an account name: no force-push. The v1
+  test database, with a temporary path in it, stays as it is; so does the
+  author name on the commits.
+- **The example.test people** (Anna Karimova, Bek Yusupov, Vera Sultanova)
+  were invented for the tests and stay; a real person's name would be
+  replaced.
+- **No installers are left on GitHub.** The 18 Windows packages among the
+  Actions artifacts are deleted before the switch: they are unsigned, and
+  the older ones carry the language fault. The newest, `cecb5b74`, is kept
+  on the build machine first, for comparisons. The package workflow now
+  keeps its upload one day, to be downloaded here, and anything public goes
+  out only as a GitHub Release when the founder decides. The benchmark files
+  and the server logs stay.
+- **Internal documents.** What is in the history becomes public, and that is
+  accepted. From now on internal strategy goes to a new private repository,
+  `LinusIp/localSpace-internal`: the decision log's business entries, pilot
+  and customer plans, the target market, and the results of Tests A and B.
+  Technical documents (`BUILD.md`, the specs, the technical decisions) stay
+  public. The split is proposed in one short list before anything moves.
+- **After the switch `ci` runs on every push again**, free for a public
+  repository, and runs once by hand on the head, reported.
+
 ## 2026-09-24, the organisation layer planned (document 26): not before Test B
 
 The founder's plan (`26-localspace-organisation-layer-plan.md`). **Not started,
