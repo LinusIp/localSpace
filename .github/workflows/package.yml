@@ -221,9 +221,12 @@ jobs:
           if (Test-Path (Join-Path $env:INSTALL_DIR 'localspace-app.exe')) { throw "the uninstaller left the program behind" }
           # "Delete the application data" was not asked for, so it stays.
           if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'localSpace\db'))) { throw "the data went with the program" }
+      # Kept one day, for downloading to the build machine: the repository is
+      # public, and anything public goes out only as a GitHub Release when the
+      # founder decides (docs/DECISIONS.md, 2026-09-25).
       - uses: actions/upload-artifact@v4
         with:
           name: localSpace-windows-${{ env.LOCALSPACE_BUILD_ID }}
           path: dist/windows/
-          retention-days: 14
+          retention-days: 1
           if-no-files-found: error

@@ -231,7 +231,9 @@ path against `fake_llama_server`, a test double this crate builds.
 Until October the package is built on this laptop, and only when a release
 is being prepared (docs/DECISIONS.md, 2026-09-24): the `package` workflow
 (`.github/workflows/package.yml`, started by hand or by a `v*` tag) stays
-for later. What ten people run is still what a commit produced: the build is
+for later, and keeps what it builds one day only, to be downloaded here:
+the repository is public, and anything public goes out only as a GitHub
+Release when the founder decides (2026-09-25). What ten people run is still what a commit produced: the build is
 of a commit that `scripts/check.sh` passed, **the file the release check runs
 on is the file the testers get**, and its SHA-256 goes into the report. The
 steps, on Windows:
