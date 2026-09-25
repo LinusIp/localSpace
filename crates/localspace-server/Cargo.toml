@@ -2,7 +2,8 @@
 name = "localspace-server"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+publish.workspace = true
 description = "localspace serve: Core, the HTTP and WebSocket API, and the web client bundle. Also the library the desktop shell embeds."
 
 [dependencies]

@@ -2,7 +2,8 @@
 name = "localspace-core"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+publish.workspace = true
 description = "localSpace backend: harness runtime, permissions, DAG, agent loop. No UI dependencies."
 
 [dependencies]

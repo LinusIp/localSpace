@@ -2,7 +2,8 @@
 name = "localspace-client"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+publish.workspace = true
 description = "localSpace GUI. No IO except through `Backend`. Compiles to native and wasm32."
 
 [dependencies]

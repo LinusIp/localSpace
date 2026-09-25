@@ -2,7 +2,8 @@
 name = "localspace-cli"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+publish.workspace = true
 description = "The localspace binary: serve, and the commands an operator runs beside it."
 
 [[bin]]

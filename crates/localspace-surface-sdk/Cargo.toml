@@ -2,7 +2,8 @@
 name = "localspace-surface-sdk"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+publish.workspace = true
 description = "What harness authors compile `kind = \"egui\"` surfaces against. Re-exports a pinned egui."
 
 [dependencies]

@@ -2,7 +2,8 @@
 name = "localspace-shell"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+publish.workspace = true
 description = "The localSpace desktop app: Core and the API in this process, the web client in the system webview (Tauri 2)."
 
 [[bin]]

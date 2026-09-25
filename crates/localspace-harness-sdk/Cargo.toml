@@ -2,7 +2,8 @@
 name = "localspace-harness-sdk"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+publish.workspace = true
 description = "What harness authors compile logic against: the harness ABI and MCP-shaped types."
 
 [dependencies]

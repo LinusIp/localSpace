@@ -2,7 +2,8 @@
 name = "localspace-desktop"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+publish.workspace = true
 description = "The egui desktop client with Core in one process, until it is archived; the localspace binary is the cli crate."
 
 [[bin]]
