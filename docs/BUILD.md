@@ -129,7 +129,7 @@ pushed, cloned into `~/localspace-check` and built on WSL's own disk.
 and its last line. It runs in Linux, where Smart App Control has no say.
 
 ```bash
-wsl -d Ubuntu-24.04 --cd "C:\Users\Progress service\Desktop\localSpace" -- bash -lc scripts/check.sh
+wsl -d Ubuntu-24.04 --cd "C:\path\to\localSpace" -- bash -lc scripts/check.sh
 ```
 
 `--w32-gate` adds the W32 canvas gate, as `ci`'s input of the same name
@@ -141,7 +141,7 @@ Setting WSL up is the machine owner's, once, since it needs an administrator,
 a restart and a password: in PowerShell as administrator,
 `wsl --install -d Ubuntu-24.04`, restart Windows, open *Ubuntu 24.04* from
 the Start menu and choose a user name and password; then, in Ubuntu, in this
-repository (`cd "/mnt/c/Users/Progress service/Desktop/localSpace"`),
+repository (`cd /mnt/c/path/to/localSpace`),
 `bash scripts/wsl-setup.sh`, which says what it fetches and from where.
 
 In October `ci` runs once by hand on the head, as the check from a clean
