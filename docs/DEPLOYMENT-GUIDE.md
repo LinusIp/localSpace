@@ -1,6 +1,6 @@
 # localSpace — deployment guide
 
-Two parts, because there are two ways to run it. **Part A** is one person on one machine — the ten laptops next week. **Part B** is a company: one server, many employees on their own laptops, no inference on those laptops. The DGX Spark appears in Part B as one possible server, not as a requirement.
+Two parts, because there are two ways to run it. **Part A** is one person on one machine. **Part B** is a company: one server, many employees on their own laptops, no inference on those laptops. The DGX Spark appears in Part B as one possible server, not as a requirement.
 
 Naming used throughout: **Core** is what employees connect to and where all data lives. A **worker** is a process that runs the model and stores nothing. In Part A both run on the same laptop and nobody sees them.
 

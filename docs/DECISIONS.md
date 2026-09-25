@@ -4,7 +4,16 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
-## 2026-09-25, the repository is public: `ci` on every push again, WSL dropped
+Since 2026-09-25 the business decisions (plans and phases, estimates and
+dates, pilots and customers, the market, the tests with people and their
+results) are kept in a private log, `LinusIp/localSpace-internal`; this one
+keeps the technical decisions. What it held of them moved there that day, and
+a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
+`docs/TEST-A-TESTER-SHEET.md`, `docs/test-a/RUNBOOK.md`,
+`docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
+moved with them.
+
+## 2026-09-25, the repository is public: `ci` on every push again, WSL dropped, business decisions kept privately
 
 The owner's instructions once the repository was switched to public.
 
@@ -18,6 +27,20 @@ The owner's instructions once the repository was switched to public.
   them.
 - **The rule is again: nothing reaches a tester until `ci` is green on that
   exact commit and the release check has passed.**
+- **Business decisions go to a private log from now on**,
+  `LinusIp/localSpace-internal` (the split proposed before the switch,
+  approved as proposed): plans and phases, estimates and dates, pilots and
+  customers, the market, and the tests with people and their results. This
+  log's business entries moved there: the organisation layer's plan of
+  2026-09-24 whole, and the business points of fourteen other days, each of
+  which now ends with a line saying so. With them went
+  `docs/AFTER-TEST-A.md`, `docs/TEST-A-TESTER-SHEET.md`, the runbook, shot
+  list and first-run picture of `docs/test-a/`, and `docs/PILOT-1.md`.
+  `docs/prompt/` and `CLAUDE.md` stay public, and the deployment guide no
+  longer says when Part A's laptops were tested. **`docs/test-a/MESSAGE-SCRIPT.md`
+  stays until the owner decides**: a test reads it, the one that holds every
+  catalog model said to have been through the message script to a section
+  of that record.
 
 ## 2026-09-25, before the repository is made public: the answers to the scan
 
@@ -54,41 +77,6 @@ repository public only once items 1 to 4 and 8 below are done.
 - **After the switch `ci` runs on every push again**, free for a public
   repository, and runs once by hand on the head, reported.
 
-## 2026-09-24, the organisation layer planned (document 26): not before Test B
-
-The founder's plan (`26-localspace-organisation-layer-plan.md`). **Not started,
-and not before Test B is done and the founder says go**; recorded now so that
-nothing built meanwhile goes against it.
-
-- **No separate enterprise system.** One Core, personal and server mode one
-  codebase: every organisation feature is a Core request that checks the
-  caller's role on the server, hiding a button is never the security, and a
-  refused request is logged. One desktop app: an *Organisation* section in
-  Settings for administrators, which staff never see and which does not exist
-  in personal mode. Admin screens in a browser come only when a pilot asks,
-  with a certificate their machines trust (document 22, §3).
-- **No admin screen shows the content of anyone's conversations**: messages,
-  answers, attachments or titles. Load, audit and user screens show counts and
-  times only, and nothing in the layer may make reading them possible, export
-  and backup files readable outside Core included, until the founder decides.
-- **Order.** O1, after Test B: people (the first administrator made at
-  install; add, turn off and reset; the last administrator protected), models
-  (which of the server's models staff may use and which is the default; loaded
-  from a file where there is no internet, checked against the entry's SHA-256
-  and marked "added by your administrator" until the signed index exists),
-  load (plain numbers, and one line of advice only when it is true). O2, one
-  item at a time when a pilot asks: allowed tools (enforced by Core), an audit
-  log (never conversation content), silent rollout. O3 only when a customer
-  requires it: company accounts (AD/LDAP; a new dependency, asked first), the
-  browser admin screens, retention.
-- **It waits on three founder decisions**: whether an administrator may ever
-  read staff conversations (until then, no); how long the server keeps
-  conversations, and whether a person can delete their own for good; who the
-  first pilot is.
-- **The builder's reply now**: what exists, estimates for O1 and each O2 item,
-  anything that conflicts with the spec or an earlier ruling, and whether the
-  installer takes parameters for a silent install.
-
 ## 2026-09-24, until October every check runs on this machine; the answers on the prompt item (document 25)
 
 The instructions that came with document 25, and the founder's answers on the
@@ -119,8 +107,6 @@ computers.**
   1.6 and 1.7 breaking the script with no test failing.
 - **How the engine splits `-c` between its slots joins the pin-move list**,
   beside Continue and the catalog rerun: it is engine behaviour too.
-- **One item, 3.5 days**: half a day over the line is cheaper than a second
-  round of before-and-after runs.
 - **With nothing installed from the Store, Core's own tools go too**: no
   tools, no `find_capability`, no ledger. Someone who installs nothing gets
   plain chat, which pays for no tools, and it is the most direct fix for the
@@ -158,6 +144,8 @@ computers.**
 - **Next**: the "before" runs with the picture message, and one line of
   counts (layout echo, tool talk, pretending to make a picture) for each of
   the four defaults before anything changes.
+
+*This day's business entries are in the internal log.*
 
 ## 2026-09-24, the answers after 1.6 and 1.7: CI while billing is down, two rules for Continue, and the eight questions
 
@@ -239,8 +227,6 @@ The founder's answers to the report on 1.6 and 1.7
   prefilled reply, or start a reasoning block mid-sentence; for such a model
   thinking is off for the Continue step, written in its catalog entry. Never
   back to the line asking the model to continue.
-- **Next**: the ledger with the prompt as turns, once estimated; after it the
-  founder is asked whether Test B or the rest of Phase 1 comes first.
 
 **Built** (the same day; GitHub still started no jobs, so none of it has
 been through CI):
@@ -293,14 +279,8 @@ been through CI):
   with `-c` = N×C (or `--kv-unified-per-slot C`), and the planner counts N×C.
 - **`windows-sys` 0.61.2** is in `Cargo.lock`, through tokio (mio), Tauri
   (dirs-sys), wasmtime-wasi and eframe: the job object is approved.
-- **Estimates asked for.** An answer that carries on across a workspace
-  switch: about two to two and a half days, so not in the 1.3 batch. State
-  is kept per person and tool calls act on the active workspace's document,
-  so it needs that state per person *and* workspace, the ledger and the
-  context of the answer's own workspace for its later steps, approvals shown
-  in their own chat, and a word when an answer elsewhere is done. The prompt
-  as a system message and turns with the ledger: about three and a half
-  days, over the three, for the founder to split or not.
+
+*This day's business entries are in the internal log.*
 
 ## 2026-09-23, the plan for 1.6 and 1.7 approved, with additions; a rule for release builds
 
@@ -318,9 +298,7 @@ model's answer.
   Russian. It stands in `docs/BUILD.md`'s list beside the dry run and the
   Smart App Control run. Earned by the language fault of 2026-09-23: the
   build Test A shipped told such a Windows it had 1 GB of system memory and
-  offered only the 1.5B, "the worst failure this product can have", in a
-  market that runs Windows in Russian and Uzbek. The founder is reading the
-  forms' question 3 for "1 GB of system memory".
+  offered only the 1.5B, "the worst failure this product can have".
 - **Stop takes effect at a safe point, never in the middle of a change.**
   During streaming, the connection is closed at once and what arrived is
   kept. While a tool call runs in Core's queue, the call finishes completely
@@ -415,6 +393,8 @@ model's answer.
   "The answer stopped when you moved to another workspace."; evals take
   their turns to the end inside the request, as before.
 
+*This day's business entries are in the internal log.*
+
 ## 2026-09-23, after Test A: the plan of documents 16 to 22, and the answers to the estimates
 
 The founder's reading of the laptop test and the plan that follows from it:
@@ -430,19 +410,6 @@ and the code disagreed, why the app locks during an answer). The
 specifications stay the source of truth for the architecture; document 21
 says what is built next, in what order, under which rules.
 
-**What the test showed.** Ten or more testers on their own laptops; one sent
-a full `app.log` (build d9bcb171, the portable zip run from `D:\`, an RTX 2050
-beside AMD integrated graphics, a Ryzen 5 7535HS, 16 GB, 21 and 22
-September). Nobody complained about speed, the install, the look at the
-computer or the model recommended; fifteen of the seventeen items are things
-other chat apps do and this one does not. The log shows hybrid graphics
-chosen right (`--device Vulkan1` at every start), both downloads checked,
-Delete freeing what it should, the 14B calling canvas tools, the tester
-coming back three times in two days, and five bugs (document 17). The other
-log the founder received (build dd1c470a, 19 September) is the development
-laptop's own: its lines are in that laptop's `app.log`. The installer has no
-field log; the one log came from the portable zip.
-
 **Standing rules added** (document 21 §2); every earlier rule stands:
 - **Installing a tool costs something only while that tool is in use.**
 - **A slow model is shown as information, not as a warning**: the tester
@@ -455,8 +422,7 @@ field log; the one log came from the portable zip.
   model is the default only after the message script with its answers read;
   moving the engine's pin is a regression event for every catalog model.
 
-**Phase 1, in this order** (answer 10). About three weeks, not one: Phases 1
-to 3 are about seven to ten weeks (document 22 §1).
+**Phase 1, in this order** (answer 10).
 1. **1.1, the restart storm**: starting a model is idempotent while a load is
    in flight; nothing is measured or planned while an engine of ours is
    alive; our own engine is left out of "held by other programs".
@@ -504,13 +470,6 @@ said "at least 10 words a second" and the model gave about 7. A noisy reading
 can over-promise, which breaks the honesty rule. It is fixed together with
 1.3, since both depend on the same figure.
 
-**Test B does not come before 1.6 and 1.7** (document 22 §2): a server's Core
-handles one request at a time for everyone, so one person's answer holds
-every other person's app until it ends, and a Test B run first would measure
-only that. Once 1.1, 1.6, 1.7, 1.2 and the ledger are done, the founder
-chooses between Test B next, with the smaller Phase 1 items after it, and the
-rest of Phase 1 first; the builder asks then.
-
 **Phase 2, the catalog** (document 18), beside Phase 1 where the machine
 allows. The defaults proposed: Qwen3.5-4B for 4 GB cards, Qwen3.5-9B for
 8 GB, Ministral 3 14B for 16 GB; beside them Ministral 3 3B and 8B,
@@ -540,29 +499,6 @@ certificate while the window talks to it over loopback, as ruled on
 18 September (that day's answers 5 and 6). Browser access is not part of
 Test B. TLS inside Core, with the approved `rcgen` and `tokio-rustls`, comes
 after it (document 22 §3).
-
-**After them, unchanged** (document 21 §6 to §9): Phase 4 is 4.1 the signed
-catalog index first, 4.2 turns as turns, 4.3 tools offered by relevance (a
-one-line index of every installed tool always, a tool's actions only while it
-is in play, the fixed prompt measured with 0, 1, 3 and 5 tools), 4.4 dark
-mode, 4.5 mathematics and markdown rendered, 4.6 attachments and document
-reading built properly, **with the path by which what a read tool brings back
-reaches the model** (document 22 §5), and 4.7 pictures as input, with a vision
-model. Phase 5 is branching of answers (after checking what the version
-history already gives), personalisation memory (its rule written before any
-code) and the canvas (the founder decides: finish it or stop shipping it).
-Phase 6 is the tools as one ecosystem (document 20: the app schedules the
-card, typed formats end to end, one approval and one undo per task, a chain
-script per model band) and Pictures (document 19: stable-diffusion.cpp inside
-the tool's package, image models in the catalog, the founder's written safety
-decision before any code, its checks a condition of publishing). Out of scope:
-image generation before Phase 6, pooling machines, single sign-on, promising
-models larger than a machine can run, anything from a later phase started
-early.
-
-**Waiting on the founder**: the code-signing certificate; more tester logs
-(one of ten came back); the canvas decision; the personalisation memory rule;
-the Pictures safety decision; whether Pictures is free or paid.
 
 **Built, and found while building:**
 - **The look lost its whole answer on a Windows that names itself in another
@@ -599,6 +535,8 @@ the Pictures safety decision; whether Pictures is free or paid.
   port then answers nothing; what our engine holds is never another
   program's, with the tester's figures; the look still answers everything
   when processes of ours are named.
+
+*This day's business entries are in the internal log.*
 
 ## 2026-09-20, Sunday's answers: the squeezed mark is fixed before the dry run, two pictures on one page agree, and two findings are written down
 
@@ -655,9 +593,8 @@ The user's answers to the report on the landing pictures
   Monday recognises it. **Nothing in the tester sheet asks a person to
   close other programs first**: that "makes the software feel fragile, and
   it is our problem to solve, not theirs".
-- **What is left is the founder's**: the Telegram contact, the hosting
-  link, the testers' card names, the certificate, and the dry run. "An idle
-  hour on Sunday afternoon is fine; a new change at four o'clock is not."
+
+*This day's business entries are in the internal log.*
 
 ## 2026-09-20, the rulings on the eight dead ends, Smart App Control stays on, and who takes the pictures
 
@@ -697,21 +634,8 @@ under the rule of 2026-09-19: nothing is visible unless it works.
   irreversible change to the founder's machine; and it is the only machine
   that tells us anything about how it behaves. CI is used when it
   interferes.
-- **Testers with Smart App Control on are no longer left out.** Everyone is
-  sent the installer; those people's message says that Windows may refuse to
-  run it outright, that this is expected of a build without a certificate,
-  and asks them to say so on Telegram at once if it happens. "A tester who
-  cannot install is still a data point; a tester who was never sent anything
-  is not." One machine is one data point and its verdicts fluctuate: **nothing
-  anywhere says that Smart App Control will let the installer through.**
-- **The picture of its block (0) is dropped**: it cannot be taken, and it is
-  not manufactured. **Pictures 4 to 9 are taken by the person at the dry
-  run**, with the screenshot key at the right moment; the scripted capture of
-  a window is not used again. The builder hands over a shot list before the
-  dry run (`docs/test-a/SHOT-LIST.md`): what must be on screen, and where it
-  goes in the sheet, in the order met. If Drive's virus-scan page never
-  appears for a 37 MB file, the sheet loses its conditional sentence.
-- **Nothing new after this**: the list above, the dry run, the go or no-go.
+
+*This day's business entries are in the internal log.*
 
 ## 2026-09-19, two gaps found in the pictures: a download could not be stopped, and the shell offers what does not exist
 
@@ -765,22 +689,6 @@ with what was found while taking the pictures they asked for.
 - **The pictures for the landing page come from the release build**: the
   portable copy of the package, serving a fresh data folder under a neutral
   name, at the app's own 1440 by 900, in the light theme.
-- **How the installer reaches testers: a cloud-drive link the founder
-  controls, with the SHA-256 in the email.** Google Drive shows its own "can't
-  scan this file for viruses" page for a file of this size: a second alarming
-  page before SmartScreen, so it is pictured on the sheet too. A GitHub
-  Release on the public localLabs repository is the founder's call. **The dry
-  run downloads the installer the way a tester will**, through the real link,
-  in a browser, on a machine that has never seen the file.
-- **The contact on the sheet** is `locallabs.io@gmail.com`, "the localLabs
-  team" until the founder gives a name, **and a Telegram contact, preferably a
-  small group for the ten testers, at the top of the sheet**: somebody stuck
-  at nine in the evening does not write an email and wait. The founder
-  decides; the sheet has the place.
-- **The certificate's provider is not decided.** The signing path is ready for
-  either outcome: with nothing in hand by Sunday evening, Monday ships
-  unsigned, and a tester whose screening answer says Smart App Control is on
-  receives no installer.
 - **AMD machines are the least-validated path in the product**, and their
   logs are read first on Monday (`docs/test-a/RUNBOOK.md`). AMD publishes only
   "up to" figures; they stay as entered, under the estimate's efficiency.
@@ -798,15 +706,12 @@ with what was found while taking the pictures they asked for.
   Monday's calibration starts from these, not from the 10 and 5 first ruled.
   An unknown card promised the processor's floor errs on the right side:
   faster than promised, and the reliable model.
-- **Sunday, added:** read the log the dry run writes as if a stranger had
-  sent it; verify the installer's clicks by watching them; capture every
-  dialog a tester meets, in order. **Seen already, by one capture:** the
-  installer's folder page has a **Next** button where the sheet said
-  *Install*, and it shows the account's folder name.
 - **Found while taking the pictures, and fixed:** "connected to localSpace"
   never went away on a page that stood still: a notice's age was looked at
   only when something else redrew the window. It now goes after its eight
   seconds by itself.
+
+*This day's business entries are in the internal log.*
 
 ## 2026-09-19, the answers after day 4 and their addendum: the laptop test is on Monday 21 September, and nobody stands beside the testers
 
@@ -814,15 +719,6 @@ The user's answers to the second evening report of 2026-09-19
 (`8-localspace-answers-day4.md`) and the addendum that came with them
 (`9-localspace-testA-remote-addendum.md`).
 
-- **The test is Monday 21 September, unsupervised.** Ten people install on
-  their own machines, in their own time, with an installer and a sheet and
-  nobody to ask. The dry run is Sunday morning, on a machine that is not the
-  builder's, from the CI artefact, following the sheet to the letter, with
-  the message script run there and its output read, and a plain go or no-go
-  before the end of that day. Monday morning: one clean package build from a
-  head that has not changed since the dry run, then send. **The two extra
-  days are not for new work**: no new model family, nothing from items 5 to
-  7, nothing off the after-test list.
 - **`web.fetch` is not offered until what it fetches can reach the model**
   (plugin spec §8.1, §8.2; reverses "`web.fetch` stays" of the answers after
   day 3, whose premise, the builder's, was wrong). "A tool that reports
@@ -931,14 +827,7 @@ The user's answers to the second evening report of 2026-09-19
   stands in and the log says so; and the package workflow reads the figure
   out of the installed release binary and out of the app's own log, and
   refuses one that no memory does or one that had to be replaced.
-- **Smart App Control is a go or no-go for each tester.** Whoever's
-  screening answer says it is on gets a signed build or does not take part;
-  nobody is sent an installer that Windows will refuse. The sheet shows the
-  SmartScreen dialog as it is, with the words to click, says beforehand that
-  the app is not signed yet and that this is expected of a test build, and
-  names whom to contact. If a certificate arrives by Sunday, the packaging
-  must be ready to use it that moment.
-  **Ready for the certificate:** `scripts/package.mjs` signs every
+- **Ready for the certificate:** `scripts/package.mjs` signs every
   executable and library of the package, the engine's and the command
   line's too, when `LOCALSPACE_SIGN_COMMAND` says how one file is signed
   (JSON, in the form tauri's `signCommand` takes), and hands tauri the same
@@ -947,18 +836,8 @@ The user's answers to the second evening report of 2026-09-19
   (`-f sign=rehearsal`) and refuses a build in which one installed program
   file is not signed by it. Which provider the certificate comes from
   decides the command and what the runner needs; that is the user's to say.
-- **The sheet is the product now**, and the dry run tests it as much as the
-  build: every step in order, a picture where Windows interrupts, and what
-  a slow step looks like so that a pause of four minutes reads as normal.
-  **A results form** of ten short questions collects what only a person can
-  tell; everything measurable comes from the log.
-- **The USB sticks are out** for this test (nobody can hand one over; each
-  tester downloads over their own connection). `scripts/stick-list.mjs` and
-  the recognition of a copied file stay in the product for a company that is
-  air-gapped; no more time goes into them before the test. The end-to-end
-  time is still measured at the dry run and decides nothing any more.
-- **Five to seven usable results of ten is a normal outcome** of an
-  unsupervised test and is planned for.
+
+*This day's business entries are in the internal log.*
 
 ## 2026-09-19, the answers after day 3: six rulings, one addition, and the order of the next day
 
@@ -1069,27 +948,12 @@ evaluation only, not for commercial use."), not as "personal use".
   evening report, that `web.fetch` works without a search service, was
   wrong in the sense that matters, and ruling 4's "`web.fetch` stays" rests
   on it.
-- **6. The test is in English only.** All ten testers write in English; no
-  language is added to the message script and no time goes into other
-  languages. The German and Russian findings stay in the record as a known
-  limitation. The tester sheet asks for English and says other languages
-  are not part of this test; one tried anyway is an observation to write
-  down, not a failure to fix.
 - **A. The verdicts say nothing about quality, and one sentence will**: the
   tiny band carries "Small models answer quickly but get things wrong more
   often.", wherever such a model is recommended or listed. Not a second
   scale: one sentence, attached to the band.
-- **B. The order:** `web.search` hidden; the default-eligible rule; the line
-  at 10 with the new words and the quality sentence in one pass, and the
-  probe of every machine shape; the catalog checked again; the two pictures
-  taken again; the tool call as text if the day has room. Thursday is the
-  dry run on a machine that is not the builder's, and nothing else: the
-  message script is run once there too, and its output read.
-- **C. Smart App Control** is flipped by the user if it blocks the package,
-  at once when told; the builder never changes it. **An organisation's
-  server that does not start its model again** stays on the list for the
-  server test, untouched this week. **The USB stick** carries the models of
-  every band a tester may be recommended, the 7B for 4 GB cards included.
+
+*This day's business entries are in the internal log.*
 
 ## 2026-09-19, the message script: what the recommended models answer, and a word that reached a person
 
@@ -1298,23 +1162,6 @@ additions to the plan for the laptop test, and a re-ranking of its risks
    a new wait; and a warm-up that fails is **silent and never fatal**: the
    first message is a few seconds slower and that is all.
 
-**Confirmed:** the pasted Hugging Face repo id is **cut** for the laptop
-test (estimated at one to one and a half days against the half day it was
-allowed), and other model families **wait**. Both are on the after-test list.
-
-**Ten people downloading at once is the likeliest way the day fails**
-(2.6 MB/s at this site; a venue's one pipe divided ten ways). So the models
-are **pre-staged**, and the app notices them: **at startup the models folder
-is scanned, and a file with a catalog entry's name and its SHA-256 marks
-that entry installed, with no download.** The same verification as after a
-download, pointed at a file that arrived by other means. On the day the
-models travel on a USB stick or a local share into
-`%LOCALAPPDATA%\localSpace\models`; a tester whose machine wants a model that
-is not on the stick falls back to downloading, which still works. It lands
-before the tester sheet's screenshots, because it changes what Friday looks
-like. The digests of every model a tester might be recommended are in the
-catalog.
-
 **Answer quality is ranked level with Smart App Control**, not third: four
 messages were a thin sample. **Before Thursday a fixed script of about
 fifteen realistic messages runs through each recommended model, and the
@@ -1342,12 +1189,7 @@ when the answer can still be "recommend the next one up".
   its own is preferred, not whichever device is listed first.
 - The daily package run stays.
 
-**The remaining days:** the checksum, the detection of files already
-present, and the warm-up if it fits, by Tuesday; the message script, the
-check of the catalog and the screenshots on Wednesday; the dry run on a
-machine that is not the builder's on Thursday; the test on Friday. Nothing
-of items 5, 6 or 7 until the laptop test is done. The same report each
-evening.
+*This day's business entries are in the internal log.*
 
 ## 2026-09-19, plain chat did not work on the models a laptop runs: the system prompt's opening
 
@@ -1605,14 +1447,6 @@ them in every run. The setting stays on (answer 3 of the day before).
 The user's rulings on the six questions of the first daily report, two
 approvals, and direction for the four days left ("answers after day 1").
 
-**Direction.** The day gained on item 1 is kept, not spent: items 2 to 4
-depend on hardware the builder does not have and on a calibration still
-being derived. The two fixes made unasked (the console windows, the engine's
-key) were right; from here, **what is neither needed for Friday nor a
-security problem goes on a list for the week after**
-(`docs/AFTER-TEST-A.md`). The `package` workflow **runs at least once a
-day** until Friday, so that its cache is never cold when a rebuild matters.
-
 1. **The folders on Windows.** The program goes to
    `%LOCALAPPDATA%\Programs\localSpace`, the standard place for a per-user
    install; the person's data stays in `%LOCALAPPDATA%\localSpace` (the
@@ -1668,6 +1502,8 @@ capability unknown — starting carefully". It gets no figure that cannot be
 supported: the speed shown for it is what the processor alone would do, as
 "at least", and the recommendation follows from that. A tester with a modest
 model that works is a success; one with a confident wrong estimate is not.
+
+*This day's business entries are in the internal log.*
 
 ## 2026-09-18, what the computer is and how fast a model will be: the measurements behind item 2
 
@@ -1818,32 +1654,6 @@ with measurements from the development laptop; the user's rulings on them
 ("answers, and the plan for the two tests") are recorded here before any of
 the build order's code.
 
-**The plan.**
-
-- **Test A, ten gaming laptops in personal mode, is Friday 25 September**,
-  Monday 28 the slip day. **Test B, a server with thin desktop clients, is
-  Wednesday 30 September or Thursday 1 October.** If only one fits, Test A
-  wins: ten people are booked, and it is the direct proof of the governing
-  requirement.
-- **Order:** item 1 (the Windows installer with the pinned upstream engine),
-  item 2 (the hardware check as the first run), item 3 (computed layer
-  offload), the reduced item 4 (tiny and small entries, the honest verdict,
-  downloads that resume and verify). **A dry run on Thursday 24th:** the
-  finished package installed on a Windows machine that is not the
-  development machine, from the artefact and the instructions the testers
-  get; half a day, with whatever it finds. Items 5, 6 and 7 do not start
-  until Test A is done.
-- **No slack.** If something slips, what gives is the number of testers or
-  the number of catalog entries, never the honesty of the verdict and never
-  the packaging.
-- **A report at the end of each day:** what landed, what moved, whether
-  Friday is still real; if it stops being real, that is said on Tuesday, not
-  Thursday.
-
-**Cut until after the tests:** whiteboard group one; the signed index, the
-registry fetch and the publishing mechanism; the Linux tarball, which moves
-to Test B; building llama.cpp ourselves.
-
 **A deferral with a date, not a change of direction:** the model list stays
 compiled into Core for Test A. "The catalog is data, not code" stands. Making
 it a signed, versioned index that Core fetches or imports is **due as the
@@ -1881,7 +1691,7 @@ comes right after the index.
 8. **Downloads:** the 7.6B model (4.7 GB) for item 3's verification against
    the 4 GB card, yes; the CUDA build, no: it would change no decision this
    week.
-9. **Dates:** as above.
+9. **Dates:** in the internal log.
 
 **On the findings.**
 
@@ -1905,17 +1715,6 @@ comes right after the index.
 - **macOS is out of scope for both tests;** Metal is the answer when it
   arrives.
 
-**Smart App Control is the biggest risk to Test A.** Where it is on, an
-unsigned executable is refused outright, with no "run anyway". So: the
-certificate is the real fix and signs everything, the repackaged engine
-included; **a portable zip is built as well as the installer**; a one-page
-instruction sheet covers the SmartScreen click-through and what to do on a
-hard block; the testers are asked in advance for GPU, VRAM, RAM and whether
-Smart App Control is on. On the development machine the setting is the
-user's decision (it cannot be turned back on without reinstalling Windows);
-until then the installer is verified in CI and the parts that stay
-unverified are named.
-
 **The deployment guide** is `docs/DEPLOYMENT-GUIDE.md`, the user's document,
 and it is the **target state**, not a description of today: the list of
 mismatches at its head is the definition of the gap. The guide follows the
@@ -1924,6 +1723,8 @@ an item lands the guide changes in the same commit. It supersedes the draft
 in `docs/PILOT-1.md` §9. One correction to the instructions: no
 `[[models.worker]]` entry exists; what exists, and what Test B uses, is an
 administrator pointing Core at an external endpoint at runtime.
+
+*This day's business entries are in the internal log.*
 
 ## 2026-09-18, the seven questions of the review, decided by the user
 
@@ -2564,10 +2365,6 @@ Deployment §5, §6.1 and §6.3; Pilot 1 (`docs/PILOT-1.md`) Phase A.
   `http://127.0.0.1:65334/v1`, included. The technical id of a model may
   appear under Advanced; where a model is served from does not. Endpoints
   and ports stay in the logs and in `localspace doctor`.
-- **Every demo before December runs on the desktop shell**, so the shell is
-  reported on honestly and brought to the state a non-technical user opens
-  on a workstation: the report and the plan for it are in the session of
-  2026-09-12 and folded into `docs/PILOT-1.md`.
 - **The desktop, answers 2 to 7.** The "connect to a model server" form
   stays under Settings → Advanced in personal mode — something the user
   types, not machinery shown at them — and is absent in organisation mode.
@@ -2588,6 +2385,8 @@ Deployment §5, §6.1 and §6.3; Pilot 1 (`docs/PILOT-1.md`) Phase A.
   runs signed; the bundler is configured so that adding the certificate is
   a configuration change, not a rework, and the install guide says
   SmartScreen warns until it is in place.
+
+*This day's business entries are in the internal log.*
 
 ## 2026-09-12, answers to Phase A and the shell, and a fifth directive
 
@@ -2736,12 +2535,6 @@ budget is. Nothing below changes Phase A's gate or the December date.
 
 ## 2026-09-12, answers to the Pilot 1 plan
 
-`docs/PILOT-1.md` is approved: four phases, about three months of building
-to a pilot-ready build in early December, the partner's week after it. The
-user plans the pilot conversations around that and holds, dated: the W32
-trip, the private repository before Phase A's gate, and the partner with
-its hardware before Phase D — both settled by mid-November.
-
 - **Identity first** (answer 1): retrieval built on a single-user Core is
   retrieval built twice.
 - **Behind a proxy only, for Pilot 1** (answer 2; deployment §9.1): Caddy in
@@ -2789,6 +2582,8 @@ its hardware before Phase D — both settled by mid-November.
 - **The provenance refinement of 6.0 stands** — Core fills in the document
   and the head commit, because the surface knows its board and not Core's
   history — as a better design than the one specified.
+
+*This day's business entries are in the internal log.*
 
 ## 2026-09-12, answers to the 6.0 plan
 

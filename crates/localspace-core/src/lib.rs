@@ -138,7 +138,7 @@ pub fn without_the_home(text: &str) -> String {
 /// `exposure::Exposure::web_results_reach_the_model`. Not yet, so no web tool
 /// is offered and none can be reached by the agent. It becomes true with
 /// the change that lets a read tool's result, bounded, into what the model
-/// reads (docs/AFTER-TEST-A.md, due first).
+/// reads.
 const WEB_RESULTS_REACH_THE_MODEL: bool = false;
 
 /// How many tool calls one agent turn may make before Core stops it.

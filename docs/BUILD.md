@@ -304,8 +304,8 @@ GPU, a Windows in another language, and what a person sees. Those belong to
 runs on real machines, before a build ships:
 
 - **A dry run on a machine that is not the builder's**, from the link a
-  person will get, following the sheet to the letter
-  (`docs/test-a/RUNBOOK.md`).
+  person will get, following the sheet to the letter (the runbook,
+  `docs/test-a/RUNBOOK.md`, is in the internal repository).
 - **Smart App Control on**: the development laptop has it on, and the
   release build is installed and started there.
 - **A Windows that speaks another language** (ruled 2026-09-23): the release

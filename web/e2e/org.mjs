@@ -1,4 +1,4 @@
-// Phase A's gate on an organisation server (docs/PILOT-1.md, Phase A): two
+// Phase A's gate on an organisation server (docs/DECISIONS.md, 2026-09-13): two
 // people in two browsers on one server see different personal workspaces
 // and the same shared board, with edits crossing between them and each
 // seeing the other on it; a viewer's edit is refused server-side, from the
