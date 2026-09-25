@@ -11,12 +11,11 @@
 # that builds Rust, and every job has a timeout, so a broken commit costs
 # minutes rather than an hour.
 #
-# Started by hand only, until the runner allowance resets in October: every
-# check runs on the build machine first, in WSL, with `scripts/check.sh`,
-# which runs exactly the jobs below, and nothing is pushed that it fails on
-# (docs/DECISIONS.md, 2026-09-24). In October this runs once by hand on the
-# head, as the check from a clean computer, before automatic runs are
-# decided on again.
+# Runs on every push and pull request again since the repository became
+# public, where a runner costs nothing (docs/DECISIONS.md, 2026-09-25).
+# Nothing reaches a tester until this is green on that exact commit and
+# the release check has passed. `scripts/check.sh` runs the same jobs on a
+# Linux machine, kept for later; no push waits on it.
 #
 # Runners are pinned labels, never a moving alias. Core and the server always
 # build and test on Linux, which is what organisations deploy. The Tauri
@@ -28,6 +27,8 @@
 name: ci
 
 on:
+  push:
+  pull_request:
   workflow_dispatch:
     inputs:
       w32_gate:
@@ -38,7 +39,7 @@ on:
 permissions:
   contents: read
 
-# A run started again supersedes the one before it on the same branch: the
+# A push supersedes the run of the push before it on the same branch: the
 # older run is cancelled rather than finished for nothing.
 concurrency:
   group: ci-${{ github.ref }}

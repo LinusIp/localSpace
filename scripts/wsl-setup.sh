@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# The one-time setup of WSL for scripts/check.sh (docs/BUILD.md, "Checking
-# before a push"): what CI's runner has, on Ubuntu 24.04 in WSL. Run once, by
+# The one-time setup of WSL for scripts/check.sh (docs/BUILD.md, "CI, and the
+# same checks on a Linux machine"): what CI's runner has, on Ubuntu 24.04 in
+# WSL. Kept for later; nothing requires it (2026-09-25). Run once, by
 # the machine's owner, inside Ubuntu: it asks for their password for the
 # system packages. What it fetches, all from the publishers themselves:
 #   - Ubuntu's packages for building the workspace and the Tauri shell,

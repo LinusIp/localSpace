@@ -105,7 +105,7 @@ take gigabytes. So `.cargo/config.toml` caps cargo at four jobs and the `dev`
 profile carries line-table debug info only (a full-debug target is 59 GB; with
 line tables, 11 GB). Run the one or two suites you are working on, for
 instance `cargo test -p localspace-core --test roles`; leave
-`cargo test --workspace` to `scripts/check.sh` in WSL (below). If an
+`cargo test --workspace` to CI (below). If an
 editor runs rust-analyzer on the same checkout, give it its own target
 directory (`rust-analyzer.cargo.targetDir: true`), or the two builds keep
 invalidating each other. Never run a build beside a test server and a
@@ -115,37 +115,17 @@ See [PERFORMANCE.md](PERFORMANCE.md): `LOCALSPACE_PERF=1` prints per-second fram
 costs and gaps, `LOCALSPACE_PERF_SPIN=1` measures the ceiling of the display path,
 and the `gpu:` line names the adapter in use.
 
-## Checking before a push
+## CI, and the same checks on a Linux machine
 
-Until the runner allowance resets in October, `ci` runs only when started by
-hand, and nothing runs on GitHub's computers otherwise (docs/DECISIONS.md,
-2026-09-24). Every push is checked first on this machine, in WSL, by
-`scripts/check.sh`: the jobs of `.github/workflows/ci.yml`, step for step
-(formatting, lint and types; the web tests, build, sizes and frame times;
-clippy and every test; the two browser walks and the audit; the message
-script against the test engine), on a clean copy of the commit about to be
-pushed, cloned into `~/localspace-check` and built on WSL's own disk.
-**Nothing is pushed that it fails on**, and every report carries the commit
-and its last line. It runs in Linux, where Smart App Control has no say.
+`ci` (`.github/workflows/ci.yml`) runs on every push and pull request: the
+repository is public, so its runs cost nothing. **Nothing reaches a tester
+until `ci` is green on that exact commit and the release check has passed**
+(docs/DECISIONS.md, 2026-09-25).
 
-```bash
-wsl -d Ubuntu-24.04 --cd "C:\path\to\localSpace" -- bash -lc scripts/check.sh
-```
-
-`--w32-gate` adds the W32 canvas gate, as `ci`'s input of the same name
-does; a commit other than HEAD can be named. The first run builds
-everything, debug and release (about 25 GB on WSL's disk, which grows on
-C:); later runs are incremental.
-
-Setting WSL up is the machine owner's, once, since it needs an administrator,
-a restart and a password: in PowerShell as administrator,
-`wsl --install -d Ubuntu-24.04`, restart Windows, open *Ubuntu 24.04* from
-the Start menu and choose a user name and password; then, in Ubuntu, in this
-repository (`cd /mnt/c/path/to/localSpace`),
-`bash scripts/wsl-setup.sh`, which says what it fetches and from where.
-
-In October `ci` runs once by hand on the head, as the check from a clean
-computer, and whether automatic runs come back is decided then.
+`scripts/check.sh` runs `ci`'s jobs step for step on a Linux machine, on a
+clean copy of a commit, and ends with one line saying how it went;
+`scripts/wsl-setup.sh` prepares Ubuntu under WSL for it. Both are kept for
+later: no push waits on them.
 
 ## Notes for this machine
 
@@ -234,7 +214,7 @@ is being prepared (docs/DECISIONS.md, 2026-09-24): the `package` workflow
 for later, and keeps what it builds one day only, to be downloaded here:
 the repository is public, and anything public goes out only as a GitHub
 Release when the founder decides (2026-09-25). What ten people run is still what a commit produced: the build is
-of a commit that `scripts/check.sh` passed, **the file the release check runs
+of a commit `ci` passed, **the file the release check runs
 on is the file the testers get**, and its SHA-256 goes into the report. The
 steps, on Windows:
 

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# What CI runs, on the build machine, in WSL (docs/DECISIONS.md, 2026-09-24):
-# the jobs of .github/workflows/ci.yml, step for step, on a clean copy of the
-# commit about to be pushed. Nothing is pushed that this fails on.
+# What CI runs, on a Linux machine: the jobs of .github/workflows/ci.yml,
+# step for step, on a clean copy of a commit. Kept for later: CI runs on every
+# push, and no push waits on this (docs/DECISIONS.md, 2026-09-25).
 #
 #   scripts/check.sh [<commit>] [--w32-gate]
 #
-# Run inside WSL (Ubuntu 24.04), set up as docs/BUILD.md says. The repository
-# checked is the one this script sits in, usually the Windows copy under
-# /mnt/c; the commit (HEAD unless named) is cloned into ~/localspace-check
-# and built there, on WSL's own disk, with the build kept between runs. The
-# working tree is not checked: what is pushed is commits. The last line says
-# how it went, for the report.
+# On Windows, run it inside WSL (Ubuntu 24.04, prepared by
+# scripts/wsl-setup.sh). The repository checked is the one this script sits
+# in, usually the Windows copy under /mnt/c; the commit (HEAD unless named)
+# is cloned into ~/localspace-check and built there, on WSL's own disk, with
+# the build kept between runs. The working tree is not checked: what is
+# pushed is commits. The last line says how it went, for the report.
 #
 # Differences from the runner, none of which changes a result: nothing is
 # cached or uploaded, the runner's disk is not cleared, the build is

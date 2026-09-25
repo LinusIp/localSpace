@@ -4,6 +4,21 @@ Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").
 
+## 2026-09-25, the repository is public: `ci` on every push again, WSL dropped
+
+The owner's instructions once the repository was switched to public.
+
+- **`ci` runs on every push and pull request again**, as before 2026-09-24:
+  GitHub's runners cost nothing for a public repository. It runs once by
+  hand on the head as well, reported.
+- **WSL is dropped**: the founder is not installing Ubuntu. The rule of
+  2026-09-24 that `scripts/check.sh` runs in WSL before every push, and that
+  nothing is pushed that it fails on, is withdrawn. `scripts/check.sh` and
+  `scripts/wsl-setup.sh` stay in the repository for later; no push waits on
+  them.
+- **The rule is again: nothing reaches a tester until `ci` is green on that
+  exact commit and the release check has passed.**
+
 ## 2026-09-25, before the repository is made public: the answers to the scan
 
 The owner's answers to the scan before the switch. The scan found no secret
