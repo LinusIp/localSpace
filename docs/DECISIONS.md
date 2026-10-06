@@ -13,6 +13,68 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-06, the catalog moves to Qwen3.5 and Qwen3.8 (document 28), with a thinking indicator, and images estimated
+
+The founder's `28-localspace-latest-models.md` and two additions to it.
+**Not started:** the prompt item's "after" runs are measured on today's
+defaults and reported first.
+
+- **The catalog offers the latest generation: Qwen3.5 and Qwen3.8.** Qwen2.5
+  is no longer offered to new installs. A person who downloaded one keeps it
+  and it keeps working; the app may suggest the newer model once, in plain
+  words, and never removes anything by itself. A new entry is a default only
+  under the standing rules (commercial use allowed, the message script run
+  and its answers read, `exercised_on`), is checked by SHA-256, and its
+  address is checked in CI. The planner's figures for each new model (speed,
+  verdict lines, per-layer sizes) are measured on real hardware, never
+  copied.
+- **First: whether the pinned engine (b10869) loads Qwen3.8-27B and Qwen3.5**,
+  image input included, which needs the model's vision file beside the main
+  one. If it does not, the pin moves and the whole pin-move list of
+  `docs/BUILD.md` comes with it; that is estimated and put to the founder
+  before it moves.
+- **Proposed defaults by graphics memory:** Qwen3.5-2B with no usable card or
+  under 4 GB, Qwen3.5-4B at 4 GB, Qwen3.5-9B at 8 GB, Qwen3.8-27B at Q4_K_M at
+  24 GB and on servers. Qwen3.5-0.8B is offered for the weakest machines and
+  is a default only if its answers pass the read. **16 GB is measured, not
+  reasoned:** Qwen3.8-27B at Q3_K_M; an official Qwen3.8 mixture-of-experts
+  model, if one exists; Qwen3.8-27B at Q4_K_M with some layers off the card;
+  Ministral 3 14B only if all three fail, and said so. The Bonsai 2 27B spike
+  (PrismML's own Windows Vulkan binary, pinned by SHA-256, two days at most)
+  runs after the engine check.
+- **Thinking.** On or off by default per model, decided by the time to the
+  first visible word measured both ways. The 120-second limit to the first
+  word counts thinking as activity. Continue is tested on every new default;
+  where a prefilled reply fails with thinking on, thinking is off for the
+  Continue step on that model, written in its catalog entry. **While the
+  model thinks and no answer text has come, the answer's place shows the
+  three nodes of the localSpace mark pulsing in sequence, "Thinking…" and the
+  seconds elapsed;** before any thinking has come, "Starting…". It gives way
+  to the answer at the first visible word; clicking it opens the thinking
+  text, closed by default; Stop works during thinking as during an answer;
+  it is per chat, so a chat thinking in the background shows it on return.
+  **CSS only, no script-driven animation loop**, since the processor is busy
+  running the model; under the system's reduced-motion setting, a still mark
+  and the text.
+- **The message script gains five Russian and five Uzbek messages**, the
+  Uzbek in Latin and in Cyrillic letters, read for every new default. A model
+  that answers well in English and badly in Uzbek is not a default; the
+  worst answer per model is reported.
+- **Images are not built in this item; they are estimated with it:** pasting
+  with Ctrl+V, dragging in, and an attach button for image files; the picture
+  shown in the chat and kept with the conversation; the planner counting the
+  memory of the model's vision file, and the verdict changing when the model
+  no longer fits; on a model that cannot read images, the attach control
+  saying so in plain words, never a failure after sending; in organisation
+  mode, the image going to the company's server and nowhere else.
+- **The builder's reply before building:** what the engine check found; which
+  official Qwen3.5 and Qwen3.8 sizes exist, with their licences, corrected
+  against the document's table; an estimate split into the pin move if
+  needed, the new entries with their measurements, thinking with its
+  indicator, and the language messages; and the estimate for images with it.
+
+*This day's business entries are in the internal log.*
+
 ## 2026-10-06, installers built on GitHub again; the word rule and the message-script record stay public
 
 The owner's answers after the switch to public.
