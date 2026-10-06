@@ -13,6 +13,31 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-06, installers built on GitHub again; the word rule and the message-script record stay public
+
+The owner's answers after the switch to public.
+
+- **The installers testers get are built on GitHub again**: the `package`
+  workflow, started by hand or by a `v*` tag, never on a timer or per push,
+  keeping what it builds one day (`docs/BUILD.md`). The repository is
+  public, so its Windows runner costs nothing. The rule of 2026-09-24 that
+  installers are built on this laptop until October is withdrawn. It stays
+  true that **the file the release check ran on is the file testers get**.
+- **No test in the public repository may depend on a file in the private
+  one.** `docs/test-a/MESSAGE-SCRIPT.md` did not move: the test that holds
+  every catalog model said to have been through the message script to a
+  section of that record reads it where it is.
+- **The rule on which words members may see is product behaviour and stays
+  public.** It lives in this log: Directive 5 of 2026-09-12 (the words never
+  shown and what to say instead, models by their human names with the id
+  under Advanced, an error as one plain sentence and what to do, every empty
+  state written) and that day's answers on the shell ("Offline", not
+  "Air-gapped", with `airgapped` kept in the configuration and the
+  administrator's popover). One part was written only in the Pilot 1 plan,
+  now private, and is recorded here: **the administrator's pages and
+  Advanced are exempt.** Directive 5 has a check in CI keep the rule; no
+  such check exists yet, so the rule is kept by hand.
+
 ## 2026-09-25, the repository is public: `ci` on every push again, WSL dropped, business decisions kept privately
 
 The owner's instructions once the repository was switched to public.

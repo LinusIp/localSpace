@@ -1,6 +1,6 @@
 # The Windows package a tester gets: an NSIS installer and a portable zip
 # around the pinned llama.cpp Vulkan engine (docs/DECISIONS.md, 2026-09-18).
-# Built here and not on a laptop so that what ten people install is what a
+# Built here and not on a laptop so that what a tester installs is what a
 # commit produced, and installed here because this is a Windows machine that
 # has never seen the build: the installer runs silently, the installed app is
 # started and asked for its health, a second launch is checked to give way to
@@ -12,10 +12,11 @@
 #
 # Started by hand, for a check or for a release being prepared, and by a
 # version tag; never on a timer or per push (docs/DECISIONS.md, 2026-09-24).
-# A Windows runner costs double minutes, this is the most expensive job there
-# is, and nothing here changes what `ci` decides about a commit. The daily
-# run that kept its cache warm until the laptop test is gone, so a first run
-# after a week without one starts cold (81 minutes on 2026-09-18).
+# The installers testers get are built here, not on a laptop: the repository
+# is public and the runner costs nothing (2026-10-06). What it builds is kept
+# one day, to be downloaded for the release check, and nothing here changes
+# what `ci` decides about a commit. A first run after a week without one
+# starts cold (81 minutes on 2026-09-18).
 
 name: package
 
