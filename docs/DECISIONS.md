@@ -13,6 +13,80 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-06, the organisation conflicts resolved, and the prompt item's last rules (document 27)
+
+The founder's `27-localspace-answers-org-conflicts.md`, the answer to the
+builder's report on document 26, received 2026-10-06. **It amends document
+26's §3** (the organisation layer's plan, in the internal log): wherever the
+two differed, the existing design stays, except where said. The layer is
+still not started before Test B and the founder's go.
+
+- **1. The first administrator stays a one-time link.** No `localspace
+  install`, and no password in a command or a file: a password typed into a
+  command ends up in shell history and scripts. For a scripted install the
+  server writes the link to a file readable only by the account that runs
+  it, and prints where that file is.
+- **2. A password reset stays a link** an administrator makes and gives to
+  the person; the password never passes through the administrator. O1.1's
+  item is *make a reset link*, not *set a password*.
+- **3. Three roles stay:** administrator, member, can view only. Document
+  26's "staff" are members. The view-only refusal test stays.
+- **4. Tools follow deployment spec §4.3:** only an administrator installs,
+  and what is installed is everyone's. O2.1: the administrator installs and
+  members see what is installed; nothing in it lets a member install.
+- **5. The audit stays hash-chained files checked by `localspace audit
+  verify`.** O2.2 is a viewer and a CSV export that read those files.
+- **6. Browsers:** the server already gives any browser the web client, the
+  Admin page included. Document 26's §1 now reads: *a browser works wherever
+  the server's certificate is one the machine trusts.* Nothing to build.
+- **7. Conversations on the server's disk.** The true statement: the product
+  gives administrators no way to read conversations, but anyone with full
+  control of the server's disk can, as with every self-hosted system, and it
+  is said plainly. **The deployment guide requires full-disk encryption on
+  the server** (BitLocker on Windows, LUKS on Linux). **`localspace doctor`
+  and the server's first start check it:** where the data folder's disk is
+  not encrypted, or the check cannot tell, one warning line in the
+  administrator's Organisation section, *"This server's disk is not
+  encrypted. Anyone with the disk can read conversations."*, a warning and
+  never a refusal. Encryption inside the database (SQLCipher or similar) only
+  if a customer's compliance team requires it: a new dependency, asked
+  first, and its key would still be on the same server.
+- **8. The advice line** is *"People waited for the server N times today."*:
+  administrators get plain words too.
+- **9. Models in O1.2:** members use the one running chat model, and the
+  administrator chooses which. Several models in memory at once waits until
+  a customer asks and their hardware can hold it.
+- **O1.1 also closes the two gaps the report found:** turning an account off
+  stops its running answer as Stop does and closes its event stream; the last
+  administrator cannot be turned off or demoted. **O2.3, the silent install,
+  includes a per-machine install mode**, since IT tools install as SYSTEM; an
+  MSI only if a pilot deploys through Group Policy.
+- **The prompt item**, with documents 24 and 25. The picture sentence is not
+  added: every model declined the cat, the outcome document 25 said needs
+  nothing. **The 14B's `find_capability` call written into its text must be
+  gone after the change.** **A second pass of the script with the whiteboard
+  installed, before and after, on the 7B and the 14B only**: that path has
+  the biggest prompt, keeps the ledger, and is where the layout echo was
+  seen, so without it the item cannot show the echo fixed. **The ledger's
+  goal no longer repeats the person's latest message**, which every prompt
+  carried twice. **`/apply-template` chooses the ledger's place, and the
+  shape chosen is logged at load.**
+- **The export notice says "Documents", not "Data page"**, from this commit:
+  "Exported …: in the task ledger and in Documents."
+- **The stale credential, found:** GitHub CLI's active slot in Windows'
+  credential store held a token of another account than the one its settings
+  named, so `gh auth status` read right while every call ran as the other
+  account, which cannot see the private repository ("Repository not found").
+  The owner's web sign-in of 2026-10-06 replaced it; Git's own credential
+  manager holds no GitHub login. Who a call really runs as is read from
+  `gh api user`, never from `gh auth status`.
+- **Pushing without `scripts/check.sh` until WSL exists: accepted.** The
+  document has the founder installing WSL and `check.sh` run on the head
+  first once it is in; WSL was dropped on 2026-09-25 and that stands until
+  the owner says otherwise, so nothing waits on it.
+
+*This day's business entries are in the internal log.*
+
 ## 2026-10-06, the catalog moves to Qwen3.5 and Qwen3.8 (document 28), with a thinking indicator, and images estimated
 
 The founder's `28-localspace-latest-models.md` and two additions to it.

@@ -186,7 +186,7 @@ export function HarnessFrame({ panel, active }: { panel: Panel; active: boolean 
           void produceArtifact(params, bytes)
             .then((artifact) => {
               const file = artifact.file;
-              notify("info", `Exported ${file ? `${file.name} (${bytesLabel(file.bytes)})` : artifact.id}: in the task ledger and on the Data page.`);
+              notify("info", `Exported ${file ? `${file.name} (${bytesLabel(file.bytes)})` : artifact.id}: in the task ledger and in Documents.`);
               void refreshTask();
               post({ type: "artifact", ok: true, id: artifact.id, name: file?.name ?? null, bytes: file?.bytes ?? null });
             })
