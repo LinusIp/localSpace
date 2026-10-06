@@ -161,17 +161,11 @@ pub fn build(
         task.map(|t| crate::task::render(t, profile.ledger_tokens))
             .unwrap_or_default()
     };
-    let profile_text = if plain {
-        format!(
-            "[environment]\nmodel profile: {}\nworking set: {} tokens",
-            profile.name, profile.working_set_tokens
-        )
-    } else {
-        format!(
-            "[environment]\nmodel profile: {}\ntool budget: {} tokens\nworking set: {} tokens",
-            profile.name, profile.tool_budget_tokens, profile.working_set_tokens
-        )
-    };
+    // The model profile by its name only: its budgets are Core's to keep. A
+    // model handed "working set: 8000 tokens" told a person so, a word no
+    // member may be shown (docs/DECISIONS.md, 2026-10-06), and what a model
+    // reads is what it says.
+    let profile_text = format!("[environment]\nmodel profile: {}", profile.name);
 
     let mut tools = String::new();
     if !plain {
@@ -441,6 +435,22 @@ mod tests {
         }
         assert!(built.ledger.is_empty());
         assert_eq!(built.turns, vec![Turn::Person("hi".into())]);
+    }
+
+    /// What a model reads is what it says: the system message carries no word
+    /// a member may not be shown (the vocabulary rule of 2026-09-12). The 7B
+    /// told a person "my working set is 8000 tokens" (2026-10-06).
+    #[test]
+    fn the_system_message_carries_no_word_a_member_may_not_see() {
+        let p = ModelProfile::server();
+        for tools in [&[][..], &["canvas.list"][..]] {
+            let system = build(&p, &active(tools), &[], None, &[msg(Role::User, "hi")])
+                .prefix()
+                .to_lowercase();
+            for word in ["token", "harness", "working set", "budget"] {
+                assert!(!system.contains(word), "{word:?} in {system}");
+            }
+        }
     }
 
     #[test]
