@@ -660,11 +660,16 @@ fn the_ledger_is_in_the_prompt_whichever_harness_is_focused() {
                 );
                 assert!(prompt_preview.contains("art_1 outline.v1 from io.localspace.whiteboard"));
                 assert!(prompt_preview.contains("make them cards"));
-                // The ledger sits after the stable prefix, before the conversation.
+                // The ledger comes after the stable prefix and after the
+                // conversation: last, since it changes every step.
                 let ledger_at = prompt_preview.find("[task ").unwrap();
                 let state_at = prompt_preview.find("[state]").unwrap();
-                let convo_at = prompt_preview.find("[conversation]").unwrap();
-                assert!(state_at < ledger_at && ledger_at < convo_at);
+                assert!(state_at < ledger_at);
+                let ledger = &prompt_preview[ledger_at..];
+                assert!(
+                    ledger.contains("make them cards") && ledger.contains("art_1"),
+                    "{prompt_preview}"
+                );
             }
             other => panic!("PreviewContext failed: {other:?}"),
         }
@@ -1655,14 +1660,10 @@ impl ModelWorker for PromptDriven {
     }
     fn chat(&self, req: &ChatRequest) -> Result<ChatReply> {
         // Only the newest user turn matters; earlier ones are already handled.
-        let last = req
-            .prompt
-            .rsplit("user: ")
-            .next()
-            .unwrap_or("")
-            .to_lowercase();
+        let text = req.text();
+        let last = text.rsplit("user: ").next().unwrap_or("").to_lowercase();
         // Once a tool result for this turn is in the prompt, stop.
-        if req.prompt.contains("<- ok:") {
+        if text.contains("<- ok:") {
             return Ok(done());
         }
         Ok(if last.contains("call this board") {
@@ -1898,8 +1899,14 @@ fn declining_an_approval_ends_the_answer_and_the_model_reads_it_declined() {
         matches!(outcomes.as_slice(), [proto::ToolOutcome::Declined { .. }]),
         "the proposal is kept once, marked as declined: {messages:#?}"
     );
-    let read = localspace_core::prompt::render_conversation(&messages, 100_000);
-    assert!(read.contains("declined by the person"), "{read}");
+    let read: Vec<String> = localspace_core::prompt::turns(&messages, 100_000)
+        .iter()
+        .map(localspace_core::prompt::Turn::render)
+        .collect();
+    assert!(
+        read.iter().any(|t| t.contains("declined by the person")),
+        "{read:?}"
+    );
 }
 
 #[test]

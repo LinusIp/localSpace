@@ -625,3 +625,36 @@ mod web_surface_tests {
         assert_eq!(mime_for("noext"), "application/octet-stream");
     }
 }
+
+/// A harness installed and on, with these tools and nothing behind them,
+/// for tests that need something installed: with nothing installed no tool
+/// is offered at all (docs/DECISIONS.md, 2026-09-24).
+#[cfg(test)]
+pub(crate) fn installed_for_tests(id: &str, tools: serde_json::Value) -> Installed {
+    let manifest = Manifest::parse(&format!(
+        r#"
+[harness]
+id = "{id}"
+version = "1.0.0"
+api = "^1.0"
+title = "{id}"
+publisher = "p"
+
+[contributes]
+tools = "tools.json"
+context_provider = true
+"#
+    ))
+    .unwrap();
+    Installed {
+        manifest,
+        tools: ToolSet::parse(&tools.to_string()).unwrap(),
+        dir: PathBuf::from("."),
+        enabled: true,
+        degraded: None,
+        runtime: None,
+        last_used: std::time::Instant::now(),
+        idle_unload: std::time::Duration::from_secs(300),
+        types: Default::default(),
+    }
+}

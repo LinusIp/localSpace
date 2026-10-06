@@ -1749,24 +1749,25 @@ impl Core {
         still_held.into_iter().collect()
     }
 
-    /// What the engine reads once a model has loaded: the part of the prompt
+    /// What the engine reads once a model has loaded: the system message
     /// every first turn begins with (the instructions, the profile, the
-    /// tools, the state), with the same tools beside it as a turn sends, and
-    /// one token asked for. A turn's prompt continues from there with the
-    /// ledger and the conversation, so the engine's cache holds its beginning.
+    /// tools, the state), with the same tools beside it as a turn sends, a
+    /// message of the person's with nothing in it, and one token asked for.
+    /// A turn's prompt continues from the start of the person's message, so
+    /// the engine's cache holds everything before it.
     fn warm_up_request(&mut self) -> model::ChatRequest {
         let active = self.active_set();
         let blocks = self.context_blocks();
         let stable = prompt::build(&self.cfg.profile, &active, &blocks, None, &[]).prefix();
-        model::ChatRequest {
-            prompt: format!("{stable}\n\n"),
-            tools: active.tools,
-            grammar: None,
-            begun: None,
-            max_tokens: 1,
-            temperature: 0.0,
-            class: model::RequestClass::Interactive,
-        }
+        let mut request = model::ChatRequest::with_turns(
+            stable,
+            vec![prompt::Turn::Person(String::new())],
+            String::new(),
+        );
+        request.tools = active.tools;
+        request.max_tokens = 1;
+        request.temperature = 0.0;
+        request
     }
 
     /// The look at the engine once a start of it is over (item 3 of the

@@ -738,6 +738,38 @@ fn a_warm_up_that_fails_is_silent_and_the_model_is_ready_all_the_same() {
     engine.stop();
 }
 
+/// Where the model takes the task ledger is asked of its own template once
+/// it has loaded, and logged (docs/DECISIONS.md, 2026-10-06, document 27).
+#[test]
+fn where_the_model_takes_the_ledger_is_asked_of_its_template_and_logged() {
+    for (stub, place) in [
+        (
+            "fits 99 layers",
+            "as a system message after the newest message",
+        ),
+        (
+            "fits 99 layers; takes no late system message",
+            "at the end of the person's newest message",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let (engine, events) = start_on(stub, dir.path(), None, None);
+        wait_for_ready(&engine);
+        let log = std::fs::read_to_string(dir.path().join("engines").join("m.log")).unwrap();
+        assert!(log.contains("request POST /apply-template"), "{log}");
+        let events = events.lock().unwrap();
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                proto::Event::TraceLine { text }
+                    if text.contains("takes the task ledger") && text.contains(place)
+            )),
+            "{stub}: {events:?}"
+        );
+        engine.stop();
+    }
+}
+
 #[test]
 fn an_engine_that_gives_up_and_has_no_smaller_plan_is_said_to_have_failed() {
     let dir = tempfile::tempdir().unwrap();

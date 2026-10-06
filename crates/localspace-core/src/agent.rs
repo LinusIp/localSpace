@@ -459,16 +459,13 @@ fn ask_the_model(core: &mut Core, id: u64) {
         ));
         (active.tools.clone(), Some(grammar.gbnf))
     };
-    let request = model::ChatRequest {
-        prompt: p.render(),
-        tools,
-        grammar,
-        begun,
-        max_tokens: 1024,
-        temperature: 0.2,
-        class: model::RequestClass::Interactive,
-    };
+    // The prompt as a system message and turns, the ledger after the newest
+    // message (docs/DECISIONS.md, 2026-09-24 and 2026-10-06).
     let prompt_estimate = p.total_tokens();
+    let mut request = model::ChatRequest::with_turns(p.prefix(), p.turns, p.ledger);
+    request.tools = tools;
+    request.grammar = grammar;
+    request.begun = begun;
     // Taken out of the router, so that nothing holds it while the answer is
     // written: a model changed meanwhile would otherwise wait for the answer.
     let streamer = core.router.read().unwrap().for_a_turn();
@@ -1086,6 +1083,23 @@ mod tests {
         core
     }
 
+    /// A Core with a harness installed, so that Core's own tools are on
+    /// offer: with nothing installed there are none.
+    fn core_with_something_installed(script: Arc<Script>) -> Core {
+        let mut core = core_with(script);
+        core.registry.insert(crate::registry::installed_for_tests(
+            "io.example.board",
+            serde_json::json!([{
+                "name": "board.list",
+                "summary": "List what is on the board.",
+                "params": {"type": "object", "properties": {}},
+                "kind": "read",
+                "front_door": true
+            }]),
+        ));
+        core
+    }
+
     #[test]
     fn a_turn_with_no_tool_calls_answers_and_stops() {
         let script = Script::new(vec![ChatReply {
@@ -1153,6 +1167,8 @@ mod tests {
         );
     }
 
+    /// With something installed the model sees the tools and the state in
+    /// the system message, and the conversation as turns after it.
     #[test]
     fn the_prompt_the_model_sees_carries_the_tools_and_the_state() {
         let script = Script::new(vec![ChatReply {
@@ -1160,16 +1176,45 @@ mod tests {
             ..Default::default()
         }]);
         let seen = script.clone();
-        let mut core = core_with(script);
+        let mut core = core_with_something_installed(script);
         turn(&mut core, "hello");
 
         let requests = seen.seen.lock().unwrap();
         assert_eq!(requests.len(), 1);
-        let prompt = &requests[0].prompt;
-        assert!(prompt.contains("[tools]"));
-        assert!(prompt.contains("find_capability"));
-        assert!(prompt.contains("[conversation]"));
-        assert!(prompt.contains("hello"));
+        let model::Said::Turns { system, turns, .. } = &requests[0].said else {
+            panic!("{:?}", requests[0].said)
+        };
+        assert!(system.contains("[tools]"), "{system}");
+        assert!(system.contains("find_capability"), "{system}");
+        assert!(system.contains("[state]"), "{system}");
+        assert!(!system.contains("hello"), "the conversation is not in it");
+        assert_eq!(turns, &[prompt::Turn::Person("hello".into())]);
+        assert!(!requests[0].tools.is_empty());
+    }
+
+    /// With nothing installed the model is asked in plain chat: no tool on
+    /// offer and not a word about tools (docs/DECISIONS.md, 2026-09-24).
+    #[test]
+    fn with_nothing_installed_the_model_is_asked_in_plain_chat() {
+        let script = Script::new(vec![ChatReply {
+            text: "Hello!".into(),
+            ..Default::default()
+        }]);
+        let seen = script.clone();
+        let mut core = core_with(script);
+        turn(&mut core, "hello");
+
+        let requests = seen.seen.lock().unwrap();
+        let request = &requests[0];
+        assert!(request.tools.is_empty());
+        let text = request.text().to_lowercase();
+        for word in ["tool", "find_capability", "[task ", "[state]"] {
+            assert!(!text.contains(word), "{word:?} in {text}");
+        }
+        assert_eq!(
+            request.conversation(),
+            &[prompt::Turn::Person("hello".into())]
+        );
     }
 
     /// A Core whose transport is this test: what its turns post back is
@@ -1242,7 +1287,7 @@ mod tests {
     /// stops before the next one, never in the middle of a change.
     #[test]
     fn a_stop_between_two_tool_calls_lets_the_first_finish_and_begins_no_other() {
-        let mut core = core_with(Script::new(vec![two_notes()]));
+        let mut core = core_with_something_installed(Script::new(vec![two_notes()]));
         let collected = with_a_hand_on_the_queue(&mut core);
         let events = events_of(&mut core);
 
@@ -1361,9 +1406,17 @@ mod tests {
         core.record_conversation();
 
         turn(&mut core, "go on from there");
-        let prompt = seen.seen.lock().unwrap()[0].prompt.clone();
-        assert!(prompt.contains("Once upon a time"), "{prompt}");
-        assert!(prompt.contains(prompt::STOPPED_HERE), "{prompt}");
+        let request = seen.seen.lock().unwrap()[0].clone();
+        assert!(
+            request
+                .conversation()
+                .contains(&prompt::Turn::Answer(format!(
+                    "Once upon a time {}",
+                    prompt::STOPPED_HERE
+                ))),
+            "{:?}",
+            request.conversation()
+        );
         assert!(core.transcript[1].stopped, "it stays marked");
     }
 
@@ -1395,9 +1448,13 @@ mod tests {
         assert_eq!(request.begun.as_deref(), Some("Once upon a time"));
         assert!(request.tools.is_empty() && request.grammar.is_none());
         assert!(
-            !request.prompt.contains(prompt::STOPPED_HERE),
+            !request.text().contains(prompt::STOPPED_HERE),
             "the stopped words are the reply's start, not part of the chat read: {}",
-            request.prompt
+            request.text()
+        );
+        assert_eq!(
+            request.conversation(),
+            &[prompt::Turn::Person("Tell me a story.".into())]
         );
 
         // With nothing stopped, there is nothing to carry on.
