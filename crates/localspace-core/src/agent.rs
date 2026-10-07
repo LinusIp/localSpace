@@ -545,13 +545,13 @@ fn read_the_model(
             &mut |delta: &str| {
                 first_piece.get_or_insert_with(|| asked.elapsed());
                 seen.push_str(delta);
-                // A reply that begins as a call may be one, bare or in a code
-                // fence: it is held back whole, never shown as it comes
-                // (docs/DECISIONS.md, 2026-10-07).
+                // A reply that begins as a call may be one, bare, in a list or
+                // in a code fence: it is held back whole, never shown as it
+                // comes (docs/DECISIONS.md, 2026-10-07).
                 if calling.is_none()
                     && let Some(first) = seen.trim_start().chars().next()
                 {
-                    calling = Some(first == '{' || first == '`');
+                    calling = Some(matches!(first, '{' | '[' | '`'));
                 }
                 if calling == Some(false) {
                     shown.push_str(delta);
@@ -652,13 +652,24 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
     };
 
     if reply.calls.is_empty() {
-        // A call written into the answer, to a tool that is not on offer, is
-        // never words for the person: it is refused to the model in one line,
-        // and tried once more (docs/DECISIONS.md, 2026-10-07).
-        if let Some((tool, params)) = model::call_shaped(&reply.text)
-            && !on_offer(core, &tool)
-        {
-            attempted(core, id, &conversation, steps, tool, params);
+        // A call written into the answer is never words for the person
+        // (docs/DECISIONS.md, 2026-10-07). To a tool on offer, in a list, a
+        // code fence or with words after it, it is read as the call it is; to
+        // one that is not, it is refused to the model in one line, and tried
+        // once more.
+        if let Some((tool, params)) = model::call_shaped(&reply.text) {
+            if on_offer(core, &tool) {
+                if let Some(i) = index(core, id) {
+                    core.turns[i].calls = VecDeque::from([model::ProposedCall {
+                        id: "call_0".into(),
+                        tool: tool.replace("__", "."),
+                        params,
+                    }]);
+                }
+                post(core, Internal::GoOn { turn: id });
+            } else {
+                attempted(core, id, &conversation, steps, tool, params);
+            }
             return;
         }
         // Streamed already, unless it was held back as a possible tool call.
@@ -1597,6 +1608,31 @@ mod tests {
             )),
             "{:?}",
             requests[1].conversation()
+        );
+    }
+
+    /// A call to a tool on offer, written into the answer as a list of one
+    /// (the 14B's answer to 17 × 24, 2026-10-07), is read as the call it is:
+    /// made, and never shown.
+    #[test]
+    fn a_call_written_into_the_answer_to_a_tool_on_offer_is_made_not_shown() {
+        let script = Script::new(vec![
+            said(r#"[{"name": "task.note", "arguments": {"text": "Calculate 17 times 24."}}]"#),
+            said("17 times 24 is 408."),
+        ]);
+        let mut core = core_with_something_installed(script);
+        let events = events_of(&mut core);
+        turn(&mut core, "What is 17 times 24?");
+
+        assert_eq!(core.task.notes, ["Calculate 17 times 24."]);
+        assert_eq!(
+            core.transcript.last().unwrap().content,
+            "17 times 24 is 408."
+        );
+        let shown = everything_shown(&core, &events);
+        assert!(
+            !shown.contains("task.note") && !shown.contains('{'),
+            "{shown}"
         );
     }
 

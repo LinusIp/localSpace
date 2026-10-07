@@ -905,14 +905,20 @@ pub fn call_shaped(text: &str) -> Option<(String, J)> {
             .trim_start_matches(|c: char| c.is_ascii_alphanumeric())
             .trim_start();
     }
-    if !rest.starts_with('{') {
+    if !rest.starts_with('{') && !rest.starts_with('[') {
         return None;
     }
-    // The first value only: what follows it may be anything.
+    // The first value only: what follows it may be anything. A list's first
+    // item counts as the block: asked for 17 × 24, the 14B answered with
+    // nothing but `[{"name": "task.note", "arguments": {…}}]` (2026-10-07).
     let value = serde_json::Deserializer::from_str(rest)
         .into_iter::<J>()
         .next()?
         .ok()?;
+    let value = match value {
+        J::Array(items) => items.into_iter().next()?,
+        value => value,
+    };
     // Read narrowly, as `parse_bare_call` is: two members and no other, a
     // name that is an identifier, and arguments that are an object.
     let object = value.as_object()?;
@@ -1429,11 +1435,14 @@ mod tests {
         let (name, arguments) = call_shaped(TRANSLATE_TEXT).unwrap();
         assert_eq!(name, "translate_text");
         assert_eq!(arguments["target_language"], "German");
-        // Words after it, a code fence, Core's own shape.
+        // Words after it, a code fence, Core's own shape, a list of one (what
+        // the 14B answered to 17 × 24 on 2026-10-07).
         for text in [
             format!("{TRANSLATE_TEXT}\nThat should do it."),
             format!("```json\n{TRANSLATE_TEXT}\n```"),
             r#"{"tool": "web.search", "params": {"query": "weather in Lisbon"}}"#.to_string(),
+            r#"[{"name": "task.note", "arguments": {"text": "Calculate 17 times 24."}}]"#
+                .to_string(),
         ] {
             assert!(call_shaped(&text).is_some(), "{text}");
         }
@@ -1444,6 +1453,8 @@ mod tests {
             r#"{"city": "Lisbon", "temperature": 21}"#.to_string(),
             r#"{"name": "Ada Pellow", "arguments": {"year": 1912}}"#.to_string(),
             r#"{"name": "x", "arguments": {}, "id": 1}"#.to_string(),
+            r#"[1, 2, 3]"#.to_string(),
+            "[Image of a small cat]".to_string(),
             "Wo ist der nächste Bahnhof?".to_string(),
         ] {
             assert!(call_shaped(&text).is_none(), "{text}");
