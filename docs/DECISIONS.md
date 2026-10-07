@@ -13,6 +13,34 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-07, the two prompt changes built and measured: what is open after the conversation, the profile gone
+
+The refresh's first commit, as ruled (answers 1 and 2 of the same day),
+merged to `main` after CI on the branch (`5d2772a`; the measurement is in
+`docs/prompt/README.md`).
+
+- **The rule, now in plugin spec §16.1:** anything that changes during a
+  conversation goes after the conversation; everything before it is
+  identical from turn to turn. The system message is the instructions and
+  the tools; the conversation follows as turns; what is open and the task
+  ledger come after the newest message, as one trailing system message
+  where the template keeps one and at the end of the newest message where
+  it does not (shape 2, as Qwen3.5 and Qwen3.8 take). The model profile is
+  not written for the model at all.
+- **The conditions, met:** the test that two consecutive turns with a board
+  edit between them match up to the new message (`prompt.rs`); the new
+  tokens read on the first message after a board edit, **14B 4,044 → 2,003
+  (28.3 s → 9.5 s), 7B 2,356 → 1,023 (4.4 s → 2.0 s)**; the whiteboard
+  pass's answers read, the models using the board as before (the cat in 14
+  and 21 board calls).
+- **The price, measured and accepted:** every other turn now re-reads the
+  state block, a few hundred tokens instead of a dozen, in the same seconds
+  on this engine. On an engine that reads small batches properly the
+  re-read of a few hundred tokens costs under a second on the 14B.
+- **For the kit and the refresh:** the warm-up at load reads the system
+  message alone (3,369 tokens with the whiteboard installed), so a board
+  edit no longer invalidates the engine's cache of the tool descriptions.
+
 ## 2026-10-07, the engine check of document 28 (§2): the pin stays
 
 Run on the development laptop (16 GB, a 4 GB card) against the pinned

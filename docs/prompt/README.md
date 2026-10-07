@@ -142,6 +142,36 @@ message, and the system message ends with what is open, the board's state;
 so the first message after the cat was drawn read 4,044 new tokens on the
 14B (28 s), where the old layout read 1,592 (10 s).
 
+## What is open after the conversation (2026-10-07, the package of 5d2772a)
+
+The rule ruled the same day: anything that changes during a conversation
+goes after the conversation; everything before it is identical from turn
+to turn. What is open (the board's state) now follows the newest message
+beside the ledger, and the model profile is not written for the model at
+all. Measured with the whiteboard pass, same morning, same machine:
+
+| | First message after the board edit, new tokens read | Any other turn, new tokens read |
+|---|---|---|
+| Qwen2.5 7B, state in the system message (`4f4669d`) | 2,356 (4.4 s) | 13 to 25 (0.5 to 0.9 s) |
+| Qwen2.5 7B, state after the conversation (`5d2772a`) | **1,023 (2.0 s)** | 226 to 316 (0.7 to 0.9 s) |
+| Qwen2.5 14B, state in the system message | 4,044 (28.3 s) | 13 to 25 (1.2 to 3.6 s) |
+| Qwen2.5 14B, state after the conversation | **2,003 (9.5 s)** | 517 to 627 (3.2 to 3.5 s) |
+
+After a board edit the engine now reads the state block where it sits,
+not the whole prompt from the tools onward: half the tokens, a third of the
+time on the 14B. The price is that every other turn re-reads the state
+block (it sits after the previous answer, so the cache's match ends there),
+a few hundred tokens where the old layout re-read a dozen; on this engine
+that costs the same seconds, since it reads twenty tokens no faster than
+five hundred. The system message read at load is 3,369 tokens with the
+whiteboard installed (3,411 with the state in it).
+
+**The answers, read:** both models still use the board. The 7B drew the cat
+with 14 board calls and described the shapes it placed, the 14B with 21;
+"What can you do?" lists the board's actions on both; Continue joined
+mid-sentence; no raw call was shown and nothing was refused. The tool talk
+count is as in the after runs (the "What can you do?" answer).
+
 ## Found during the item, and what came of it
 
 - **"my working set is 8000 tokens"**: on the first after run (package
