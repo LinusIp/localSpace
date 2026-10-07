@@ -13,6 +13,46 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-07, the engine check of document 28 (§2): the pin stays
+
+Run on the development laptop (16 GB, a 4 GB card) against the pinned
+engine, b10869, with the files approved the same day (unsloth's
+`Qwen3.5-4B-Q4_K_M.gguf` and `Qwen3.8-27B-UD-IQ2_XXS.gguf`, each with its
+`mmproj-F16.gguf`, checked by SHA-256).
+
+- **Both load on the pinned engine**: the 4B with every layer on the card in
+  9 s; the 27B at its smallest quantisation with 8 layers on the card and
+  the rest in system memory in 26 s. No architecture error: Qwen3.8-27B is
+  `qwen35` to the engine. **The pin does not move for the refresh.**
+- **Both templates refuse a system message after the person's** ("System
+  message must be at the beginning"), so both take shape 2, which the
+  load-time probe already handles: what is open and the ledger go to the
+  end of the person's newest message for them. Qwen2.5 took shape 1.
+- **Thinking is on by default and can be switched off per request**
+  (`chat_template_kwargs: {"enable_thinking": false}`); the engine hands the
+  thinking back in a field of its own (`reasoning_content`, `--reasoning-format`
+  default `auto`), with `--reasoning-budget` available. On the 4B, "What is
+  17 times 24?" thought for 150 words: first visible word after 9.8 s with
+  thinking on, 0.1 s with it off, 45 tokens a second either way; so thinking
+  off by default is the likely setting on a 4 GB card, measured properly in
+  the refresh. On the 27B here (2.5 tokens a second, most of it in system
+  memory) 48 s against 3.7 s: a figure for this laptop only, not a speed.
+- **Image input works on the pinned engine** (`--mmproj`, an image as a data
+  URL in the message): both models described the test picture correctly
+  ("a red background with a blue circle in the center"), the 4B in 1 to 2 s,
+  the 27B in 16 s. **On the 4 GB card the projector must stay on the
+  processor** (`--no-mmproj-offload`): offloaded, the engine ran out of
+  device memory while encoding the image and the connection reset. Core
+  starts the engine with the projector off the card on small cards; what
+  rule decides it is part of the images item. The engine's own note:
+  Qwen-VL models want at least 1,024 image tokens for grounding tasks
+  (`--image-min-tokens`), to be read when images are built.
+- **Found on the way:** the file host reset the 7.3 GB transfer twice; a
+  resume loop finished it. A doubled download corrupted two files, since
+  two writers shared them; they were discarded and fetched again. The
+  download path of the product (one file at a time, verified by SHA-256)
+  is unaffected.
+
 ## 2026-10-07, the rulings on the document 29 block: the Qwen set alone in 0.2, the list grouped by verdict, the measurement kit's rules
 
 The owner's rulings on the builder's block for document 29; what goes in
