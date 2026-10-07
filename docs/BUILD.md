@@ -258,7 +258,18 @@ is missing.
   (docs/DECISIONS.md, 2026-09-24): b10869 splits `-c` evenly under
   `--parallel N`, shares one pool of `-c` between all slots without it or
   with `--kv-unified`, and Core's `--parallel N -c N×C` promise rests on the
-  first.
+  first;
+- how long the engine takes to read about 10, 30 and 100 new tokens on top
+  of a long cached prompt (docs/DECISIONS.md, 2026-10-07):
+  `node scripts/read-time.mjs <engine origin> <serve origin> <token>`,
+  against an engine started by hand with the flags `app.log` shows for the
+  model, and a server with the whiteboard installed. b10869 on the
+  development laptop reads up to about thirty new tokens one at a time
+  (about 120 ms each on the 14B with 3,400 tokens cached: 10 tokens 1.3 s,
+  29 tokens 3.5 s) and more than that together (44 tokens 0.9 s, 96 tokens
+  1.0 s), so a short message waits longer than a long one. **A short "ok,
+  thanks" must not wait longer than a paragraph**; if the new pin still does
+  this, the options go to the owner before it moves.
 
 The installer is per-user (`%LOCALAPPDATA%\Programs\localSpace`, no
 administrator prompt) and asks nothing but the usual folder page. It does not

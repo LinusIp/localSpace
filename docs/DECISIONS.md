@@ -13,6 +13,45 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-07, the answers after the slowdown: no padding, what is open moves after the conversation, the hold-back releases early
+
+The owner's four answers to the report on the slowdown and the limit on
+rule 3.
+
+- **1. Short messages read slowly: no padding.** It is measured again on
+  whatever engine the refresh lands on, with a bounded look at the engine's
+  settings during the pin check, and the engine's issue tracker read for the
+  behaviour, reading only. **The measurement joins the pin-move list in
+  `docs/BUILD.md`**: the time to read about 10, 30 and 100 new tokens on top
+  of a long cached prompt. If the refresh's engine still does it, options
+  come back to the owner. **A short "ok, thanks" must not wait longer than a
+  paragraph.**
+- **2. "What is open" moves to after the conversation, beside the ledger**,
+  and plugin spec §16.1 is updated in the same commit. **The rule behind it:
+  anything that changes during a conversation goes after the conversation;
+  everything before it is identical from turn to turn.** It goes in the
+  refresh's first commit, with the profile's name leaving the prompt.
+  Conditions: a test that two consecutive turns with a board edit between
+  them match up to the new message; the new tokens read on the first message
+  after a board edit measured before and after (it was 4,044 on the 14B); a
+  template that refuses a late system message gets it at the end of the
+  newest message, like the ledger (shape 2); and the whiteboard pass's
+  answers read, since the model must still use the board's state correctly.
+- **3. The builder's two choices on rule 3.** A block counting wherever it
+  starts a line: kept. The hold-back while an answer is written: kept, **but
+  a held line is released as soon as it can no longer be a call**, not at the
+  answer's end: `[` followed by anything but `{` or whitespace is released
+  at once, and so is a block that closes without a tool name. A person asking
+  for a JSON example or a list of links must still see it stream. Tests for a
+  markdown link line and a plain JSON example.
+- **4. The model checks and this laptop** (16 GB of memory, a 4 GB card): it
+  can show whether the engine loads Qwen3.8-27B, with the smallest
+  quantisation, but it cannot give honest speed figures or `exercised_on` for
+  the 16 GB and 24 GB tiers. The reply on document 28 (§6) says which entries
+  can be fully measured here and which need another machine. Before each
+  download: the file names, their sizes, and the free disk space left
+  afterwards. No existing model file is deleted without asking.
+
 ## 2026-10-07, the whiteboard slowdown looked into: the engine reads a few new tokens slowly
 
 The piece of work ruled with the merge (answer 2, below), done the same day

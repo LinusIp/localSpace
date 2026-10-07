@@ -955,28 +955,100 @@ pub fn safe_to_show(text: &str) -> usize {
     loop {
         let line_end = text[start..].find('\n').map(|at| start + at);
         let line = &text[start..line_end.unwrap_or(text.len())];
-        let content = &line[leading_space(line)..];
-        if content.starts_with('{') || content.starts_with('[') {
+        let head = &line[leading_space(line)..];
+        // From the line's first character to the end of what has come: a
+        // block may run over several lines.
+        let rest = &text[start + leading_space(line)..];
+        let held = if head.starts_with('{') || head.starts_with('[') {
+            may_be_a_call(rest) != Maybe::Not
+        } else if head.starts_with("```") {
+            fenced_may_be_a_call(rest).is_some_and(|m| m != Maybe::Not)
+        } else {
+            // A line still being written that may yet become a fence.
+            line_end.is_none() && (head.is_empty() || head.starts_with('`'))
+        };
+        if held {
             return start;
         }
         match line_end {
-            // A line still being written: held while it may yet become a
-            // block, shown once it cannot.
-            None => {
-                let undecided = content.is_empty() || content.starts_with('`');
-                return if undecided { start } else { text.len() };
-            }
-            Some(end) => {
-                if content.starts_with("```") {
-                    let tag = content.trim_start_matches('`').trim();
-                    if tag.is_empty() || tag.eq_ignore_ascii_case("json") {
-                        return start;
-                    }
-                }
-                start = end + 1;
-            }
+            None => return text.len(),
+            Some(end) => start = end + 1,
         }
     }
+}
+
+/// Whether text that begins with `{` or `[` is a block in the shape of a
+/// call, cannot be one, or may yet become one as more of it comes. It is
+/// released the moment it cannot be one (docs/DECISIONS.md, 2026-10-07): a
+/// `[` followed by anything but `{` or whitespace is a link, a list or a
+/// citation; an object whose first key is none of a call's is an example;
+/// and a value that closes without being a call is whatever it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Maybe {
+    Yes,
+    Not,
+    Undecided,
+}
+
+fn may_be_a_call(rest: &str) -> Maybe {
+    let mut object = rest;
+    if let Some(inner) = rest.strip_prefix('[') {
+        let inner = inner.trim_start();
+        match inner.chars().next() {
+            None => return Maybe::Undecided,
+            Some('{') => object = inner,
+            Some(_) => return Maybe::Not,
+        }
+    }
+    if let Some(inner) = object.strip_prefix('{') {
+        let inner = inner.trim_start();
+        match inner.chars().next() {
+            None => return Maybe::Undecided,
+            Some('"') => {
+                if let Some(close) = inner[1..].find('"') {
+                    let key = &inner[1..1 + close];
+                    if !matches!(key, "name" | "arguments" | "tool" | "params") {
+                        return Maybe::Not;
+                    }
+                }
+            }
+            Some(_) => return Maybe::Not,
+        }
+    }
+    // Whole, it is a call or it is not; cut short, it may yet be one.
+    match serde_json::Deserializer::from_str(rest)
+        .into_iter::<J>()
+        .next()
+    {
+        Some(Ok(value)) => {
+            if call_in(value).is_some() {
+                Maybe::Yes
+            } else {
+                Maybe::Not
+            }
+        }
+        Some(Err(e)) if e.is_eof() => Maybe::Undecided,
+        _ => Maybe::Not,
+    }
+}
+
+/// The same for text that begins with a code fence: `None` for a fence of
+/// another language, which is never held.
+fn fenced_may_be_a_call(rest: &str) -> Option<Maybe> {
+    let fence = rest.strip_prefix("```")?;
+    let Some(tag_end) = fence.find('\n') else {
+        return Some(Maybe::Undecided);
+    };
+    let tag = fence[..tag_end].trim();
+    if !(tag.is_empty() || tag.eq_ignore_ascii_case("json")) {
+        return None;
+    }
+    let body = fence[tag_end + 1..].trim_start();
+    Some(match body.chars().next() {
+        None => Maybe::Undecided,
+        Some('{' | '[') => may_be_a_call(body),
+        Some(_) => Maybe::Not,
+    })
 }
 
 fn leading_space(line: &str) -> usize {
@@ -1602,15 +1674,50 @@ mod tests {
             ("Hello there", "Hello there"),
             ("{", ""),
             ("  [", ""),
+            ("[ ", ""),
+            ("[{", ""),
+            ("{\"", ""),
             ("Sure:\n{\"name\"", "Sure:\n"),
+            ("Sure:\n{\"arguments\": {\"a\": 1}", "Sure:\n"),
+            ("Sure:\n[{\"name\": \"x\"", "Sure:\n"),
             ("Sure:\n```json\n{", "Sure:\n"),
             ("Sure:\n```\n", "Sure:\n"),
             ("Sure:\n``", "Sure:\n"),
             ("Sure:\n```python\ndef f():", "Sure:\n```python\ndef f():"),
             ("Sure:\n", "Sure:\n"),
             ("Sure:\n  ", "Sure:\n"),
+            // A whole call stays held until the reply ends.
+            (TRANSLATE_TEXT, ""),
+            (A_LIST_OF_ONE, ""),
         ] {
             assert_eq!(&text[..safe_to_show(text)], shown, "{text:?}");
+        }
+    }
+
+    /// A held line is released the moment it cannot be a call, so that a
+    /// list of links or a JSON example a person asked for still streams
+    /// (docs/DECISIONS.md, 2026-10-07).
+    #[test]
+    fn a_line_that_cannot_be_a_call_is_released_at_once() {
+        for text in [
+            // A markdown link, a citation, a list, a picture in brackets.
+            "Links:\n[the engine's tracker](https://github.com/ggml-org/llama.cpp/issues)\n[its",
+            "[1] The first source",
+            "[1, 2, 3] are the first three",
+            "[Image of a small cat]",
+            // A JSON example: decided by its first key, before it closes.
+            "{\"city\": \"Lis",
+            "```json\n{\"city\": \"Lisbon\", \"temperature\": 21}\n```",
+            "Here it is:\n{\n  \"city\": \"Lisbon\",\n  \"temperature\": 21\n}\nAs JSON.",
+            "[\n  {\"city\": \"Lisbon\"},\n  {\"city\": \"Porto\"}\n]",
+            // Closed without being a call: a name that is no identifier, a
+            // third member, an empty object, not JSON at all.
+            "{\"name\": \"Ada Pellow\", \"arguments\": {\"year\": 1912}}",
+            "{\"name\": \"x\", \"arguments\": {}, \"id\": 1}",
+            "{} is an empty object",
+            "{not json",
+        ] {
+            assert_eq!(safe_to_show(text), text.len(), "{text:?}");
         }
     }
 
