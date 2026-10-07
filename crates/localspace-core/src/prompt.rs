@@ -45,11 +45,15 @@ only when the person asks for something a tool would have to do.
 detail.
 - Say plainly when something failed. Do not claim a change you did not make.";
 
-/// The instructions when nothing is installed: nothing about tools at all.
-/// The last line once added about tools is what made small models talk
-/// about them (docs/DECISIONS.md, 2026-09-24, document 25).
-pub const SYSTEM_PLAIN: &str =
-    "You are the assistant inside localSpace. Answer the person in plain words.";
+/// The instructions when nothing is installed: nothing about tools at all,
+/// since the last line once added about tools is what made small models talk
+/// about them (docs/DECISIONS.md, 2026-09-24, document 25). The last sentence
+/// is the one ruled for a model that pretends to make a picture (Qwen2.5 0.5B
+/// after the change): it names no tool, since nothing is promised until it
+/// works, and it changes when a tool that makes pictures ships
+/// (docs/DECISIONS.md, 2026-10-07).
+pub const SYSTEM_PLAIN: &str = "You are the assistant inside localSpace. Answer the person in \
+plain words. You reply in text only. You cannot create images.";
 
 /// What the model reads after an answer that ended before it finished:
 /// stopped by the person, or cut short. The answer is part of the

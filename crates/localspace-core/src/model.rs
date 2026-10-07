@@ -890,6 +890,54 @@ pub fn parse_bare_call(text: &str, tools: &[proto::ExposedTool]) -> Option<Propo
     })
 }
 
+/// The tool, and its arguments, of a reply that is, or begins with, a block
+/// in the shape of a tool call: `name` and `arguments`, or Core's own `tool`
+/// and `params`, bare or in a code fence. A person never sees one as an
+/// answer (docs/DECISIONS.md, 2026-10-07): one that names a tool not on
+/// offer is an attempted call, refused to the model (see `agent`). Asked for
+/// a translation with the whiteboard installed, the 14B wrote
+/// `{"name": "translate_text", "arguments": {…}}`, for a tool that does not
+/// exist.
+pub fn call_shaped(text: &str) -> Option<(String, J)> {
+    let mut rest = text.trim_start();
+    if let Some(fenced) = rest.strip_prefix("```") {
+        rest = fenced
+            .trim_start_matches(|c: char| c.is_ascii_alphanumeric())
+            .trim_start();
+    }
+    if !rest.starts_with('{') {
+        return None;
+    }
+    // The first value only: what follows it may be anything.
+    let value = serde_json::Deserializer::from_str(rest)
+        .into_iter::<J>()
+        .next()?
+        .ok()?;
+    // Read narrowly, as `parse_bare_call` is: two members and no other, a
+    // name that is an identifier, and arguments that are an object.
+    let object = value.as_object()?;
+    if object.len() != 2 {
+        return None;
+    }
+    let (name, arguments) = match (object.get("name"), object.get("arguments")) {
+        (Some(name), Some(arguments)) => (name, arguments),
+        _ => (object.get("tool")?, object.get("params")?),
+    };
+    let name = name.as_str()?;
+    let identifier = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+    let arguments = match arguments {
+        J::Object(_) => arguments.clone(),
+        J::String(inside) => serde_json::from_str::<J>(inside)
+            .ok()
+            .filter(J::is_object)?,
+        _ => return None,
+    };
+    identifier.then(|| (name.to_string(), arguments))
+}
+
 /// Every worker's reply passes here: see [`parse_bare_call`].
 fn with_a_bare_call_read(mut reply: ChatReply, req: &ChatRequest) -> ChatReply {
     if reply.calls.is_empty()
@@ -1369,6 +1417,36 @@ mod tests {
             "",
         ] {
             assert!(parse_bare_call(text, &tools).is_none(), "{text}");
+        }
+    }
+
+    /// What the 14B wrote on 2026-10-06, asked for a translation with the
+    /// whiteboard installed: a call to a tool that does not exist.
+    const TRANSLATE_TEXT: &str = r#"{"name": "translate_text", "arguments": {"text": "Where is the nearest train station?", "target_language": "German"}}"#;
+
+    #[test]
+    fn an_answer_that_is_or_begins_with_a_call_is_call_shaped() {
+        let (name, arguments) = call_shaped(TRANSLATE_TEXT).unwrap();
+        assert_eq!(name, "translate_text");
+        assert_eq!(arguments["target_language"], "German");
+        // Words after it, a code fence, Core's own shape.
+        for text in [
+            format!("{TRANSLATE_TEXT}\nThat should do it."),
+            format!("```json\n{TRANSLATE_TEXT}\n```"),
+            r#"{"tool": "web.search", "params": {"query": "weather in Lisbon"}}"#.to_string(),
+        ] {
+            assert!(call_shaped(&text).is_some(), "{text}");
+        }
+        // Words first, other JSON, a name that is not an identifier, a third
+        // member, words alone.
+        for text in [
+            format!("Here it is: {TRANSLATE_TEXT}"),
+            r#"{"city": "Lisbon", "temperature": 21}"#.to_string(),
+            r#"{"name": "Ada Pellow", "arguments": {"year": 1912}}"#.to_string(),
+            r#"{"name": "x", "arguments": {}, "id": 1}"#.to_string(),
+            "Wo ist der nächste Bahnhof?".to_string(),
+        ] {
+            assert!(call_shaped(&text).is_none(), "{text}");
         }
     }
 

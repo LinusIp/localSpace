@@ -283,6 +283,7 @@ fn queue(core: &mut Core, conversation: String, continuing: bool) {
         stop: Stop::default(),
         calls: VecDeque::new(),
         continuing,
+        refused: None,
     });
     let state = where_it_goes(core, core.turns.len() - 1);
     if let Some(i) = index(core, id) {
@@ -402,12 +403,13 @@ fn ask_the_model(core: &mut Core, id: u64) {
         end(core, id, TurnState::Done);
         return;
     }
-    let (user, workspace, conversation, continuing, stop) = (
+    let (user, workspace, conversation, continuing, stop, refused) = (
         turn.caller.user.clone(),
         turn.workspace.clone(),
         turn.conversation.clone(),
         turn.continuing && turn.steps == 0,
         turn.stop.clone(),
+        turn.refused.clone(),
     );
 
     let active = core.active_set();
@@ -462,7 +464,12 @@ fn ask_the_model(core: &mut Core, id: u64) {
     // The prompt as a system message and turns, the ledger after the newest
     // message (docs/DECISIONS.md, 2026-09-24 and 2026-10-06).
     let prompt_estimate = p.total_tokens();
-    let mut request = model::ChatRequest::with_turns(p.prefix(), p.turns, p.ledger);
+    let system = p.prefix();
+    let mut turns = p.turns;
+    // A call the model wrote into its answer and had refused: it reads the
+    // refusal on its one more try (see `attempted`).
+    turns.extend(refused);
+    let mut request = model::ChatRequest::with_turns(system, turns, p.ledger);
     request.tools = tools;
     request.grammar = grammar;
     request.begun = begun;
@@ -538,10 +545,13 @@ fn read_the_model(
             &mut |delta: &str| {
                 first_piece.get_or_insert_with(|| asked.elapsed());
                 seen.push_str(delta);
+                // A reply that begins as a call may be one, bare or in a code
+                // fence: it is held back whole, never shown as it comes
+                // (docs/DECISIONS.md, 2026-10-07).
                 if calling.is_none()
                     && let Some(first) = seen.trim_start().chars().next()
                 {
-                    calling = Some(first == '{');
+                    calling = Some(first == '{' || first == '`');
                 }
                 if calling == Some(false) {
                     shown.push_str(delta);
@@ -642,6 +652,15 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
     };
 
     if reply.calls.is_empty() {
+        // A call written into the answer, to a tool that is not on offer, is
+        // never words for the person: it is refused to the model in one line,
+        // and tried once more (docs/DECISIONS.md, 2026-10-07).
+        if let Some((tool, params)) = model::call_shaped(&reply.text)
+            && !on_offer(core, &tool)
+        {
+            attempted(core, id, &conversation, steps, tool, params);
+            return;
+        }
         // Streamed already, unless it was held back as a possible tool call.
         if !reply.text.is_empty() && step.shown.is_empty() {
             core.emit(proto::Event::AssistantDelta {
@@ -657,6 +676,53 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
         core.turns[i].calls = reply.calls.into();
     }
     post(core, Internal::GoOn { turn: id });
+}
+
+/// What the model is told of a call it wrote into its answer to a tool that
+/// is not on offer, and what the person is told when it does so again.
+const NO_SUCH_TOOL: &str = "no such tool; answer in words";
+const COULD_NOT: &str = "I couldn't do that.";
+
+/// Whether a tool the model named is on offer now, written with its dot or as
+/// the engine is given it.
+fn on_offer(core: &Core, tool: &str) -> bool {
+    core.active_set()
+        .tools
+        .iter()
+        .any(|t| t.name == tool || t.name.replace('.', "__") == tool)
+}
+
+/// The model wrote a call into its answer to a tool that is not on offer.
+/// The first time it is refused in one line and the model tries once more,
+/// reading the refusal; the second time the person is told
+/// [`COULD_NOT`]. Never a third try, never the call's text shown, and the log
+/// names the tool and never its arguments, which may hold the person's words.
+fn attempted(core: &mut Core, id: u64, conversation: &str, steps: usize, tool: String, params: J) {
+    let Some(i) = index(core, id) else {
+        return;
+    };
+    if core.turns[i].refused.is_none() {
+        tracing::info!(
+            "answer: step {steps}, a call to `{tool}`, which is not on offer, was written into the answer; the model was asked to answer in words"
+        );
+        core.turns[i].refused = Some(prompt::Turn::Call {
+            id: format!("refused_{steps}"),
+            tool,
+            params,
+            result: NO_SUCH_TOOL.to_string(),
+        });
+        ask_the_model(core, id);
+        return;
+    }
+    tracing::info!(
+        "answer: step {steps}, a call to `{tool}`, which is not on offer, was written into the answer again; the person was told \"{COULD_NOT}\""
+    );
+    core.emit(proto::Event::AssistantDelta {
+        conversation: conversation.to_string(),
+        text: COULD_NOT.to_string(),
+    });
+    keep(core, id, COULD_NOT, false, true);
+    end(core, id, TurnState::Done);
 }
 
 /// The turn's next tool call, one at a time through Core's queue; or, with
@@ -1464,5 +1530,99 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// What the 14B wrote on 2026-10-06, asked for a translation with the
+    /// whiteboard installed: a call to a tool that does not exist.
+    const TRANSLATE_TEXT: &str = r#"{"name": "translate_text", "arguments": {"text": "Where is the nearest train station?", "target_language": "German"}}"#;
+
+    fn said(text: &str) -> ChatReply {
+        ChatReply {
+            text: text.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Everything the person was sent or can read back: the words streamed,
+    /// and the chat as kept.
+    fn everything_shown(core: &Core, events: &Mutex<Vec<proto::Event>>) -> String {
+        let streamed: String = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                proto::Event::AssistantDelta { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        let kept: String = core.transcript.iter().map(|m| m.content.clone()).collect();
+        format!("{streamed}\n{kept}")
+    }
+
+    /// A person never sees a raw tool call (docs/DECISIONS.md, 2026-10-07):
+    /// one to a tool that is not on offer is refused to the model in one
+    /// line, and the model tries once more.
+    #[test]
+    fn a_call_written_into_the_answer_is_refused_and_tried_once_more() {
+        let script = Script::new(vec![
+            said(TRANSLATE_TEXT),
+            said("Wo ist der nächste Bahnhof?"),
+        ]);
+        let seen = script.clone();
+        let mut core = core_with(script);
+        let events = events_of(&mut core);
+        turn(
+            &mut core,
+            "Translate into German: Where is the nearest train station?",
+        );
+
+        assert_eq!(
+            core.transcript.last().unwrap().content,
+            "Wo ist der nächste Bahnhof?"
+        );
+        let shown = everything_shown(&core, &events);
+        assert!(
+            !shown.contains("translate_text") && !shown.contains('{'),
+            "{shown}"
+        );
+        // Kept nowhere: the chat holds the person's message and the answer.
+        assert_eq!(core.transcript.len(), 2, "{:#?}", core.transcript);
+        let requests = seen.seen.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[1].conversation().iter().any(|t| matches!(
+                t,
+                prompt::Turn::Call { tool, result, .. }
+                    if tool == "translate_text" && result == NO_SUCH_TOOL
+            )),
+            "{:?}",
+            requests[1].conversation()
+        );
+    }
+
+    /// Never a loop: a second call written into the answer ends it with
+    /// "I couldn't do that.", and neither call is shown.
+    #[test]
+    fn a_second_call_written_into_the_answer_ends_it_without_showing_either() {
+        let script = Script::new(vec![
+            said(TRANSLATE_TEXT),
+            said(TRANSLATE_TEXT),
+            said("never asked for"),
+        ]);
+        let seen = script.clone();
+        let mut core = core_with(script);
+        let events = events_of(&mut core);
+        turn(
+            &mut core,
+            "Translate into German: Where is the nearest train station?",
+        );
+
+        assert_eq!(core.transcript.last().unwrap().content, COULD_NOT);
+        assert_eq!(seen.seen.lock().unwrap().len(), 2, "never a third try");
+        let shown = everything_shown(&core, &events);
+        assert!(
+            !shown.contains("translate_text") && !shown.contains('{'),
+            "{shown}"
+        );
     }
 }
