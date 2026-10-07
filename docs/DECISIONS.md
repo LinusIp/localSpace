@@ -13,6 +13,42 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-07, the rulings on the document 29 block: the Qwen set alone in 0.2, the list grouped by verdict, the measurement kit's rules
+
+The owner's rulings on the builder's block for document 29; what goes in
+which release is in the internal log.
+
+- **The other makers' families are not in 0.2.** Their entries, file
+  choices and estimates stay on record for later: Gemma 4 from ggml-org's
+  Q4_0 files (Google's own quantisation-aware release; no Q4_K_M exists
+  there), gpt-oss-20b from ggml-org's MXFP4 (its native format), Phi-4 and
+  Ministral 3 from unsloth's plain Q4_K_M files with their vision files
+  (ggml-org has only Q8_0 for Ministral). Taking Gemma's Q4_0 and gpt-oss's
+  MXFP4 as the makers' own formats is agreed. None of their files is
+  downloaded now.
+- **Qwen3.6 is not listed** (official: 27B and 35B-A3B, Apache-2.0, April
+  2026): it adds nothing the 3.5 and 3.8 pairs do not cover.
+  **Phi-4-reasoning-vision-15B stays out** until a publisher already used
+  has a file: only individuals publish GGUF files of it today.
+- **The model list is grouped by the verdict the app computes**: "Runs well
+  on this computer" first, with the recommended model on top; then "Works",
+  "Slower than you read", and "Will not fit", collapsed with a count; each
+  row names its maker. With the Qwen set alone the list is about a dozen
+  entries, and the grouping must still read well at that size.
+- **The measurement kit**: the portable zip and one command that reads the
+  machine, downloads and checks the named model, runs the message script
+  and the speed measurements, and writes one results file. **The message
+  script ported to the command line becomes the one script: CI and the
+  builder's own runs use it too, and the Node script is retired once the two
+  match on the same model.** Conditions: nothing is sent anywhere; the
+  results file is plain text the tester can read before attaching it; its
+  first lines say which build, which model file (with its SHA-256) and which
+  machine produced it. Built right after the two prompt changes, before the
+  refresh's runs, so borrowed machines can measure meanwhile.
+- **Downloads**: the remaining Qwen3.5 files (0.8B, 2B and 9B, each with its
+  vision file, about 9.3 GB) are approved; the Qwen3.5 small set is kept;
+  the Qwen3.8 load-test file is deleted only when asked.
+
 ## 2026-10-07, the catalog's files and the wider catalog (document 29): the rules behind the 0.2 plan
 
 The owner's answers to the builder's reply on document 28 and the 0.2
