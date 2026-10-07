@@ -924,55 +924,99 @@ impl CallBlock {
 }
 
 /// The first block in the shape of a tool call that begins a line of the
-/// reply, if any.
+/// reply, if any. The inside of a code fence, and the inside of a JSON value
+/// that began on an earlier line, are not read for one: a call-shaped object
+/// inside a JSON example a person asked for is part of the example.
 pub fn call_block(text: &str) -> Option<CallBlock> {
-    let mut start = 0;
-    while start <= text.len() {
-        let line_end = text[start..].find('\n').map(|at| start + at);
-        let content = start + leading_space(&text[start..]);
-        if let Some(found) = block_at(text, content) {
-            let span = start..found.0;
-            let alone = text[..span.start].trim().is_empty() && text[span.end..].trim().is_empty();
-            return Some(CallBlock {
-                tool: found.1,
-                params: found.2,
-                span,
-                alone,
-            });
+    let mut at = 0;
+    let mut in_fence = false;
+    loop {
+        let line_end = text[at..].find('\n').map(|n| at + n);
+        let line = &text[at..line_end.unwrap_or(text.len())];
+        let head = line.trim_start_matches([' ', '\t']);
+        let content_at = at + (line.len() - head.len());
+        if in_fence {
+            if head.starts_with("```") {
+                in_fence = false;
+            }
+        } else if head.starts_with("```") {
+            if let Some((end, tool, params)) = block_at(text, content_at) {
+                return Some(block(text, at..end, tool, params));
+            }
+            in_fence = true;
+        } else if head.starts_with('{') || head.starts_with('[') {
+            match value_at(text, content_at) {
+                Some((end, Some((tool, params)))) => {
+                    return Some(block(text, at..end, tool, params));
+                }
+                // Not a call: its lines are its own.
+                Some((end, None)) => {
+                    at = end;
+                    continue;
+                }
+                None => {}
+            }
         }
-        start = line_end? + 1;
+        at = line_end? + 1;
     }
-    None
 }
 
-/// How much of a reply being written may be shown yet: everything before the
-/// first line that begins, or may yet begin, a block in the shape of a tool
-/// call, a line starting with `{` or `[`, or a code fence that is bare or
-/// tagged json. That line is held back, with all that follows it, until the
-/// reply ends and [`call_block`] can say what it is.
+fn block(text: &str, span: std::ops::Range<usize>, tool: String, params: J) -> CallBlock {
+    let alone = text[..span.start].trim().is_empty() && text[span.end..].trim().is_empty();
+    CallBlock {
+        tool,
+        params,
+        span,
+        alone,
+    }
+}
+
+/// How much of a reply being written may be shown yet: everything up to a
+/// line that begins, or may yet begin, a block in the shape of a tool call,
+/// a line starting with `{` or `[`, or a code fence that is bare or tagged
+/// json. Such a line is held back, with all that follows it, only while it
+/// may still be a call: it is released the moment it cannot be one (a `[`
+/// followed by anything but `{` or whitespace, a first key that is none of a
+/// call's, a value that closes without being a call), so that a list of links
+/// or a JSON example a person asked for still streams (docs/DECISIONS.md,
+/// 2026-10-07). A call stays held until the reply ends and [`call_block`]
+/// says what it is. As there, the inside of a code fence and of a value begun
+/// on an earlier line is never held.
 pub fn safe_to_show(text: &str) -> usize {
-    let mut start = 0;
+    let mut at = 0;
+    let mut in_fence = false;
     loop {
-        let line_end = text[start..].find('\n').map(|at| start + at);
-        let line = &text[start..line_end.unwrap_or(text.len())];
-        let head = &line[leading_space(line)..];
-        // From the line's first character to the end of what has come: a
-        // block may run over several lines.
-        let rest = &text[start + leading_space(line)..];
-        let held = if head.starts_with('{') || head.starts_with('[') {
-            may_be_a_call(rest) != Maybe::Not
+        let line_end = text[at..].find('\n').map(|n| at + n);
+        let line = &text[at..line_end.unwrap_or(text.len())];
+        let head = line.trim_start_matches([' ', '\t']);
+        let content_at = at + (line.len() - head.len());
+        if in_fence {
+            if head.starts_with("```") {
+                in_fence = false;
+            }
         } else if head.starts_with("```") {
-            fenced_may_be_a_call(rest).is_some_and(|m| m != Maybe::Not)
-        } else {
+            match fenced_may_be_a_call(&text[content_at..]) {
+                // A fence of another language, or one whose body is no call.
+                None | Some(Maybe::Not { .. }) => in_fence = true,
+                Some(_) => return at,
+            }
+        } else if head.starts_with('{') || head.starts_with('[') {
+            match may_be_a_call(&text[content_at..]) {
+                Maybe::Yes | Maybe::Undecided => return at,
+                Maybe::Not { end: Some(end) } => {
+                    at = end;
+                    continue;
+                }
+                // Decided, and still open: what follows is its inside.
+                Maybe::Not { end: None } => return text.len(),
+            }
+        } else if line_end.is_none() && (head.is_empty() || head.starts_with('`')) {
             // A line still being written that may yet become a fence.
-            line_end.is_none() && (head.is_empty() || head.starts_with('`'))
-        };
-        if held {
-            return start;
+            return at;
         }
         match line_end {
             None => return text.len(),
-            Some(end) => start = end + 1,
+            Some(end) => at = end + 1,
         }
     }
 }
@@ -982,11 +1026,12 @@ pub fn safe_to_show(text: &str) -> usize {
 /// released the moment it cannot be one (docs/DECISIONS.md, 2026-10-07): a
 /// `[` followed by anything but `{` or whitespace is a link, a list or a
 /// citation; an object whose first key is none of a call's is an example;
-/// and a value that closes without being a call is whatever it is.
+/// and a value that closes without being a call is whatever it is. `end` is
+/// where a whole value ends, so that its lines can be passed over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Maybe {
     Yes,
-    Not,
+    Not { end: Option<usize> },
     Undecided,
 }
 
@@ -997,7 +1042,7 @@ fn may_be_a_call(rest: &str) -> Maybe {
         match inner.chars().next() {
             None => return Maybe::Undecided,
             Some('{') => object = inner,
-            Some(_) => return Maybe::Not,
+            Some(_) => return Maybe::Not { end: None },
         }
     }
     if let Some(inner) = object.strip_prefix('{') {
@@ -1008,27 +1053,27 @@ fn may_be_a_call(rest: &str) -> Maybe {
                 if let Some(close) = inner[1..].find('"') {
                     let key = &inner[1..1 + close];
                     if !matches!(key, "name" | "arguments" | "tool" | "params") {
-                        return Maybe::Not;
+                        return Maybe::Not { end: None };
                     }
                 }
             }
-            Some(_) => return Maybe::Not,
+            Some(_) => return Maybe::Not { end: None },
         }
     }
     // Whole, it is a call or it is not; cut short, it may yet be one.
-    match serde_json::Deserializer::from_str(rest)
-        .into_iter::<J>()
-        .next()
-    {
+    let mut values = serde_json::Deserializer::from_str(rest).into_iter::<J>();
+    match values.next() {
         Some(Ok(value)) => {
             if call_in(value).is_some() {
                 Maybe::Yes
             } else {
-                Maybe::Not
+                Maybe::Not {
+                    end: Some(values.byte_offset()),
+                }
             }
         }
         Some(Err(e)) if e.is_eof() => Maybe::Undecided,
-        _ => Maybe::Not,
+        _ => Maybe::Not { end: None },
     }
 }
 
@@ -1047,48 +1092,41 @@ fn fenced_may_be_a_call(rest: &str) -> Option<Maybe> {
     Some(match body.chars().next() {
         None => Maybe::Undecided,
         Some('{' | '[') => may_be_a_call(body),
-        Some(_) => Maybe::Not,
+        Some(_) => Maybe::Not { end: None },
     })
+}
+
+/// A block in the shape of a tool call beginning at `at`, in a code fence:
+/// where it ends, its tool and its arguments.
+fn block_at(text: &str, at: usize) -> Option<(usize, String, J)> {
+    let fence = text[at..].strip_prefix("```")?;
+    let tag_end = fence.find('\n')?;
+    let tag = fence[..tag_end].trim();
+    if !(tag.is_empty() || tag.eq_ignore_ascii_case("json")) {
+        return None;
+    }
+    let body = at + 3 + tag_end + 1;
+    let body = body + leading_space(&text[body..]);
+    let (end, call) = value_at(text, body)?;
+    let (tool, params) = call?;
+    // Through the closing fence, when there is one.
+    let closing = text[end..]
+        .trim_start()
+        .strip_prefix("```")
+        .map(|tail| text.len() - tail.len());
+    Some((closing.unwrap_or(end), tool, params))
+}
+
+/// The JSON value at `at`, if there is a whole one: where it ends, and its
+/// tool and arguments when it is a call.
+fn value_at(text: &str, at: usize) -> Option<(usize, Option<(String, J)>)> {
+    let mut values = serde_json::Deserializer::from_str(&text[at..]).into_iter::<J>();
+    let value = values.next()?.ok()?;
+    Some((at + values.byte_offset(), call_in(value)))
 }
 
 fn leading_space(line: &str) -> usize {
     line.len() - line.trim_start_matches([' ', '\t']).len()
-}
-
-/// A block in the shape of a tool call beginning at `at`: where it ends, its
-/// tool and its arguments.
-fn block_at(text: &str, at: usize) -> Option<(usize, String, J)> {
-    let rest = &text[at..];
-    if let Some(fence) = rest.strip_prefix("```") {
-        let tag_end = fence.find('\n')?;
-        let tag = fence[..tag_end].trim();
-        if !(tag.is_empty() || tag.eq_ignore_ascii_case("json")) {
-            return None;
-        }
-        let body = at + 3 + tag_end + 1;
-        let (end, tool, params) = value_at(text, body)?;
-        // Through the closing fence, when there is one.
-        let after = &text[end..];
-        let closing = after
-            .trim_start()
-            .strip_prefix("```")
-            .map(|tail| text.len() - tail.len());
-        return Some((closing.unwrap_or(end), tool, params));
-    }
-    if !(rest.starts_with('{') || rest.starts_with('[')) {
-        return None;
-    }
-    value_at(text, at)
-}
-
-/// The JSON value at `at`, if it is a call: where it ends, its tool and its
-/// arguments.
-fn value_at(text: &str, at: usize) -> Option<(usize, String, J)> {
-    let mut values = serde_json::Deserializer::from_str(&text[at..]).into_iter::<J>();
-    let value = values.next()?.ok()?;
-    let end = at + values.byte_offset();
-    let (tool, params) = call_in(value)?;
-    Some((end, tool, params))
 }
 
 /// The tool and the arguments of a value in the shape of a call. A list's
@@ -1661,9 +1699,22 @@ mod tests {
             "[Image of a small cat]".to_string(),
             "```python\nprint({'name': 'x'})\n```".to_string(),
             "Wo ist der nächste Bahnhof?".to_string(),
+            // A call-shaped object inside a JSON example is the example's,
+            // bare or fenced; so is a call inside a fence of another language.
+            "Here it is:\n{\n  \"items\": [\n    {\"name\": \"x\", \"arguments\": {}}\n  ]\n}\nAs JSON."
+                .to_string(),
+            "```json\n{\n  \"items\": [\n    {\"name\": \"x\", \"arguments\": {}}\n  ]\n}\n```\nDone."
+                .to_string(),
+            "```python\n{\"name\": \"task.note\", \"arguments\": {}}\n```".to_string(),
         ] {
             assert!(call_block(&text).is_none(), "{text}");
         }
+        // After an example, a call on a line of its own is still found.
+        let text = format!("{{\"city\": 1}}\n{A_LIST_OF_ONE}");
+        let block = call_block(&text).unwrap();
+        assert_eq!(block.tool, "task.note");
+        assert!(!block.alone);
+        assert_eq!(block.words_around(&text), "{\"city\": 1}");
     }
 
     /// A reply is shown as it comes, up to a line that begins, or may yet
@@ -1716,9 +1767,18 @@ mod tests {
             "{\"name\": \"x\", \"arguments\": {}, \"id\": 1}",
             "{} is an empty object",
             "{not json",
+            // A call-shaped object inside a JSON example, bare and fenced,
+            // and a call inside a fence of another language: all examples.
+            "Here it is:\n{\n  \"items\": [\n    {\"name\": \"x\", \"arguments\": {}}\n  ]\n}\nAs JSON.",
+            "```json\n{\n  \"items\": [\n    {\"name\": \"x\", \"arguments\": {}}\n  ]\n}\n```\nDone.",
+            "```python\n{\"name\": \"task.note\", \"arguments\": {}}\n```",
         ] {
             assert_eq!(safe_to_show(text), text.len(), "{text:?}");
         }
+        // An example, then a line that may be a call: the example streams,
+        // the line waits.
+        let text = "{\"city\": 1}\n{\"name\"";
+        assert_eq!(&text[..safe_to_show(text)], "{\"city\": 1}\n");
     }
 
     #[test]
