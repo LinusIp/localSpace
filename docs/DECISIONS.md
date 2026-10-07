@@ -13,6 +13,76 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-07, the catalog's files and the wider catalog (document 29): the rules behind the 0.2 plan
+
+The owner's answers to the builder's reply on document 28 and the 0.2
+plan, and the founder's `29-localspace-wider-catalog.md`. The plan itself,
+its estimates and its marks are in the internal log; here is what the code
+follows.
+
+- **The catalog's files.** Qwen publishes no GGUF files for Qwen3.5 or
+  Qwen3.8 (its own GGUF repositories stop at Qwen3 and Qwen3-VL), so the
+  files come from **ggml-org where it has the quantisation needed, otherwise
+  unsloth's plain Q4_K_M files with their vision files** for the Qwen3.5
+  sizes. Rules: a model file and its vision file come from the same
+  publisher; no "UD" or other publisher-specific variant is a default unless
+  measured against the plain file; every file pinned by SHA-256, as now.
+  **Noted for later, not for 0.2:** files hosted by third parties can be
+  removed, so the registry should eventually mirror them.
+- **The official line-up, read on 2026-10-07.** Qwen3.5 (Apache-2.0, all
+  reading images, context 262,144): 0.8B, 2B, 4B, 9B and 27B dense; 35B-A3B,
+  122B-A10B and 397B-A17B mixture-of-experts. Qwen3.6 exists officially too:
+  27B and 35B-A3B, Apache-2.0. Qwen3.8: 27B dense (reads images and video),
+  Flash-Next 180B, 2.4T-A95B; **no official Qwen3.8-9B or 35B-A3B**, so none
+  goes in the catalog. Qwen3.8-27B's architecture is `qwen3_5` (`qwen35` to
+  the engine), the family the engine has run since spring; the pin `b10869`
+  is of 9 September 2026, after the Qwen3.8 release week. The engine's newest
+  releases are versioned (`v0.6.0`, 5 October 2026).
+- **The 16 GB tier is measured in this order:** Qwen3.5-35B-A3B first, then
+  Qwen3.5-27B, then Qwen3.8-27B at Q3. The 35B-A3B at Q4 does not fit a
+  16 GB card whole, so its question is speed with most of it in system
+  memory and which machines have memory enough; **the planner's estimate
+  uses its active size.** Ministral 3 14B is an ordinary non-default entry.
+- **The wider catalog (document 29):** current small models from several
+  makers up to about 27B, plus small mixture-of-experts models, as
+  **non-default entries**; Qwen stays the default family. Candidates: Gemma 4
+  (E2B, E4B, 12B, 26B-A4B, 31B; Apache-2.0; images at every size), gpt-oss-20b
+  (Apache-2.0, text only, its own tool-call format), Phi-4 (MIT; mini 3.8B,
+  14B, reasoning 14B, reasoning-vision 15B), Ministral 3 (3B, 8B, 14B;
+  Apache-2.0; its template refuses a late system message, so it exercises
+  shape 2). Not added: Mistral Small 4 (119B, a server model, noted for the
+  server catalog); Llama 4, Gemma 3, Kimi K3, GLM-5.3 and the Qwen "Max"
+  weights, whose licences carry user caps, revenue tiers or custom terms;
+  anything third-party (fine-tunes, distillations, "uncensored" variants):
+  only the maker's own weights, in a quantisation from a publisher already
+  used.
+- **What a non-default entry needs** (document 29 §3; nothing is visible
+  unless it works): it loads on the pinned engine, on the card and partly
+  off it; its template is tested at load and the shape logged, and where a
+  family's tool calls do not work with the rule-3 handling the entry is
+  offered as **chat only** and the app says so; one short pass is read (ten
+  messages, two in Russian and two in Uzbek, the weather message and the
+  cat), with the thinking indicator and Continue tested where it thinks; an
+  SHA-256, a licence field, its address checked in CI and the planner's
+  sizes from the real file; and a row that says honestly what it is: a
+  measured speed where there is one, otherwise *"not measured on a computer
+  like yours yet"*, never an unchecked estimate. A family that fails to load
+  or whose template fails on the pinned engine, and would need a pin move,
+  stays out of 0.2 and is reported.
+- **A measurement kit for other people's machines**: a portable zip and one
+  command a tester with a stronger card runs unattended; it reads the
+  machine, downloads the named model, runs the message script and the speed
+  measurements, and writes one results file for them to send back. No
+  account, and nothing sent by itself: the tester attaches the file, as with
+  `app.log`.
+- **Downloads for the engine check approved** (the four files of the reply:
+  unsloth's Qwen3.5-4B Q4_K_M with its vision file, Qwen3.8-27B UD-IQ2_XXS
+  with its vision file), into a folder of their own outside the app's model
+  folder; before each further download the file names, sizes and the free
+  disk left afterwards; nothing deleted without asking. **The Bonsai spike
+  waits: no second engine in this release.** **Order: the engine check,
+  then the two prompt changes.**
+
 ## 2026-10-07, the answers after the slowdown: no padding, what is open moves after the conversation, the hold-back releases early
 
 The owner's four answers to the report on the slowdown and the limit on
