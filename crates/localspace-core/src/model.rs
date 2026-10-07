@@ -997,7 +997,7 @@ pub fn safe_to_show(text: &str) -> usize {
         } else if head.starts_with("```") {
             match fenced_may_be_a_call(&text[content_at..]) {
                 // A fence of another language, or one whose body is no call.
-                None | Some(Maybe::Not { .. }) => in_fence = true,
+                None | Some(Maybe::Not { .. } | Maybe::Words) => in_fence = true,
                 Some(_) => return at,
             }
         } else if head.starts_with('{') || head.starts_with('[') {
@@ -1009,6 +1009,7 @@ pub fn safe_to_show(text: &str) -> usize {
                 }
                 // Decided, and still open: what follows is its inside.
                 Maybe::Not { end: None } => return text.len(),
+                Maybe::Words => {}
             }
         } else if line_end.is_none() && (head.is_empty() || head.starts_with('`')) {
             // A line still being written that may yet become a fence.
@@ -1026,23 +1027,43 @@ pub fn safe_to_show(text: &str) -> usize {
 /// released the moment it cannot be one (docs/DECISIONS.md, 2026-10-07): a
 /// `[` followed by anything but `{` or whitespace is a link, a list or a
 /// citation; an object whose first key is none of a call's is an example;
-/// and a value that closes without being a call is whatever it is. `end` is
-/// where a whole value ends, so that its lines can be passed over.
+/// and a value that closes without being a call is whatever it is. `Not`
+/// carries where a whole value ends, so that its lines can be passed over;
+/// with no end, the value is still open and what follows is its inside.
+/// `Words` is text that is no JSON value at all: a link, a citation, a list
+/// in brackets, a brace in prose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Maybe {
     Yes,
     Not { end: Option<usize> },
     Undecided,
+    Words,
 }
 
 fn may_be_a_call(rest: &str) -> Maybe {
+    // Whole, it is a call or it is not; not JSON, it is words; cut short,
+    // what is there so far may already say.
+    let mut values = serde_json::Deserializer::from_str(rest).into_iter::<J>();
+    match values.next() {
+        Some(Ok(value)) => {
+            return if call_in(value).is_some() {
+                Maybe::Yes
+            } else {
+                Maybe::Not {
+                    end: Some(values.byte_offset()),
+                }
+            };
+        }
+        Some(Err(e)) if e.is_eof() => {}
+        _ => return Maybe::Words,
+    }
     let mut object = rest;
     if let Some(inner) = rest.strip_prefix('[') {
         let inner = inner.trim_start();
         match inner.chars().next() {
             None => return Maybe::Undecided,
             Some('{') => object = inner,
-            Some(_) => return Maybe::Not { end: None },
+            Some(_) => return Maybe::Words,
         }
     }
     if let Some(inner) = object.strip_prefix('{') {
@@ -1057,24 +1078,10 @@ fn may_be_a_call(rest: &str) -> Maybe {
                     }
                 }
             }
-            Some(_) => return Maybe::Not { end: None },
+            Some(_) => return Maybe::Words,
         }
     }
-    // Whole, it is a call or it is not; cut short, it may yet be one.
-    let mut values = serde_json::Deserializer::from_str(rest).into_iter::<J>();
-    match values.next() {
-        Some(Ok(value)) => {
-            if call_in(value).is_some() {
-                Maybe::Yes
-            } else {
-                Maybe::Not {
-                    end: Some(values.byte_offset()),
-                }
-            }
-        }
-        Some(Err(e)) if e.is_eof() => Maybe::Undecided,
-        _ => Maybe::Not { end: None },
-    }
+    Maybe::Undecided
 }
 
 /// The same for text that begins with a code fence: `None` for a fence of
@@ -1092,7 +1099,7 @@ fn fenced_may_be_a_call(rest: &str) -> Option<Maybe> {
     Some(match body.chars().next() {
         None => Maybe::Undecided,
         Some('{' | '[') => may_be_a_call(body),
-        Some(_) => Maybe::Not { end: None },
+        Some(_) => Maybe::Words,
     })
 }
 
@@ -1775,10 +1782,18 @@ mod tests {
         ] {
             assert_eq!(safe_to_show(text), text.len(), "{text:?}");
         }
-        // An example, then a line that may be a call: the example streams,
-        // the line waits.
-        let text = "{\"city\": 1}\n{\"name\"";
-        assert_eq!(&text[..safe_to_show(text)], "{\"city\": 1}\n");
+        // An example or a citation, then a line that may be a call: the
+        // first streams, the line waits.
+        for (text, shown) in [
+            ("{\"city\": 1}\n{\"name\"", "{\"city\": 1}\n"),
+            (
+                "[1] a source\n{\"name\": \"x\", \"arguments\": {}}",
+                "[1] a source\n",
+            ),
+            ("{\"city\": \"Lis", "{\"city\": \"Lis"),
+        ] {
+            assert_eq!(&text[..safe_to_show(text)], shown, "{text:?}");
+        }
     }
 
     #[test]
