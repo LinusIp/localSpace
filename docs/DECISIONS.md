@@ -13,6 +13,33 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-07, the whiteboard slowdown looked into: the engine reads a few new tokens slowly
+
+The piece of work ruled with the merge (answer 2, below), done the same day
+in under half a day; the measurements are in `docs/prompt/README.md`.
+
+- **The cause:** with the whiteboard installed the first word came about
+  0.3 s (7B) and 0.8 s (14B) later after the change because the pinned engine
+  (b10869, Vulkan, on this laptop) reads up to about thirty new tokens one at
+  a time, at about 120 ms each on the 14B with 3,400 tokens cached, and reads
+  more than that together, in under a second (10 new tokens 1.3 s, 29 3.5 s,
+  44 0.9 s, 96 1.0 s). The old layout added 35 to 50 new tokens to every
+  message and stayed above that line; the new one sends the message alone,
+  8 to 25 tokens, below it. Both layouts fall on the same curve.
+- **Ruled out:** Core (replayed straight to the engine, the gap is the same);
+  the request's setup outside the engine's reading, the template and the tool
+  grammar (the time outside the engine's own figures is unchanged, and
+  switching the grammar off changes nothing); and the previous answer read
+  again because the ledger sat before the conversation (the old layout did
+  read it again on every later turn of a conversation, the new one does not).
+- **Found with it:** after the board changes, the new layout reads the tool
+  descriptions again, since the model's own template puts them after the
+  system message, which ends with the board's state: 4,044 new tokens and
+  28 s on the 14B for the first message after the cat was drawn, where the
+  old layout read 1,592 and 10 s.
+- **Not changed:** nothing in the product; what to do about either is put
+  to the owner.
+
 ## 2026-10-07, the prompt item merged, and the answers to its five questions
 
 The owner saw the counts (`docs/prompt/README.md`) and approved the merge:

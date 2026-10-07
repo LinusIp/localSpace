@@ -110,7 +110,37 @@ all three runs (about 100 ms a token on the 7B, 300 on the 14B). It is where
 the engine reads the prompt: it reuses about 99 % of it from its cache in both
 layouts, and reads fewer new tokens after (8 to 25 for a short message where
 it read 27 to 58), yet takes longer over them (median 2.4 s a message on the
-14B where it took 1.4 s). Why is not found yet.
+14B where it took 1.4 s).
+
+**Why** (looked into on 2026-10-07, at most half a day as ruled). Not Core:
+replayed straight to the engine, the same messages in the two layouts gave
+the same gap, 1.8 s against 0.9 s a message. Not the request's setup: the
+time outside the engine's own figures is the same before and after, and
+with the tool grammar switched off (`tool_choice: "none"`) the gap stays.
+Not the previous answer read again: the old layout did read it again on
+every turn of a conversation (111 and 213 new tokens on turns two and
+three), the new one reads only the new message (18 to 21). **It is how the
+engine reads a few new tokens.** Measured on the 14B with 3,400 tokens
+already cached, the time to read N new tokens:
+
+| New tokens | 10 | 18 | 29 | 44 | 71 | 96 | 147 | 248 | 500 |
+|---|---|---|---|---|---|---|---|---|---|
+| Seconds | 1.26 | 2.47 | 3.48 | 0.91 | 1.09 | 1.00 | 1.31 | 1.47 | 2.41 |
+
+and the old layout falls on the same curve where they overlap (39 new
+tokens, 0.89 s; 94, 0.97 s; 148, 1.31 s). Up to about thirty new tokens this
+engine build, with most of the 14B in system memory, reads them one at a
+time, at about 120 ms each; from somewhere between 30 and 44 it reads them
+together, in under a second. The old layout added 35 to 50 new tokens to
+every message (its ledger repeated the message as the goal, and the
+conversation had markers of its own), and so stayed above the line; the new
+one sends the message alone, 8 to 25 tokens, below it.
+
+**Found with it:** after the board changes, the new layout reads the tool
+descriptions again. The model's own template puts them after the system
+message, and the system message ends with what is open, the board's state;
+so the first message after the cat was drawn read 4,044 new tokens on the
+14B (28 s), where the old layout read 1,592 (10 s).
 
 ## Found during the item, and what came of it
 
