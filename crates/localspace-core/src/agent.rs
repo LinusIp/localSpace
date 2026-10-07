@@ -1292,13 +1292,21 @@ mod tests {
 
         let requests = seen.seen.lock().unwrap();
         assert_eq!(requests.len(), 1);
-        let model::Said::Turns { system, turns, .. } = &requests[0].said else {
+        let model::Said::Turns {
+            system,
+            turns,
+            after,
+        } = &requests[0].said
+        else {
             panic!("{:?}", requests[0].said)
         };
         assert!(system.contains("[tools]"), "{system}");
         assert!(system.contains("find_capability"), "{system}");
-        assert!(system.contains("[state]"), "{system}");
         assert!(!system.contains("hello"), "the conversation is not in it");
+        // What is open comes after the conversation (docs/DECISIONS.md,
+        // 2026-10-07), never in the system message.
+        assert!(!system.contains("[state]"), "{system}");
+        assert!(after.contains("[state]"), "{after}");
         assert_eq!(turns, &[prompt::Turn::Person("hello".into())]);
         assert!(!requests[0].tools.is_empty());
     }
