@@ -890,37 +890,144 @@ pub fn parse_bare_call(text: &str, tools: &[proto::ExposedTool]) -> Option<Propo
     })
 }
 
-/// The tool, and its arguments, of a reply that is, or begins with, a block
-/// in the shape of a tool call: `name` and `arguments`, or Core's own `tool`
-/// and `params`, bare or in a code fence. A person never sees one as an
-/// answer (docs/DECISIONS.md, 2026-10-07): one that names a tool not on
-/// offer is an attempted call, refused to the model (see `agent`). Asked for
-/// a translation with the whiteboard installed, the 14B wrote
-/// `{"name": "translate_text", "arguments": {…}}`, for a tool that does not
-/// exist.
-pub fn call_shaped(text: &str) -> Option<(String, J)> {
-    let mut rest = text.trim_start();
-    if let Some(fenced) = rest.strip_prefix("```") {
-        rest = fenced
-            .trim_start_matches(|c: char| c.is_ascii_alphanumeric())
-            .trim_start();
+/// A block in the shape of a tool call found in a reply: `name` and
+/// `arguments`, or Core's own `tool` and `params`, beginning a line, bare, in
+/// a list or in a code fence. A person never sees one (docs/DECISIONS.md,
+/// 2026-10-07): asked for a translation with the whiteboard installed, the 14B
+/// wrote `{"name": "translate_text", "arguments": {…}}`, for a tool that does
+/// not exist, and asked for 17 × 24 with nothing installed it answered with
+/// nothing but `[{"name": "task.note", "arguments": {…}}]`. What Core does
+/// with one is the agent's (see `agent`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallBlock {
+    pub tool: String,
+    pub params: J,
+    /// Where the block is in the reply, from its first line to its end, a
+    /// code fence included.
+    pub span: std::ops::Range<usize>,
+    /// The reply is nothing but the block.
+    pub alone: bool,
+}
+
+impl CallBlock {
+    /// The reply's words with the block taken out.
+    pub fn words_around(&self, text: &str) -> String {
+        [
+            text[..self.span.start].trim_end(),
+            text[self.span.end..].trim_start(),
+        ]
+        .into_iter()
+        .filter(|words| !words.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
     }
-    if !rest.starts_with('{') && !rest.starts_with('[') {
+}
+
+/// The first block in the shape of a tool call that begins a line of the
+/// reply, if any.
+pub fn call_block(text: &str) -> Option<CallBlock> {
+    let mut start = 0;
+    while start <= text.len() {
+        let line_end = text[start..].find('\n').map(|at| start + at);
+        let content = start + leading_space(&text[start..]);
+        if let Some(found) = block_at(text, content) {
+            let span = start..found.0;
+            let alone = text[..span.start].trim().is_empty() && text[span.end..].trim().is_empty();
+            return Some(CallBlock {
+                tool: found.1,
+                params: found.2,
+                span,
+                alone,
+            });
+        }
+        start = line_end? + 1;
+    }
+    None
+}
+
+/// How much of a reply being written may be shown yet: everything before the
+/// first line that begins, or may yet begin, a block in the shape of a tool
+/// call, a line starting with `{` or `[`, or a code fence that is bare or
+/// tagged json. That line is held back, with all that follows it, until the
+/// reply ends and [`call_block`] can say what it is.
+pub fn safe_to_show(text: &str) -> usize {
+    let mut start = 0;
+    loop {
+        let line_end = text[start..].find('\n').map(|at| start + at);
+        let line = &text[start..line_end.unwrap_or(text.len())];
+        let content = &line[leading_space(line)..];
+        if content.starts_with('{') || content.starts_with('[') {
+            return start;
+        }
+        match line_end {
+            // A line still being written: held while it may yet become a
+            // block, shown once it cannot.
+            None => {
+                let undecided = content.is_empty() || content.starts_with('`');
+                return if undecided { start } else { text.len() };
+            }
+            Some(end) => {
+                if content.starts_with("```") {
+                    let tag = content.trim_start_matches('`').trim();
+                    if tag.is_empty() || tag.eq_ignore_ascii_case("json") {
+                        return start;
+                    }
+                }
+                start = end + 1;
+            }
+        }
+    }
+}
+
+fn leading_space(line: &str) -> usize {
+    line.len() - line.trim_start_matches([' ', '\t']).len()
+}
+
+/// A block in the shape of a tool call beginning at `at`: where it ends, its
+/// tool and its arguments.
+fn block_at(text: &str, at: usize) -> Option<(usize, String, J)> {
+    let rest = &text[at..];
+    if let Some(fence) = rest.strip_prefix("```") {
+        let tag_end = fence.find('\n')?;
+        let tag = fence[..tag_end].trim();
+        if !(tag.is_empty() || tag.eq_ignore_ascii_case("json")) {
+            return None;
+        }
+        let body = at + 3 + tag_end + 1;
+        let (end, tool, params) = value_at(text, body)?;
+        // Through the closing fence, when there is one.
+        let after = &text[end..];
+        let closing = after
+            .trim_start()
+            .strip_prefix("```")
+            .map(|tail| text.len() - tail.len());
+        return Some((closing.unwrap_or(end), tool, params));
+    }
+    if !(rest.starts_with('{') || rest.starts_with('[')) {
         return None;
     }
-    // The first value only: what follows it may be anything. A list's first
-    // item counts as the block: asked for 17 × 24, the 14B answered with
-    // nothing but `[{"name": "task.note", "arguments": {…}}]` (2026-10-07).
-    let value = serde_json::Deserializer::from_str(rest)
-        .into_iter::<J>()
-        .next()?
-        .ok()?;
+    value_at(text, at)
+}
+
+/// The JSON value at `at`, if it is a call: where it ends, its tool and its
+/// arguments.
+fn value_at(text: &str, at: usize) -> Option<(usize, String, J)> {
+    let mut values = serde_json::Deserializer::from_str(&text[at..]).into_iter::<J>();
+    let value = values.next()?.ok()?;
+    let end = at + values.byte_offset();
+    let (tool, params) = call_in(value)?;
+    Some((end, tool, params))
+}
+
+/// The tool and the arguments of a value in the shape of a call. A list's
+/// first item counts. Read narrowly, as [`parse_bare_call`] is: two members
+/// and no other, a name that is an identifier, and arguments that are an
+/// object.
+fn call_in(value: J) -> Option<(String, J)> {
     let value = match value {
         J::Array(items) => items.into_iter().next()?,
         value => value,
     };
-    // Read narrowly, as `parse_bare_call` is: two members and no other, a
-    // name that is an identifier, and arguments that are an object.
     let object = value.as_object()?;
     if object.len() != 2 {
         return None;
@@ -1430,34 +1537,80 @@ mod tests {
     /// whiteboard installed: a call to a tool that does not exist.
     const TRANSLATE_TEXT: &str = r#"{"name": "translate_text", "arguments": {"text": "Where is the nearest train station?", "target_language": "German"}}"#;
 
+    /// What the 14B answered to 17 × 24 on 2026-10-07, nothing installed.
+    const A_LIST_OF_ONE: &str =
+        r#"[{"name": "task.note", "arguments": {"text": "Calculate 17 times 24."}}]"#;
+
     #[test]
-    fn an_answer_that_is_or_begins_with_a_call_is_call_shaped() {
-        let (name, arguments) = call_shaped(TRANSLATE_TEXT).unwrap();
-        assert_eq!(name, "translate_text");
-        assert_eq!(arguments["target_language"], "German");
-        // Words after it, a code fence, Core's own shape, a list of one (what
-        // the 14B answered to 17 × 24 on 2026-10-07).
+    fn a_reply_that_is_nothing_but_a_call_is_a_block_alone() {
+        let block = call_block(TRANSLATE_TEXT).unwrap();
+        assert_eq!(block.tool, "translate_text");
+        assert_eq!(block.params["target_language"], "German");
+        assert_eq!(block.span, 0..TRANSLATE_TEXT.len());
+        assert!(block.alone);
+        // In a code fence, in a list, in Core's own shape.
         for text in [
-            format!("{TRANSLATE_TEXT}\nThat should do it."),
-            format!("```json\n{TRANSLATE_TEXT}\n```"),
+            format!("```json\n{TRANSLATE_TEXT}\n```\n"),
+            format!(" {A_LIST_OF_ONE} "),
             r#"{"tool": "web.search", "params": {"query": "weather in Lisbon"}}"#.to_string(),
-            r#"[{"name": "task.note", "arguments": {"text": "Calculate 17 times 24."}}]"#
-                .to_string(),
         ] {
-            assert!(call_shaped(&text).is_some(), "{text}");
+            let block = call_block(&text).unwrap();
+            assert!(block.alone, "{text}");
         }
-        // Words first, other JSON, a name that is not an identifier, a third
-        // member, words alone.
+    }
+
+    #[test]
+    fn a_call_with_words_around_it_is_a_block_not_alone() {
+        let text = format!("Here is how you would note it:\n{A_LIST_OF_ONE}\nThat is all.");
+        let block = call_block(&text).unwrap();
+        assert_eq!(block.tool, "task.note");
+        assert!(!block.alone);
+        assert_eq!(
+            block.words_around(&text),
+            "Here is how you would note it:\nThat is all."
+        );
+        // Words after it only; a fence between words, taken out whole.
+        let after = format!("{TRANSLATE_TEXT}\nThat should do it.");
+        let block = call_block(&after).unwrap();
+        assert_eq!(block.words_around(&after), "That should do it.");
+        let fenced = format!("Like this:\n```json\n{TRANSLATE_TEXT}\n```\nDone.");
+        let block = call_block(&fenced).unwrap();
+        assert_eq!(block.words_around(&fenced), "Like this:\nDone.");
+    }
+
+    #[test]
+    fn what_is_not_a_call_beginning_a_line_is_no_block() {
         for text in [
             format!("Here it is: {TRANSLATE_TEXT}"),
             r#"{"city": "Lisbon", "temperature": 21}"#.to_string(),
             r#"{"name": "Ada Pellow", "arguments": {"year": 1912}}"#.to_string(),
             r#"{"name": "x", "arguments": {}, "id": 1}"#.to_string(),
-            r#"[1, 2, 3]"#.to_string(),
+            "[1, 2, 3]".to_string(),
             "[Image of a small cat]".to_string(),
+            "```python\nprint({'name': 'x'})\n```".to_string(),
             "Wo ist der nächste Bahnhof?".to_string(),
         ] {
-            assert!(call_shaped(&text).is_none(), "{text}");
+            assert!(call_block(&text).is_none(), "{text}");
+        }
+    }
+
+    /// A reply is shown as it comes, up to a line that begins, or may yet
+    /// begin, a block in the shape of a call.
+    #[test]
+    fn a_line_that_may_begin_a_call_is_held_back_with_what_follows() {
+        for (text, shown) in [
+            ("Hello there", "Hello there"),
+            ("{", ""),
+            ("  [", ""),
+            ("Sure:\n{\"name\"", "Sure:\n"),
+            ("Sure:\n```json\n{", "Sure:\n"),
+            ("Sure:\n```\n", "Sure:\n"),
+            ("Sure:\n``", "Sure:\n"),
+            ("Sure:\n```python\ndef f():", "Sure:\n```python\ndef f():"),
+            ("Sure:\n", "Sure:\n"),
+            ("Sure:\n  ", "Sure:\n"),
+        ] {
+            assert_eq!(&text[..safe_to_show(text)], shown, "{text:?}");
         }
     }
 

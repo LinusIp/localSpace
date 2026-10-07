@@ -38,7 +38,15 @@ the entry below carries its history.
   answer in words" and tries again; if it does the same again, its words are
   shown with the block removed. Approvals apply to every call exactly as
   before. Tested with words around a call. Built after the merge, in a
-  commit of its own.
+  commit of its own, with **the builder's choices, to be corrected if
+  wrong**: a block counts wherever it begins a line of the answer, not only
+  at its start, so the words around it can be before it too; while an answer
+  is written, a line that begins, or may yet begin, such a block (a line
+  starting with `{` or `[`, or a code fence that is bare or tagged json) is
+  held back with all that follows it until the answer ends, while a fence for
+  code in another language streams as before; and a call to a tool not on
+  offer that comes twice ends in "I couldn't do that." with or without words
+  around it, as rule 3 has it.
 - **4. Squashed into one commit on `main`**: the decision record carries the
   history. **5. The branch `prompt-picture-sentence` is deleted.**
 - **For the refresh, the invented weather:** the 7B now states made-up
