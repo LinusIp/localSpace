@@ -13,6 +13,85 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-07, the prompt item built and measured: turns, plain chat, and a raw tool call never shown
+
+The item of documents 24, 25 and 27 (the entries of 2026-09-24 and
+2026-10-06), with the owner's six rulings of 2026-10-07 ahead of the report.
+Built on the branch `prompt-as-turns` and judged in CI there (this laptop
+could not compile: Smart App Control refused macro libraries it had allowed
+before), and measured on packages the `package` workflow built: before on
+`4009fc5`, after on the final commit `4f4669d`. The counts, the prompt's sizes
+and the time to the first word are in `docs/prompt/README.md`.
+
+- **What the engine is sent.** One system message (the instructions, the
+  profile by its name, the tools, the state, in the layout of plugin spec
+  §16.1), then the conversation as turns, then the task ledger. A tool call
+  in the conversation is the model's own call and the tool's reply, two
+  messages in the shape its template gives them, never a line of text such
+  as `tool: -> …`. Where the ledger goes is asked of the model's template
+  through the engine's `/apply-template` once the model has loaded, and
+  logged: a system message after the newest message where the template keeps
+  one (Qwen2.5's does), otherwise the end of the person's newest message.
+- **With nothing installed from the Store** no tool is on offer, Core's own
+  included, and the system message is three sentences and the profile's
+  name: 47 tokens where it was 774. A call the model makes anyway to one of
+  Core's tools is refused as not on offer; a refusal for an unknown tool
+  points at `find_capability` only where it is on offer.
+- **The ledger** no longer repeats the person's newest message as its goal
+  (the goal stays in the task, where Settings shows it), and is not written
+  when that is all it would hold.
+- **The model reads its profile by name only**, never its budgets in tokens:
+  the first after run had the 7B tell a person "my working set is 8000
+  tokens". A test holds the system message to carrying no word a member may
+  not be shown.
+- **The picture sentence** (rulings 1 and 2): with nothing installed the 0.5B
+  pretended to draw the cat in both runs after the change, so the plain
+  prompt ends "You reply in text only. You cannot create images.", which
+  names no tool, since nothing is promised until it works; with it the 0.5B
+  declined in both of two runs, so it stays. It changes when a tool that makes
+  pictures ships. The 0.5B leaves the defaults at the model refresh (document
+  28), so no more goes into it.
+- **A person never sees a raw tool call** (ruling 3). An answer that is, or
+  begins with, a block in the shape of a tool call (`name` and `arguments`, or
+  `tool` and `params`; bare, in a list or in a code fence; read narrowly: two
+  members, a name that is an identifier, arguments that are an object)
+  naming a tool not on offer is an attempted call: refused to the model in
+  one line, "no such tool; answer in words", and tried once more; a second
+  one ends the answer with "I couldn't do that.". Never a third try, never the
+  call's text shown or kept, and the log names the tool, never its arguments.
+  A reply that begins with `{`, `[` or a code fence is held back whole. Tested
+  with the 14B's `translate_text`, which the 14B wrote again in the final run
+  and which was refused and answered in words. **The builder's addition, to be
+  corrected if wrong:** such a block naming a tool that *is* on offer, in a
+  list, a fence or with words after it, is read as the call it is (the 14B
+  answered 17 × 24 with nothing but `[{"name": "task.note", …}]`), where the
+  rule of 2026-09-19 read only a reply that is exactly one call.
+- **The 7B guessing the weather** while having no live data is answer
+  quality, not tool talk (ruling 4): no prompt line for it; the same message
+  is read on the Qwen3.5 models in the refresh.
+- **Every count comes from one build each** (ruling 5): before and after for
+  the four defaults with nothing installed and for the 7B and the 14B with the
+  whiteboard, the stable part's size and the time to the first word. **Merged
+  to `main` only once CI is green on the final commit and the owner has seen
+  the counts** (ruling 6).
+- **Found by the measurement, not settled:** with the whiteboard installed
+  the first word comes later after the change, by about 0.3 s on the 7B and
+  0.8 s on the 14B (medians), in the engine's reading of each prompt, though
+  it reads fewer new tokens; the before build run again on the same morning
+  rules out the machine. With nothing installed it is unchanged. And the
+  profile's name still in the system message ("model profile: small model")
+  was said back by the 0.5B ("As a small model, I can do many things!").
+- **The builder's other choices inside the rulings, to be corrected if
+  wrong:** with something installed, the rule about the ledger reads "The
+  task ledger is yours to read. Never repeat its headings or its format in a
+  reply."; the ledger inside a message goes into the person's newest one,
+  never into a tool's reply; a model Core did not start (one connected under
+  Advanced) is not asked, and takes the ledger inside the person's message,
+  which any template accepts; the warm-up reads the system message and an
+  empty message of the person's; the conversation is cut to the working set
+  by whole turns from the oldest, beginning with something the person said,
+  and the line saying turns were folded away is gone.
+
 ## 2026-10-06, the organisation conflicts resolved, and the prompt item's last rules (document 27)
 
 The founder's `27-localspace-answers-org-conflicts.md`, the answer to the
