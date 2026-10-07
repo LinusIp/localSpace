@@ -12,6 +12,7 @@
 //! `/metrics`, and a deployment where the big model takes more than 60 % of calls
 //! is misconfigured.
 
+use crate::prompt::Turn;
 use crate::stream::{Cut, Silence, Stop};
 use anyhow::{Context, Result, bail};
 use localspace_proto as proto;
@@ -51,9 +52,25 @@ pub enum WorkerRole {
     Embedding,
 }
 
+/// What a request puts before the model.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Said {
+    /// One message of the person's: a harness's own question to the model.
+    Plain(String),
+    /// A step of the agent: the instructions as a system message, the
+    /// conversation as turns, and the task ledger after the newest message
+    /// (docs/DECISIONS.md, 2026-09-24 and 2026-10-06). Where the ledger goes
+    /// is the worker's: see [`LedgerPlace`].
+    Turns {
+        system: String,
+        turns: Vec<Turn>,
+        ledger: String,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct ChatRequest {
-    pub prompt: String,
+    pub said: Said,
     pub tools: Vec<proto::ExposedTool>,
     /// GBNF for backends that accept one; ignored by those that do not.
     pub grammar: Option<String>,
@@ -68,8 +85,21 @@ pub struct ChatRequest {
 
 impl ChatRequest {
     pub fn new(prompt: String) -> ChatRequest {
+        ChatRequest::saying(Said::Plain(prompt))
+    }
+
+    /// A step of the agent: see [`Said::Turns`].
+    pub fn with_turns(system: String, turns: Vec<Turn>, ledger: String) -> ChatRequest {
+        ChatRequest::saying(Said::Turns {
+            system,
+            turns,
+            ledger,
+        })
+    }
+
+    fn saying(said: Said) -> ChatRequest {
         ChatRequest {
-            prompt,
+            said,
             tools: Vec::new(),
             grammar: None,
             begun: None,
@@ -77,6 +107,117 @@ impl ChatRequest {
             temperature: 0.2,
             class: RequestClass::Interactive,
         }
+    }
+
+    /// The conversation's turns; none for a plain prompt.
+    pub fn conversation(&self) -> &[Turn] {
+        match &self.said {
+            Said::Plain(_) => &[],
+            Said::Turns { turns, .. } => turns,
+        }
+    }
+
+    /// Everything the request puts before the model, as text and in the
+    /// order it is read, the ledger last: for a person reading it, and for
+    /// tests. The engine is sent messages, never this.
+    pub fn text(&self) -> String {
+        match &self.said {
+            Said::Plain(text) => text.clone(),
+            Said::Turns {
+                system,
+                turns,
+                ledger,
+            } => {
+                let mut parts = vec![system.clone()];
+                parts.extend(turns.iter().map(Turn::render));
+                if !ledger.is_empty() {
+                    parts.push(ledger.clone());
+                }
+                parts.join("\n\n")
+            }
+        }
+    }
+}
+
+/// Where the task ledger goes among the messages of an agent's step,
+/// decided per model when it loads by rendering a short conversation through
+/// the model's own template (`/apply-template`; docs/DECISIONS.md,
+/// 2026-09-24, document 25, and 2026-10-06, document 27).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LedgerPlace {
+    /// A system message of its own after the newest message: two turns'
+    /// prompts match up to the new message.
+    AfterTheNewest,
+    /// At the end of the person's newest message, for a template that takes
+    /// no system message but the first: two turns' prompts match up to the
+    /// start of the previous message, and one exchange is read again each
+    /// turn. Any template takes it, so it is where a model that was never
+    /// asked has it.
+    #[default]
+    InTheNewest,
+}
+
+impl LedgerPlace {
+    /// For the log.
+    pub fn said(&self) -> &'static str {
+        match self {
+            LedgerPlace::AfterTheNewest => "as a system message after the newest message",
+            LedgerPlace::InTheNewest => "at the end of the person's newest message",
+        }
+    }
+}
+
+/// What a test conversation proves of a template: the ledger arrived as a
+/// system message after the person's message. The words are odd enough not
+/// to occur in a template by themselves.
+const LEDGER_PROBE: &str = "[task probe] notes: the ledger arrived";
+
+/// Where this engine's model takes the ledger: a three-message conversation
+/// with it as a system message after the person's is rendered by the
+/// engine's `/apply-template`. Refused, or with the ledger missing from what
+/// comes back, it goes into the person's newest message instead.
+/// `root_url` is the engine's own address, without `/v1`.
+pub fn ledger_place(root_url: &str, api_key: Option<&str>) -> (LedgerPlace, String) {
+    let url = format!("{}/apply-template", root_url.trim_end_matches('/'));
+    let body = json!({"messages": [
+        {"role": "system", "content": "You are the assistant."},
+        {"role": "user", "content": "Hello."},
+        {"role": "system", "content": LEDGER_PROBE}
+    ]});
+    let mut request = ureq::post(&url)
+        .config()
+        .timeout_global(Some(Duration::from_secs(10)))
+        .build();
+    if let Some(key) = api_key {
+        request = request.header("Authorization", &format!("Bearer {key}"));
+    }
+    let rendered: Result<J> = request
+        .send_json(&body)
+        .map_err(|e| anyhow::anyhow!("{e}"))
+        .and_then(|mut res| {
+            res.body_mut()
+                .read_json::<J>()
+                .map_err(|e| anyhow::anyhow!("{e}"))
+        });
+    match rendered {
+        Ok(answer) => match answer["prompt"].as_str() {
+            Some(prompt) if prompt.contains(LEDGER_PROBE) => (
+                LedgerPlace::AfterTheNewest,
+                "its template keeps a system message after the person's".to_string(),
+            ),
+            Some(_) => (
+                LedgerPlace::InTheNewest,
+                "its template leaves out a system message after the person's".to_string(),
+            ),
+            None => (
+                LedgerPlace::InTheNewest,
+                "the engine rendered no prompt for a test conversation".to_string(),
+            ),
+        },
+        Err(e) => (
+            LedgerPlace::InTheNewest,
+            format!("its template refused a system message after the person's ({e})"),
+        ),
     }
 }
 
@@ -147,6 +288,7 @@ pub struct OpenAiWorker {
     context_len: u32,
     supports_vision: bool,
     timeout: Duration,
+    ledger: LedgerPlace,
 }
 
 impl OpenAiWorker {
@@ -158,11 +300,18 @@ impl OpenAiWorker {
             context_len: 32768,
             supports_vision: false,
             timeout: Duration::from_secs(180),
+            ledger: LedgerPlace::default(),
         }
     }
 
     pub fn with_key(mut self, key: Option<String>) -> Self {
         self.api_key = key;
+        self
+    }
+
+    /// Where this model takes the task ledger: see [`ledger_place`].
+    pub fn with_ledger(mut self, place: LedgerPlace) -> Self {
+        self.ledger = place;
         self
     }
 
@@ -263,7 +412,7 @@ impl ModelWorker for OpenAiWorker {
     fn chat(&self, req: &ChatRequest) -> Result<ChatReply> {
         let mut body = json!({
             "model": self.model,
-            "messages": messages(req),
+            "messages": messages(req, self.ledger),
             "max_tokens": req.max_tokens,
             "temperature": req.temperature,
             "stream": false,
@@ -295,7 +444,7 @@ impl ModelWorker for OpenAiWorker {
     ) -> Result<ChatReply> {
         let mut body = json!({
             "model": self.model,
-            "messages": messages(req),
+            "messages": messages(req, self.ledger),
             "max_tokens": req.max_tokens,
             "temperature": req.temperature,
             "stream": true,
@@ -408,16 +557,70 @@ pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {
     })
 }
 
-/// The messages of a request: the prompt as the person's, then, when an
-/// answer that stopped is carried on, its words as the start of the model's
-/// reply. The engine continues a last message of the assistant's instead of
-/// answering after it (llama-server's prefill, on by default).
-fn messages(req: &ChatRequest) -> J {
-    let mut messages = vec![json!({"role": "user", "content": req.prompt})];
-    if let Some(begun) = req.begun.as_deref().filter(|b| !b.is_empty()) {
-        messages.push(json!({"role": "assistant", "content": begun}));
+/// The messages of a request. A plain prompt is one message of the person's.
+/// An agent's step is the instructions as a system message, then the
+/// conversation as turns, a call as the model's own call and the tool's reply,
+/// in the shape the model's template gives them, then the ledger where this
+/// model takes it. When an answer that stopped is carried on, its words come
+/// last, as the start of the model's reply: the engine continues a last
+/// message of the assistant's instead of answering after it (llama-server's
+/// prefill, on by default).
+fn messages(req: &ChatRequest, ledger_place: LedgerPlace) -> J {
+    let mut out: Vec<J> = Vec::new();
+    match &req.said {
+        Said::Plain(text) => out.push(json!({"role": "user", "content": text})),
+        Said::Turns {
+            system,
+            turns,
+            ledger,
+        } => {
+            out.push(json!({"role": "system", "content": system}));
+            let newest = turns.iter().rposition(|t| matches!(t, Turn::Person(_)));
+            for (i, turn) in turns.iter().enumerate() {
+                match turn {
+                    Turn::Person(text) => {
+                        let content = if ledger_place == LedgerPlace::InTheNewest
+                            && Some(i) == newest
+                            && !ledger.is_empty()
+                        {
+                            format!("{text}\n\n{ledger}")
+                        } else {
+                            text.clone()
+                        };
+                        out.push(json!({"role": "user", "content": content}));
+                    }
+                    Turn::Answer(text) => out.push(json!({"role": "assistant", "content": text})),
+                    Turn::Call {
+                        id,
+                        tool,
+                        params,
+                        result,
+                    } => {
+                        out.push(json!({
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": [{
+                                "id": id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool.replace('.', "__"),
+                                    "arguments": params.to_string()
+                                }
+                            }]
+                        }));
+                        out.push(json!({"role": "tool", "tool_call_id": id, "content": result}));
+                    }
+                }
+            }
+            if ledger_place == LedgerPlace::AfterTheNewest && !ledger.is_empty() {
+                out.push(json!({"role": "system", "content": ledger}));
+            }
+        }
     }
-    J::Array(messages)
+    if let Some(begun) = req.begun.as_deref().filter(|b| !b.is_empty()) {
+        out.push(json!({"role": "assistant", "content": begun}));
+    }
+    J::Array(out)
 }
 
 /// An answer carried on, as it comes back. llama-server (b10869) begins its
@@ -687,6 +890,60 @@ pub fn parse_bare_call(text: &str, tools: &[proto::ExposedTool]) -> Option<Propo
     })
 }
 
+/// The tool, and its arguments, of a reply that is, or begins with, a block
+/// in the shape of a tool call: `name` and `arguments`, or Core's own `tool`
+/// and `params`, bare or in a code fence. A person never sees one as an
+/// answer (docs/DECISIONS.md, 2026-10-07): one that names a tool not on
+/// offer is an attempted call, refused to the model (see `agent`). Asked for
+/// a translation with the whiteboard installed, the 14B wrote
+/// `{"name": "translate_text", "arguments": {…}}`, for a tool that does not
+/// exist.
+pub fn call_shaped(text: &str) -> Option<(String, J)> {
+    let mut rest = text.trim_start();
+    if let Some(fenced) = rest.strip_prefix("```") {
+        rest = fenced
+            .trim_start_matches(|c: char| c.is_ascii_alphanumeric())
+            .trim_start();
+    }
+    if !rest.starts_with('{') && !rest.starts_with('[') {
+        return None;
+    }
+    // The first value only: what follows it may be anything. A list's first
+    // item counts as the block: asked for 17 × 24, the 14B answered with
+    // nothing but `[{"name": "task.note", "arguments": {…}}]` (2026-10-07).
+    let value = serde_json::Deserializer::from_str(rest)
+        .into_iter::<J>()
+        .next()?
+        .ok()?;
+    let value = match value {
+        J::Array(items) => items.into_iter().next()?,
+        value => value,
+    };
+    // Read narrowly, as `parse_bare_call` is: two members and no other, a
+    // name that is an identifier, and arguments that are an object.
+    let object = value.as_object()?;
+    if object.len() != 2 {
+        return None;
+    }
+    let (name, arguments) = match (object.get("name"), object.get("arguments")) {
+        (Some(name), Some(arguments)) => (name, arguments),
+        _ => (object.get("tool")?, object.get("params")?),
+    };
+    let name = name.as_str()?;
+    let identifier = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+    let arguments = match arguments {
+        J::Object(_) => arguments.clone(),
+        J::String(inside) => serde_json::from_str::<J>(inside)
+            .ok()
+            .filter(J::is_object)?,
+        _ => return None,
+    };
+    identifier.then(|| (name.to_string(), arguments))
+}
+
 /// Every worker's reply passes here: see [`parse_bare_call`].
 fn with_a_bare_call_read(mut reply: ChatReply, req: &ChatRequest) -> ChatReply {
     if reply.calls.is_empty()
@@ -938,14 +1195,15 @@ mod tests {
 
     #[test]
     fn the_words_of_an_answer_carried_on_are_the_start_of_the_models_reply() {
+        let place = LedgerPlace::default();
         let mut req = ChatRequest::new("the prompt".into());
         assert_eq!(
-            messages(&req),
+            messages(&req, place),
             json!([{"role": "user", "content": "the prompt"}])
         );
         req.begun = Some("Once upon".into());
         assert_eq!(
-            messages(&req),
+            messages(&req, place),
             json!([
                 {"role": "user", "content": "the prompt"},
                 {"role": "assistant", "content": "Once upon"}
@@ -953,7 +1211,99 @@ mod tests {
         );
         // An answer stopped before its first word begins nothing.
         req.begun = Some(String::new());
-        assert_eq!(messages(&req).as_array().map(Vec::len), Some(1));
+        assert_eq!(messages(&req, place).as_array().map(Vec::len), Some(1));
+    }
+
+    fn a_step(turns: Vec<Turn>) -> ChatRequest {
+        ChatRequest::with_turns(
+            "the instructions".into(),
+            turns,
+            "[task run_1]\nnotes:\n  - blue".into(),
+        )
+    }
+
+    /// The prompt as a system message and turns (docs/DECISIONS.md,
+    /// 2026-09-24): the instructions first, a call as the model's own call
+    /// and the tool's reply, and the ledger where the model takes it.
+    #[test]
+    fn a_step_is_the_instructions_then_the_turns_then_the_ledger() {
+        let req = a_step(vec![
+            Turn::Person("note the risks".into()),
+            Turn::Call {
+                id: "t1".into(),
+                tool: "canvas.add_sticky".into(),
+                params: json!({"text": "risks"}),
+                result: "ok: added 1 shape".into(),
+            },
+        ]);
+        assert_eq!(
+            messages(&req, LedgerPlace::AfterTheNewest),
+            json!([
+                {"role": "system", "content": "the instructions"},
+                {"role": "user", "content": "note the risks"},
+                {"role": "assistant", "content": "", "tool_calls": [{
+                    "id": "t1",
+                    "type": "function",
+                    "function": {"name": "canvas__add_sticky", "arguments": "{\"text\":\"risks\"}"}
+                }]},
+                {"role": "tool", "tool_call_id": "t1", "content": "ok: added 1 shape"},
+                {"role": "system", "content": "[task run_1]\nnotes:\n  - blue"}
+            ])
+        );
+        // A template that takes no late system message: the ledger ends the
+        // person's newest message.
+        let sent = messages(&req, LedgerPlace::InTheNewest);
+        let sent = sent.as_array().unwrap();
+        assert_eq!(sent.len(), 4);
+        assert_eq!(
+            sent[1],
+            json!({"role": "user", "content": "note the risks\n\n[task run_1]\nnotes:\n  - blue"})
+        );
+    }
+
+    /// Doc 22's test, at the level of what is sent: two turns' messages match
+    /// up to the new message with the ledger after the newest; with the ledger
+    /// in the person's newest message, up to the start of the previous one.
+    #[test]
+    fn two_turns_prompts_match_up_to_the_new_message() {
+        let first = vec![Turn::Person("hello".into())];
+        let second = vec![
+            Turn::Person("hello".into()),
+            Turn::Answer("Hi! What can I do?".into()),
+            Turn::Person("add a shape".into()),
+        ];
+        let after = |turns: &[Turn]| messages(&a_step(turns.to_vec()), LedgerPlace::AfterTheNewest);
+        let (one, two) = (after(&first), after(&second));
+        let (one, two) = (one.as_array().unwrap(), two.as_array().unwrap());
+        // Everything of the first turn but its ledger begins the second.
+        assert_eq!(one[..one.len() - 1], two[..one.len() - 1]);
+        assert_eq!(two.last().unwrap()["role"], "system");
+
+        let inside = |turns: &[Turn]| messages(&a_step(turns.to_vec()), LedgerPlace::InTheNewest);
+        let (one, two) = (inside(&first), inside(&second));
+        let (one, two) = (one.as_array().unwrap(), two.as_array().unwrap());
+        // The previous message carried the ledger, so the match ends there.
+        assert_eq!(one[..1], two[..1]);
+        assert_ne!(one[1], two[1]);
+        assert_eq!(two[1], json!({"role": "user", "content": "hello"}));
+    }
+
+    #[test]
+    fn a_step_with_nothing_in_the_ledger_sends_no_ledger() {
+        let req = ChatRequest::with_turns(
+            "the instructions".into(),
+            vec![Turn::Person("hi".into())],
+            String::new(),
+        );
+        for place in [LedgerPlace::AfterTheNewest, LedgerPlace::InTheNewest] {
+            assert_eq!(
+                messages(&req, place),
+                json!([
+                    {"role": "system", "content": "the instructions"},
+                    {"role": "user", "content": "hi"}
+                ])
+            );
+        }
     }
 
     struct Fake {
@@ -1073,6 +1423,41 @@ mod tests {
             "",
         ] {
             assert!(parse_bare_call(text, &tools).is_none(), "{text}");
+        }
+    }
+
+    /// What the 14B wrote on 2026-10-06, asked for a translation with the
+    /// whiteboard installed: a call to a tool that does not exist.
+    const TRANSLATE_TEXT: &str = r#"{"name": "translate_text", "arguments": {"text": "Where is the nearest train station?", "target_language": "German"}}"#;
+
+    #[test]
+    fn an_answer_that_is_or_begins_with_a_call_is_call_shaped() {
+        let (name, arguments) = call_shaped(TRANSLATE_TEXT).unwrap();
+        assert_eq!(name, "translate_text");
+        assert_eq!(arguments["target_language"], "German");
+        // Words after it, a code fence, Core's own shape, a list of one (what
+        // the 14B answered to 17 × 24 on 2026-10-07).
+        for text in [
+            format!("{TRANSLATE_TEXT}\nThat should do it."),
+            format!("```json\n{TRANSLATE_TEXT}\n```"),
+            r#"{"tool": "web.search", "params": {"query": "weather in Lisbon"}}"#.to_string(),
+            r#"[{"name": "task.note", "arguments": {"text": "Calculate 17 times 24."}}]"#
+                .to_string(),
+        ] {
+            assert!(call_shaped(&text).is_some(), "{text}");
+        }
+        // Words first, other JSON, a name that is not an identifier, a third
+        // member, words alone.
+        for text in [
+            format!("Here it is: {TRANSLATE_TEXT}"),
+            r#"{"city": "Lisbon", "temperature": 21}"#.to_string(),
+            r#"{"name": "Ada Pellow", "arguments": {"year": 1912}}"#.to_string(),
+            r#"{"name": "x", "arguments": {}, "id": 1}"#.to_string(),
+            r#"[1, 2, 3]"#.to_string(),
+            "[Image of a small cat]".to_string(),
+            "Wo ist der nächste Bahnhof?".to_string(),
+        ] {
+            assert!(call_shaped(&text).is_none(), "{text}");
         }
     }
 

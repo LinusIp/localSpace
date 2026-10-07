@@ -18,7 +18,9 @@
 //! mid-answer), `writes in Russian` (every event's bytes in two writes, split
 //! inside a letter). An answer begun for it (the last message is the
 //! assistant's) is carried on, its words said again first, as llama-server's
-//! prefill does. Asked for `--list-devices`, it lists none and ends, as
+//! prefill does. `/apply-template` renders messages plainly, one line each;
+//! a stub that says `takes no late system message` refuses a system message
+//! after the first, as some models' templates do. Asked for `--list-devices`, it lists none and ends, as
 //! llama-server does on a computer with no graphics card, so that a server
 //! run on it looks at the machine without waiting. Each request is named in
 //! the log.
@@ -36,6 +38,7 @@ struct Style {
     stall_after: Option<usize>,
     die_after: Option<usize>,
     russian: bool,
+    no_late_system: bool,
 }
 
 impl Style {
@@ -52,6 +55,7 @@ impl Style {
             stall_after: count("stalls after "),
             die_after: count("dies after "),
             russian: stub.contains("writes in Russian"),
+            no_late_system: stub.contains("takes no late system message"),
         }
     }
 }
@@ -296,11 +300,34 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
                 r#"{{"id":"chatcmpl-fake","object":"chat.completion","model":"{alias}","choices":[{{"index":0,"message":{{"role":"assistant","content":"hello from the fake engine"}},"finish_reason":"stop"}}],"usage":{{"prompt_tokens":12,"completion_tokens":6,"total_tokens":18}}}}"#
             ),
         )
+    } else if path.starts_with("/apply-template") {
+        let messages = request["messages"].as_array().cloned().unwrap_or_default();
+        let late_system = messages.iter().skip(1).any(|m| m["role"] == "system");
+        if style.no_late_system && late_system {
+            (
+                500,
+                r#"{"error":{"code":500,"message":"System message must be at the beginning","type":"server_error"}}"#
+                    .to_string(),
+            )
+        } else {
+            let prompt: String = messages
+                .iter()
+                .map(|m| {
+                    format!(
+                        "{}: {}\n",
+                        m["role"].as_str().unwrap_or_default(),
+                        m["content"].as_str().unwrap_or_default()
+                    )
+                })
+                .collect();
+            (200, serde_json::json!({ "prompt": prompt }).to_string())
+        }
     } else {
         (404, r#"{"error":"not here"}"#.to_string())
     };
     let reason = match status {
         200 => "OK",
+        500 => "Internal Server Error",
         503 => "Service Unavailable",
         _ => "Not Found",
     };

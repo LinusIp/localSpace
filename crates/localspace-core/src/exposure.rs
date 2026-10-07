@@ -186,11 +186,23 @@ impl Exposure<'_> {
         self.core_tools().iter().any(|t| t.name == tool)
     }
 
+    /// Whether anything with tools is installed and switched on.
+    fn anything_installed(&self) -> bool {
+        self.registry
+            .iter()
+            .any(|h| h.enabled && !h.tools.tools.is_empty())
+    }
+
     /// Core's built-in tools. `web.*` is absent entirely under `airgapped`, so the
     /// model never proposes a search it cannot run; and absent while what a
     /// web tool brings back cannot reach the model, so that it never reports
-    /// what it has not read.
+    /// what it has not read. **None at all while nothing is installed from the
+    /// Store:** no `find_capability`, no ledger to write, plain chat, which
+    /// pays for no tools (docs/DECISIONS.md, 2026-09-24, document 25).
     fn core_tools(&self) -> Vec<proto::ExposedTool> {
+        if !self.anything_installed() {
+            return Vec::new();
+        }
         let mut out = vec![builtin(
             "find_capability",
             "Search what is installed for a tool that meets a stated need.",
@@ -418,38 +430,10 @@ const STOP: &[&str] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::Manifest;
     use crate::registry::Installed;
-    use crate::tools::ToolSet;
-    use std::path::PathBuf;
 
     fn harness(id: &str, tools: serde_json::Value) -> Installed {
-        let manifest = Manifest::parse(&format!(
-            r#"
-[harness]
-id = "{id}"
-version = "1.0.0"
-api = "^1.0"
-title = "{id}"
-publisher = "p"
-
-[contributes]
-tools = "tools.json"
-context_provider = true
-"#
-        ))
-        .unwrap();
-        Installed {
-            manifest,
-            tools: ToolSet::parse(&tools.to_string()).unwrap(),
-            dir: PathBuf::from("."),
-            enabled: true,
-            degraded: None,
-            runtime: None,
-            last_used: std::time::Instant::now(),
-            idle_unload: std::time::Duration::from_secs(300),
-            types: Default::default(),
-        }
+        crate::registry::installed_for_tests(id, tools)
     }
 
     fn tool(name: &str, summary: &str, front_door: bool) -> serde_json::Value {
@@ -694,6 +678,35 @@ context_provider = true
         );
     }
 
+    /// Someone who installs nothing gets plain chat: no tool at all, Core's
+    /// own included, and a call to one is not on offer (docs/DECISIONS.md,
+    /// 2026-09-24, document 25).
+    #[test]
+    fn with_nothing_installed_no_tool_is_offered_core_s_own_included() {
+        let reg = Registry::new();
+        let p = ModelProfile::server();
+        let mut e = exposure(&reg, &p, None, &[], &[]);
+        e.search = true;
+        assert!(
+            e.active_set().tools.is_empty(),
+            "{:?}",
+            names(&e.active_set())
+        );
+        for tool in [
+            "find_capability",
+            "task.plan",
+            "task.note",
+            "web.search",
+            "web.fetch",
+        ] {
+            assert!(!e.offers_builtin(tool), "{tool}");
+        }
+        // Installing something brings them back.
+        let reg = registry();
+        let e = exposure(&reg, &p, None, &[], &[]);
+        assert!(e.offers_builtin("find_capability"));
+    }
+
     #[test]
     fn airgapped_removes_the_web_tools_from_the_model_s_view() {
         let reg = registry();
@@ -702,7 +715,7 @@ context_provider = true
         e.network = proto::NetworkMode::Airgapped;
         let set = e.active_set();
         assert!(!set.tools.iter().any(|t| t.name.starts_with("web.")));
-        // find_capability is always there.
+        // find_capability is there whenever something is installed.
         assert!(set.tools.iter().any(|t| t.name == "find_capability"));
 
         e.network = proto::NetworkMode::Ask;

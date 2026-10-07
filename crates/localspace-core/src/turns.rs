@@ -39,6 +39,10 @@ pub struct Turn {
     pub calls: VecDeque<ProposedCall>,
     /// It carries on an answer that stopped: its words join that answer.
     pub continuing: bool,
+    /// A call the model wrote into its answer to a tool that is not on offer,
+    /// refused to it in one line: the model reads it on its one more try, and
+    /// it is kept nowhere (docs/DECISIONS.md, 2026-10-07).
+    pub refused: Option<crate::prompt::Turn>,
 }
 
 impl Turn {

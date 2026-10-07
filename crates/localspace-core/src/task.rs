@@ -2,20 +2,28 @@
 //! agent across harnesses.
 //!
 //! When the focused harness changes, the tools change; the ledger does not. It
-//! carries the goal, the plan, and every artifact produced so far — each a DAG
+//! carries the plan, the notes and every artifact produced so far — each a DAG
 //! reference, not a copy — so the agent in the planning board knows the outline
 //! it is importing is `art_1`, produced by the whiteboard at a pinned commit,
-//! with the summary the whiteboard's own provider wrote for it.
+//! with the summary the whiteboard's own provider wrote for it. The goal stays
+//! in the task, where Settings shows it, and is not written for the model: it
+//! is the person's newest message, which the model reads already
+//! (docs/DECISIONS.md, 2026-10-06, document 27).
 
 use crate::context::truncate_to_budget;
 use localspace_proto as proto;
 
 /// Render the ledger for the prompt, within the profile's ledger budget.
+/// Nothing when it would hold only the goal.
 pub fn render(task: &proto::Task, budget_tokens: usize) -> String {
-    if task.goal.is_empty() && task.plan.is_empty() && task.artifacts.is_empty() {
+    if task.plan.is_empty()
+        && task.artifacts.is_empty()
+        && task.notes.is_empty()
+        && task.citations.is_empty()
+    {
         return String::new();
     }
-    let mut out = format!("[task {}]\ngoal: {}\n", task.id, task.goal);
+    let mut out = format!("[task {}]\n", task.id);
 
     if !task.plan.is_empty() {
         out.push_str("plan:\n");
@@ -126,7 +134,10 @@ mod tests {
     fn the_ledger_reads_as_one_compact_block() {
         let text = render(&task(), 600);
         assert!(text.starts_with("[task run_1]"));
-        assert!(text.contains("goal: put the risks"));
+        assert!(
+            !text.contains("put the risks"),
+            "the goal is the person's newest message, not repeated: {text}"
+        );
         assert!(text.contains("1. [x] io.localspace.whiteboard"));
         assert!(text.contains("2. [>] io.localspace.planner"));
         assert!(text.contains("art_1 outline.v1 from io.localspace.whiteboard @c1a2b3c"));
@@ -136,6 +147,13 @@ mod tests {
     #[test]
     fn an_empty_ledger_renders_nothing_so_the_prefix_stays_clean() {
         assert_eq!(render(&proto::Task::default(), 600), "");
+        // A goal alone is the newest message again: nothing to write.
+        let only_a_goal = proto::Task {
+            id: "run_2".into(),
+            goal: "what is 17 times 24?".into(),
+            ..Default::default()
+        };
+        assert_eq!(render(&only_a_goal, 600), "");
     }
 
     #[test]
@@ -152,8 +170,8 @@ mod tests {
             proto::estimate_tokens(&text)
         );
         assert!(text.contains("truncated"));
-        // The goal always survives: it is the first line.
-        assert!(text.contains("goal:"));
+        // The header always survives: it is the first line.
+        assert!(text.starts_with("[task run_1]"), "{text}");
     }
 
     #[test]

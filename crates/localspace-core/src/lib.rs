@@ -1749,24 +1749,25 @@ impl Core {
         still_held.into_iter().collect()
     }
 
-    /// What the engine reads once a model has loaded: the part of the prompt
+    /// What the engine reads once a model has loaded: the system message
     /// every first turn begins with (the instructions, the profile, the
-    /// tools, the state), with the same tools beside it as a turn sends, and
-    /// one token asked for. A turn's prompt continues from there with the
-    /// ledger and the conversation, so the engine's cache holds its beginning.
+    /// tools, the state), with the same tools beside it as a turn sends, a
+    /// message of the person's with nothing in it, and one token asked for.
+    /// A turn's prompt continues from the start of the person's message, so
+    /// the engine's cache holds everything before it.
     fn warm_up_request(&mut self) -> model::ChatRequest {
         let active = self.active_set();
         let blocks = self.context_blocks();
         let stable = prompt::build(&self.cfg.profile, &active, &blocks, None, &[]).prefix();
-        model::ChatRequest {
-            prompt: format!("{stable}\n\n"),
-            tools: active.tools,
-            grammar: None,
-            begun: None,
-            max_tokens: 1,
-            temperature: 0.0,
-            class: model::RequestClass::Interactive,
-        }
+        let mut request = model::ChatRequest::with_turns(
+            stable,
+            vec![prompt::Turn::Person(String::new())],
+            String::new(),
+        );
+        request.tools = active.tools;
+        request.max_tokens = 1;
+        request.temperature = 0.0;
+        request
     }
 
     /// The look at the engine once a start of it is over (item 3 of the
@@ -2018,11 +2019,14 @@ impl Core {
         }
 
         let Some(owner) = self.registry.owner_of(tool).map(|h| h.id().to_string()) else {
-            return proto::ToolOutcome::Error {
-                message: format!(
-                    "no tool named `{tool}` is installed; call find_capability to look for one"
-                ),
+            // The pointer only where find_capability is on offer: with
+            // nothing installed it is not (docs/DECISIONS.md, 2026-09-24).
+            let message = if self.offers_builtin("find_capability") {
+                format!("no tool named `{tool}` is installed; call find_capability to look for one")
+            } else {
+                format!("no tool named `{tool}` is installed")
             };
+            return proto::ToolOutcome::Error { message };
         };
 
         let (decl, enabled) = {
@@ -5028,29 +5032,58 @@ mod tests {
         assert!(env.harnesses.is_empty());
     }
 
-    #[test]
-    fn an_unknown_tool_is_refused_with_a_pointer_to_find_capability() {
-        let mut core = Core::ephemeral("anna").unwrap();
-        match core.call_tool("nope.nothing", &serde_json::json!({}), proto::Author::Agent) {
-            proto::ToolOutcome::Error { message } => {
-                assert!(message.contains("find_capability"), "{message}");
-            }
-            other => panic!("expected an error, got {other:?}"),
-        }
+    /// A harness installed and on, with one tool and nothing behind it.
+    fn something_installed(core: &mut Core) {
+        core.registry.insert(crate::registry::installed_for_tests(
+            "io.example.board",
+            serde_json::json!([{
+                "name": "board.list",
+                "summary": "List what is on the board.",
+                "params": {"type": "object", "properties": {}},
+                "kind": "read",
+                "front_door": true
+            }]),
+        ));
     }
 
     #[test]
-    fn find_capability_is_always_callable_even_with_nothing_installed() {
+    fn an_unknown_tool_is_refused_with_a_pointer_to_find_capability_where_it_is_on_offer() {
         let mut core = Core::ephemeral("anna").unwrap();
-        let out = core.call_tool(
-            "find_capability",
-            &serde_json::json!({"need": "draw a shape"}),
+        let refusal = |core: &mut Core| match core.call_tool(
+            "nope.nothing",
+            &serde_json::json!({}),
             proto::Author::Agent,
+        ) {
+            proto::ToolOutcome::Error { message } => message,
+            other => panic!("expected an error, got {other:?}"),
+        };
+        // With nothing installed there is no find_capability to point at.
+        let message = refusal(&mut core);
+        assert!(
+            message.contains("no tool named") && !message.contains("find_capability"),
+            "{message}"
         );
-        match out {
-            proto::ToolOutcome::Ok { diff_summary, .. } => {
-                assert!(diff_summary.contains("nothing installed"), "{diff_summary}");
+        something_installed(&mut core);
+        let message = refusal(&mut core);
+        assert!(message.contains("find_capability"), "{message}");
+    }
+
+    /// With nothing installed Core's own tools are not on offer either, and
+    /// the agent cannot reach them; once something is installed,
+    /// find_capability is (docs/DECISIONS.md, 2026-09-24, document 25).
+    #[test]
+    fn find_capability_is_on_offer_only_once_something_is_installed() {
+        let mut core = Core::ephemeral("anna").unwrap();
+        let need = serde_json::json!({"need": "draw a shape"});
+        match core.call_tool("find_capability", &need, proto::Author::Agent) {
+            proto::ToolOutcome::Error { message } => {
+                assert!(message.contains("is on offer"), "{message}")
             }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        something_installed(&mut core);
+        match core.call_tool("find_capability", &need, proto::Author::Agent) {
+            proto::ToolOutcome::Ok { .. } => {}
             other => panic!("expected ok, got {other:?}"),
         }
     }

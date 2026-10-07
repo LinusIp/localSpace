@@ -532,6 +532,20 @@ fn supervise(
             continue;
         }
 
+        // Where this model takes the task ledger, asked of its own template
+        // once it has loaded, and logged (docs/DECISIONS.md, 2026-10-06,
+        // document 27).
+        let (ledger, why) = crate::model::ledger_place(
+            &format!("http://127.0.0.1:{port}"),
+            Some(spec.key.as_str()),
+        );
+        sink(proto::Event::TraceLine {
+            text: format!(
+                "engine: {model} takes the task ledger {}: {why}",
+                ledger.said()
+            ),
+        });
+
         // The warm-up (docs/DECISIONS.md, 2026-09-19): the engine reads the
         // part of the prompt every first turn begins with, and keeps it, so
         // that a person's first message starts as fast as their second. It
@@ -543,7 +557,8 @@ fn supervise(
             let reader = OpenAiWorker::new(&base, &model)
                 .with_context_len(context_len)
                 .with_key(Some(spec.key.clone()))
-                .with_timeout(WARM_UP_TIMEOUT);
+                .with_timeout(WARM_UP_TIMEOUT)
+                .with_ledger(ledger);
             match reader.chat(request) {
                 Ok(reply) => sink(proto::Event::TraceLine {
                     text: format!(
@@ -568,7 +583,8 @@ fn supervise(
         {
             let worker = OpenAiWorker::new(&base, &model)
                 .with_context_len(context_len)
-                .with_key(Some(spec.key.clone()));
+                .with_key(Some(spec.key.clone()))
+                .with_ledger(ledger);
             router.write().unwrap().chat = Some(Arc::new(worker));
         }
         *shared.status.lock().unwrap() = Status::Ready;
