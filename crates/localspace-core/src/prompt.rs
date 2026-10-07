@@ -96,14 +96,16 @@ impl Turn {
 }
 
 /// The parts of a prompt, kept separate so a caller can measure prefix
-/// stability.
+/// stability. The rule (docs/DECISIONS.md, 2026-10-07): **anything that
+/// changes during a conversation goes after the conversation; everything
+/// before it is identical from turn to turn.**
 #[derive(Debug, Clone)]
 pub struct Prompt {
     pub system: String,
-    pub profile: String,
     /// Empty when no tool is on offer.
     pub tools: String,
-    /// Empty when nothing is installed.
+    /// What is open, in summary: it changes with every edit of a board, so
+    /// it comes after the conversation. Empty when nothing is installed.
     pub context: String,
     /// The task ledger (spec §18.1), after the newest message: it changes
     /// every step. Empty when nothing is installed, and when it would hold
@@ -113,10 +115,20 @@ pub struct Prompt {
 }
 
 impl Prompt {
-    /// The system message: everything before the conversation, the part that
-    /// should hit the KV cache.
+    /// The system message: the instructions and the tools, identical from
+    /// turn to turn, the part that should hit the KV cache.
     pub fn prefix(&self) -> String {
-        [&self.system, &self.profile, &self.tools, &self.context]
+        [&self.system, &self.tools]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
+
+    /// What comes after the newest message: what is open, then the ledger.
+    pub fn after(&self) -> String {
+        [&self.context, &self.ledger]
             .into_iter()
             .filter(|part| !part.is_empty())
             .map(String::as_str)
@@ -132,9 +144,10 @@ impl Prompt {
             out.push_str("\n\n");
             out.push_str(&turn.render());
         }
-        if !self.ledger.is_empty() {
+        let after = self.after();
+        if !after.is_empty() {
             out.push_str("\n\n");
-            out.push_str(&self.ledger);
+            out.push_str(&after);
         }
         out
     }
@@ -165,12 +178,10 @@ pub fn build(
         task.map(|t| crate::task::render(t, profile.ledger_tokens))
             .unwrap_or_default()
     };
-    // The model profile by its name only: its budgets are Core's to keep. A
-    // model handed "working set: 8000 tokens" told a person so, a word no
-    // member may be shown (docs/DECISIONS.md, 2026-10-06), and what a model
-    // reads is what it says.
-    let profile_text = format!("[environment]\nmodel profile: {}", profile.name);
-
+    // The model profile is not written for the model at all: its budgets are
+    // Core's to keep (a model handed "working set: 8000 tokens" told a person
+    // so, 2026-10-06), and its name was said back too ("As a small model, I
+    // can do many things!", 2026-10-07). What a model reads is what it says.
     let mut tools = String::new();
     if !plain {
         tools.push_str("[tools]\n");
@@ -208,7 +219,6 @@ pub fn build(
 
     Prompt {
         system: if plain { SYSTEM_PLAIN } else { SYSTEM }.to_string(),
-        profile: profile_text,
         tools,
         context,
         ledger,
@@ -380,22 +390,74 @@ mod tests {
         assert_eq!(turn2.turns[..turn1.turns.len()], turn1.turns[..]);
     }
 
+    /// The order of plugin spec §16.1 as amended on 2026-10-07: the
+    /// instructions and the tools before the conversation, identical from
+    /// turn to turn; what is open and the ledger after it.
     #[test]
-    fn the_system_message_keeps_the_specified_order() {
+    fn the_prompt_keeps_the_specified_order() {
         let p = ModelProfile::server();
-        let system = build(
+        let task = a_task_with_a_note();
+        let built = build(
             &p,
             &active(&["canvas.list"]),
             &[],
-            None,
+            Some(&task),
             &[msg(Role::User, "x")],
-        )
-        .prefix();
-        let sys = system.find("You are the assistant").unwrap();
-        let prof = system.find("[environment]").unwrap();
-        let tools = system.find("[tools]").unwrap();
-        let state = system.find("[state]").unwrap();
-        assert!(sys < prof && prof < tools && tools < state);
+        );
+        let system = built.prefix();
+        assert!(system.find("You are the assistant").unwrap() < system.find("[tools]").unwrap());
+        assert!(
+            !system.contains("[state]") && !system.contains("[environment]"),
+            "{system}"
+        );
+        let rendered = built.render();
+        let tools = rendered.find("[tools]").unwrap();
+        let person = rendered.find("user: x").unwrap();
+        let state = rendered.find("[state]").unwrap();
+        let ledger = rendered.find("[task ").unwrap();
+        assert!(
+            tools < person && person < state && state < ledger,
+            "{rendered}"
+        );
+    }
+
+    /// A board edit between two turns changes only what comes after the
+    /// conversation: the system message and the turns so far are the same,
+    /// so the engine's cache holds them (docs/DECISIONS.md, 2026-10-07).
+    #[test]
+    fn a_board_edit_between_two_turns_changes_only_what_comes_after_the_conversation() {
+        let p = ModelProfile::server();
+        let a = active(&["canvas.list"]);
+        let board = |text: &str| {
+            vec![proto::ContextBlock {
+                harness: "io.localspace.whiteboard".into(),
+                text: text.into(),
+                tokens: 4,
+                expandable: false,
+            }]
+        };
+        let turn1 = build(
+            &p,
+            &a,
+            &board("frames: 1, 0 shapes"),
+            None,
+            &[msg(Role::User, "hello")],
+        );
+        let turn2 = build(
+            &p,
+            &a,
+            &board("frames: 1, 3 shapes"),
+            None,
+            &[
+                msg(Role::User, "hello"),
+                msg(Role::Assistant, "Done."),
+                msg(Role::User, "and now?"),
+            ],
+        );
+        assert_eq!(turn1.prefix(), turn2.prefix());
+        assert_eq!(turn2.turns[..turn1.turns.len()], turn1.turns[..]);
+        assert_ne!(turn1.after(), turn2.after());
+        assert!(turn2.after().contains("3 shapes"));
     }
 
     #[test]

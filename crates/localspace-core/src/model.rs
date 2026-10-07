@@ -57,14 +57,15 @@ pub enum WorkerRole {
 pub enum Said {
     /// One message of the person's: a harness's own question to the model.
     Plain(String),
-    /// A step of the agent: the instructions as a system message, the
-    /// conversation as turns, and the task ledger after the newest message
-    /// (docs/DECISIONS.md, 2026-09-24 and 2026-10-06). Where the ledger goes
-    /// is the worker's: see [`LedgerPlace`].
+    /// A step of the agent: the instructions and the tools as a system
+    /// message, the conversation as turns, and after the newest message
+    /// what changes during a conversation, what is open and the task ledger
+    /// (docs/DECISIONS.md, 2026-09-24, 2026-10-06 and 2026-10-07). Where
+    /// that goes is the worker's: see [`LedgerPlace`].
     Turns {
         system: String,
         turns: Vec<Turn>,
-        ledger: String,
+        after: String,
     },
 }
 
@@ -89,11 +90,11 @@ impl ChatRequest {
     }
 
     /// A step of the agent: see [`Said::Turns`].
-    pub fn with_turns(system: String, turns: Vec<Turn>, ledger: String) -> ChatRequest {
+    pub fn with_turns(system: String, turns: Vec<Turn>, after: String) -> ChatRequest {
         ChatRequest::saying(Said::Turns {
             system,
             turns,
-            ledger,
+            after,
         })
     }
 
@@ -118,20 +119,20 @@ impl ChatRequest {
     }
 
     /// Everything the request puts before the model, as text and in the
-    /// order it is read, the ledger last: for a person reading it, and for
-    /// tests. The engine is sent messages, never this.
+    /// order it is read, what is open and the ledger last: for a person
+    /// reading it, and for tests. The engine is sent messages, never this.
     pub fn text(&self) -> String {
         match &self.said {
             Said::Plain(text) => text.clone(),
             Said::Turns {
                 system,
                 turns,
-                ledger,
+                after,
             } => {
                 let mut parts = vec![system.clone()];
                 parts.extend(turns.iter().map(Turn::render));
-                if !ledger.is_empty() {
-                    parts.push(ledger.clone());
+                if !after.is_empty() {
+                    parts.push(after.clone());
                 }
                 parts.join("\n\n")
             }
@@ -139,7 +140,7 @@ impl ChatRequest {
     }
 }
 
-/// Where the task ledger goes among the messages of an agent's step,
+/// Where what is open and the task ledger go among the messages of an agent's step,
 /// decided per model when it loads by rendering a short conversation through
 /// the model's own template (`/apply-template`; docs/DECISIONS.md,
 /// 2026-09-24, document 25, and 2026-10-06, document 27).
@@ -560,11 +561,11 @@ pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {
 /// The messages of a request. A plain prompt is one message of the person's.
 /// An agent's step is the instructions as a system message, then the
 /// conversation as turns, a call as the model's own call and the tool's reply,
-/// in the shape the model's template gives them, then the ledger where this
-/// model takes it. When an answer that stopped is carried on, its words come
-/// last, as the start of the model's reply: the engine continues a last
-/// message of the assistant's instead of answering after it (llama-server's
-/// prefill, on by default).
+/// in the shape the model's template gives them, then what is open and the
+/// ledger where this model takes them. When an answer that stopped is
+/// carried on, its words come last, as the start of the model's reply: the
+/// engine continues a last message of the assistant's instead of answering
+/// after it (llama-server's prefill, on by default).
 fn messages(req: &ChatRequest, ledger_place: LedgerPlace) -> J {
     let mut out: Vec<J> = Vec::new();
     match &req.said {
@@ -572,7 +573,7 @@ fn messages(req: &ChatRequest, ledger_place: LedgerPlace) -> J {
         Said::Turns {
             system,
             turns,
-            ledger,
+            after,
         } => {
             out.push(json!({"role": "system", "content": system}));
             let newest = turns.iter().rposition(|t| matches!(t, Turn::Person(_)));
@@ -581,9 +582,9 @@ fn messages(req: &ChatRequest, ledger_place: LedgerPlace) -> J {
                     Turn::Person(text) => {
                         let content = if ledger_place == LedgerPlace::InTheNewest
                             && Some(i) == newest
-                            && !ledger.is_empty()
+                            && !after.is_empty()
                         {
-                            format!("{text}\n\n{ledger}")
+                            format!("{text}\n\n{after}")
                         } else {
                             text.clone()
                         };
@@ -612,8 +613,8 @@ fn messages(req: &ChatRequest, ledger_place: LedgerPlace) -> J {
                     }
                 }
             }
-            if ledger_place == LedgerPlace::AfterTheNewest && !ledger.is_empty() {
-                out.push(json!({"role": "system", "content": ledger}));
+            if ledger_place == LedgerPlace::AfterTheNewest && !after.is_empty() {
+                out.push(json!({"role": "system", "content": after}));
             }
         }
     }

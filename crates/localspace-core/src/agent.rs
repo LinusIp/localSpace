@@ -465,11 +465,12 @@ fn ask_the_model(core: &mut Core, id: u64) {
     // message (docs/DECISIONS.md, 2026-09-24 and 2026-10-06).
     let prompt_estimate = p.total_tokens();
     let system = p.prefix();
+    let after = p.after();
     let mut turns = p.turns;
     // A call the model wrote into its answer and had refused: it reads the
     // refusal on its one more try (see `attempted`).
     turns.extend(refused);
-    let mut request = model::ChatRequest::with_turns(system, turns, p.ledger);
+    let mut request = model::ChatRequest::with_turns(system, turns, after);
     request.tools = tools;
     request.grammar = grammar;
     request.begun = begun;
