@@ -462,9 +462,14 @@ pub struct Core {
     /// Take a turn's steps inline even with a transport: evals read the
     /// document right after each turn.
     run_inline: bool,
-    /// Whether the model is asked to think before it answers: left to the
-    /// model's own default until `set_thinking` says.
+    /// Whether the model is asked to think before it answers: the entry's
+    /// default from the load on, the model's own where the entry says
+    /// nothing, and whatever `set_thinking` says after.
     thinking: Option<bool>,
+    /// The most tokens the loaded model's thinking may take (the entry's
+    /// budget; nothing for a model that does not think): the answer's
+    /// limit grows by it when thinking is on.
+    thinking_budget: u32,
     /// Where a model's vision file goes at the next load.
     vision_place: VisionPlace,
     /// The pictures sent with messages, by chat and by the message's place
@@ -615,6 +620,7 @@ impl Core {
             inline: std::collections::VecDeque::new(),
             run_inline: false,
             thinking: None,
+            thinking_budget: 0,
             vision_place: VisionPlace::default(),
             pictures: HashMap::new(),
             answer_measures: HashMap::new(),
@@ -1828,7 +1834,20 @@ impl Core {
             .clone()
             .unwrap_or_else(|| std::env::temp_dir().join("localspace"))
             .join("engines");
-        let fixed = self.vision_flags(id);
+        // The entry's word on thinking, from this load on: the app takes it;
+        // the kit says its own per pass after (docs/DECISIONS.md, 2026-10-08).
+        match self.models.get(id).and_then(|m| m.thinking.as_ref()) {
+            Some(thinking) => {
+                self.thinking = Some(thinking.default == models::ThinkingDefault::On);
+                self.thinking_budget = thinking.budget;
+            }
+            None => {
+                self.thinking = None;
+                self.thinking_budget = 0;
+            }
+        }
+        let mut fixed = self.vision_flags(id);
+        fixed.extend(self.thinking_flags(id));
         let engine = engine::Engine::start(
             &binary,
             id,
@@ -1960,6 +1979,22 @@ impl Core {
             flags.push("--no-mmproj-offload".into());
         }
         flags
+    }
+
+    /// The engine's thinking budget for a model that has one, and the words
+    /// it writes into the thinking when the budget is spent, before it ends
+    /// the thinking so that the answer comes: an answer always arrives
+    /// (docs/DECISIONS.md, 2026-10-08).
+    fn thinking_flags(&self, id: &str) -> Vec<String> {
+        match self.models.get(id).and_then(|m| m.thinking.as_ref()) {
+            Some(thinking) => vec![
+                "--reasoning-budget".into(),
+                thinking.budget.to_string(),
+                "--reasoning-budget-message".into(),
+                model::THINKING_BUDGET_SPENT.into(),
+            ],
+            None => Vec::new(),
+        }
     }
 
     /// The look at the engine once a start of it is over (item 3 of the

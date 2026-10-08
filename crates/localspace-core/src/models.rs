@@ -128,6 +128,51 @@ pub struct CatalogModel {
     /// side by side.
     #[serde(default)]
     pub published_as: HashMap<String, String>,
+    /// Every pass of the message script a person read, by tier of computer
+    /// (docs/DECISIONS.md, 2026-10-08): what a default on that tier rests
+    /// on. `exercised_on` is the latest of these days where the list is
+    /// kept, so the default rule reads one thing.
+    #[serde(default)]
+    pub exercised: Vec<Exercise>,
+    /// Whether the model thinks before it answers, and for at most how many
+    /// tokens; `None` for a model that does not think. An answer always
+    /// arrives: the engine ends the thinking at the budget
+    /// (docs/DECISIONS.md, 2026-10-08).
+    #[serde(default)]
+    pub thinking: Option<Thinking>,
+}
+
+/// One pass of the message script a person read, on one tier of computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Exercise {
+    /// The tier as the app names it: "4 GB", "8 GB", "16 GB", "24 GB", "no card".
+    pub tier: String,
+    /// "off" or "on": how the model was asked to think in the pass.
+    pub thinking: String,
+    /// The day, `YYYY-MM-DD`.
+    pub day: String,
+    /// The computer, as the kit's results file names it.
+    pub machine: String,
+    /// The build the kit ran as.
+    pub build: String,
+}
+
+/// How a model thinks before it answers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Thinking {
+    /// On or off unless the kit says otherwise for a pass; the app takes
+    /// this, and offers no switch in 0.2.
+    pub default: ThinkingDefault,
+    /// The most tokens the thinking may take; the answer's own limit grows
+    /// by as much when thinking is on.
+    pub budget: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThinkingDefault {
+    On,
+    Off,
 }
 
 /// A file whose SHA-256 was found to be the published one, as the file then
@@ -259,6 +304,18 @@ pub struct Tensor {
 }
 
 impl CatalogModel {
+    /// The day this model last went through the message script and a
+    /// person read what came back: the latest of its exercise records, or
+    /// the plain `exercised_on` of an older entry. Empty when never.
+    pub fn exercised_day(&self) -> String {
+        self.exercised
+            .iter()
+            .map(|e| e.day.as_str())
+            .max()
+            .map(str::to_string)
+            .unwrap_or_else(|| self.exercised_on.clone())
+    }
+
     /// The name under which the repository publishes `file`: its own, unless
     /// `published_as` says otherwise.
     pub fn published_name<'a>(&'a self, file: &'a str) -> &'a str {
@@ -767,7 +824,7 @@ impl Catalog {
             .models
             .iter()
             .filter(|m| m.commercial_use)
-            .filter(|m| !m.exercised_on.is_empty())
+            .filter(|m| !m.exercised_day().is_empty())
             .filter(|m| !m.repo.is_empty() || self.installed_path(&m.id).is_some())
             .filter(|m| room(m))
             .filter_map(|m| {
@@ -881,6 +938,8 @@ impl Catalog {
             hidden: false,
             vision_file: String::new(),
             published_as: HashMap::new(),
+            exercised: Vec::new(),
+            thinking: None,
         };
         let mut imports = self.imports();
         imports.retain(|m| m.id != id);
@@ -1475,6 +1534,31 @@ mod tests {
         assert!(catalog.get("qwen2.5-7b-instruct-q4_k_m").is_some());
     }
 
+    /// The day a default rests on is the latest of the exercise records,
+    /// per tier, or the plain field of an older entry.
+    #[test]
+    fn the_exercise_record_gives_the_latest_day_and_an_old_entry_its_own() {
+        let mut m: CatalogModel = serde_json::from_str(
+            r#"{"id":"m","title":"M","params_b":1.0,"bytes":3,"context_len":2048,"repo":"example/m",
+                "files":["m.gguf"],"tensor":null,"exercised_on":"2026-09-19",
+                "exercised":[
+                  {"tier":"4 GB","thinking":"off","day":"2026-10-08","machine":"a laptop","build":"6913fc96"},
+                  {"tier":"16 GB","thinking":"on","day":"2026-10-20","machine":"a desk","build":"abcdef01"}],
+                "thinking":{"default":"off","budget":1024}}"#,
+        )
+        .unwrap();
+        assert_eq!(m.exercised_day(), "2026-10-20");
+        assert_eq!(m.exercised[0].tier, "4 GB");
+        assert_eq!(
+            m.thinking.as_ref().map(|t| (t.default, t.budget)),
+            Some((ThinkingDefault::Off, 1024))
+        );
+        m.exercised.clear();
+        assert_eq!(m.exercised_day(), "2026-09-19");
+        m.exercised_on.clear();
+        assert!(m.exercised_day().is_empty());
+    }
+
     #[test]
     fn a_file_is_fetched_under_its_published_name_and_kept_under_its_own() {
         let m: CatalogModel = serde_json::from_str(
@@ -1502,8 +1586,15 @@ mod tests {
         for m in &file.models {
             if m.hidden {
                 assert!(
-                    m.exercised_on.is_empty(),
+                    m.exercised_day().is_empty(),
                     "{}: hidden, yet it says it went through the script",
+                    m.id
+                );
+            }
+            if let Some(thinking) = &m.thinking {
+                assert!(
+                    thinking.budget > 0,
+                    "{}: a thinking budget of nothing",
                     m.id
                 );
             }
@@ -2003,7 +2094,7 @@ mod tests {
             // and may be used commercially; and nobody is ever offered the
             // 0.5B on a computer where a larger model so much as works.
             let offered = catalog.get(shape.default).unwrap();
-            assert!(!offered.exercised_on.is_empty() && offered.commercial_use);
+            assert!(!offered.exercised_day().is_empty() && offered.commercial_use);
             assert_ne!(shape.default, HALF_B, "{}", shape.what);
         }
     }
@@ -2083,7 +2174,7 @@ mod tests {
         let run: Vec<&CatalogModel> = catalog
             .models
             .iter()
-            .filter(|m| !m.exercised_on.is_empty())
+            .filter(|m| !m.exercised_day().is_empty())
             .collect();
         assert!(!run.is_empty());
         for m in run {
@@ -2093,7 +2184,7 @@ mod tests {
                     .any(|l| l.trim_end() == format!("### {}", m.title)),
                 "{} says it went through the message script on {}, and the record has no section for it",
                 m.id,
-                m.exercised_on
+                m.exercised_day()
             );
         }
     }

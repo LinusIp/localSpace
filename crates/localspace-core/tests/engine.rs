@@ -1016,6 +1016,7 @@ fn a_model_with_a_vision_file_starts_with_it_and_its_steps_are_measured() {
         catalog.join("catalog.json"),
         r#"{"version":1,"models":[{"id":"seer","title":"Seer","params_b":0.1,"bytes":32,"context_len":2048,
             "repo":"example/seer","files":["seer.gguf","seer-mmproj.gguf"],"vision_file":"seer-mmproj.gguf",
+            "thinking":{"default":"off","budget":1024},
             "tensor":{"core_bytes":16,"routed_expert_bytes":0,"layers":2,"moe":null,"kv_bytes_per_token_fp16":256}}]}"#,
     )
     .unwrap();
@@ -1041,10 +1042,18 @@ fn a_model_with_a_vision_file_starts_with_it_and_its_steps_are_measured() {
         started.contains("--no-mmproj-offload"),
         "on the processor unless asked otherwise: {started}"
     );
+    // The entry's thinking budget goes to the engine, with the words it
+    // writes when the budget is spent (docs/DECISIONS.md, 2026-10-08).
+    assert!(
+        started.contains("--reasoning-budget\", \"1024\"")
+            || started.contains("--reasoning-budget 1024")
+            || started.contains("\"--reasoning-budget\", \"1024\""),
+        "the budget in the flags: {started}"
+    );
+    assert!(started.contains("Time is up"), "{started}");
 
-    // A step with thinking asked off: the measure says so, and holds what
-    // the fake engine thought and its timings.
-    core.set_thinking(Some(false));
+    // A step with the entry's default, thinking off: the measure says so,
+    // and holds what the fake engine thought and its timings.
     let conversation = match core.handle(proto::Request::ListConversations) {
         proto::Response::Conversations { current, .. } => current,
         other => panic!("expected the conversations, got {other:?}"),

@@ -175,6 +175,18 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings --force-warn clippy::unwrap_used
       - name: tests
         run: cargo test --workspace
+      # The client's types are generated from `proto` by the tests above,
+      # never written by hand (architecture v2 §5): the committed ones must
+      # be the generator's output, and the generator's output is kept as an
+      # artifact for whoever changes `proto` without a build of their own
+      # (docs/DECISIONS.md, 2026-10-08).
+      - name: the client's types match the generator's output
+        run: git diff --exit-code --stat -- web/src/api/generated
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: client-types
+          path: web/src/api/generated
       - name: the disk after the build
         if: always()
         run: |

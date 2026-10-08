@@ -103,6 +103,9 @@ pub struct AnswerMeasure {
     pub cut: Option<String>,
     /// The tools the model asked for in this step.
     pub tools: Vec<String>,
+    /// The thinking ran to its budget and the engine ended it so that the
+    /// answer came (`model::THINKING_BUDGET_SPENT` closes the thinking).
+    pub budget_spent: bool,
 }
 
 impl AnswerMeasure {
@@ -118,6 +121,10 @@ impl AnswerMeasure {
                 measure.thinking_words = reply.reasoning.split_whitespace().count();
                 measure.thinking_began = reply.reasoning_began;
                 measure.thinking_ended = reply.reasoning_ended;
+                measure.budget_spent = reply
+                    .reasoning
+                    .trim_end()
+                    .ends_with(crate::model::THINKING_BUDGET_SPENT);
                 measure.timings = reply.timings;
                 measure.prompt_tokens = reply.prompt_tokens;
                 measure.completion_tokens = reply.completion_tokens;

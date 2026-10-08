@@ -516,6 +516,12 @@ fn ask_the_model(core: &mut Core, id: u64) {
     request.grammar = grammar;
     request.begun = begun;
     request.thinking = core.thinking;
+    // With thinking on, the answer's limit grows by the thinking budget, so
+    // that the answer keeps its room when the thinking takes all of its own
+    // (docs/DECISIONS.md, 2026-10-08).
+    if request.thinking == Some(true) {
+        request.max_tokens += core.thinking_budget;
+    }
     let thinking = request.thinking;
     // Taken out of the router, so that nothing holds it while the answer is
     // written: a model changed meanwhile would otherwise wait for the answer.
@@ -1339,6 +1345,31 @@ mod tests {
             last.content.contains("could not reach a model"),
             "{}",
             last.content
+        );
+    }
+
+    /// With thinking on, the request's limit grows by the thinking budget,
+    /// so that the answer keeps its room; off or left to the model, the
+    /// limit is the plain one (docs/DECISIONS.md, 2026-10-08).
+    #[test]
+    fn the_limit_grows_by_the_thinking_budget_when_thinking_is_on() {
+        let script = Script::new(Vec::new());
+        let seen = script.clone();
+        let mut core = core_with(script);
+        core.thinking_budget = 1024;
+        turn(&mut core, "one");
+        core.set_thinking(Some(false));
+        turn(&mut core, "two");
+        core.set_thinking(Some(true));
+        turn(&mut core, "three");
+        let requests = seen.seen.lock().unwrap();
+        let limits: Vec<(Option<bool>, u32)> = requests
+            .iter()
+            .map(|r| (r.thinking, r.max_tokens))
+            .collect();
+        assert_eq!(
+            limits,
+            [(None, 1024), (Some(false), 1024), (Some(true), 2048)]
         );
     }
 
