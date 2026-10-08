@@ -164,6 +164,33 @@ choices under the answers above, to be confirmed with the report):
   `exercised_on` is recorded for the 4 GB tier with thinking off; the entry
   stays hidden until the refresh makes it a default. Every other tier
   waits for the kit on borrowed machines.
+- **The builder's read of the 4B's English answers** (four independent
+  readers, every finding put to two refuters): the four counts of the
+  script are clean on every English message with thinking off and on: no
+  layout echo, no tool talk, nothing passed off as a picture, no raw call;
+  Continue joined as one sentence, did not begin again, ended whole; both
+  picture answers describe the blue circle on red. Facts: 408, Ada Pellow
+  in 1912, 384,400 km, "Wo ist der nächste Bahnhof?", a two-sentence
+  summary, the Berlin turns following on; **wrong once**: the egg problem
+  with thinking off ends on "26 whole eggs" after saying 31 in the sentence
+  before (with thinking on it ends on 31). Besides: an invented spa town
+  ("Bad Pyrmun") among the Berlin ideas, a packing list that names a hat
+  and a beanie and no tent, and the weather with thinking on that produced
+  no answer (the limit, the refresh's rule). Whether one wrong sum among
+  the English answers passes the 4 GB tier is the owner's call with the
+  founder's read of the other languages. Found by the read: the kit's run
+  folder held no log of Core's, though its results file pointed at one;
+  the kit now writes Core's lines to `logs/kit.log` in the run's folder.
+- **The 0.8B and the 2B on the same laptop, the same evening** (results in
+  the internal repository): both all on the card, ready after 5 s, the
+  first word in 0.1 s, 156 and 96 tokens a second; every message answered
+  with thinking off, 408 in both, the picture right both ways (the card
+  holds their vision files at 143 and 98 tokens a second against 164 and
+  103 on the processor). **With thinking on, the limit bites hardest on the
+  small ones:** the 0.8B thought 356 to 757 words on all five messages and
+  answered none; the 2B answered two of five (the sum after 219 words of
+  thinking, the Uzbek price after 412) and none of the other three. The
+  refresh's budget must be sized so that these answer.
 - **The thinking limit goes into the refresh**, which is next, under one
   rule: **an answer always arrives.** The engine's thinking budget is
   used, so that when thinking runs out the model is made to answer; the

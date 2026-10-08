@@ -753,6 +753,21 @@ pub fn run(args: MeasureArgs) -> Result<()> {
     };
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("creating {}", data_dir.display()))?;
+    // Core's own lines (the engine's starts, the fit, "continue: the engine
+    // did not begin its reply …") go to the run's folder, where the results
+    // file points: a kit without them had no log to check against.
+    let log_dir = data_dir.join("logs");
+    std::fs::create_dir_all(&log_dir).with_context(|| format!("creating {}", log_dir.display()))?;
+    let log_file = std::fs::File::create(log_dir.join("kit.log"))
+        .with_context(|| format!("creating {}", log_dir.join("kit.log").display()))?;
+    tracing_subscriber::fmt()
+        .with_writer(std::sync::Mutex::new(log_file))
+        .with_ansi(false)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "localspace=info".into()),
+        )
+        .init();
 
     let mut cfg = Config::personal(&localspace_server::whoami());
     cfg.data_dir = Some(data_dir.clone());
@@ -836,7 +851,7 @@ pub fn run(args: MeasureArgs) -> Result<()> {
     let path = out_path(args.out.as_deref(), &id, &progress.day);
     std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
     out!(
-        "the run's folder, with the engine's log: {}",
+        "the run's folder, with the engine's log and Core's (logs/kit.log): {}",
         data_dir.display()
     );
     // The last line is the file to send back.
@@ -1307,7 +1322,7 @@ fn continue_lines(lines: &mut Vec<String>, carried: &Carried) {
             .join(" ")
             .contains(&opening);
     lines.push(format!(
-        "The join: \"…{}\" ‖ \"{}…\". {} {} Whether the engine said the handed words again is in the run's log: a line \"continue: the engine did not begin its reply …\" means it did not, and nothing was dropped.",
+        "The join: \"…{}\" ‖ \"{}…\". {} {} Whether the engine said the handed words again is in the run's folder, logs/kit.log: a line \"continue: the engine did not begin its reply …\" means it did not, and nothing was dropped.",
         cell(&last),
         cell(&next),
         if began_again {
