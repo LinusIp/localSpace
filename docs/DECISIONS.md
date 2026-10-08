@@ -150,6 +150,31 @@ choices under the answers above, to be confirmed with the report):
   `scripts/message-script.mjs` stays until its table and the kit's agree
   on the 7B, and is then retired.
 
+**The owner's answers on the step report, the same evening:**
+
+- **`measure-kit` is merged into `main`, squashed**, and the package is
+  built from the merge commit: it is for the people who will run the kit
+  on borrowed machines, not a release to the app's testers. 0.2 is still
+  the release.
+- **The 4B's run counts for the 4 GB tier**, since this laptop's card is
+  that tier, the one the 4B is proposed for. What is missing is the read:
+  the founder judges the Russian and Uzbek answers (sent as plain text
+  with their questions, kept in the internal repository), the builder
+  reads the English ones against the script's checks. If both pass,
+  `exercised_on` is recorded for the 4 GB tier with thinking off; the entry
+  stays hidden until the refresh makes it a default. Every other tier
+  waits for the kit on borrowed machines.
+- **The thinking limit goes into the refresh**, which is next, under one
+  rule: **an answer always arrives.** The engine's thinking budget is
+  used, so that when thinking runs out the model is made to answer; the
+  weather message with thinking on is the test, and must produce an
+  answer; the budget is sized per model from the kit's measurements, not
+  guessed.
+- **The vision-file finding is a measurement for the projector rule**,
+  recorded in `docs/measure/projector-rule.md` with the borrowed machines'
+  results to come: the 4 GB card holds the 4B's vision file, at 22.7
+  tokens a second against 38 with the file on the processor.
+
 **The owner's answers on the kit as built, the same evening:**
 
 - **The kit can never hang silently.** It has its own limits: a time
