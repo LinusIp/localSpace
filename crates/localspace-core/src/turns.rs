@@ -73,12 +73,72 @@ pub struct StepEnd {
     /// The prompt's length as estimated before it was sent: the engine says
     /// the true one only at the end, which an answer cut short never reaches.
     pub prompt_estimate: usize,
+    /// Whether the step asked the model to think (`Some`), or left it to the
+    /// model's own default (`None`).
+    pub thinking: Option<bool>,
+}
+
+/// The measure of one model step, kept per chat for whoever hosts Core
+/// in-process (`localspace measure`): the figures, never a word of the
+/// answer (docs/DECISIONS.md, 2026-10-08).
+#[derive(Debug, Clone, Default)]
+pub struct AnswerMeasure {
+    /// Whether the step asked the model to think, or left it its default.
+    pub thinking_asked: Option<bool>,
+    /// Until the first visible word of the answer.
+    pub first_word: Option<Duration>,
+    /// The whole step.
+    pub took: Duration,
+    /// The thinking that came before the answer: how many words, and when
+    /// it began and ended, from the request.
+    pub thinking_words: usize,
+    pub thinking_began: Option<Duration>,
+    pub thinking_ended: Option<Duration>,
+    /// The engine's own figures, where it gave them.
+    pub timings: Option<crate::model::Timings>,
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    /// How the step ended early, if it did: stopped, a silence, the engine
+    /// gone, or an error in words.
+    pub cut: Option<String>,
+    /// The tools the model asked for in this step.
+    pub tools: Vec<String>,
+}
+
+impl AnswerMeasure {
+    pub fn of(step: &StepEnd) -> AnswerMeasure {
+        let mut measure = AnswerMeasure {
+            thinking_asked: step.thinking,
+            first_word: step.first_piece,
+            took: step.took,
+            ..Default::default()
+        };
+        match &step.reply {
+            Ok(reply) => {
+                measure.thinking_words = reply.reasoning.split_whitespace().count();
+                measure.thinking_began = reply.reasoning_began;
+                measure.thinking_ended = reply.reasoning_ended;
+                measure.timings = reply.timings;
+                measure.prompt_tokens = reply.prompt_tokens;
+                measure.completion_tokens = reply.completion_tokens;
+                measure.tools = reply.calls.iter().map(|c| c.tool.clone()).collect();
+            }
+            Err(e) => {
+                measure.cut = Some(match e.downcast_ref::<crate::stream::Cut>() {
+                    Some(cut) => cut.to_string(),
+                    None => format!("{e:#}"),
+                });
+            }
+        }
+        measure
+    }
 }
 
 /// A turn's work, come back through Core's queue.
 pub enum Internal {
-    /// A model step ended.
-    Replied { turn: u64, step: StepEnd },
+    /// A model step ended. Boxed: the step carries the reply with its
+    /// measures, and the other message is a number.
+    Replied { turn: u64, step: Box<StepEnd> },
     /// The turn's next tool call or model step: queued, so that whatever came
     /// meanwhile, a Stop included, is handled first.
     GoOn { turn: u64 },

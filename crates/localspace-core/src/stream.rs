@@ -239,10 +239,20 @@ impl Read for Watched<'_> {
                         io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
                     ) =>
                 {
+                    // Before the first word the long limit runs from the
+                    // question, and bytes that keep coming hold it off: a
+                    // model that thinks before it answers is at work, and
+                    // its thinking counts as activity (docs/DECISIONS.md,
+                    // 2026-10-07, thinking).
                     let silent = if self.words.get() {
                         self.last.elapsed() >= self.silence.between_words
                     } else {
                         self.began.elapsed() >= self.silence.before_first_word
+                            && self.last.elapsed()
+                                >= self
+                                    .silence
+                                    .between_words
+                                    .min(self.silence.before_first_word)
                     };
                     if silent {
                         return Err(io::Error::new(io::ErrorKind::TimedOut, "silence"));
@@ -679,6 +689,34 @@ mod tests {
             "{:?}",
             began.elapsed()
         );
+    }
+
+    /// A model that thinks before its first word is at work: the thinking
+    /// the engine hands apart from the answer keeps coming, and the limit to
+    /// the first word does not end the answer while it does.
+    #[test]
+    fn thinking_before_the_first_word_counts_as_activity() {
+        let thought = |text: &str| {
+            format!(
+                "data: {}\n\n",
+                serde_json::json!({"choices": [{"index": 0, "delta": {"reasoning_content": text}, "finish_reason": null}]})
+            )
+        };
+        // Ten thoughts sixty milliseconds apart: well past a limit of 400 ms.
+        let mut parts = vec![CHUNKED.as_bytes().to_vec()];
+        parts.extend((0..10).map(|_| chunk(thought("hmm ").as_bytes())));
+        parts.push(chunk(event("Four.").as_bytes()));
+        parts.push(chunk(DONE.as_bytes()));
+        parts.push(chunk(b""));
+        let url = serve(parts, Duration::ZERO);
+        let silence = Silence {
+            before_first_word: Duration::from_millis(400),
+            between_words: Duration::from_millis(300),
+        };
+        let (answer, pieces) = read(&url, silence, &Stop::default());
+        let reply = answer.expect("the answer came whole");
+        assert_eq!(pieces, "Four.");
+        assert_eq!(reply.reasoning, "hmm hmm hmm hmm hmm hmm hmm hmm hmm hmm ");
     }
 
     #[test]

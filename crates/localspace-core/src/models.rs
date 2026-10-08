@@ -75,7 +75,7 @@ pub struct CatalogModel {
     #[serde(default)]
     pub commercial_use: bool,
     /// The day this model last went through the message script
-    /// (`scripts/message-script.mjs`) on some machine, and a person read what
+    /// (`localspace measure`) on some machine, and a person read what
     /// came back (`docs/test-a/MESSAGE-SCRIPT.md`). **A model may only be the
     /// default if it has been**: an entry that does not say is listed, can be
     /// chosen, and is never offered first. The failure this guards against
@@ -111,6 +111,23 @@ pub struct CatalogModel {
     /// to the length the server announces.
     #[serde(default)]
     pub verify: HashMap<String, FileCheck>,
+    /// Not yet passed its checks (it loads on the pinned engine, a person
+    /// has read its answers to the message script, its files answer in CI): the
+    /// app's Core leaves it out of the list, so that nothing is visible
+    /// unless it works, and `localspace measure`, which hosts a Core that
+    /// keeps hidden entries, reaches it (docs/DECISIONS.md, 2026-10-08).
+    #[serde(default)]
+    pub hidden: bool,
+    /// The file among `files` that reads images for the model (llama.cpp's
+    /// `--mmproj`), by name; empty for a model that reads text alone.
+    #[serde(default)]
+    pub vision_file: String,
+    /// The name a file has in the repository, where it differs from the
+    /// name it is kept under: a publisher names every size's vision file
+    /// `mmproj-F16.gguf`, and the models folder holds every model's files
+    /// side by side.
+    #[serde(default)]
+    pub published_as: HashMap<String, String>,
 }
 
 /// A file whose SHA-256 was found to be the published one, as the file then
@@ -233,12 +250,21 @@ pub struct Tensor {
     pub routed_expert_bytes: u64,
     pub layers: u32,
     pub moe: Option<MoeLayout>,
-    /// K and V per token at FP16 across all layers; 4 KB a layer when unknown.
+    /// K and V per token at FP16, on the layers that keep a cache: all of
+    /// them in a plain transformer, every fourth in a Qwen3.5, whose other
+    /// layers hold a state of fixed size instead (a few tens of MB a
+    /// sequence, not counted here). 4 KB a layer when unknown.
     #[serde(default)]
     pub kv_bytes_per_token_fp16: u64,
 }
 
 impl CatalogModel {
+    /// The name under which the repository publishes `file`: its own, unless
+    /// `published_as` says otherwise.
+    pub fn published_name<'a>(&'a self, file: &'a str) -> &'a str {
+        self.published_as.get(file).map_or(file, String::as_str)
+    }
+
     pub fn tensor_map(&self) -> Option<TensorMap> {
         let t = self.tensor.as_ref()?;
         Some(TensorMap {
@@ -404,6 +430,13 @@ impl Catalog {
 
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// Leave out the entries that have not passed their checks yet: the
+    /// app's Core does this as it starts; `localspace measure` does not
+    /// (docs/DECISIONS.md, 2026-10-08).
+    pub fn drop_hidden(&mut self) {
+        self.models.retain(|m| !m.hidden);
     }
 
     /// Fetch from somewhere else: a test's stand-in for Hugging Face.
@@ -845,6 +878,9 @@ impl Catalog {
             }),
             path: Some(path.to_path_buf()),
             verify: HashMap::new(),
+            hidden: false,
+            vision_file: String::new(),
+            published_as: HashMap::new(),
         };
         let mut imports = self.imports();
         imports.retain(|m| m.id != id);
@@ -1219,7 +1255,12 @@ fn fetch_all(
         } else {
             &m.revision
         };
-        let url = format!("{}/{}/resolve/{revision}/{file}", source.base, m.repo);
+        let url = format!(
+            "{}/{}/resolve/{revision}/{}",
+            source.base,
+            m.repo,
+            m.published_name(file)
+        );
         let mut last = Instant::now();
         let mut report = |file_bytes: u64, file_total: Option<u64>| {
             if last.elapsed() < Duration::from_millis(500) {
@@ -1415,6 +1456,90 @@ fn sanitize(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hidden_entry_is_dropped_on_request_and_kept_otherwise() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut catalog = Catalog::load(None, dir.path());
+        catalog.models.push(
+            serde_json::from_str(
+                r#"{"id":"unchecked","title":"Not yet","params_b":1.0,"bytes":3,"context_len":2048,
+                    "repo":"example/unchecked","files":["u.gguf"],"tensor":null,"hidden":true}"#,
+            )
+            .unwrap(),
+        );
+        assert!(catalog.get("unchecked").is_some());
+        catalog.drop_hidden();
+        assert!(catalog.get("unchecked").is_none());
+        // What has passed its checks stays.
+        assert!(catalog.get("qwen2.5-7b-instruct-q4_k_m").is_some());
+    }
+
+    #[test]
+    fn a_file_is_fetched_under_its_published_name_and_kept_under_its_own() {
+        let m: CatalogModel = serde_json::from_str(
+            r#"{"id":"m","title":"M","params_b":1.0,"bytes":3,"context_len":2048,"repo":"example/m",
+                "files":["M-Q4_K_M.gguf","M-mmproj-F16.gguf"],"vision_file":"M-mmproj-F16.gguf",
+                "published_as":{"M-mmproj-F16.gguf":"mmproj-F16.gguf"},"tensor":null}"#,
+        )
+        .unwrap();
+        assert_eq!(m.published_name("M-Q4_K_M.gguf"), "M-Q4_K_M.gguf");
+        assert_eq!(m.published_name("M-mmproj-F16.gguf"), "mmproj-F16.gguf");
+        assert_eq!(m.vision_file, "M-mmproj-F16.gguf");
+    }
+
+    /// The built-in catalog's entries hang together: a hidden one has not
+    /// been through the script, a vision file and a renamed file are among
+    /// the entry's files, and the files with digests add up to its size.
+    #[test]
+    fn the_built_in_catalog_is_whole() {
+        let file = parse(BUILT_IN).unwrap();
+        assert!(
+            file.models
+                .iter()
+                .any(|m| m.hidden && m.id == "qwen3.5-4b-q4_k_m")
+        );
+        for m in &file.models {
+            if m.hidden {
+                assert!(
+                    m.exercised_on.is_empty(),
+                    "{}: hidden, yet it says it went through the script",
+                    m.id
+                );
+            }
+            if !m.vision_file.is_empty() {
+                assert!(
+                    m.files.contains(&m.vision_file),
+                    "{}: its vision file is not among its files",
+                    m.id
+                );
+            }
+            for kept in m.published_as.keys() {
+                assert!(
+                    m.files.contains(kept),
+                    "{}: {kept} is renamed but is not among its files",
+                    m.id
+                );
+            }
+            if !m.verify.is_empty() {
+                let total: u64 = m
+                    .files
+                    .iter()
+                    .map(|f| {
+                        m.verify
+                            .get(f)
+                            .unwrap_or_else(|| panic!("{}: {f} has no digest", m.id))
+                            .bytes
+                    })
+                    .sum();
+                assert_eq!(
+                    total, m.bytes,
+                    "{}: its files do not add up to its size",
+                    m.id
+                );
+            }
+        }
+    }
 
     fn laptop() -> Machine {
         Machine {

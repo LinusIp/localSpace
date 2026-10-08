@@ -5,6 +5,7 @@
 //! is decided at the moment of running.
 
 mod admin;
+mod measure;
 mod ops;
 mod output;
 mod settings;
@@ -16,7 +17,7 @@ use std::path::PathBuf;
 
 /// The build behind `--version`: packaging sets `LOCALSPACE_BUILD_ID` to
 /// the commit it built from; a build without it says so.
-const BUILD_ID: &str = match option_env!("LOCALSPACE_BUILD_ID") {
+pub(crate) const BUILD_ID: &str = match option_env!("LOCALSPACE_BUILD_ID") {
     Some(id) => id,
     None => "local build",
 };
@@ -49,6 +50,9 @@ enum Command {
     Call(ops::CallArgs),
     /// The audit log: verify its hash chain across every file.
     Audit(ops::AuditArgs),
+    /// The measurement kit: the message script and the speed figures for
+    /// one model on this computer, written to one file. Nothing is sent.
+    Measure(measure::MeasureArgs),
 }
 
 #[derive(Args)]
@@ -85,6 +89,7 @@ fn main() -> Result<()> {
         Command::Evals(args) => ops::evals(args),
         Command::Call(args) => ops::call(args),
         Command::Audit(args) => ops::audit(args),
+        Command::Measure(args) => measure::run(args),
     }
 }
 

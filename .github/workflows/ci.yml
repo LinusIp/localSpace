@@ -254,12 +254,14 @@ jobs:
             ${{ runner.temp }}/serve.log
             ${{ runner.temp }}/org-serve.log
 
-  message-script:
-    # The script that judges answers, run against the test engine: it judges
-    # nothing there, but every message must be answered and Continue must
-    # carry through, which would have caught 1.6 and 1.7 breaking it without
-    # a test failing (docs/DECISIONS.md, 2026-09-24).
-    name: the message script against the test engine (every message answered, Continue carried through)
+  measure:
+    # The measurement kit, run against the test engine: it judges nothing
+    # there, but every message must be answered, Continue must carry through,
+    # and the results file must hold the thinking pass, the picture both ways
+    # and the engine's reading, which would have caught 1.6 and 1.7 breaking
+    # the way answers arrive without a test failing (docs/DECISIONS.md,
+    # 2026-09-24 and 2026-10-08).
+    name: the measurement kit against the test engine (every message answered, Continue carried through)
     runs-on: ubuntu-24.04
     needs: rust
     timeout-minutes: 30
@@ -279,15 +281,15 @@ jobs:
           cache-on-failure: true
       - name: the server and the test engine
         run: cargo build --release -p localspace-cli -p localspace-core --bin localspace --bin fake_llama_server
-      - name: every message answered, Continue carried through
-        run: scripts/message-script-fake.sh target/release/localspace target/release/fake_llama_server "$RUNNER_TEMP/message-script"
+      - name: every message answered, Continue carried through, the results file whole
+        run: scripts/measure-fake.sh target/release/localspace target/release/fake_llama_server "$RUNNER_TEMP/measure"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: message-script
+          name: measure
           path: |
-            ${{ runner.temp }}/message-script/serve.log
-            ${{ runner.temp }}/message-script/answers.md
+            ${{ runner.temp }}/measure/*.log
+            ${{ runner.temp }}/measure/out/*.md
 
   w32-gate:
     name: the canvas gate on W32, from its recorded measurement

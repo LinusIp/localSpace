@@ -13,7 +13,7 @@
 //! are taken inside the request that started the turn, to its end.
 
 use crate::stream::{Cut, Silence, Stop};
-use crate::turns::{Internal, StepEnd, Turn};
+use crate::turns::{AnswerMeasure, Internal, StepEnd, Turn};
 use crate::{Core, MAX_AGENT_STEPS, Proposal, To, model, prompt};
 use localspace_proto as proto;
 use localspace_proto::{Json, TurnState};
@@ -38,6 +38,27 @@ pub fn turn(core: &mut Core, text: &str) {
 /// A person's message in one of their chats: kept, and answered now, or when
 /// the answer before it is done.
 pub fn send(core: &mut Core, conversation: Option<String>, text: &str) -> proto::Response {
+    send_with(core, conversation, text, None)
+}
+
+/// A person's message with a picture (a PNG): the picture goes to the model
+/// with the message, and is kept for the chat while Core runs
+/// (docs/DECISIONS.md, 2026-10-08).
+pub fn send_picture(
+    core: &mut Core,
+    conversation: Option<String>,
+    text: &str,
+    png: Vec<u8>,
+) -> proto::Response {
+    send_with(core, conversation, text, Some(png))
+}
+
+fn send_with(
+    core: &mut Core,
+    conversation: Option<String>,
+    text: &str,
+    picture: Option<Vec<u8>>,
+) -> proto::Response {
     let conversation = match chat_of_the_caller(core, conversation) {
         Ok(conversation) => conversation,
         Err(refused) => return refusal(refused),
@@ -48,6 +69,17 @@ pub fn send(core: &mut Core, conversation: Option<String>, text: &str) -> proto:
         );
     }
     let (user, workspace) = (core.active.user.clone(), core.workspace.clone());
+    if let Some(png) = picture {
+        // Under the message's place among the person's messages of the chat.
+        let ordinal = messages(core, &user, &workspace, &conversation)
+            .iter()
+            .filter(|m| m.role == proto::Role::User)
+            .count();
+        core.pictures
+            .entry(conversation.clone())
+            .or_default()
+            .insert(ordinal, png);
+    }
     write(core, &user, &workspace, &conversation, |messages| {
         messages.push(message(proto::Role::User, text));
     });
@@ -216,7 +248,7 @@ pub fn internal(core: &mut Core, message: Internal) {
 
 fn handle(core: &mut Core, message: Internal) {
     match message {
-        Internal::Replied { turn, step } => replied(core, turn, step),
+        Internal::Replied { turn, step } => replied(core, turn, *step),
         Internal::GoOn { turn } => go_on(core, turn),
     }
 }
@@ -467,6 +499,15 @@ fn ask_the_model(core: &mut Core, id: u64) {
     let system = p.prefix();
     let after = p.after();
     let mut turns = p.turns;
+    // A picture the person sent with a message goes to the model with it
+    // (docs/DECISIONS.md, 2026-10-08).
+    if let Some(pictures) = core.pictures.get(&conversation) {
+        let persons = messages
+            .iter()
+            .filter(|m| m.role == proto::Role::User)
+            .count();
+        turns = prompt::with_pictures(turns, pictures, persons);
+    }
     // A call the model wrote into its answer and had refused: it reads the
     // refusal on its one more try (see `attempted`).
     turns.extend(refused);
@@ -474,6 +515,8 @@ fn ask_the_model(core: &mut Core, id: u64) {
     request.tools = tools;
     request.grammar = grammar;
     request.begun = begun;
+    request.thinking = core.thinking;
+    let thinking = request.thinking;
     // Taken out of the router, so that nothing holds it while the answer is
     // written: a model changed meanwhile would otherwise wait for the answer.
     let streamer = core.router.read().unwrap().for_a_turn();
@@ -494,7 +537,10 @@ fn ask_the_model(core: &mut Core, id: u64) {
                         &conversation,
                         prompt_estimate,
                     );
-                    inbox(Internal::Replied { turn: id, step });
+                    inbox(Internal::Replied {
+                        turn: id,
+                        step: Box::new(step),
+                    });
                 });
             if let Err(e) = reading {
                 let step = StepEnd {
@@ -503,8 +549,15 @@ fn ask_the_model(core: &mut Core, id: u64) {
                     first_piece: None,
                     took: Duration::ZERO,
                     prompt_estimate,
+                    thinking,
                 };
-                post(core, Internal::Replied { turn: id, step });
+                post(
+                    core,
+                    Internal::Replied {
+                        turn: id,
+                        step: Box::new(step),
+                    },
+                );
             }
         }
         None => {
@@ -517,7 +570,13 @@ fn ask_the_model(core: &mut Core, id: u64) {
                 &conversation,
                 prompt_estimate,
             );
-            post(core, Internal::Replied { turn: id, step });
+            post(
+                core,
+                Internal::Replied {
+                    turn: id,
+                    step: Box::new(step),
+                },
+            );
         }
     }
 }
@@ -569,6 +628,7 @@ fn read_the_model(
         first_piece,
         took: asked.elapsed(),
         prompt_estimate,
+        thinking: request.thinking,
     }
 }
 
@@ -581,6 +641,9 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
     let caller = core.turns[i].caller.clone();
     core.activate(&caller);
     let (steps, conversation) = (core.turns[i].steps, core.turns[i].conversation.clone());
+    // The measure of the step, for whoever hosts Core in-process.
+    core.answer_measures
+        .insert(conversation.clone(), AnswerMeasure::of(&step));
 
     // For the log, the measure of an answer and never a word of it: how
     // long until the first piece came, how many tokens at what rate, and
@@ -1185,6 +1248,7 @@ mod tests {
             }],
             prompt_tokens: 100,
             completion_tokens: 10,
+            ..Default::default()
         }
     }
 
@@ -1387,6 +1451,7 @@ mod tests {
             ],
             prompt_tokens: 100,
             completion_tokens: 20,
+            ..Default::default()
         }
     }
 

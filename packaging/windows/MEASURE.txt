@@ -1,0 +1,36 @@
+localSpace: measuring a model on this computer
+==============================================
+
+This folder has a small tool that puts a fixed set of messages to a model
+on this computer and writes down what came back and how long it took.
+Nothing is sent anywhere: the one file it writes is for you to send back.
+
+What to do
+----------
+1. Open a command window in this folder: in File Explorer, click the
+   address bar, type   cmd   and press Enter.
+2. Type:   measure --list
+   It names the models and says which are already on this computer.
+3. Type:   measure <the model's id>      for example:   measure qwen3.5-9b-q4_k_m
+   A model that is not on this computer yet is downloaded first. Before
+   that, the tool names the files, their size and the room left on your
+   disk, and waits for you to press Enter; nothing is fetched until you do.
+4. Leave the computer alone until the window says it has finished. A run
+   takes from a quarter of an hour to a few hours, depending on the model
+   and the computer; the window shows one line before every step and one
+   per message as it goes, and a run stops by itself, with what it has
+   written, after four hours.
+5. The last line of the window is the full path of the results file,
+   localSpace-measure-<model>-<date>.md in this folder. Send that file back.
+
+If something goes wrong
+-----------------------
+The window says what, in one line. Send that line along. The run's own log
+is in the folder the window names at the end.
+
+What the file holds
+-------------------
+The answers to the messages (some in Russian and in Uzbek), how long each
+took, what this computer is (its graphics card, memory and processor), the
+model's files, and the figures of the engine. Nothing about you, and
+nothing you typed.

@@ -304,25 +304,7 @@ fn config() -> ServerConfig {
         };
     }
     if cfg.data.is_none() {
-        cfg.data = default_data_dir();
+        cfg.data = localspace_core::default_data_dir();
     }
     cfg
-}
-
-/// `%LOCALAPPDATA%\localSpace` on Windows, `$XDG_DATA_HOME/localspace` or
-/// `~/.localspace` elsewhere: where the user's environment lives when the
-/// command line says nothing. A name a person can read, with no identifier in
-/// it; the installer puts the program elsewhere
-/// (`%LOCALAPPDATA%\Programs\localSpace`), and its "delete the application
-/// data" removes this folder (docs/DECISIONS.md, 2026-09-18).
-fn default_data_dir() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("LOCALAPPDATA") {
-        return Some(PathBuf::from(dir).join("localSpace"));
-    }
-    if let Ok(dir) = std::env::var("XDG_DATA_HOME") {
-        return Some(PathBuf::from(dir).join("localspace"));
-    }
-    std::env::var("HOME")
-        .ok()
-        .map(|h| PathBuf::from(h).join(".localspace"))
 }

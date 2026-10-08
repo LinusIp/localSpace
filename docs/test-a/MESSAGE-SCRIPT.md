@@ -4,7 +4,7 @@ Asked for in the answers after day 2 (docs/DECISIONS.md, 2026-09-19): about
 fifteen things ten ordinary people type on a Friday afternoon, and a
 three-turn conversation whose follow-ups depend on the answer before, put to
 every model a tester can be recommended, the same script for each. Not
-evals: nothing is scored by a machine. `scripts/message-script.mjs` puts
+evals: nothing is scored by a machine. `localspace measure` (until 2026-10-08 `scripts/message-script.mjs`) puts
 the messages through Core's own API on a fresh data folder, exactly as the
 app does, and writes down what came back, how long it took and which tools
 were reached for; **the judgment below is a person's reading of it** (the

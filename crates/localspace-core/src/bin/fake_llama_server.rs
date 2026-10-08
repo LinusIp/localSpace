@@ -39,6 +39,10 @@ struct Style {
     die_after: Option<usize>,
     russian: bool,
     no_late_system: bool,
+    /// Thinks before it answers: a few words of `reasoning_content` come
+    /// before the first word, as a model that thinks hands them through
+    /// llama-server.
+    thinks_first: bool,
 }
 
 impl Style {
@@ -56,6 +60,7 @@ impl Style {
             die_after: count("dies after "),
             russian: stub.contains("writes in Russian"),
             no_late_system: stub.contains("takes no late system message"),
+            thinks_first: stub.contains("thinks first"),
         }
     }
 }
@@ -67,6 +72,14 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--list-devices") {
         let _ = write!(std::io::stdout(), "Available devices:\n  (none)\n");
+        return;
+    }
+    // Asked for its version, it says one and ends, as llama-server does; it
+    // used to bind its port and serve instead, and the kit, which asks the
+    // engine its version for the results file, waited for ever
+    // (docs/DECISIONS.md, 2026-10-08).
+    if args.iter().any(|a| a == "--version") {
+        eprintln!("version: 0.0.0-fake (build 0, commit fake)\nbuilt for tests");
         return;
     }
     let port: u16 = args
@@ -189,6 +202,24 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
     // server-sent events, the reply in two pieces, then the usage, then the end.
     let request = serde_json::from_slice::<serde_json::Value>(&body).unwrap_or_default();
     let streamed = request["stream"].as_bool().unwrap_or(false);
+    // What a test reads back from the log: whether the request said to
+    // think, and a message that came in parts (words and a picture).
+    if !request["chat_template_kwargs"].is_null() {
+        eprintln!(
+            "fake llama-server: chat_template_kwargs {}",
+            request["chat_template_kwargs"]
+        );
+    }
+    for message in request["messages"].as_array().into_iter().flatten() {
+        if let Some(parts) = message["content"].as_array() {
+            let kinds: Vec<&str> = parts.iter().filter_map(|p| p["type"].as_str()).collect();
+            eprintln!(
+                "fake llama-server: a message of {} parts: {}",
+                parts.len(),
+                kinds.join(", ")
+            );
+        }
+    }
     let begun = request["messages"]
         .as_array()
         .and_then(|messages| messages.last())
@@ -222,6 +253,17 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
         if style.stall_before_first {
             std::thread::sleep(STALL);
             return;
+        }
+        if style.thinks_first {
+            for thought in ["Let me ", "think ", "about it. "] {
+                let delta = serde_json::json!({"reasoning_content": thought});
+                let event = format!("{}\n\n", chunk(&delta.to_string(), "null"));
+                if stream.write_all(event.as_bytes()).is_err() {
+                    return;
+                }
+                let _ = stream.flush();
+                std::thread::sleep(Duration::from_millis(20));
+            }
         }
         for (i, piece) in pieces.iter().enumerate() {
             if style.die_after == Some(i) {
@@ -263,11 +305,14 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
                 std::thread::sleep(Duration::from_millis(150));
             }
         }
+        // The last event carries the usage and, as llama-server's does, the
+        // engine's timings for the request.
         let tail = [
             chunk("{}", r#""stop""#),
             format!(
-                r#"data: {{"id":"chatcmpl-fake","object":"chat.completion.chunk","model":"{alias}","choices":[],"usage":{{"prompt_tokens":12,"completion_tokens":{},"total_tokens":18}}}}"#,
-                pieces.len()
+                r#"data: {{"id":"chatcmpl-fake","object":"chat.completion.chunk","model":"{alias}","choices":[],"usage":{{"prompt_tokens":12,"completion_tokens":{n},"total_tokens":18}},"timings":{{"prompt_n":12,"prompt_ms":10.0,"predicted_n":{n},"predicted_ms":{ms}.0}}}}"#,
+                n = pieces.len(),
+                ms = pieces.len() * 50
             ),
             "data: [DONE]".to_string(),
         ];
@@ -294,10 +339,15 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
             format!(r#"{{"object":"list","data":[{{"id":"{alias}","object":"model"}}]}}"#),
         )
     } else if path.starts_with("/v1/chat/completions") {
+        let thought = if style.thinks_first {
+            r#""reasoning_content":"Let me think about it.","#
+        } else {
+            ""
+        };
         (
             200,
             format!(
-                r#"{{"id":"chatcmpl-fake","object":"chat.completion","model":"{alias}","choices":[{{"index":0,"message":{{"role":"assistant","content":"hello from the fake engine"}},"finish_reason":"stop"}}],"usage":{{"prompt_tokens":12,"completion_tokens":6,"total_tokens":18}}}}"#
+                r#"{{"id":"chatcmpl-fake","object":"chat.completion","model":"{alias}","choices":[{{"index":0,"message":{{"role":"assistant",{thought}"content":"hello from the fake engine"}},"finish_reason":"stop"}}],"usage":{{"prompt_tokens":12,"completion_tokens":6,"total_tokens":18}},"timings":{{"prompt_n":12,"prompt_ms":10.0,"predicted_n":6,"predicted_ms":300.0}}}}"#
             ),
         )
     } else if path.starts_with("/apply-template") {

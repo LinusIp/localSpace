@@ -22,6 +22,7 @@
 
 use crate::profile::ModelProfile;
 use localspace_proto as proto;
+use std::collections::HashMap;
 
 /// Answering in words comes first. The earlier wording ("you act by calling
 /// the tools listed below, which are the only capabilities you have") was
@@ -65,6 +66,9 @@ pub const STOPPED_HERE: &str = "[the answer stopped here]";
 pub enum Turn {
     /// What the person wrote.
     Person(String),
+    /// What the person wrote, with a picture they sent with it (a PNG), for
+    /// a model that reads images (docs/DECISIONS.md, 2026-10-08).
+    Picture { text: String, png: Vec<u8> },
     /// What the model answered. One that ended before the model finished it
     /// ends with [`STOPPED_HERE`].
     Answer(String),
@@ -84,6 +88,9 @@ impl Turn {
     pub fn render(&self) -> String {
         match self {
             Turn::Person(text) => format!("user: {text}"),
+            Turn::Picture { text, png } => {
+                format!("user: {text}\n[a picture, {} bytes]", png.len())
+            }
             Turn::Answer(text) => format!("assistant: {text}"),
             Turn::Call {
                 tool,
@@ -250,6 +257,36 @@ pub fn turns(messages: &[proto::ChatMessage], working_set: usize) -> Vec<Turn> {
         start += person;
     }
     all[start..].to_vec()
+}
+
+/// The pictures the person sent, put with their messages: `pictures` by the
+/// message's place among the person's messages of the chat, of which there
+/// are `persons` in all; the turns kept are the newest, so the first person
+/// turn among them is message `persons - kept`.
+pub fn with_pictures(
+    turns: Vec<Turn>,
+    pictures: &HashMap<usize, Vec<u8>>,
+    persons: usize,
+) -> Vec<Turn> {
+    let kept = turns
+        .iter()
+        .filter(|t| matches!(t, Turn::Person(_)))
+        .count();
+    let mut ordinal = persons.saturating_sub(kept);
+    turns
+        .into_iter()
+        .map(|turn| match turn {
+            Turn::Person(text) => {
+                let picture = pictures.get(&ordinal).cloned();
+                ordinal += 1;
+                match picture {
+                    Some(png) => Turn::Picture { text, png },
+                    None => Turn::Person(text),
+                }
+            }
+            other => other,
+        })
+        .collect()
 }
 
 /// What one stored message is to the engine. A call is kept as a message of
@@ -588,6 +625,50 @@ mod tests {
                 Turn::Answer("Done.".into()),
                 Turn::Answer(format!("Once upon {STOPPED_HERE}")),
             ]
+        );
+    }
+
+    /// A picture sits with the message it came with, counted among the
+    /// person's messages, whether the working set keeps the whole chat or
+    /// the newest turns alone.
+    #[test]
+    fn a_picture_sits_with_its_message_however_many_turns_are_kept() {
+        let png = vec![1u8, 2, 3];
+        let pictures = HashMap::from([(1usize, png.clone())]);
+        let whole = vec![
+            Turn::Person("one".into()),
+            Turn::Answer("1".into()),
+            Turn::Person("two".into()),
+            Turn::Answer("2".into()),
+            Turn::Person("three".into()),
+        ];
+        let placed = with_pictures(whole.clone(), &pictures, 3);
+        assert_eq!(
+            placed[2],
+            Turn::Picture {
+                text: "two".into(),
+                png: png.clone()
+            }
+        );
+        assert_eq!(placed[0], Turn::Person("one".into()));
+        assert_eq!(placed[4], Turn::Person("three".into()));
+        // The working set kept the last two person turns of three.
+        let cut = with_pictures(whole[2..].to_vec(), &pictures, 3);
+        assert_eq!(
+            cut[0],
+            Turn::Picture {
+                text: "two".into(),
+                png
+            }
+        );
+        assert_eq!(cut[2], Turn::Person("three".into()));
+        assert!(
+            Turn::Picture {
+                text: "look".into(),
+                png: vec![0; 4]
+            }
+            .render()
+            .contains("[a picture, 4 bytes]")
         );
     }
 

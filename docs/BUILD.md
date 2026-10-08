@@ -129,6 +129,13 @@ later: no push waits on them.
 
 ## Notes for this machine
 
+Smart App Control is on and stays on (docs/DECISIONS.md, 2026-09-20): it
+judges every fresh executable by its hash, and on some days refuses rustc,
+the clippy driver or a crate's build script. Since 2026-10-08 the way round
+it is an Ubuntu under WSL, where it does not apply: build and test there
+before a push, with the Windows side kept as it is for the release check.
+`cargo fmt` runs on either side.
+
 - On Windows with Smart App Control enforcing, a freshly linked `.exe` is sometimes
   refused with "permission denied" on first run. Copying the binary to a new name,
   or a clean rebuild, clears it.
@@ -206,6 +213,40 @@ air-gapped environment, where a file is imported in place from the Models
 page instead. `cargo test -p localspace-core --test engine` exercises the whole
 path against `fake_llama_server`, a test double this crate builds.
 
+## The measurement kit (`localspace measure`)
+
+One command a tester runs on a machine of theirs, unattended
+(docs/DECISIONS.md, 2026-10-07 and 2026-10-08): it reads the machine, runs
+the message script and the speed figures against one model through Core
+itself, hosted in the process on a fresh data folder with the app's
+downloaded models, and writes one results file. Nothing is sent anywhere.
+
+```bash
+localspace measure --list                                  # the catalog's models, and which are here
+localspace measure --model qwen3.5-9b-q4_k_m --out ~/Desktop    # the run; --download fetches a model that is not here
+localspace measure --model qwen3.5-9b-q4_k_m --thinking-full    # the whole script with thinking on as well
+```
+
+The package carries it as `measure.cmd`, with `MEASURE.txt` for the person
+running it; the results file is `localSpace-measure-<model>-<day>.md`. A
+run is: the whole script with thinking off, the five messages where
+thinking could matter with it on, Continue, the engine's reading of about
+10, 30 and 100 new tokens on top of the cached prompt (what
+`scripts/read-time.mjs` asked the engine by hand), and for a model with a
+vision file the picture with the file on the processor and again on the
+card, each answer with the time to its first word, its thinking and the
+engine's own figures. Hidden catalog entries, the ones that have not passed
+their checks, are reachable here and nowhere else. `--models <dir>` names
+another models folder, `--catalog <dir>` an extra `catalog.json`, `--data
+<dir>` the fresh folder. The kit cannot hang silently: it says a line
+before every step, an answer may take `--answer-seconds` (600) before it
+is stopped, the whole run `--max-minutes` (240) before the kit writes what
+it has and ends with an error naming the step, and a download waits for
+Enter unless `--yes` answers. CI runs it against the test engine with
+`--check` and short limits (`scripts/measure-fake.sh`). The Node file it
+replaced, `scripts/message-script.mjs`, was retired on 2026-10-08, the day
+the two tables agreed on the 7B.
+
 ## The Windows package (the installer and the portable zip)
 
 The installers testers get are built on GitHub by the `package` workflow
@@ -243,7 +284,7 @@ is missing.
 
 **When the pin moves**, before a build with the new engine reaches anyone:
 - the keep list is read again (above);
-- `scripts/message-script.mjs` runs on every model in the catalog, each on a
+- `localspace measure` runs on every model in the catalog, each on a
   fresh data folder, and the answers are read: moving the pin is a
   regression event for every catalog model (docs/DECISIONS.md, 2026-09-23);
 - its last step, Continue, is read for every catalog default
@@ -260,7 +301,8 @@ is missing.
   with `--kv-unified`, and Core's `--parallel N -c N×C` promise rests on the
   first;
 - how long the engine takes to read about 10, 30 and 100 new tokens on top
-  of a long cached prompt (docs/DECISIONS.md, 2026-10-07):
+  of a long cached prompt (docs/DECISIONS.md, 2026-10-07): the last section
+  of `localspace measure`'s results file, or by hand
   `node scripts/read-time.mjs <engine origin> <serve origin> <token>`,
   against an engine started by hand with the flags `app.log` shows for the
   model, and a server with the whiteboard installed. b10869 on the

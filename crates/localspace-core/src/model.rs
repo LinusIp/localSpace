@@ -19,7 +19,7 @@ use localspace_proto as proto;
 use serde_json::{Value as J, json};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 // ---------------------------------------------------------------------------
 // Request shapes
@@ -82,6 +82,10 @@ pub struct ChatRequest {
     pub max_tokens: u32,
     pub temperature: f32,
     pub class: RequestClass,
+    /// Whether the model is to think before it answers: `Some` is said to
+    /// the engine (`enable_thinking`), `None` leaves the model its own
+    /// default (docs/DECISIONS.md, 2026-10-08).
+    pub thinking: Option<bool>,
 }
 
 impl ChatRequest {
@@ -107,6 +111,7 @@ impl ChatRequest {
             max_tokens: 1024,
             temperature: 0.2,
             class: RequestClass::Interactive,
+            thinking: None,
         }
     }
 
@@ -228,6 +233,39 @@ pub struct ChatReply {
     pub calls: Vec<ProposedCall>,
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
+    /// What the model thought before it answered, where it thinks and the
+    /// engine hands the thinking apart from the answer (`reasoning_content`).
+    pub reasoning: String,
+    /// When the thinking began and ended, from the request: the kit's
+    /// figures, and the seconds an indicator shows.
+    pub reasoning_began: Option<Duration>,
+    pub reasoning_ended: Option<Duration>,
+    /// The engine's own figures for the step, where it gives them.
+    pub timings: Option<Timings>,
+}
+
+/// llama-server's figures for one request: how many tokens of the prompt it
+/// read anew and how long that took, how many it wrote and how long.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Timings {
+    pub prompt_n: u32,
+    pub prompt_ms: f64,
+    pub predicted_n: u32,
+    pub predicted_ms: f64,
+}
+
+impl Timings {
+    /// The `timings` member of a reply or of a stream's last event; `None`
+    /// where the engine gives none.
+    pub fn from_json(value: &J) -> Option<Timings> {
+        let prompt_n = value.get("prompt_n")?.as_u64()? as u32;
+        Some(Timings {
+            prompt_n,
+            prompt_ms: value["prompt_ms"].as_f64().unwrap_or(0.0),
+            predicted_n: value["predicted_n"].as_u64().unwrap_or(0) as u32,
+            predicted_ms: value["predicted_ms"].as_f64().unwrap_or(0.0),
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -378,6 +416,30 @@ impl OpenAiWorker {
             .unwrap_or_default())
     }
 
+    /// The request as the engine takes it. `chat_template_kwargs` goes only
+    /// when the request says whether the model is to think; left out, the
+    /// model's own default holds (docs/DECISIONS.md, 2026-10-08).
+    fn body_of(&self, req: &ChatRequest, stream: bool) -> J {
+        let mut body = json!({
+            "model": self.model,
+            "messages": messages(req, self.ledger),
+            "max_tokens": req.max_tokens,
+            "temperature": req.temperature,
+            "stream": stream,
+        });
+        if stream {
+            body["stream_options"] = json!({"include_usage": true});
+        }
+        if !req.tools.is_empty() {
+            body["tools"] = J::Array(req.tools.iter().map(tool_schema).collect());
+            body["tool_choice"] = json!("auto");
+        }
+        if let Some(thinking) = req.thinking {
+            body["chat_template_kwargs"] = json!({"enable_thinking": thinking});
+        }
+        body
+    }
+
     fn post(&self, path: &str, body: J) -> Result<J> {
         let url = format!("{}{path}", self.base_url);
         let mut req = ureq::post(&url)
@@ -411,18 +473,7 @@ impl ModelWorker for OpenAiWorker {
     }
 
     fn chat(&self, req: &ChatRequest) -> Result<ChatReply> {
-        let mut body = json!({
-            "model": self.model,
-            "messages": messages(req, self.ledger),
-            "max_tokens": req.max_tokens,
-            "temperature": req.temperature,
-            "stream": false,
-        });
-        if !req.tools.is_empty() {
-            body["tools"] = J::Array(req.tools.iter().map(tool_schema).collect());
-            body["tool_choice"] = json!("auto");
-        }
-
+        let body = self.body_of(req, false);
         let res = self.post("/chat/completions", body)?;
         let mut again = SaidAgain::new(req.begun.as_deref().unwrap_or_default());
         Ok(again.carried_on(parse_openai_reply(&res)?))
@@ -443,18 +494,7 @@ impl ModelWorker for OpenAiWorker {
         stop: &Stop,
         silence: Silence,
     ) -> Result<ChatReply> {
-        let mut body = json!({
-            "model": self.model,
-            "messages": messages(req, self.ledger),
-            "max_tokens": req.max_tokens,
-            "temperature": req.temperature,
-            "stream": true,
-            "stream_options": {"include_usage": true},
-        });
-        if !req.tools.is_empty() {
-            body["tools"] = J::Array(req.tools.iter().map(tool_schema).collect());
-            body["tool_choice"] = json!("auto");
-        }
+        let body = self.body_of(req, true);
         let url = format!("{}/chat/completions", self.base_url);
         let mut again = SaidAgain::new(req.begun.as_deref().unwrap_or_default());
         let read = {
@@ -555,6 +595,12 @@ pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {
         calls,
         prompt_tokens: res["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as u32,
         completion_tokens: res["usage"]["completion_tokens"].as_u64().unwrap_or(0) as u32,
+        reasoning: message["reasoning_content"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
+        timings: Timings::from_json(&res["timings"]),
+        ..Default::default()
     })
 }
 
@@ -576,19 +622,35 @@ fn messages(req: &ChatRequest, ledger_place: LedgerPlace) -> J {
             after,
         } => {
             out.push(json!({"role": "system", "content": system}));
-            let newest = turns.iter().rposition(|t| matches!(t, Turn::Person(_)));
+            let newest = turns
+                .iter()
+                .rposition(|t| matches!(t, Turn::Person(_) | Turn::Picture { .. }));
+            // What comes after the conversation, in the newest message where
+            // this model takes it there.
+            let said = |i: usize, text: &str| {
+                if ledger_place == LedgerPlace::InTheNewest
+                    && Some(i) == newest
+                    && !after.is_empty()
+                {
+                    format!("{text}\n\n{after}")
+                } else {
+                    text.to_string()
+                }
+            };
             for (i, turn) in turns.iter().enumerate() {
                 match turn {
                     Turn::Person(text) => {
-                        let content = if ledger_place == LedgerPlace::InTheNewest
-                            && Some(i) == newest
-                            && !after.is_empty()
-                        {
-                            format!("{text}\n\n{after}")
-                        } else {
-                            text.clone()
-                        };
-                        out.push(json!({"role": "user", "content": content}));
+                        out.push(json!({"role": "user", "content": said(i, text)}));
+                    }
+                    // A picture goes with its words, as the OpenAI-style API
+                    // takes one: the text and the image, parts of one message.
+                    Turn::Picture { text, png } => {
+                        out.push(json!({"role": "user", "content": [
+                            {"type": "text", "text": said(i, text)},
+                            {"type": "image_url", "image_url": {
+                                "url": format!("data:image/png;base64,{}", base64(png))
+                            }}
+                        ]}));
                     }
                     Turn::Answer(text) => out.push(json!({"role": "assistant", "content": text})),
                     Turn::Call {
@@ -739,12 +801,19 @@ pub fn read_sse<R: std::io::BufRead>(
     on_delta: &mut dyn FnMut(&str),
     stop: &Stop,
 ) -> Result<ChatReply> {
+    let began = Instant::now();
     let mut text = String::new();
     // (id, name, arguments) per tool-call index; arguments arrive in pieces.
     let mut calls: Vec<(String, String, String)> = Vec::new();
     let mut prompt_tokens = 0u32;
     let mut completion_tokens = 0u32;
     let mut finished = false;
+    // The model's thinking, where the engine hands it apart from the
+    // answer, and when it came.
+    let mut reasoning = String::new();
+    let mut reasoning_began: Option<Duration> = None;
+    let mut reasoning_ended: Option<Duration> = None;
+    let mut timings: Option<Timings> = None;
     for line in reader.lines() {
         if stop.asked() {
             return Err(Cut::Stopped.into());
@@ -775,6 +844,9 @@ pub fn read_sse<R: std::io::BufRead>(
             prompt_tokens = usage["prompt_tokens"].as_u64().unwrap_or(0) as u32;
             completion_tokens = usage["completion_tokens"].as_u64().unwrap_or(0) as u32;
         }
+        if let Some(given) = Timings::from_json(&event["timings"]) {
+            timings = Some(given);
+        }
         let Some(choice) = event["choices"].get(0) else {
             continue;
         };
@@ -787,6 +859,13 @@ pub fn read_sse<R: std::io::BufRead>(
         {
             text.push_str(piece);
             on_delta(piece);
+        }
+        if let Some(piece) = delta["reasoning_content"].as_str()
+            && !piece.is_empty()
+        {
+            reasoning_began.get_or_insert_with(|| began.elapsed());
+            reasoning_ended = Some(began.elapsed());
+            reasoning.push_str(piece);
         }
         if let Some(pieces) = delta["tool_calls"].as_array() {
             for tc in pieces {
@@ -839,7 +918,33 @@ pub fn read_sse<R: std::io::BufRead>(
         calls: proposed,
         prompt_tokens,
         completion_tokens,
+        reasoning,
+        reasoning_began,
+        reasoning_ended,
+        timings,
     })
+}
+
+/// Bytes as standard base64 with padding, for a picture in a data URL. One
+/// function, no crate for it.
+pub fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for group in bytes.chunks(3) {
+        let n = group.len();
+        let word = (u32::from(group[0]) << 16)
+            | (u32::from(*group.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*group.get(2).unwrap_or(&0));
+        for i in 0..4 {
+            if i <= n {
+                let index = ((word >> (18 - 6 * i)) & 63) as usize;
+                out.push(ALPHABET[index] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
 }
 
 /// `{"tool": "...", "params": {...}}` — what the GBNF in `grammar.rs` admits.
@@ -1445,6 +1550,114 @@ mod tests {
             turns,
             "[task run_1]\nnotes:\n  - blue".into(),
         )
+    }
+
+    /// A picture goes with its words as parts of one message of the
+    /// person's, the image as a data URL; the ledger joins the words where
+    /// the model takes it in the newest message (docs/DECISIONS.md,
+    /// 2026-10-08).
+    #[test]
+    fn a_picture_goes_with_its_words_as_parts_of_one_message() {
+        let req = a_step(vec![
+            Turn::Person("hello".into()),
+            Turn::Answer("Hello!".into()),
+            Turn::Picture {
+                text: "what is this?".into(),
+                png: vec![0x89, b'P', b'N', b'G'],
+            },
+        ]);
+        let sent = messages(&req, LedgerPlace::InTheNewest);
+        let newest = &sent[3];
+        assert_eq!(newest["role"], "user");
+        let parts = newest["content"].as_array().expect("parts");
+        assert_eq!(parts.len(), 2);
+        assert_eq!(
+            parts[0],
+            json!({"type": "text", "text": "what is this?\n\n[task run_1]\nnotes:\n  - blue"})
+        );
+        assert_eq!(
+            parts[1]["image_url"]["url"],
+            "data:image/png;base64,iVBORw=="
+        );
+        // After the newest, the ledger stays its own message.
+        let sent = messages(&req, LedgerPlace::AfterTheNewest);
+        assert_eq!(sent[3]["content"][0]["text"], "what is this?");
+        assert_eq!(sent[4]["role"], "system");
+    }
+
+    #[test]
+    fn base64_is_the_standard_alphabet_with_padding() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+        assert_eq!(base64(&[0xff, 0xfe, 0xfd]), "//79");
+    }
+
+    /// `chat_template_kwargs` goes only when the request says whether the
+    /// model is to think; otherwise the model's own default holds.
+    #[test]
+    fn the_request_says_whether_to_think_only_when_asked() {
+        let worker = OpenAiWorker::new("http://127.0.0.1:1", "m");
+        let mut req = ChatRequest::new("hi".into());
+        assert!(
+            worker
+                .body_of(&req, true)
+                .get("chat_template_kwargs")
+                .is_none()
+        );
+        req.thinking = Some(false);
+        assert_eq!(
+            worker.body_of(&req, true)["chat_template_kwargs"],
+            json!({"enable_thinking": false})
+        );
+        req.thinking = Some(true);
+        assert_eq!(
+            worker.body_of(&req, false)["chat_template_kwargs"],
+            json!({"enable_thinking": true})
+        );
+        assert_eq!(worker.body_of(&req, false)["stream"], false);
+        assert_eq!(
+            worker.body_of(&req, true)["stream_options"],
+            json!({"include_usage": true})
+        );
+    }
+
+    /// The thinking the engine hands apart from the answer is kept with
+    /// when it came, and never passed on as words; the engine's timings
+    /// from the stream's last event are kept too.
+    #[test]
+    fn the_thinking_and_the_timings_of_a_stream_are_kept_apart_from_the_words() {
+        let stream = concat!(
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"let me \"},\"finish_reason\":null}]}\n\n",
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"see\"},\"finish_reason\":null}]}\n\n",
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Four.\"},\"finish_reason\":null}]}\n\n",
+            "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":9},\"timings\":{\"prompt_n\":5,\"prompt_ms\":120.5,\"predicted_n\":9,\"predicted_ms\":450.0}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let mut words = String::new();
+        let reply = read_sse(
+            std::io::BufReader::new(stream.as_bytes()),
+            &mut |piece| words.push_str(piece),
+            &Stop::default(),
+        )
+        .expect("a whole answer");
+        assert_eq!(words, "Four.");
+        assert_eq!(reply.text, "Four.");
+        assert_eq!(reply.reasoning, "let me see");
+        assert!(reply.reasoning_began.is_some() && reply.reasoning_ended.is_some());
+        assert_eq!(
+            reply.timings,
+            Some(Timings {
+                prompt_n: 5,
+                prompt_ms: 120.5,
+                predicted_n: 9,
+                predicted_ms: 450.0
+            })
+        );
+        assert_eq!((reply.prompt_tokens, reply.completion_tokens), (7, 9));
     }
 
     /// The prompt as a system message and turns (docs/DECISIONS.md,

@@ -157,12 +157,12 @@ step "an organisation server; two people in two browsers; a viewer refused" \
 stop
 step "the audit log verified" ./target/release/localspace audit verify --data "$temp/orgdata"
 
-# --- message-script: the message script against the test engine ------------
+# --- measure: the measurement kit against the test engine ------------------
 step "the server and the test engine" \
   cargo build --release -p localspace-cli -p localspace-core --bin localspace --bin fake_llama_server
-step "every message answered, Continue carried through" \
-  scripts/message-script-fake.sh target/release/localspace target/release/fake_llama_server "$temp/message-script"
-answered=$(grep -o 'message script: .*' "$log" | tail -1 | sed 's/^message script: //')
+step "every message answered, Continue carried through, the results file whole" \
+  scripts/measure-fake.sh target/release/localspace target/release/fake_llama_server "$temp/measure"
+answered=$(grep -o 'measure: .*' "$log" | tail -1 | sed 's/^measure: //')
 
 # --- w32-gate, only when asked, as on the runner ----------------------------
 if [ "$w32_gate" = true ]; then
@@ -170,4 +170,4 @@ if [ "$w32_gate" = true ]; then
     node scripts/w32-canvas-gate.mjs docs/gates/w32-canvas.json
 fi
 
-finish "check $short \"$subject\": passed. Format, lint, types; web tests, build, sizes, frame times; clippy; $tests tests in $suites suites; the browser walks and the audit; message script: $answered"
+finish "check $short \"$subject\": passed. Format, lint, types; web tests, build, sizes, frame times; clippy; $tests tests in $suites suites; the browser walks and the audit; the kit against the test engine: $answered"

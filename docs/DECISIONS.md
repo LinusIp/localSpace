@@ -13,6 +13,218 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-08, the measurement kit's rules, answered
+
+The owner's answers to the kit's plan (the plan and its estimate are in the
+internal log).
+
+- **The read-time measurement stays off the wire:** the command hosts Core
+  in-process, so it is a plain Rust call on Core, not a request in the
+  protocol. Were it ever a request: personal mode only, refused in
+  organisation mode with a test, and figures only, never the engine's port
+  or key.
+- **Thinking in the kit's runs:** the full script with thinking off, and a
+  short thinking-on pass of **the five messages where thinking could
+  matter**: the sum, the weather, one reasoning question, one in Russian and
+  one in Uzbek; on 16 and 24 GB cards thinking may be the default, and five
+  easy messages would not tell. A flag runs the full script with thinking
+  on, for a machine available longer.
+- **The Russian and Uzbek messages go into the script before the kit goes
+  to anyone** (five and five, Uzbek in Latin and in Cyrillic letters): the
+  half day moves forward from the refresh. A borrowed evening that does not
+  cover the languages means borrowing the machine twice.
+- **One image message in the kit's run, for models with a vision file**, run
+  with the projector on the card and again on the processor, recording
+  which works and how long each takes: the 4 GB card cannot hold the
+  projector, and the rule for 8, 16 and 24 GB cards must come from those
+  machines, which only the kit reaches.
+- **The results file records, per answer, whether thinking was on, and for
+  the image message where the projector ran.**
+- **The catalog entries come first, as data, with one condition: until an
+  entry has passed its checks it is hidden from the app's model list and
+  reachable only by `measure`.** Nothing is visible unless it works, and
+  `main` stays releasable.
+- **The Qwen3.8 load-test file is deleted** (done the same day; 103.6 GB
+  free). **For the refresh's first-word measurements:** every new default
+  takes shape 2 and so re-reads one exchange per turn; that cost is measured
+  with the short-message reading.
+
+**The entries as written, the same day** (the builder's choices under the
+rules above; to be confirmed with the kit's report):
+
+- Seven entries, `hidden: true`: `qwen3.5-0.8b-q4_k_m`, `-2b-`, `-4b-`,
+  `-9b-`, `-27b-`, `qwen3.5-35b-a3b-q4_k_m` from unsloth, and
+  `qwen3.8-27b-q4_k_m` from ggml-org, the one size where ggml-org has a
+  Q4_K_M (its Qwen3.5 repositories hold Q4_0, Q8_0 and BF16 alone). Each
+  with its vision file from the same publisher: unsloth's `mmproj-F16.gguf`,
+  ggml-org's `mmproj-Qwen3.8-27B-BF16.gguf` (its full-precision one, as
+  F16 is unsloth's; a Q8_0 of 629 MB is there too, should BF16 fail on a
+  card). Every file pinned to the repository's commit, by size and SHA-256,
+  checked against Hugging Face by `scripts/check-catalog.mjs` the same day.
+- **Three catalog fields:** `hidden` (above); `vision_file`, the file among
+  `files` that reads images, downloaded with the model and checked like it;
+  `published_as`, a file's name in the repository where it differs from the
+  name it is kept under, since unsloth names every size's vision file
+  `mmproj-F16.gguf` and the models folder holds every model's files side by
+  side (kept as `Qwen3.5-4B-mmproj-F16.gguf` and so on). The app's Core
+  drops hidden entries as it starts (`Config::show_hidden_models`, false
+  everywhere but in `measure`), so to the app they are not in the catalog:
+  not listed, not loadable, not downloadable.
+- **The planner's sizes from the real files** (`scripts/gguf-header.mjs`,
+  which reads a GGUF header from the disk or from Hugging Face by a range
+  request): the tensor bytes as `core_bytes`, the routed experts'
+  (`ffn_*_exps`) as `routed_expert_bytes`, the layer count, and **the KV
+  bytes per token counted on the layers that keep a cache alone**: a Qwen3.5
+  is a hybrid whose every fourth layer has attention (`full_attention_interval`
+  4) and whose other layers hold a state of fixed size (about 2 MB a layer
+  a sequence, not counted). So the 4B and the 9B keep 32 KB a token (8
+  attention layers, 4 KV heads, 256 wide), the 27B and Qwen3.8-27B 64 KB,
+  the 0.8B and 2B 12 KB, the 35B-A3B 20 KB; the base model's `config.json`
+  would have said four times as much. The 35B-A3B: 256 experts a layer, 8
+  routed and one shared, 19.46 GB of routed experts over 2.54 GB of
+  everything else; its active parameters, first taken from its name (3B),
+  are counted from the header as the owner ruled the same evening: 34.66
+  billion in all, of which 32.21 billion are routed experts and a token
+  visits 8 of 256 of them, so **3.45 billion active**. Parameter counts
+  are the files' own (0.75, 1.88, 4.21, 8.95, 26.9 and 34.66 billion),
+  the same as Hugging Face's totals.
+- **Context:** the files say 262,144; the entries say so, and the app
+  starts a model with its fitted context as before.
+- **`exercised_on` stays empty** on every hidden entry, and a test holds
+  the built-in catalog to that, to a vision file and every renamed file
+  being among the entry's files, and to the digests adding up to the size.
+
+**The kit as built, the same day** (`localspace measure`; the builder's
+choices under the answers above, to be confirmed with the report):
+
+- **Core hosted in the process on its own thread**, through the same
+  transport as the desktop app (`InProcess`), asked by the same requests;
+  what no request carries, the figures, comes by a plain call on Core run
+  on its thread in its turn (`InProcess::with`). Nothing of the kit is on
+  the wire, and the protocol is unchanged.
+- **What Core measures of a step** (`turns::AnswerMeasure`, per chat, the
+  last step): whether thinking was asked, the time to the first visible
+  word, the whole step, the thinking's words and when it began and ended,
+  the engine's own figures (prompt tokens read anew and in how long,
+  tokens written and in how long), and how a step ended early. The engine
+  hands the thinking apart from the words (`reasoning_content`), and Core
+  keeps it apart: nothing of it reaches a person as words.
+- **Thinking is asked per request** (`chat_template_kwargs`
+  `enable_thinking`) only when Core was told to (`set_thinking`); otherwise
+  the model's own default holds, as before. **Before the first word, bytes
+  that keep coming hold off the 120-second limit:** it ends an answer only
+  once both limits have passed with nothing arriving, so a model that
+  thinks for longer than that is at work, not silent (the ruling of
+  2026-10-07; built now because the kit's thinking-on pass must see the
+  real time to the first word on a 24 GB card). A test holds it.
+- **A picture with a message** goes to the engine as the two parts of one
+  message (the words, then the PNG as a data URL), kept in Core's memory
+  under the message's place in the chat while Core runs; it is not stored
+  with the conversation yet, which is the images item's. The kit's picture
+  is a blue circle on a red square, 64 by 64, carried in the binary, so a
+  reader knows what was shown.
+- **A model with a vision file starts with it** (`--mmproj`), **on the
+  processor** (`--no-mmproj-offload`) **unless asked for the card**: the
+  one card measured (4 GB) cannot hold it beside the model, and the rule
+  for 8, 16 and 24 GB cards comes from the kit's runs. The flag holds at a
+  re-start with fewer layers. The kit runs the picture where the model
+  started, then unloads, asks for the card, loads again and runs it
+  there, recording whether the model came up and how long each took.
+- **The run:** the whole script with thinking off, then the five marked
+  messages with it on, `--thinking-full` for the whole script with it on;
+  Continue in each whole pass; then the engine's reading; then the
+  picture. The results file (`localSpace-measure-<model>-<day>.md`, beside
+  `measure.cmd` when that runs it) names the build, the day, the
+  computer as the app sees it, the engine's version, the files with the
+  digests Core found, and the run's folder with the engine's log.
+- **Downloads:** a model that is not on the computer is named with its
+  files, their size and the room left on the drive, and fetched only with
+  `--download`, which `measure.cmd` passes, since the tester's one command
+  is to download and run (the ruling of 2026-10-07); the app's own room
+  check refuses first when the drive has none.
+- **In CI** (`scripts/measure-fake.sh`, in the `message-script` job): two
+  runs against the test engine, one that streams slowly and one, hidden
+  as a new entry is, that thinks first and has a vision file; the results
+  files must hold the passes, the picture both ways and the reading. The
+  test engine now gives timings and thinks first when its stub says so.
+  `scripts/message-script.mjs` stays until its table and the kit's agree
+  on the 7B, and is then retired.
+
+**The owner's answers on the kit as built, the same evening:**
+
+- **The kit can never hang silently.** It has its own limits: a time
+  limit per answer (`--answer-seconds`, 600 by default; an answer that
+  overruns is stopped, so the next message is not queued behind it), a
+  time limit for the whole run (`--max-minutes`, 240 by default, set in
+  CI well under the job's thirty minutes), and a progress line before
+  every step. When a limit fires, the kit writes what it has and ends
+  non-zero, naming the step it was in. The first hang: the kit asked the
+  test engine its version for the results file, and the test engine, which
+  knew no `--version`, bound its port and served instead; it answers now,
+  and the kit gives the version question ten seconds in any case.
+- **Found by the first real run:** Core looks at the files already in a
+  models folder one model at a time, in the catalog's order, and an entry
+  whose turn has not come shows no state; the kit took that for "not on
+  this computer". It now waits for Core's look while the entry's files are
+  all in the folder (saying so once), and gives up only when Core's
+  `checked` event has come and the entry still does not count: then the
+  files are not the published ones.
+- **The Node script is retired.** On the same package (`efce161`), the
+  same laptop and the same afternoon, the kit's thinking-off table and the
+  Node script's table on the Qwen2.5 7B agree: thirty messages each, every
+  one answered in both, times within a second or two of each other where
+  the model's answer ran to the same length (0.8 s for the greeting in
+  both; the packing list 22.8 s against 27.9 s; the Russian capital
+  question 3.6 s against 9.6 s, the model writing twice as much the second
+  time), Continue stopped after thirty words and carried on whole in both
+  without beginning again. `scripts/message-script.mjs` and its CI wrapper
+  are deleted; CI's job is the kit's. The kit's 7B run: ready after 11 s,
+  the first word within 0.2 to 0.7 s of every message, 14 to 19 tokens a
+  second; the Uzbek Cyrillic answers slip into Chinese characters and call
+  Tashkent "Ташкент шаҳар", for the refresh's reading.
+- **The kit's first run on a hidden entry, the Qwen3.5 4B, on the same
+  laptop and package** (the results are in the internal repository,
+  `docs/measure/2026-10-08/`): ready after 8 s with 22 of its layers on the
+  4 GB card; the first word within 0.2 to 0.5 s of every message; 38 to 40
+  tokens a second against the 7B's 14 to 19; every message answered with
+  thinking off, in Russian and in Uzbek too, and the weather question
+  answered honestly. **With thinking on, the five messages thought for 160
+  to 674 words before answering**, 10 to 26 s to the first visible word,
+  and on the weather question the thinking ran to the request's limit of
+  1,024 tokens and no answer came at all: the refresh's thinking item must
+  size the token limit, or the thinking budget, to leave room for the
+  answer. The engine's probe at load found the family takes shape 2, as
+  the engine check had. **The picture:** with the vision file on the
+  processor, "a solid red background with a centered blue circle" in 1.0 s;
+  on the card the model came up after 13 s, answered the same in 1.8 s, and
+  wrote at 22.7 tokens a second instead of 38: the 4 GB card holds the
+  file, at a price. The engine reads 29, 74 and 246 new tokens in 0.21,
+  0.22 and 0.35 s on this model: the small-batch slowness of the 14B does
+  not show on it. Continue joined mid-word and ended whole.
+- **The BF16 vision file for Qwen3.8-27B stays:** the model file and its
+  vision file come from the same publisher, and on small cards the file
+  runs on the processor, where BF16 is fine. Whether it works on a card is
+  what the kit's image test on borrowed machines shows; should it fail
+  there, the entry switches to unsloth's Qwen3.8 set, both files together.
+- **The 35B-A3B's active parameters come from the file's own header**, not
+  from its name: the whole count less the routed experts a token is not
+  sent to (expert count, experts used per token, the experts' tensors;
+  the shared expert and the attention stay), since "A3B" is rounded and
+  the planner's speed estimate depends on the real figure.
+- **`measure.cmd` downloads, but asks first:** the file names, the total
+  size and the free disk are printed, and the tool waits for Enter. It is
+  the tester's bandwidth and disk. `--yes` answers for an unattended run.
+- **The results file beside `measure.cmd`:** yes, and its full path is the
+  last line printed, so the tester knows what to send.
+- **The first-word limit change** (thinking counts as activity) **stays
+  built now**: the kit's thinking pass needs it.
+- **Local building:** an Ubuntu under WSL is being set up on the
+  development laptop, where Smart App Control does not apply; builds and
+  tests run there before a push once it is in. Windows stays as it is,
+  Smart App Control on, for the release check.
+
+*This day's business entries are in the internal log.*
+
 ## 2026-10-07, the two prompt changes built and measured: what is open after the conversation, the profile gone
 
 The refresh's first commit, as ruled (answers 1 and 2 of the same day),

@@ -9,7 +9,9 @@
       "../../dist/package/registry/": "registry/",
       "../../dist/package/licences/": "licences/",
       "../../dist/package/localspace.exe": "localspace.exe",
-      "../../dist/package/README.txt": "README.txt"
+      "../../dist/package/README.txt": "README.txt",
+      "../../dist/package/MEASURE.txt": "MEASURE.txt",
+      "../../dist/package/measure.cmd": "measure.cmd"
     },
     "windows": {
       "webviewInstallMode": { "type": "skip" },

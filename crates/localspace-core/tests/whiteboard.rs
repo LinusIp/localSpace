@@ -1605,6 +1605,7 @@ fn reply(tool: &str, params: Value) -> ChatReply {
         }],
         prompt_tokens: 200,
         completion_tokens: 20,
+        ..Default::default()
     }
 }
 

@@ -36,7 +36,10 @@ for (const m of entries) {
   if (m.verify && total !== m.bytes) say(false, `${m.id}: its files come to ${total} bytes, the entry says ${m.bytes}`);
   for (const file of m.files) {
     const check = m.verify?.[file];
-    const url = `https://huggingface.co/${m.repo}/resolve/${m.revision || "main"}/${file}`;
+    // A file is fetched under the name the repository gives it, and kept
+    // under the entry's own (`published_as`).
+    const published = m.published_as?.[file] ?? file;
+    const url = `https://huggingface.co/${m.repo}/resolve/${m.revision || "main"}/${published}`;
     let res;
     try {
       // The first answer carries the file's own size and digest; following
@@ -59,7 +62,7 @@ for (const m of entries) {
     } else if (digest !== check.sha256) {
       say(false, `${m.id}: ${file}: SHA-256 ${digest} there, ${check.sha256} in the entry`);
     } else {
-      say(true, `${m.id}: ${file} (${(size / 2 ** 30).toFixed(2)} GB)`);
+      say(true, `${m.id}${m.hidden ? " (hidden)" : ""}: ${file}${published === file ? "" : ` (published as ${published})`} (${(size / 2 ** 30).toFixed(2)} GB)`);
     }
   }
 }

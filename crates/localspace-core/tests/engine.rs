@@ -541,6 +541,7 @@ fn a_load_that_did_not_hold_is_started_again_as_the_look_says_before_anyone_is_t
         "m",
         &model,
         &flags,
+        &[],
         2048,
         &dir.path().join("engines"),
         Arc::new(move |event| heard.lock().unwrap().push(event)),
@@ -615,6 +616,7 @@ fn start_on(
         "m",
         &model,
         &flags,
+        &[],
         2048,
         &dir.join("engines"),
         Arc::new(move |event| heard.lock().unwrap().push(event)),
@@ -994,4 +996,92 @@ fn an_airgapped_environment_refuses_to_download_and_points_at_import() {
         proto::Response::Error { message } => assert!(message.contains("import"), "{message}"),
         other => panic!("expected a refusal, got {other:?}"),
     }
+}
+
+/// A model with a vision file starts with it, on the processor unless
+/// asked otherwise; a step's measure is kept per chat, with whether
+/// thinking was asked and what the engine said of it; and a picture sent
+/// with a message reaches the engine as parts of one message
+/// (docs/DECISIONS.md, 2026-10-08).
+#[test]
+fn a_model_with_a_vision_file_starts_with_it_and_its_steps_are_measured() {
+    let dir = tempfile::tempdir().unwrap();
+    let models = dir.path().join("models");
+    std::fs::create_dir_all(&models).unwrap();
+    std::fs::write(models.join("seer.gguf"), b"thinks first").unwrap();
+    std::fs::write(models.join("seer-mmproj.gguf"), b"not a real projector").unwrap();
+    let catalog = dir.path().join("catalog");
+    std::fs::create_dir_all(&catalog).unwrap();
+    std::fs::write(
+        catalog.join("catalog.json"),
+        r#"{"version":1,"models":[{"id":"seer","title":"Seer","params_b":0.1,"bytes":32,"context_len":2048,
+            "repo":"example/seer","files":["seer.gguf","seer-mmproj.gguf"],"vision_file":"seer-mmproj.gguf",
+            "tensor":{"core_bytes":16,"routed_expert_bytes":0,"layers":2,"moe":null,"kv_bytes_per_token_fp16":256}}]}"#,
+    )
+    .unwrap();
+    let mut cfg = Config::personal("tester");
+    cfg.machine = described_machine();
+    cfg.profile = ModelProfile::w32();
+    cfg.data_dir = Some(dir.path().to_path_buf());
+    cfg.models_dir = Some(catalog);
+    cfg.llama_server = Some(PathBuf::from(FAKE));
+    let mut core = Core::new(cfg).expect("creating Core");
+    let log =
+        || std::fs::read_to_string(dir.path().join("engines").join("seer.log")).unwrap_or_default();
+
+    assert!(matches!(
+        core.handle(proto::Request::LoadModel { id: "seer".into() }),
+        proto::Response::Ok
+    ));
+    wait_until(&core, "the sidecar to answer", |s| s.running);
+    let started = log();
+    assert!(started.contains("--mmproj"), "{started}");
+    assert!(started.contains("seer-mmproj.gguf"), "{started}");
+    assert!(
+        started.contains("--no-mmproj-offload"),
+        "on the processor unless asked otherwise: {started}"
+    );
+
+    // A step with thinking asked off: the measure says so, and holds what
+    // the fake engine thought and its timings.
+    core.set_thinking(Some(false));
+    let conversation = match core.handle(proto::Request::ListConversations) {
+        proto::Response::Conversations { current, .. } => current,
+        other => panic!("expected the conversations, got {other:?}"),
+    };
+    core.handle(proto::Request::SendMessage {
+        text: "hello".into(),
+        conversation: None,
+    });
+    let measure = core
+        .answer_measure(&conversation)
+        .expect("the step's measure");
+    assert_eq!(measure.thinking_asked, Some(false));
+    assert!(measure.thinking_words > 0, "{measure:?}");
+    assert!(measure.timings.is_some(), "{measure:?}");
+    assert!(measure.first_word.is_some(), "{measure:?}");
+    assert!(measure.cut.is_none(), "{measure:?}");
+    assert!(
+        log().contains("\"enable_thinking\":false"),
+        "the request said so: {}",
+        log()
+    );
+
+    // A picture with a message goes to the engine as parts of one message.
+    core.send_picture("what is this?", vec![0x89, b'P', b'N', b'G'], None);
+    assert!(log().contains("text, image_url"), "{}", log());
+
+    // Asked for the card, the next load leaves the offload flag out.
+    core.set_vision_place(localspace_core::VisionPlace::Card);
+    let _ = core.handle(proto::Request::UnloadModel);
+    assert!(matches!(
+        core.handle(proto::Request::LoadModel { id: "seer".into() }),
+        proto::Response::Ok
+    ));
+    wait_until(&core, "the sidecar to answer again", |s| s.running);
+    let again = log();
+    assert!(
+        again.contains("--mmproj") && !again.contains("--no-mmproj-offload"),
+        "{again}"
+    );
 }

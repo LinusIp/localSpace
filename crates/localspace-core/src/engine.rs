@@ -230,13 +230,16 @@ pub struct Engine {
 
 impl Engine {
     /// Start `binary` on `model_path` with `flags`, on a free loopback port,
-    /// logging to `log_dir`, and watch it until it answers or fails.
+    /// logging to `log_dir`, and watch it until it answers or fails. `fixed`
+    /// holds at every start of this engine, a placement's re-start with
+    /// other `flags` included: the model's vision file.
     #[allow(clippy::too_many_arguments)]
     pub fn start(
         binary: &Path,
         model_id: &str,
         model_path: &Path,
         flags: &[String],
+        fixed: &[String],
         context_len: u32,
         log_dir: &Path,
         sink: EventSink,
@@ -247,7 +250,7 @@ impl Engine {
         std::fs::create_dir_all(log_dir).ok();
         let port = free_port()?;
         let log_path = log_dir.join(format!("{}.log", sanitize(model_id)));
-        let args: Vec<String> = vec![
+        let mut args: Vec<String> = vec![
             "-m".into(),
             model_path.to_string_lossy().into_owned(),
             "--host".into(),
@@ -257,6 +260,7 @@ impl Engine {
             "--alias".into(),
             model_id.to_string(),
         ];
+        args.extend(fixed.iter().cloned());
         let spec = Arc::new(Spec {
             binary: binary.to_path_buf(),
             args,

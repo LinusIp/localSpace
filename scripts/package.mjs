@@ -109,6 +109,10 @@ run(process.execPath, [join(root, "scripts/hpack.mjs"), "--out", join(stage, "re
 const packages = readdirSync(join(stage, "registry"));
 cpSync(join(root, "packaging/licences"), join(stage, "licences"), { recursive: true });
 cpSync(join(root, "packaging/windows/README.txt"), join(stage, "README.txt"));
+// The measurement kit: one command a tester runs, and the words for it
+// (docs/DECISIONS.md, 2026-10-08).
+cpSync(join(root, "packaging/windows/MEASURE.txt"), join(stage, "MEASURE.txt"));
+cpSync(join(root, "packaging/windows/measure.cmd"), join(stage, "measure.cmd"));
 cpSync(cli, join(stage, "localspace.exe"));
 run(process.execPath, [join(root, "scripts/fetch-engine.mjs"), "--platform", "windows-x64", "--out", join(stage, "engine"), ...(engineFrom ? ["--from", engineFrom] : [])], root);
 console.log(`staged in ${stage}: the client, ${packages.length} harness packages (${packages.join(", ")}), the engine, the command line`);

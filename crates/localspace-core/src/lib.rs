@@ -47,7 +47,7 @@ pub mod types;
 pub mod widgets;
 
 use acl::{AccessControl, Acl, BreakGlass, Identity, Level, Workspace};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use audit::{Actor, AuditLog, Scope};
 use context::ProviderCache;
 use dag::Dag;
@@ -116,6 +116,26 @@ fn log_event(ev: &proto::Event) {
 
 /// `text` with the person's home folder written as `~`: a log that someone
 /// is asked to send should not carry their account's name in its paths.
+/// `%LOCALAPPDATA%\localSpace` on Windows, `$XDG_DATA_HOME/localspace` or
+/// `~/.localspace` elsewhere: where a person's environment lives when the
+/// command line says nothing. A name a person can read, with no identifier in
+/// it; the installer puts the program elsewhere
+/// (`%LOCALAPPDATA%\Programs\localSpace`), and its "delete the application
+/// data" removes this folder (docs/DECISIONS.md, 2026-09-18). The desktop
+/// shell and `localspace measure`, which reads the app's downloaded models
+/// from it, agree on it here.
+pub fn default_data_dir() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("LOCALAPPDATA") {
+        return Some(PathBuf::from(dir).join("localSpace"));
+    }
+    if let Ok(dir) = std::env::var("XDG_DATA_HOME") {
+        return Some(PathBuf::from(dir).join("localspace"));
+    }
+    std::env::var("HOME")
+        .ok()
+        .map(|h| PathBuf::from(h).join(".localspace"))
+}
+
 pub fn without_the_home(text: &str) -> String {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
@@ -187,6 +207,14 @@ pub struct Config {
     /// How long a model may be silent before its answer is taken to have
     /// stopped (1.2 of the plan after Test A).
     pub silence: stream::Silence,
+    /// Keep the catalog entries that have not passed their checks
+    /// (`models::CatalogModel::hidden`): `localspace measure` alone sets
+    /// this; the app never sees them (docs/DECISIONS.md, 2026-10-08).
+    pub show_hidden_models: bool,
+    /// Where the model files are, when not `<data>/models`: `localspace
+    /// measure` runs on a fresh data folder with the app's downloaded
+    /// models, which are gigabytes and are not copied.
+    pub model_files_dir: Option<PathBuf>,
 }
 
 impl Config {
@@ -211,6 +239,8 @@ impl Config {
             presence_ttl_ms: 45_000,
             slots: 1,
             silence: stream::Silence::ANSWER,
+            show_hidden_models: false,
+            model_files_dir: None,
         }
     }
 
@@ -432,6 +462,47 @@ pub struct Core {
     /// Take a turn's steps inline even with a transport: evals read the
     /// document right after each turn.
     run_inline: bool,
+    /// Whether the model is asked to think before it answers: left to the
+    /// model's own default until `set_thinking` says.
+    thinking: Option<bool>,
+    /// Where a model's vision file goes at the next load.
+    vision_place: VisionPlace,
+    /// The pictures sent with messages, by chat and by the message's place
+    /// among the person's messages of it; kept while Core runs.
+    pictures: HashMap<String, HashMap<usize, Vec<u8>>>,
+    /// The measure of the last model step in each chat (`answer_measure`).
+    answer_measures: HashMap<String, turns::AnswerMeasure>,
+}
+
+/// Where a model's vision file, its image reader, runs: on the processor
+/// unless asked otherwise, since the one card measured so far (4 GB) cannot
+/// hold it beside the model, and the rule for larger cards comes from the
+/// kit's runs on them (docs/DECISIONS.md, 2026-10-08).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VisionPlace {
+    #[default]
+    Processor,
+    Card,
+}
+
+/// How long the engine takes to read new tokens on top of the prompt's
+/// stable part, which it holds in its cache: `Core::read_time`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReadTime {
+    /// The stable part read once more: its tokens as the engine counts
+    /// them, and the milliseconds that took with the cache warm.
+    pub stable_tokens: u32,
+    pub stable_ms: f64,
+    pub samples: Vec<ReadSample>,
+}
+
+/// One message of about `about` new tokens: how many the engine read anew
+/// and how long it took.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReadSample {
+    pub about: u32,
+    pub tokens: u32,
+    pub ms: f64,
 }
 
 impl Core {
@@ -469,11 +540,14 @@ impl Core {
         }
 
         let models_store = cfg
-            .data_dir
-            .as_ref()
-            .map(|d| d.join("models"))
+            .model_files_dir
+            .clone()
+            .or_else(|| cfg.data_dir.as_ref().map(|d| d.join("models")))
             .unwrap_or_else(|| std::env::temp_dir().join("localspace").join("models"));
-        let models = models::Catalog::load(cfg.models_dir.as_deref(), &models_store);
+        let mut models = models::Catalog::load(cfg.models_dir.as_deref(), &models_store);
+        if !cfg.show_hidden_models {
+            models.drop_hidden();
+        }
 
         let conversations =
             conversations::Store::load(&store, &cfg.user, &workspace, dag::now_ms());
@@ -540,6 +614,10 @@ impl Core {
             turn_at_work: None,
             inline: std::collections::VecDeque::new(),
             run_inline: false,
+            thinking: None,
+            vision_place: VisionPlace::default(),
+            pictures: HashMap::new(),
+            answer_measures: HashMap::new(),
             cfg,
         };
 
@@ -581,6 +659,87 @@ impl Core {
     /// step. Handled as the turn's person.
     pub fn internal(&mut self, message: turns::Internal) {
         agent::internal(self, message);
+    }
+
+    // -- what the command line asks of a Core it hosts in-process ----------
+    // (`localspace measure`; docs/DECISIONS.md, 2026-10-08). Plain calls,
+    // not requests: nothing here is on the wire.
+
+    /// Ask the model to think before it answers, or not to, from the next
+    /// step on; `None` leaves it to the model's own default.
+    pub fn set_thinking(&mut self, thinking: Option<bool>) {
+        self.thinking = thinking;
+    }
+
+    /// Where a model's vision file goes at the next load.
+    pub fn set_vision_place(&mut self, place: VisionPlace) {
+        self.vision_place = place;
+    }
+
+    /// The measure of the last model step in `conversation`: the figures,
+    /// never a word of the answer.
+    pub fn answer_measure(&self, conversation: &str) -> Option<turns::AnswerMeasure> {
+        self.answer_measures.get(conversation).cloned()
+    }
+
+    /// A message with a picture (a PNG) from the local user, in the chat on
+    /// screen or the one named: see `agent::send_picture`.
+    pub fn send_picture(
+        &mut self,
+        text: &str,
+        png: Vec<u8>,
+        conversation: Option<String>,
+    ) -> proto::Response {
+        let caller = Caller::local(&self.cfg.user);
+        self.activate(&caller);
+        agent::send_picture(self, conversation, text, png)
+    }
+
+    /// How long the engine takes to read a few new tokens on top of the
+    /// prompt's stable part, which it holds in its cache: about 10, 30 and
+    /// 100 new tokens, three times each, as `scripts/read-time.mjs` asked
+    /// the engine by hand (docs/BUILD.md, "When the pin moves"). The
+    /// engine's own figures, through the worker of the loaded model.
+    pub fn read_time(&mut self) -> Result<ReadTime> {
+        let worker = self
+            .router
+            .read()
+            .unwrap()
+            .worker(model::WorkerRole::Chat)
+            .context("no model is loaded")?;
+        let no_timings = || anyhow::anyhow!("the engine gave no timings");
+        let stable = worker
+            .chat(&self.stable_request(String::new()))?
+            .timings
+            .ok_or_else(no_timings)?;
+        // Words the cache has not seen, so that every token is new.
+        const WORDS: [&str; 10] = [
+            "river", "stone", "cloud", "maple", "harbor", "lantern", "meadow", "copper", "violet",
+            "thunder",
+        ];
+        let mut samples = Vec::new();
+        for about in [10u32, 30, 100] {
+            for round in 0..3usize {
+                let message = (0..(about as usize * 3).div_ceil(5))
+                    .map(|i| format!("{}{round}{i}", WORDS[(i + round) % WORDS.len()]))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let timings = worker
+                    .chat(&self.stable_request(message))?
+                    .timings
+                    .ok_or_else(no_timings)?;
+                samples.push(ReadSample {
+                    about,
+                    tokens: timings.prompt_n,
+                    ms: timings.prompt_ms,
+                });
+            }
+        }
+        Ok(ReadTime {
+            stable_tokens: stable.prompt_n,
+            stable_ms: stable.prompt_ms,
+            samples,
+        })
     }
 
     /// The sink for Core's own threads — downloads, the engine supervisor —
@@ -1126,7 +1285,6 @@ impl Core {
     /// a data directory, or for a package already there, it is used where
     /// it lies, which is what `--harnesses` and the tests rely on.
     fn persist_package(&self, dir: &std::path::Path) -> Result<PathBuf> {
-        use anyhow::Context as _;
         let Some(root) = self.installed_root() else {
             return Ok(dir.to_path_buf());
         };
@@ -1670,11 +1828,13 @@ impl Core {
             .clone()
             .unwrap_or_else(|| std::env::temp_dir().join("localspace"))
             .join("engines");
+        let fixed = self.vision_flags(id);
         let engine = engine::Engine::start(
             &binary,
             id,
             &path,
             &flags,
+            &fixed,
             context_len,
             &log_dir,
             self.sink(),
@@ -1683,10 +1843,15 @@ impl Core {
             Some(self.warm_up_request()),
         )?;
         self.trace(format!(
-            "engine: started {} for {id} on 127.0.0.1:{} with {}",
+            "engine: started {} for {id} on 127.0.0.1:{} with {}{}",
             binary.display(),
             engine.port,
-            flags.join(" ")
+            flags.join(" "),
+            if fixed.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", fixed.join(" "))
+            }
         ));
         let _ = self.audit.append(
             self.actor(),
@@ -1756,18 +1921,45 @@ impl Core {
     /// A turn's prompt continues from the start of the person's message, so
     /// the engine's cache holds everything before it.
     fn warm_up_request(&mut self) -> model::ChatRequest {
+        self.stable_request(String::new())
+    }
+
+    /// The prompt's stable part with one message of the person's after it,
+    /// for one token: the warm-up, and the read-time measurement.
+    fn stable_request(&mut self, message: String) -> model::ChatRequest {
         let active = self.active_set();
         let blocks = self.context_blocks();
         let stable = prompt::build(&self.cfg.profile, &active, &blocks, None, &[]).prefix();
         let mut request = model::ChatRequest::with_turns(
             stable,
-            vec![prompt::Turn::Person(String::new())],
+            vec![prompt::Turn::Person(message)],
             String::new(),
         );
         request.tools = active.tools;
         request.max_tokens = 1;
         request.temperature = 0.0;
         request
+    }
+
+    /// The flags that hold at every start of a model's engine, a re-start
+    /// with fewer layers included: its vision file, where it has one, on the
+    /// processor unless `set_vision_place` said the card.
+    fn vision_flags(&self, id: &str) -> Vec<String> {
+        let Some(m) = self.models.get(id).filter(|m| !m.vision_file.is_empty()) else {
+            return Vec::new();
+        };
+        let mut flags = vec![
+            "--mmproj".to_string(),
+            self.models
+                .dir()
+                .join(&m.vision_file)
+                .to_string_lossy()
+                .into_owned(),
+        ];
+        if self.vision_place == VisionPlace::Processor {
+            flags.push("--no-mmproj-offload".into());
+        }
+        flags
     }
 
     /// The look at the engine once a start of it is over (item 3 of the
@@ -5148,6 +5340,41 @@ mod tests {
             }
             assert!(core.pending.is_empty());
         }
+    }
+
+    /// An entry that has not passed its checks is not in the app's catalog
+    /// at all, and is in the one `localspace measure` hosts
+    /// (docs/DECISIONS.md, 2026-10-08).
+    #[test]
+    fn an_entry_that_has_not_passed_its_checks_is_hidden_from_the_app_and_kept_for_measure() {
+        let listed = |core: &mut Core| match core.handle(proto::Request::ListModelCatalog) {
+            proto::Response::ModelCatalog { entries } => {
+                entries.into_iter().map(|e| e.id).collect::<Vec<_>>()
+            }
+            other => panic!("expected the catalog, got {other:?}"),
+        };
+        let mut app = Core::new(Config::personal("anna")).unwrap();
+        let shown = listed(&mut app);
+        assert!(shown.iter().any(|id| id == "qwen2.5-7b-instruct-q4_k_m"));
+        assert!(
+            !shown.iter().any(|id| id == "qwen3.5-4b-q4_k_m"),
+            "a hidden entry in the app's list: {shown:?}"
+        );
+        // Not loadable either: to the app it is not in the catalog.
+        match app.handle(proto::Request::LoadModel {
+            id: "qwen3.5-4b-q4_k_m".into(),
+        }) {
+            proto::Response::Error { .. } => {}
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        let mut cfg = Config::personal("anna");
+        cfg.show_hidden_models = true;
+        let mut measure = Core::new(cfg).unwrap();
+        assert!(
+            listed(&mut measure)
+                .iter()
+                .any(|id| id == "qwen3.5-4b-q4_k_m")
+        );
     }
 
     #[test]

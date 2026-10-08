@@ -45,6 +45,11 @@ pub trait Backend: Send + Sync {
 enum ToCore<C> {
     Request(u64, C, proto::Request),
     Internal(crate::turns::Internal),
+    /// A plain call on Core from the thread that holds the transport, run
+    /// on Core's thread in its turn among the requests: how `localspace
+    /// measure` asks Core for what no request carries
+    /// (docs/DECISIONS.md, 2026-10-08).
+    With(Box<dyn FnOnce(&mut crate::Core) + Send>),
 }
 
 /// Hands Core the way back into its own queue. Held weakly: Core's thread
@@ -114,6 +119,7 @@ impl InProcess {
                             notify(&thread_wake);
                         }
                         Ok(ToCore::Internal(message)) => core.internal(message),
+                        Ok(ToCore::With(call)) => call(&mut core),
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => core.tick(),
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     }
@@ -127,6 +133,23 @@ impl InProcess {
             next_id: AtomicU64::new(1),
             wake,
         }
+    }
+
+    /// Run `call` on Core, on its thread, in its turn among the requests,
+    /// and wait for what it returns: the way the command line asks Core for
+    /// what no request carries, a measurement (docs/DECISIONS.md,
+    /// 2026-10-08). `None` when Core's thread has ended.
+    pub fn with<T: Send + 'static>(
+        &self,
+        call: impl FnOnce(&mut crate::Core) -> T + Send + 'static,
+    ) -> Option<T> {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        self.to_core
+            .send(ToCore::With(Box::new(move |core| {
+                let _ = tx.send(call(core));
+            })))
+            .ok()?;
+        rx.recv().ok()
     }
 }
 
@@ -180,6 +203,7 @@ impl Hub {
                             notify(&thread_wake);
                         }
                         Ok(ToCore::Internal(message)) => core.internal(message),
+                        Ok(ToCore::With(call)) => call(&mut core),
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => core.tick(),
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     }
