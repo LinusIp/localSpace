@@ -190,7 +190,13 @@ choices under the answers above, to be confirmed with the report):
   small ones:** the 0.8B thought 356 to 757 words on all five messages and
   answered none; the 2B answered two of five (the sum after 219 words of
   thinking, the Uzbek price after 412) and none of the other three. The
-  refresh's budget must be sized so that these answer.
+  refresh's budget must be sized so that these answer. **The 9B**, half on
+  the card: ready after 15 s, the first word in 0.8 s, 8.9 tokens a second,
+  every message answered with thinking off (the eggs right), the picture
+  right both ways (10.8 tokens a second on the processor, 8.8 on the card,
+  which came up after 18 s); with thinking on three of five answered, at 35
+  to 97 s to the first word, the Uzbek price and the weather cut by the
+  limit after about two minutes of thinking each.
 - **The thinking limit goes into the refresh**, which is next, under one
   rule: **an answer always arrives.** The engine's thinking budget is
   used, so that when thinking runs out the model is made to answer; the
