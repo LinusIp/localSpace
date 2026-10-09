@@ -13,6 +13,54 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-09, the refresh's first step: the thinking budget, the exercise record, the counting runs
+
+The owner's answers of the evening of 2026-10-08 on the refresh's plan, and
+what is built on them (branch `refresh-thinking`).
+
+- **The 4 GB default is decided by counts, not by one answer.** The
+  factual and arithmetic messages (the egg problem, the sum, the Berlin
+  ideas, the weather) run five times each on the 4B and on the 7B, with
+  thinking off, on the development laptop, and the wrong answers are
+  counted per model and recorded with the run. Together with the founder's
+  Russian and Uzbek read the counts decide: fewer errors wins; on a tie the
+  4B, since it writes at twice the speed; if the 4B errs clearly more
+  often, the 7B stays the 4 GB default for 0.2 and the 4B is offered as the
+  fast option with its own honest row.
+- **The exercise record** is a list, `exercised`, of `{tier, thinking,
+  day, machine, build}` per entry; `exercised_on` stays, derived as the
+  latest of those days, so the default rule reads one thing as before.
+- **The thinking budget**: 1,024 thinking tokens plus 1,024 for the answer
+  on every Qwen3.5 size, as the catalog's `thinking: {default, budget}` on
+  the seven hidden entries, `default` off on all of them until a tier's
+  measurements say otherwise. Core starts a thinking model's engine with
+  `--reasoning-budget` and `--reasoning-budget-message` ("Time is up; I
+  give my answer now."), the words the engine writes into the thinking
+  before it ends it, which Core reads back at the thinking's end as the
+  step's `budget_spent`; a thinking-on pass of the kit says how often the
+  budget ran out, which is what moves the budget per model, from the
+  borrowed machines' runs. The request's limit grows by the budget when
+  thinking is on. The app takes the entry's default at the load; the kit
+  sets its own per pass after. Tests: the flags at the engine's start; the
+  limit growing by the budget and only then; the spent words read back.
+  The spent path end to end is the kit's: a thinking-on pass must answer
+  every message, which `--check` holds it to, and the 4B's weather message
+  is the case.
+- **Thinking per model only in 0.2**, no switch for a person; a "think
+  harder" option can come later, from feedback.
+- **The client's generated types**: CI generates them (the proto tests),
+  fails when the committed ones differ from the generator's output, and
+  keeps that output as the artifact `client-types` for whoever changes
+  `proto` without a build of their own; no waiting for WSL. The indicator
+  itself is checked on a real package on the laptop before it is called
+  done.
+- **The kit's counting flags**: `--only <names>` (the messages whose names
+  begin so, in the script's order; a counting run, without Continue, the
+  reading and the picture), `--repeat <times>` (each in a fresh chat), and
+  `--thinking off|on|both`.
+
+*This day's business entries are in the internal log.*
+
 ## 2026-10-08, the measurement kit's rules, answered
 
 The owner's answers to the kit's plan (the plan and its estimate are in the

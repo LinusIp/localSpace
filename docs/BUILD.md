@@ -242,10 +242,15 @@ another models folder, `--catalog <dir>` an extra `catalog.json`, `--data
 before every step, an answer may take `--answer-seconds` (600) before it
 is stopped, the whole run `--max-minutes` (240) before the kit writes what
 it has and ends with an error naming the step, and a download waits for
-Enter unless `--yes` answers. CI runs it against the test engine with
-`--check` and short limits (`scripts/measure-fake.sh`). The Node file it
-replaced, `scripts/message-script.mjs`, was retired on 2026-10-08, the day
-the two tables agreed on the 7B.
+Enter unless `--yes` answers. A counting run asks a few messages many
+times: `--only "arithmetic,a word problem" --repeat 5 --thinking off` runs
+the named messages alone, each five times in a fresh chat, without
+Continue, the reading and the picture; `--thinking on` runs the thinking
+pass alone, and a thinking-on pass says how often the thinking ran to its
+budget. CI runs the kit against the test engine with `--check` and short
+limits (`scripts/measure-fake.sh`). The Node file it replaced,
+`scripts/message-script.mjs`, was retired on 2026-10-08, the day the two
+tables agreed on the 7B.
 
 ## The Windows package (the installer and the portable zip)
 
