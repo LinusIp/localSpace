@@ -650,18 +650,21 @@ struct Pass {
     carried: Option<Carried>,
 }
 
-/// One pass, written into `progress` as it goes, so that a run that ends
-/// early keeps every answer that came.
-fn run_pass(
-    kit: &mut Kit,
-    progress: &mut Progress,
-    title: &str,
-    items: &[Item],
+/// What one pass runs: its title, how thinking is asked, whether Continue
+/// follows, and how often each message is asked.
+struct PassPlan {
+    title: &'static str,
     thinking: Option<bool>,
     with_continue: bool,
     stop_after: usize,
     repeat: usize,
-) -> Result<()> {
+}
+
+/// One pass, written into `progress` as it goes, so that a run that ends
+/// early keeps every answer that came.
+fn run_pass(kit: &mut Kit, progress: &mut Progress, items: &[Item], plan: &PassPlan) -> Result<()> {
+    let title = plan.title;
+    let thinking = plan.thinking;
     err!("{title}");
     kit.within_limit(title)?;
     kit.with(move |core| core.set_thinking(thinking))?;
@@ -673,7 +676,7 @@ fn run_pass(
     });
     for item in items {
         // Asked `repeat` times, each in a fresh chat: a counting run.
-        for _ in 0..repeat.max(1) {
+        for _ in 0..plan.repeat.max(1) {
             let chat = kit.new_conversation()?;
             let mut turns = Vec::new();
             for text in &item.turns {
@@ -700,9 +703,9 @@ fn run_pass(
             }
         }
     }
-    if with_continue {
+    if plan.with_continue {
         err!("continue");
-        let carried = carry_on(kit, stop_after)?;
+        let carried = carry_on(kit, plan.stop_after)?;
         if let Some(pass) = progress.passes.last_mut() {
             pass.carried = Some(carried);
         }
@@ -971,35 +974,38 @@ fn steps(
         run_pass(
             kit,
             progress,
-            if counting {
-                "Thinking off, the chosen messages"
-            } else {
-                "Thinking off, the whole script"
-            },
             &items,
-            Some(false),
-            !counting,
-            args.stop_after,
-            repeat,
+            &PassPlan {
+                title: if counting {
+                    "Thinking off, the chosen messages"
+                } else {
+                    "Thinking off, the whole script"
+                },
+                thinking: Some(false),
+                with_continue: !counting,
+                stop_after: args.stop_after,
+                repeat,
+            },
         )?;
     }
     if args.thinking != ThinkingPass::Off {
-        let title = if counting {
-            "Thinking on, the chosen messages"
-        } else if args.thinking_full {
-            "Thinking on, the whole script"
-        } else {
-            "Thinking on, the five messages where it could matter"
-        };
         run_pass(
             kit,
             progress,
-            title,
             &on_set,
-            Some(true),
-            !counting && args.thinking_full,
-            args.stop_after,
-            repeat,
+            &PassPlan {
+                title: if counting {
+                    "Thinking on, the chosen messages"
+                } else if args.thinking_full {
+                    "Thinking on, the whole script"
+                } else {
+                    "Thinking on, the five messages where it could matter"
+                },
+                thinking: Some(true),
+                with_continue: !counting && args.thinking_full,
+                stop_after: args.stop_after,
+                repeat,
+            },
         )?;
     }
     if counting {
