@@ -1684,7 +1684,7 @@ mod tests {
         assert!(
             file.models
                 .iter()
-                .any(|m| m.hidden && m.id == "qwen3.5-4b-q4_k_m")
+                .any(|m| m.hidden && m.id == "qwen3.5-9b-q4_k_m")
         );
         for m in &file.models {
             if m.hidden {
