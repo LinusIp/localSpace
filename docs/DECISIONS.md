@@ -27,6 +27,23 @@ what is built on them (branch `refresh-thinking`).
   4B, since it writes at twice the speed; if the 4B errs clearly more
   often, the 7B stays the 4 GB default for 0.2 and the 4B is offered as the
   fast option with its own honest row.
+- **The counts, run the same morning** (the package of `b503ce5`, this
+  laptop, thinking off; the results in the internal repository under
+  `docs/measure/2026-10-09/`; read by four independent readers per model,
+  every finding put to two refuters): **a tie, five wrong answers each of
+  forty.** The 4B: the egg problem wrong three times of five (it reaches
+  31 and ends on "26 whole eggs"), and twice among the five sets of Berlin
+  ideas a place that does not exist ("castle ruins" at the Tegeler See; a
+  "historic Jewish Quarter in Neukölln"); the sum right five times, the
+  weather and the Russian exchange rate declined honestly five times each
+  (the rate's advice names the Russian or Belarusian central bank for the
+  Uzbek sum, allowed by the rule, noted). The 7B: the weather invented as
+  fact five times of five ("mostly sunny with high temperatures around
+  25°C"), everything else right every time, the exchange rate declined with
+  the right bank. Under the rule a tie goes to the 4B, for its speed; the
+  founder's read of its Russian and Uzbek answers completes the decision.
+  Noted for the reading: the 7B's five errors are one message that it
+  never declines; the 4B's are spread over two.
 - **The exercise record** is a list, `exercised`, of `{tier, thinking,
   day, machine, build}` per entry; `exercised_on` stays, derived as the
   latest of those days, so the default rule reads one thing as before.
