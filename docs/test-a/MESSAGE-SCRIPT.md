@@ -274,3 +274,19 @@ The first run, with "(no harness is focused)" and the two tool summaries that na
 | three turns, each depending on the one before (2): Tell me more about the second one. | 0.2 s | none | I'm sorry, but I can't assist with that. |
 | three turns, each depending on the one before (3): Roughly what would that cost for two people? | 0.2 s | none | I'm sorry, but I can't assist with that. |
 
+
+### Qwen3.5 4B
+
+Run by `localspace measure` on the development laptop on 2026-10-08
+(package `efce161`), then the counting runs of 2026-10-09 (the egg problem,
+the sum, the Berlin ideas and the weather, five times each, package
+`b503ce5`), with thinking off; read by the builder (the English answers,
+with independent readers and refuters), the Russian and Uzbek answers by
+the founder, who found them all good. The judgment (docs/DECISIONS.md,
+2026-10-08 and 2026-10-09): the script's four counts clean; the sum right
+every time; the weather and the exchange rate declined honestly every time;
+the egg problem wrong three times of five (31, then "26 whole eggs"),
+right with thinking on; twice among the Berlin ideas a place that does not
+exist. The 4 GB tier's default from 2026-10-09, with that limit named in
+its entry. The answers themselves are in the internal repository,
+`docs/measure/2026-10-08/` and `docs/measure/2026-10-09/`.

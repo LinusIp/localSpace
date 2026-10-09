@@ -44,6 +44,28 @@ what is built on them (branch `refresh-thinking`).
   founder's read of its Russian and Uzbek answers completes the decision.
   Noted for the reading: the 7B's five errors are one message that it
   never declines; the 4B's are spread over two.
+- **The 4 GB tier's default is the Qwen3.5 4B** (the owner, the same
+  morning): the founder read its Russian and Uzbek answers and found them
+  all good; the counts tie, and the kind of error confirms it, the 7B
+  inventing current facts every time where the 4B declines honestly. Its
+  `exercised` record for the 4 GB tier with thinking off is written (the
+  full script of 2026-10-08 on this laptop, build `efce1611`), the entry
+  is no longer hidden, the 4 GB default moves to it, and the 7B keeps its
+  honest row. **Its known limit**, multi-step arithmetic (three of five on
+  the egg problem with thinking off, right with thinking on), stands in
+  its entry's notes: the case for a "think harder" option in 0.3.
+- **How a decided default is kept:** the catalog file carries `defaults`,
+  the default per tier where measurement decided one (`"4 GB":
+  "qwen3.5-4b-q4_k_m"`), and the recommendation takes it first where the
+  entry is exercised for the tier and runs well or works; the rule of
+  2026-09-19 decides every other tier as before. **The tiers, by the card
+  localSpace would use:** under 7 GB "4 GB", under 14 GB "8 GB", under
+  22 GB "16 GB", from 22 GB "24 GB", the processor's graphics or none
+  "no card": under-promising at the edges, so a 6 GB card is of the 4 GB
+  tier and a 12 GB card of the 8 GB tier. An entry with exercise records
+  is offered first only on the tiers it was exercised on; an older entry
+  with the plain day alone counts on every tier, as before. (The
+  builder's boundaries, for the owner to move.)
 - **The exercise record** is a list, `exercised`, of `{tier, thinking,
   day, machine, build}` per entry; `exercised_on` stays, derived as the
   latest of those days, so the default rule reads one thing as before.
