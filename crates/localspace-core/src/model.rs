@@ -244,6 +244,13 @@ pub struct ChatReply {
     pub timings: Option<Timings>,
 }
 
+/// The words the engine writes into a model's thinking when the thinking
+/// budget is spent (`--reasoning-budget-message`), before it ends the
+/// thinking so that the answer comes: an answer always arrives
+/// (docs/DECISIONS.md, 2026-10-08). Core reads them back at the end of the
+/// thinking, which is how a run counts the answers whose budget ran out.
+pub const THINKING_BUDGET_SPENT: &str = "Time is up; I give my answer now.";
+
 /// llama-server's figures for one request: how many tokens of the prompt it
 /// read anew and how long that took, how many it wrote and how long.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]

@@ -63,6 +63,19 @@ pub struct MeasureArgs {
     /// available longer.
     #[arg(long)]
     thinking_full: bool,
+    /// Which passes to run: `both` (the whole script with thinking off, then
+    /// the five messages where thinking could matter with it on), `off`
+    /// alone, or `on` alone.
+    #[arg(long, value_enum, default_value_t = ThinkingPass::Both)]
+    thinking: ThinkingPass,
+    /// Only the messages whose names begin so, comma-separated (for example
+    /// `arithmetic,a word problem`): a counting run, without Continue, the
+    /// reading and the picture.
+    #[arg(long, value_name = "NAMES")]
+    only: Option<String>,
+    /// Ask each message this many times, each in a fresh chat.
+    #[arg(long, value_name = "TIMES", default_value_t = 1)]
+    repeat: usize,
     /// Stop the Continue step's answer after this many words.
     #[arg(long, value_name = "WORDS", default_value_t = 30)]
     stop_after: usize,
@@ -88,6 +101,43 @@ const PICTURE_TEXT: &str = "What shapes and colours are in this picture? One sen
 const PICTURE: &[u8] = include_bytes!("../assets/measure-picture.png");
 
 const LONG_TEXT: &str = "The town of Harrowfield sits where two rivers meet, and for most of its history it lived from the water. In 1847 a wooden footbridge was the only crossing, and the ferryman, a man called Tobias Wren, charged a penny a head. The railway arrived in 1869 and with it the first brick warehouses along the east bank. By 1890 the town had three mills, a brewery and a population of eleven thousand. The great flood of March 1912 carried away the footbridge, two of the mills and forty-one houses; nobody died, because the miller's daughter, Ada Pellow, saw the water rising at four in the morning and rang the chapel bell until the street was awake. The stone bridge that replaced the footbridge was opened in 1915 and still carries the main road. After the second war the mills closed one by one, the last in 1971, and the warehouses stood empty until the 1990s, when they were turned into flats and workshops. Today the town has about nineteen thousand people, a weekly market on Thursdays, and a small museum in the old brewery whose most visited exhibit is the chapel bell.";
+
+/// Which passes a run makes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum ThinkingPass {
+    /// The whole script with thinking off, then the five with it on.
+    Both,
+    /// Thinking off alone.
+    Off,
+    /// Thinking on alone.
+    On,
+}
+
+/// The messages whose names begin with one of the comma-separated `only`
+/// names, in the script's order; a name that begins none is refused, with
+/// the names there are.
+fn chosen(items: Vec<Item>, only: &str) -> Result<Vec<Item>> {
+    let names: Vec<&str> = only
+        .split(',')
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .collect();
+    if names.is_empty() {
+        bail!("--only names no message");
+    }
+    for name in &names {
+        if !items.iter().any(|i| i.name.starts_with(name)) {
+            bail!(
+                "no message of the script begins with `{name}`; the names are: {}",
+                items.iter().map(|i| i.name).collect::<Vec<_>>().join("; ")
+            );
+        }
+    }
+    Ok(items
+        .into_iter()
+        .filter(|i| names.iter().any(|n| i.name.starts_with(n)))
+        .collect())
+}
 
 /// One message of the script, or a few that depend on each other.
 struct Item {
@@ -600,17 +650,21 @@ struct Pass {
     carried: Option<Carried>,
 }
 
-/// One pass, written into `progress` as it goes, so that a run that ends
-/// early keeps every answer that came.
-fn run_pass(
-    kit: &mut Kit,
-    progress: &mut Progress,
-    title: &str,
-    items: &[Item],
+/// What one pass runs: its title, how thinking is asked, whether Continue
+/// follows, and how often each message is asked.
+struct PassPlan {
+    title: &'static str,
     thinking: Option<bool>,
     with_continue: bool,
     stop_after: usize,
-) -> Result<()> {
+    repeat: usize,
+}
+
+/// One pass, written into `progress` as it goes, so that a run that ends
+/// early keeps every answer that came.
+fn run_pass(kit: &mut Kit, progress: &mut Progress, items: &[Item], plan: &PassPlan) -> Result<()> {
+    let title = plan.title;
+    let thinking = plan.thinking;
     err!("{title}");
     kit.within_limit(title)?;
     kit.with(move |core| core.set_thinking(thinking))?;
@@ -621,34 +675,37 @@ fn run_pass(
         carried: None,
     });
     for item in items {
-        let chat = kit.new_conversation()?;
-        let mut turns = Vec::new();
-        for text in &item.turns {
-            let turn = ask_in_words(kit, &chat, text)?;
-            err!(
-                "{}: {:.1} s{}{}",
-                item.name,
-                turn.seconds,
-                if turn.tools.is_empty() {
-                    String::new()
-                } else {
-                    format!(", tools: {}", turn.tools.join(", "))
-                },
-                if turn.reply.is_empty() {
-                    "  - NO REPLY"
-                } else {
-                    ""
-                }
-            );
-            turns.push(turn);
-        }
-        if let Some(pass) = progress.passes.last_mut() {
-            pass.items.push((item.name, turns));
+        // Asked `repeat` times, each in a fresh chat: a counting run.
+        for _ in 0..plan.repeat.max(1) {
+            let chat = kit.new_conversation()?;
+            let mut turns = Vec::new();
+            for text in &item.turns {
+                let turn = ask_in_words(kit, &chat, text)?;
+                err!(
+                    "{}: {:.1} s{}{}",
+                    item.name,
+                    turn.seconds,
+                    if turn.tools.is_empty() {
+                        String::new()
+                    } else {
+                        format!(", tools: {}", turn.tools.join(", "))
+                    },
+                    if turn.reply.is_empty() {
+                        "  - NO REPLY"
+                    } else {
+                        ""
+                    }
+                );
+                turns.push(turn);
+            }
+            if let Some(pass) = progress.passes.last_mut() {
+                pass.items.push((item.name, turns));
+            }
         }
     }
-    if with_continue {
+    if plan.with_continue {
         err!("continue");
-        let carried = carry_on(kit, stop_after)?;
+        let carried = carry_on(kit, plan.stop_after)?;
         if let Some(pass) = progress.passes.last_mut() {
             pass.carried = Some(carried);
         }
@@ -860,17 +917,15 @@ pub fn run(args: MeasureArgs) -> Result<()> {
     let mut failed = outcome.is_err();
     if args.check {
         let (answered, of) = answered_count(&progress.passes);
-        let carried = progress
-            .passes
-            .first()
-            .and_then(|p| p.carried.as_ref())
-            .is_some_and(|c| c.note.is_empty() && c.whole == Some(true));
+        // Continue is judged where it ran: a counting run has none.
+        let continued = progress.passes.first().and_then(|p| p.carried.as_ref());
+        let carried = continued.is_none_or(|c| c.note.is_empty() && c.whole == Some(true));
         err!(
             "measure: {answered} of {of} messages answered; Continue {}",
-            if carried {
-                "carried through"
-            } else {
-                "did not carry through"
+            match continued {
+                None => "not run",
+                Some(_) if carried => "carried through",
+                Some(_) => "did not carry through",
             }
         );
         failed |= answered < of || !carried;
@@ -901,36 +956,59 @@ fn steps(
     progress.ready_after = Some(ready_after);
     err!("ready after {ready_after:.0} s");
 
-    let items = script();
-    let five: Vec<Item> = script().into_iter().filter(|i| i.thinking).collect();
-    run_pass(
-        kit,
-        progress,
-        "Thinking off, the whole script",
-        &items,
-        Some(false),
-        true,
-        args.stop_after,
-    )?;
-    run_pass(
-        kit,
-        progress,
-        "Thinking on, the five messages where it could matter",
-        &five,
-        Some(true),
-        false,
-        args.stop_after,
-    )?;
-    if args.thinking_full {
+    // The messages: the whole script, or the ones named for a counting run.
+    let counting = args.only.is_some();
+    let items: Vec<Item> = match &args.only {
+        Some(only) => chosen(script(), only)?,
+        None => script(),
+    };
+    let on_set: Vec<Item> = match &args.only {
+        Some(only) => chosen(script(), only)?,
+        None if args.thinking_full => script(),
+        None => script().into_iter().filter(|i| i.thinking).collect(),
+    };
+    let repeat = args.repeat.max(1);
+    if args.thinking != ThinkingPass::On {
         run_pass(
             kit,
             progress,
-            "Thinking on, the whole script",
             &items,
-            Some(true),
-            true,
-            args.stop_after,
+            &PassPlan {
+                title: if counting {
+                    "Thinking off, the chosen messages"
+                } else {
+                    "Thinking off, the whole script"
+                },
+                thinking: Some(false),
+                with_continue: !counting,
+                stop_after: args.stop_after,
+                repeat,
+            },
         )?;
+    }
+    if args.thinking != ThinkingPass::Off {
+        run_pass(
+            kit,
+            progress,
+            &on_set,
+            &PassPlan {
+                title: if counting {
+                    "Thinking on, the chosen messages"
+                } else if args.thinking_full {
+                    "Thinking on, the whole script"
+                } else {
+                    "Thinking on, the five messages where it could matter"
+                },
+                thinking: Some(true),
+                with_continue: !counting && args.thinking_full,
+                stop_after: args.stop_after,
+                repeat,
+            },
+        )?;
+    }
+    if counting {
+        // A counting run is the named messages alone.
+        return Ok(());
     }
 
     // The engine's reading of a few new tokens, with the cache warm.
@@ -1218,6 +1296,11 @@ fn thinking_cell(measure: Option<&AnswerMeasure>) -> String {
         ),
         (n, _, _) => format!("{n} words"),
     };
+    let came = if m.budget_spent {
+        format!("{came}, the budget spent")
+    } else {
+        came
+    };
     match m.thinking_asked {
         Some(false) => format!("off: {came}"),
         Some(true) => format!("on: {came}"),
@@ -1409,6 +1492,24 @@ fn report(run: &Progress) -> String {
         lines.push(String::new());
         table(&mut lines, &pass.items);
         lines.push(String::new());
+        // How often the thinking ran to its budget: what moves the budget
+        // per model (docs/DECISIONS.md, 2026-10-09).
+        if pass.thinking == Some(true) {
+            let answers: Vec<&Answered> = pass
+                .items
+                .iter()
+                .flat_map(|(_, turns)| turns.iter())
+                .collect();
+            let spent = answers
+                .iter()
+                .filter(|a| a.measure.as_ref().is_some_and(|m| m.budget_spent))
+                .count();
+            lines.push(format!(
+                "The thinking budget ran out on {spent} of {} answers.",
+                answers.len()
+            ));
+            lines.push(String::new());
+        }
         if let Some(carried) = &pass.carried {
             continue_lines(&mut lines, carried);
             lines.push(String::new());
@@ -1638,6 +1739,23 @@ mod tests {
         assert!(text.contains("Not reached."));
         assert_eq!(answered_count(&progress.passes), (1, 1));
     }
+    /// A counting run names its messages by the start of their names, in
+    /// the script's order, and refuses a name that begins none.
+    #[test]
+    fn a_counting_run_chooses_messages_by_the_start_of_their_names() {
+        let few = chosen(script(), "arithmetic, a word problem,three turns").unwrap();
+        assert_eq!(
+            few.iter().map(|i| i.name).collect::<Vec<_>>(),
+            [
+                "arithmetic",
+                "a word problem",
+                "three turns, each depending on the one before"
+            ]
+        );
+        assert!(chosen(script(), "a sonnet").is_err());
+        assert!(chosen(script(), " , ").is_err());
+    }
+
     /// The picture is a PNG the kit carries: a model is asked about the
     /// same picture everywhere.
     #[test]

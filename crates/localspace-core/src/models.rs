@@ -48,6 +48,25 @@ pub struct CatalogFile {
     #[serde(default)]
     pub notes: String,
     pub models: Vec<CatalogModel>,
+    /// The default per tier of computer, by the tier's name ("4 GB", "8 GB",
+    /// "16 GB", "24 GB", "no card"), where measurement decided one.
+    #[serde(default)]
+    pub defaults: HashMap<String, String>,
+}
+
+/// The tier of computer `hardware` is, by the card localSpace would use:
+/// the names the exercise records and the defaults go by. A card is placed
+/// by what fits on it, under-promising at the edges (a 12 GB card is of the
+/// 8 GB tier, whose models it carries for certain); the processor's own
+/// graphics are no card.
+pub fn tier_of(hardware: &Hardware) -> &'static str {
+    match hardware.gpu().filter(|gpu| !gpu.integrated) {
+        None => "no card",
+        Some(gpu) if gpu.total_mib < 7 * 1024 => "4 GB",
+        Some(gpu) if gpu.total_mib < 14 * 1024 => "8 GB",
+        Some(gpu) if gpu.total_mib < 22 * 1024 => "16 GB",
+        Some(_) => "24 GB",
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,6 +147,51 @@ pub struct CatalogModel {
     /// side by side.
     #[serde(default)]
     pub published_as: HashMap<String, String>,
+    /// Every pass of the message script a person read, by tier of computer
+    /// (docs/DECISIONS.md, 2026-10-08): what a default on that tier rests
+    /// on. `exercised_on` is the latest of these days where the list is
+    /// kept, so the default rule reads one thing.
+    #[serde(default)]
+    pub exercised: Vec<Exercise>,
+    /// Whether the model thinks before it answers, and for at most how many
+    /// tokens; `None` for a model that does not think. An answer always
+    /// arrives: the engine ends the thinking at the budget
+    /// (docs/DECISIONS.md, 2026-10-08).
+    #[serde(default)]
+    pub thinking: Option<Thinking>,
+}
+
+/// One pass of the message script a person read, on one tier of computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Exercise {
+    /// The tier as the app names it: "4 GB", "8 GB", "16 GB", "24 GB", "no card".
+    pub tier: String,
+    /// "off" or "on": how the model was asked to think in the pass.
+    pub thinking: String,
+    /// The day, `YYYY-MM-DD`.
+    pub day: String,
+    /// The computer, as the kit's results file names it.
+    pub machine: String,
+    /// The build the kit ran as.
+    pub build: String,
+}
+
+/// How a model thinks before it answers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Thinking {
+    /// On or off unless the kit says otherwise for a pass; the app takes
+    /// this, and offers no switch in 0.2.
+    pub default: ThinkingDefault,
+    /// The most tokens the thinking may take; the answer's own limit grows
+    /// by as much when thinking is on.
+    pub budget: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThinkingDefault {
+    On,
+    Off,
 }
 
 /// A file whose SHA-256 was found to be the published one, as the file then
@@ -259,6 +323,30 @@ pub struct Tensor {
 }
 
 impl CatalogModel {
+    /// The day this model last went through the message script and a
+    /// person read what came back: the latest of its exercise records, or
+    /// the plain `exercised_on` of an older entry. Empty when never.
+    pub fn exercised_day(&self) -> String {
+        self.exercised
+            .iter()
+            .map(|e| e.day.as_str())
+            .max()
+            .map(str::to_string)
+            .unwrap_or_else(|| self.exercised_on.clone())
+    }
+
+    /// Whether this model may be offered first on a computer of `tier`: it
+    /// went through the script there and a person read what came back. An
+    /// older entry with the plain day alone counts on every tier, as it did
+    /// before the record had tiers (docs/DECISIONS.md, 2026-10-09).
+    pub fn exercised_for(&self, tier: &str) -> bool {
+        if self.exercised.is_empty() {
+            !self.exercised_on.is_empty()
+        } else {
+            self.exercised.iter().any(|e| e.tier == tier)
+        }
+    }
+
     /// The name under which the repository publishes `file`: its own, unless
     /// `published_as` says otherwise.
     pub fn published_name<'a>(&'a self, file: &'a str) -> &'a str {
@@ -354,6 +442,11 @@ fn bytes_here(dir: &Path, m: &CatalogModel) -> u64 {
 
 pub struct Catalog {
     models: Vec<CatalogModel>,
+    /// The default per tier of computer where one was decided by
+    /// measurement (docs/DECISIONS.md, 2026-10-09: the 4 GB tier's is the
+    /// Qwen3.5 4B, by the counts), by the tier's name; the rule below
+    /// decides the rest.
+    defaults: HashMap<String, String>,
     /// Where downloaded files and `imports.json` live.
     dir: PathBuf,
     /// Where a repository's files are fetched from, and how a dropped
@@ -393,7 +486,14 @@ impl Catalog {
     /// The built-in catalog, plus `catalog.json` in `catalog_dir` when it
     /// exists (an organisation's own list), plus the user's imports.
     pub fn load(catalog_dir: Option<&Path>, models_dir: &Path) -> Catalog {
-        let mut models = parse(BUILT_IN).map(|c| c.models).unwrap_or_default();
+        let built_in = parse(BUILT_IN).unwrap_or_else(|_| CatalogFile {
+            version: 0,
+            notes: String::new(),
+            models: Vec::new(),
+            defaults: HashMap::new(),
+        });
+        let mut models = built_in.models;
+        let mut defaults = built_in.defaults;
         if let Some(dir) = catalog_dir
             && let Ok(text) = std::fs::read_to_string(dir.join("catalog.json"))
         {
@@ -403,6 +503,8 @@ impl Catalog {
                         models.retain(|x| x.id != m.id);
                         models.push(m);
                     }
+                    // An organisation's own default for a tier wins.
+                    defaults.extend(extra.defaults);
                 }
                 Err(e) => tracing::warn!("ignoring {}: {e}", dir.join("catalog.json").display()),
             }
@@ -414,6 +516,7 @@ impl Catalog {
                 .unwrap_or_default();
         let catalog = Catalog {
             models,
+            defaults,
             dir: models_dir.to_path_buf(),
             source: Source::default(),
             verified: Arc::new(Mutex::new(stamps)),
@@ -763,11 +866,12 @@ impl Catalog {
                     .disk_free_mib
                     .is_none_or(|free| m.bytes / (1024 * 1024) < free)
         };
+        let tier = tier_of(hardware);
         let placed: Vec<(&CatalogModel, Fit)> = self
             .models
             .iter()
             .filter(|m| m.commercial_use)
-            .filter(|m| !m.exercised_on.is_empty())
+            .filter(|m| m.exercised_for(tier))
             .filter(|m| !m.repo.is_empty() || self.installed_path(&m.id).is_some())
             .filter(|m| room(m))
             .filter_map(|m| {
@@ -775,6 +879,16 @@ impl Catalog {
                     .map(|shape| (m, fit::fit(&shape, hardware, m.ask(), None)))
             })
             .collect();
+        // A default decided for this tier by measurement comes first, where
+        // it is among the models above and runs well or works here.
+        if let Some(decided) = self.defaults.get(tier)
+            && let Some((m, _)) = placed.iter().find(|(m, p)| {
+                &m.id == decided
+                    && matches!(p.verdict, fit::Verdict::RunsWell | fit::Verdict::Works)
+            })
+        {
+            return Some(m.id.clone());
+        }
         const LOWEST_RUNG_B: f32 = 1.0;
         let largest = |verdict: fit::Verdict, from_b: f32| {
             placed
@@ -881,6 +995,8 @@ impl Catalog {
             hidden: false,
             vision_file: String::new(),
             published_as: HashMap::new(),
+            exercised: Vec::new(),
+            thinking: None,
         };
         let mut imports = self.imports();
         imports.retain(|m| m.id != id);
@@ -1475,6 +1591,77 @@ mod tests {
         assert!(catalog.get("qwen2.5-7b-instruct-q4_k_m").is_some());
     }
 
+    /// The day a default rests on is the latest of the exercise records,
+    /// per tier, or the plain field of an older entry.
+    #[test]
+    fn the_exercise_record_gives_the_latest_day_and_an_old_entry_its_own() {
+        let mut m: CatalogModel = serde_json::from_str(
+            r#"{"id":"m","title":"M","params_b":1.0,"bytes":3,"context_len":2048,"repo":"example/m",
+                "files":["m.gguf"],"tensor":null,"exercised_on":"2026-09-19",
+                "exercised":[
+                  {"tier":"4 GB","thinking":"off","day":"2026-10-08","machine":"a laptop","build":"6913fc96"},
+                  {"tier":"16 GB","thinking":"on","day":"2026-10-20","machine":"a desk","build":"abcdef01"}],
+                "thinking":{"default":"off","budget":1024}}"#,
+        )
+        .unwrap();
+        assert_eq!(m.exercised_day(), "2026-10-20");
+        assert_eq!(m.exercised[0].tier, "4 GB");
+        assert_eq!(
+            m.thinking.as_ref().map(|t| (t.default, t.budget)),
+            Some((ThinkingDefault::Off, 1024))
+        );
+        m.exercised.clear();
+        assert_eq!(m.exercised_day(), "2026-09-19");
+        m.exercised_on.clear();
+        assert!(m.exercised_day().is_empty());
+    }
+
+    /// A default decided for a tier by measurement comes first on that tier
+    /// and nowhere else; an entry exercised on one tier is not offered first
+    /// on another; and an older entry with the plain day counts everywhere
+    /// (docs/DECISIONS.md, 2026-10-09).
+    #[test]
+    fn a_tiers_decided_default_holds_on_that_tier_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut catalog = Catalog::load(None, dir.path());
+        let four_gb = found_laptop();
+        assert_eq!(tier_of(&four_gb), "4 GB");
+        assert_eq!(
+            catalog.recommend(&four_gb).as_deref(),
+            Some("qwen3.5-4b-q4_k_m")
+        );
+        // An 8 GB card is another tier: the 4B is not exercised there, and
+        // the rule gives the 7B as before.
+        let eight_gb = laptop_with_32_gb();
+        assert_eq!(tier_of(&eight_gb), "8 GB");
+        assert_eq!(
+            catalog.recommend(&eight_gb).as_deref(),
+            Some("qwen2.5-7b-instruct-q4_k_m")
+        );
+        // Without its record for the 4 GB tier, the 4B is not offered first
+        // there either, decided default or not.
+        for m in &mut catalog.models {
+            if m.id == "qwen3.5-4b-q4_k_m" {
+                m.exercised.clear();
+            }
+        }
+        assert_eq!(
+            catalog.recommend(&four_gb).as_deref(),
+            Some("qwen2.5-7b-instruct-q4_k_m")
+        );
+        // The tiers, by the card localSpace would use.
+        let mut no_card = found_laptop();
+        no_card.gpus.clear();
+        assert_eq!(tier_of(&no_card), "no card");
+        let mut big = found_laptop();
+        big.gpus[0].total_mib = 24_000;
+        assert_eq!(tier_of(&big), "24 GB");
+        big.gpus[0].total_mib = 16_376;
+        assert_eq!(tier_of(&big), "16 GB");
+        big.gpus[0].total_mib = 12_282;
+        assert_eq!(tier_of(&big), "8 GB");
+    }
+
     #[test]
     fn a_file_is_fetched_under_its_published_name_and_kept_under_its_own() {
         let m: CatalogModel = serde_json::from_str(
@@ -1497,13 +1684,20 @@ mod tests {
         assert!(
             file.models
                 .iter()
-                .any(|m| m.hidden && m.id == "qwen3.5-4b-q4_k_m")
+                .any(|m| m.hidden && m.id == "qwen3.5-9b-q4_k_m")
         );
         for m in &file.models {
             if m.hidden {
                 assert!(
-                    m.exercised_on.is_empty(),
+                    m.exercised_day().is_empty(),
                     "{}: hidden, yet it says it went through the script",
+                    m.id
+                );
+            }
+            if let Some(thinking) = &m.thinking {
+                assert!(
+                    thinking.budget > 0,
+                    "{}: a thinking budget of nothing",
                     m.id
                 );
             }
@@ -1710,16 +1904,17 @@ mod tests {
             slower.placement
         );
 
-        // The model to start with: the largest that runs well here, which is
-        // the 7B: prefer the more reliable model once a model is fast enough
-        // to read along with.
+        // The model to start with on this laptop: the 4 GB tier's default
+        // decided by the counts (docs/DECISIONS.md, 2026-10-09), the Qwen3.5
+        // 4B; the rule below it would give the 7B, the largest that runs
+        // well here.
         assert_eq!(
             catalog.recommend(&found).as_deref(),
-            Some("qwen2.5-7b-instruct-q4_k_m")
+            Some("qwen3.5-4b-q4_k_m")
         );
-        // **Of those whose licence permits commercial use**: without the 7B
-        // and the 14B, the 3B is the largest that runs well, and it is passed
-        // over without a word for the 1.5B: it is for research and
+        // **Of those whose licence permits commercial use**: without the 4B,
+        // the 7B and the 14B, the 3B is the largest that runs well, and it is
+        // passed over without a word for the 1.5B: it is for research and
         // evaluation only.
         assert_eq!(small.verdict, "runs_well");
         assert!(!small.commercial_use);
@@ -1728,7 +1923,7 @@ mod tests {
             "Free for research and evaluation only, not for commercial use."
         );
         let mut without = Catalog::load(None, dir.path());
-        without.models.retain(|m| m.params_b < 7.0);
+        without.models.retain(|m| m.params_b < 4.0);
         assert_eq!(
             without.recommend(&found).as_deref(),
             Some("qwen2.5-1.5b-instruct-q4_k_m")
@@ -1799,6 +1994,9 @@ mod tests {
         const SEVEN_B: &str = "qwen2.5-7b-instruct-q4_k_m";
         const FOURTEEN_B: &str = "qwen2.5-14b-instruct-q4_k_m";
         const THIRTY_B: &str = "qwen3-30b-a3b-q4_k_m";
+        // The 4 GB tier's default since 2026-10-09, by the counts: every
+        // card under 7 GB (docs/DECISIONS.md).
+        const FOUR_B: &str = "qwen3.5-4b-q4_k_m";
         const IDS: [&str; 6] = [HALF_B, ONE_HALF_B, THREE_B, SEVEN_B, FOURTEEN_B, THIRTY_B];
 
         struct Shape {
@@ -1818,7 +2016,7 @@ mod tests {
                 card: Some("NVIDIA GeForce RTX 3050 Ti Laptop GPU (3962 MiB, 3367 MiB free)"),
                 memory_mib: 15_613,
                 copy_gbps: 19.3,
-                default: SEVEN_B,
+                default: FOUR_B,
                 verdicts: [WELL, WELL, WELL, WELL, SLOW, NO],
             },
             Shape {
@@ -1826,17 +2024,18 @@ mod tests {
                 card: Some("NVIDIA GeForce GTX 1650 (4096 MiB, 3500 MiB free)"),
                 memory_mib: 16_000,
                 copy_gbps: 12.0,
-                default: ONE_HALF_B,
+                default: FOUR_B,
                 verdicts: [WELL, WELL, WELL, WORKS, SLOW, NO],
             },
             Shape {
                 // Its 14B is shown "about 3 to 4 words a second": about as fast as
-                // a person reads, by the numbers themselves.
+                // a person reads, by the numbers themselves. A 6 GB card is of
+                // the 4 GB tier, whose default is the 4B.
                 what: "16 GB and an RTX 3060 Laptop with 6 GB",
                 card: Some("NVIDIA GeForce RTX 3060 Laptop GPU (6144 MiB, 5400 MiB free)"),
                 memory_mib: 16_000,
                 copy_gbps: 15.0,
-                default: SEVEN_B,
+                default: FOUR_B,
                 verdicts: [WELL, WELL, WELL, WELL, WORKS, NO],
             },
             Shape {
@@ -2003,7 +2202,7 @@ mod tests {
             // and may be used commercially; and nobody is ever offered the
             // 0.5B on a computer where a larger model so much as works.
             let offered = catalog.get(shape.default).unwrap();
-            assert!(!offered.exercised_on.is_empty() && offered.commercial_use);
+            assert!(!offered.exercised_day().is_empty() && offered.commercial_use);
             assert_ne!(shape.default, HALF_B, "{}", shape.what);
         }
     }
@@ -2083,7 +2282,7 @@ mod tests {
         let run: Vec<&CatalogModel> = catalog
             .models
             .iter()
-            .filter(|m| !m.exercised_on.is_empty())
+            .filter(|m| !m.exercised_day().is_empty())
             .collect();
         assert!(!run.is_empty());
         for m in run {
@@ -2093,7 +2292,7 @@ mod tests {
                     .any(|l| l.trim_end() == format!("### {}", m.title)),
                 "{} says it went through the message script on {}, and the record has no section for it",
                 m.id,
-                m.exercised_on
+                m.exercised_day()
             );
         }
     }

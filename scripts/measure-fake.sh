@@ -57,6 +57,12 @@ run() {
 }
 run tiny
 run seer --thinking-full
+# A counting run: the named messages, twice each, thinking off, and
+# nothing else (docs/DECISIONS.md, 2026-10-09).
+LOCALSPACE_LLAMA_SERVER="$engine" "$localspace" measure --model tiny --catalog "$work/catalog" \
+  --models "$work/models" --data "$work/data-count" --out "$work/out-count" --answer-seconds 60 --max-minutes 8 \
+  --only "a greeting,arithmetic" --repeat 2 --thinking off --check > "$work/measure-count.log" 2>&1 || status=$?
+tail -n 4 "$work/measure-count.log"
 
 # What the results files must hold.
 must() {
@@ -85,6 +91,22 @@ else
   must "$seer_md" "| on the processor | yes |"
   must "$seer_md" "| on the card | yes, after"
   must "$seer_md" "word1 word2 word3"
+  must "$seer_md" "The thinking budget ran out on 0 of"
+fi
+count_md="$(ls "$work"/out-count/localSpace-measure-tiny-*.md 2> /dev/null | head -n 1 || true)"
+if [ -z "$count_md" ]; then
+  echo "the counting run's results file is missing in $work/out-count" >&2
+  status=1
+else
+  must "$count_md" "#### Thinking off, the chosen messages"
+  if grep -q "#### Thinking on" "$count_md" || grep -q '^\*\*Continue' "$count_md"; then
+    echo "the counting run ran more than the chosen messages" >&2
+    status=1
+  fi
+  if [ "$(grep -c '^| arithmetic: What is 17 times 24?' "$count_md")" != "2" ]; then
+    echo "the counting run did not ask arithmetic twice" >&2
+    status=1
+  fi
 fi
 if [ "$status" -ne 0 ]; then
   echo "the kit's logs:" >&2

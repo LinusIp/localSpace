@@ -13,6 +13,93 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-09, the refresh's first step: the thinking budget, the exercise record, the counting runs
+
+The owner's answers of the evening of 2026-10-08 on the refresh's plan, and
+what is built on them (branch `refresh-thinking`).
+
+- **The 4 GB default is decided by counts, not by one answer.** The
+  factual and arithmetic messages (the egg problem, the sum, the Berlin
+  ideas, the weather) run five times each on the 4B and on the 7B, with
+  thinking off, on the development laptop, and the wrong answers are
+  counted per model and recorded with the run. Together with the founder's
+  Russian and Uzbek read the counts decide: fewer errors wins; on a tie the
+  4B, since it writes at twice the speed; if the 4B errs clearly more
+  often, the 7B stays the 4 GB default for 0.2 and the 4B is offered as the
+  fast option with its own honest row.
+- **The counts, run the same morning** (the package of `b503ce5`, this
+  laptop, thinking off; the results in the internal repository under
+  `docs/measure/2026-10-09/`; read by four independent readers per model,
+  every finding put to two refuters): **a tie, five wrong answers each of
+  forty.** The 4B: the egg problem wrong three times of five (it reaches
+  31 and ends on "26 whole eggs"), and twice among the five sets of Berlin
+  ideas a place that does not exist ("castle ruins" at the Tegeler See; a
+  "historic Jewish Quarter in Neukölln"); the sum right five times, the
+  weather and the Russian exchange rate declined honestly five times each
+  (the rate's advice names the Russian or Belarusian central bank for the
+  Uzbek sum, allowed by the rule, noted). The 7B: the weather invented as
+  fact five times of five ("mostly sunny with high temperatures around
+  25°C"), everything else right every time, the exchange rate declined with
+  the right bank. Under the rule a tie goes to the 4B, for its speed; the
+  founder's read of its Russian and Uzbek answers completes the decision.
+  Noted for the reading: the 7B's five errors are one message that it
+  never declines; the 4B's are spread over two.
+- **The 4 GB tier's default is the Qwen3.5 4B** (the owner, the same
+  morning): the founder read its Russian and Uzbek answers and found them
+  all good; the counts tie, and the kind of error confirms it, the 7B
+  inventing current facts every time where the 4B declines honestly. Its
+  `exercised` record for the 4 GB tier with thinking off is written (the
+  full script of 2026-10-08 on this laptop, build `efce1611`), the entry
+  is no longer hidden, the 4 GB default moves to it, and the 7B keeps its
+  honest row. **Its known limit**, multi-step arithmetic (three of five on
+  the egg problem with thinking off, right with thinking on), stands in
+  its entry's notes: the case for a "think harder" option in 0.3.
+- **How a decided default is kept:** the catalog file carries `defaults`,
+  the default per tier where measurement decided one (`"4 GB":
+  "qwen3.5-4b-q4_k_m"`), and the recommendation takes it first where the
+  entry is exercised for the tier and runs well or works; the rule of
+  2026-09-19 decides every other tier as before. **The tiers, by the card
+  localSpace would use:** under 7 GB "4 GB", under 14 GB "8 GB", under
+  22 GB "16 GB", from 22 GB "24 GB", the processor's graphics or none
+  "no card": under-promising at the edges, so a 6 GB card is of the 4 GB
+  tier and a 12 GB card of the 8 GB tier. An entry with exercise records
+  is offered first only on the tiers it was exercised on; an older entry
+  with the plain day alone counts on every tier, as before. (The
+  builder's boundaries, for the owner to move.)
+- **The exercise record** is a list, `exercised`, of `{tier, thinking,
+  day, machine, build}` per entry; `exercised_on` stays, derived as the
+  latest of those days, so the default rule reads one thing as before.
+- **The thinking budget**: 1,024 thinking tokens plus 1,024 for the answer
+  on every Qwen3.5 size, as the catalog's `thinking: {default, budget}` on
+  the seven hidden entries, `default` off on all of them until a tier's
+  measurements say otherwise. Core starts a thinking model's engine with
+  `--reasoning-budget` and `--reasoning-budget-message` ("Time is up; I
+  give my answer now."), the words the engine writes into the thinking
+  before it ends it, which Core reads back at the thinking's end as the
+  step's `budget_spent`; a thinking-on pass of the kit says how often the
+  budget ran out, which is what moves the budget per model, from the
+  borrowed machines' runs. The request's limit grows by the budget when
+  thinking is on. The app takes the entry's default at the load; the kit
+  sets its own per pass after. Tests: the flags at the engine's start; the
+  limit growing by the budget and only then; the spent words read back.
+  The spent path end to end is the kit's: a thinking-on pass must answer
+  every message, which `--check` holds it to, and the 4B's weather message
+  is the case.
+- **Thinking per model only in 0.2**, no switch for a person; a "think
+  harder" option can come later, from feedback.
+- **The client's generated types**: CI generates them (the proto tests),
+  fails when the committed ones differ from the generator's output, and
+  keeps that output as the artifact `client-types` for whoever changes
+  `proto` without a build of their own; no waiting for WSL. The indicator
+  itself is checked on a real package on the laptop before it is called
+  done.
+- **The kit's counting flags**: `--only <names>` (the messages whose names
+  begin so, in the script's order; a counting run, without Continue, the
+  reading and the picture), `--repeat <times>` (each in a fresh chat), and
+  `--thinking off|on|both`.
+
+*This day's business entries are in the internal log.*
+
 ## 2026-10-08, the measurement kit's rules, answered
 
 The owner's answers to the kit's plan (the plan and its estimate are in the
