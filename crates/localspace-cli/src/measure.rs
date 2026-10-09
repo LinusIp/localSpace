@@ -917,17 +917,15 @@ pub fn run(args: MeasureArgs) -> Result<()> {
     let mut failed = outcome.is_err();
     if args.check {
         let (answered, of) = answered_count(&progress.passes);
-        let carried = progress
-            .passes
-            .first()
-            .and_then(|p| p.carried.as_ref())
-            .is_some_and(|c| c.note.is_empty() && c.whole == Some(true));
+        // Continue is judged where it ran: a counting run has none.
+        let continued = progress.passes.first().and_then(|p| p.carried.as_ref());
+        let carried = continued.is_none_or(|c| c.note.is_empty() && c.whole == Some(true));
         err!(
             "measure: {answered} of {of} messages answered; Continue {}",
-            if carried {
-                "carried through"
-            } else {
-                "did not carry through"
+            match continued {
+                None => "not run",
+                Some(_) if carried => "carried through",
+                Some(_) => "did not carry through",
             }
         );
         failed |= answered < of || !carried;
