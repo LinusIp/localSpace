@@ -69,6 +69,32 @@ how it looks.
 - **The gate:** the indicator is checked on a real package on the laptop
   with the Qwen3.5 4B before it is called done (`docs/BUILD.md`, the
   real-machine checks).
+- **Checked on the package of `5ebf768a`** (the `package` run of the
+  branch, its portable zip checked against its SHA-256 and served by its
+  own `localspace serve` on this laptop, the RTX 3050 Ti with 4 GB, from a
+  folder of its own, with a catalog that differs from the built-in one
+  only in the 4B's thinking on by default). The egg problem: "Starting…"
+  for half a second, then "Thinking… 0s" to "Thinking… 11s", the text
+  changing once a second, the mark's nodes pulsing, the rail's spinner on
+  throughout; the answer at 12.0 s ("31 whole eggs", right), the
+  indicator gone at its first word, the spinner gone at its end. The
+  thinking, 1,333 characters, is stored with the answer. A second
+  message: the engine read a prompt of about 96 tokens, the first
+  answer's words without its thinking (the thinking alone would be
+  about 350). Stop after three seconds of its thinking: the turn ended at
+  once, the answer kept as stopped with no words and its 310 characters
+  of thinking. None of the 23 lines of the stored thinking is in Core's
+  log, the engine's log or the audit log. **Not checked here:** the
+  system's reduced-motion setting (the browser pane cannot set it), and
+  the desktop window itself (the same client, served by the app).
+- **Found while checking, not fixed in this step:** the log's line for an
+  answer with thinking counts the thinking's tokens as written in the
+  time after the first word ("450 tokens in 12.5 s (712.1 tokens a second
+  while writing)", where the words took half a second): a figure that is
+  wrong for every thinking answer. The kit's own figures are right (they
+  come from the engine). The fix is the line's, a small one, asked
+  below. And a Core stopped from outside left its engine running, which
+  is the orphan-engine file of the 0.2 basics, already planned.
 
 ## 2026-10-09, the refresh's first step: the thinking budget, the exercise record, the counting runs
 
