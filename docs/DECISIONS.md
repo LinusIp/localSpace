@@ -13,6 +13,111 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-10, the thinking indicator: the thinking kept as its own field, a state shown, never words
+
+The owner's three rulings of 2026-10-09 on the indicator, and what is built
+on them (branch `thinking-indicator`), under the ruling of 2026-10-06 on
+how it looks.
+
+- **The thinking is persisted as its own field of the message**,
+  `ChatMessage.thinking` (a string, empty where the model thought nothing,
+  `#[serde(default)]` so every stored row and the legacy file still read),
+  stored and deleted exactly as the message is: it travels inside the
+  conversation's one row and goes with it. **It is never sent back to the
+  model**: `prompt::turns_of` reads a message's words, its stopped mark and
+  its calls and nothing else, and the test
+  `thinking_is_kept_with_its_answer_and_never_read_back` holds a second
+  turn's request to that, as `an_answers_thinking_is_never_a_turn` holds
+  the rendered prompt and the engine test the bytes (the fake engine says
+  of every request whether earlier thinking came with it). **Never in an
+  admin screen or a log**: no request reads another person's transcript,
+  the log lines of an answer stay figures, and the end-to-end test looks
+  through every trace line and notice for a phrase of the thinking.
+- **A stopped or cut answer keeps the thinking that came** before the
+  stop, as it keeps the words: the thread that reads the model gathers
+  the thinking apart from the words (`StepEnd.thought`), since the reply of
+  a step cut short no longer exists. **Continue** appends the thinking of
+  the carried-on step to the earlier thinking, a blank line between, as it
+  appends the words. (The builder's reading of "stored exactly like its
+  message"; for the owner to move.)
+- **One event, `ThinkingStarted { conversation }`**, to the chat's own
+  person when the first piece of thinking arrives, after `TurnChanged
+  Writing` and before the first word; nothing of the thinking is in it, and
+  nothing comes once a second from Core. The shell counts the seconds from
+  the event itself, in one line that is written anew once a second, and
+  nowhere else, so the model keeps the processor (CSS only for the motion,
+  2026-10-06). A chat opened again after a reconnect shows "Starting…"
+  until its first word, since the turn list carries no beginning: known,
+  not fixed here.
+- **What the chat shows** in the answer's place: "Starting…" from the send
+  until the thinking or the first word is heard of, for every model, the
+  ones that never think included (it replaces the "Thinking…" that stood
+  there since Test A for every wait before a first word, which was not
+  literally true); then "Thinking… 12s", the seconds in the shell's own
+  style (`12s`, as "12s ago"); the mark's three nodes pulse in turn, in
+  CSS, still under the system's reduced-motion setting; the rail's spinner
+  stays. The words give way at the first visible word.
+- **The engine's pieces come typed:** `model::Delta::{Words, Thinking}`
+  through every streaming callback, so that the thinking never passes the
+  Continue de-duplication nor counts as a first word for the silence rule;
+  a worker that cannot stream hands its thinking first, then its words.
+- **Not in this step:** clicking the indicator to open the thinking text
+  (2026-10-06): the field is stored for it, the disclosure is its own
+  sub-task, asked below. The budget's words ("Time is up; I give my answer
+  now.") are kept in the stored thinking as the engine wrote them; whether
+  they are shown is that sub-task's question.
+- **The gate:** the indicator is checked on a real package on the laptop
+  with the Qwen3.5 4B before it is called done (`docs/BUILD.md`, the
+  real-machine checks).
+- **Checked on the package of `5ebf768a`** (the `package` run of the
+  branch, its portable zip checked against its SHA-256 and served by its
+  own `localspace serve` on this laptop, the RTX 3050 Ti with 4 GB, from a
+  folder of its own, with a catalog that differs from the built-in one
+  only in the 4B's thinking on by default). The egg problem: "Starting…"
+  for half a second, then "Thinking… 0s" to "Thinking… 11s", the text
+  changing once a second, the mark's nodes pulsing, the rail's spinner on
+  throughout; the answer at 12.0 s ("31 whole eggs", right), the
+  indicator gone at its first word, the spinner gone at its end. The
+  thinking, 1,333 characters, is stored with the answer. A second
+  message: the engine read a prompt of about 96 tokens, the first
+  answer's words without its thinking (the thinking alone would be
+  about 350). Stop after three seconds of its thinking: the turn ended at
+  once, the answer kept as stopped with no words and its 310 characters
+  of thinking. None of the 23 lines of the stored thinking is in Core's
+  log, the engine's log or the audit log. **Not checked here:** the
+  system's reduced-motion setting (the browser pane cannot set it), and
+  the desktop window itself (the same client, served by the app).
+- **Found while checking, and fixed (the owner's ruling, the same day):**
+  the log's line for an answer with thinking counted the thinking's tokens
+  as written in the time after the first word ("450 tokens in 12.5 s
+  (712.1 tokens a second while writing)", where the words took half a
+  second). A step that thought now says its two speeds apart: "thought
+  from 0.4 s to 11.8 s, 430 tokens (37.7 a second), first word after
+  11.9 s, 20 tokens of answer (33.3 a second), 450 tokens in 12.5 s in
+  all". The answer's tokens are its streamed pieces, one token each (the
+  packaged engine with the 4B, thinking on: 602 pieces of thinking and 76
+  of words for 681 tokens, the other 3 the thinking's end marks); the
+  thinking's are the rest of the engine's count. A step without thinking
+  keeps the line it had. **No recorded result used the wrong figure:** the
+  kit reads none of the log (its figures are the engine's own); the two
+  scripts that read the line (the prompt item's, 2026-10-07) took only the
+  first piece's time and the prompt's size, on Qwen2.5 models, which do
+  not think. A Core stopped from outside left its engine running: the
+  orphan-engine file of the 0.2 basics, already planned.
+- **The owner's rulings on this report (2026-10-10):** "Starting…" stays,
+  for every model: it is true, and the old "Thinking…" was not. A stopped
+  answer keeps the thinking it had at the stop; Continue appends new
+  thinking after a blank line; the thinking is deleted with its message
+  and never goes back to the model. **Reduced motion joins the release
+  check** on the founder's laptop: with "Animation effects" off in
+  Windows' settings, the dots stand still and the seconds still count.
+- **Maths display (KaTeX) is in 0.2** (the owner, the same day; ruled
+  earlier, the ruling had not reached the builder): KaTeX 0.19.0, MIT,
+  offline by design (fonts by relative address), rendered with
+  `katex.render()` into an element so that the strict CSP needs no inline
+  styles; the browser's woff2 fonts alone are shipped, about 0.34 MB
+  compressed.
+
 ## 2026-10-09, the refresh's first step: the thinking budget, the exercise record, the counting runs
 
 The owner's answers of the evening of 2026-10-08 on the refresh's plan, and

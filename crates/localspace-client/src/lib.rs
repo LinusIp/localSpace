@@ -411,7 +411,10 @@ It runs as a native process. Its stated reason: {reason}"
             }
             E::Notice { level, text } => self.notices.push((level, text)),
             // The web client shows these; the egui client, kept until parity, does not.
-            E::ModelProgress { .. } | E::EngineChanged(_) | E::ConversationChanged { .. } => {}
+            E::ModelProgress { .. }
+            | E::EngineChanged(_)
+            | E::ConversationChanged { .. }
+            | E::ThinkingStarted { .. } => {}
             E::TraceLine { text } => {
                 self.trace.push(text);
                 if self.trace.len() > 500 {

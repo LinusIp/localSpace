@@ -315,6 +315,86 @@ fn a_stop_mid_answer_keeps_what_came_marked_as_stopped() {
     assert_eq!(bench.words_to("anna", &chat), shown);
 }
 
+/// The model's thinking is a state the person sees, never its words: the
+/// chat is told once that it began, after the turn is theirs to see and
+/// before the first word; nothing of it is streamed or traced; it is kept
+/// with the answer for its own person, and deleted with the chat
+/// (docs/DECISIONS.md, 2026-10-10).
+#[test]
+fn thinking_is_told_once_before_the_first_word_and_kept_with_the_answer() {
+    let bench = Bench::new("thinks first streams slowly", 1, Silence::ANSWER);
+    let anna = person("anna");
+    let chat = bench.send(&anna, "Think about it.");
+    bench.ended("anna", &chat, TurnState::Done);
+
+    let events = bench.events_of("anna");
+    let at = |what: &str, found: &dyn Fn(&proto::Event) -> bool| {
+        events
+            .iter()
+            .position(found)
+            .unwrap_or_else(|| panic!("{what}: {events:#?}"))
+    };
+    let writing = at(
+        "writing",
+        &|e| matches!(e, proto::Event::TurnChanged { conversation, state: TurnState::Writing } if *conversation == chat),
+    );
+    let began = at(
+        "the thinking's beginning",
+        &|e| matches!(e, proto::Event::ThinkingStarted { conversation } if *conversation == chat),
+    );
+    let first_word = at(
+        "the first word",
+        &|e| matches!(e, proto::Event::AssistantDelta { conversation, .. } if *conversation == chat),
+    );
+    assert!(
+        writing < began && began < first_word,
+        "writing {writing}, began {began}, first word {first_word}: {events:#?}"
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, proto::Event::ThinkingStarted { .. }))
+            .count(),
+        1,
+        "told once"
+    );
+    // Nothing of the thinking reached the person as words, nor as a line.
+    let words = bench.words_to("anna", &chat);
+    assert!(!words.contains("Let me think"), "{words}");
+    for e in &events {
+        if let proto::Event::TraceLine { text } | proto::Event::Notice { text, .. } = e {
+            assert!(!text.contains("Let me think"), "{text}");
+        }
+    }
+
+    let answer = bench.transcript(&anna).last().unwrap().clone();
+    assert_eq!(answer.role, proto::Role::Assistant);
+    assert_eq!(answer.thinking, "Let me think about it. ");
+    assert!(
+        answer.content.starts_with("word1 word2"),
+        "{}",
+        answer.content
+    );
+
+    // Deleted with the chat.
+    match bench.ask(
+        &anna,
+        proto::Request::DeleteConversation { id: chat.clone() },
+    ) {
+        proto::Response::Conversations { list, .. } => {
+            assert!(list.iter().all(|c| c.id != chat), "{list:?}")
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(
+        bench
+            .transcript(&anna)
+            .iter()
+            .all(|m| m.thinking.is_empty()),
+        "nothing of it stays"
+    );
+}
+
 /// Continue carries a stopped answer on: the engine is handed its words as
 /// the start of its reply and says them again first, as llama-server does;
 /// only what it adds reaches the person, and it joins the answer.

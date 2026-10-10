@@ -16,7 +16,7 @@
 //! line from buffered bytes ([`read_sse`]), so a character whose bytes
 //! arrive in separate reads is decoded whole.
 
-use crate::model::{ChatReply, read_sse};
+use crate::model::{ChatReply, Delta, read_sse};
 use anyhow::{Context, Result, bail};
 use std::cell::Cell;
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -121,7 +121,7 @@ pub fn post_and_read(
     body: &serde_json::Value,
     silence: Silence,
     stop: &Stop,
-    on_delta: &mut dyn FnMut(&str),
+    on_delta: &mut dyn FnMut(Delta<'_>),
 ) -> Result<ChatReply> {
     let (host, port, path) = split_url(url)?;
     let address = (host.as_str(), port)
@@ -149,7 +149,7 @@ fn exchange(
     body: &serde_json::Value,
     silence: Silence,
     stop: &Stop,
-    on_delta: &mut dyn FnMut(&str),
+    on_delta: &mut dyn FnMut(Delta<'_>),
 ) -> Result<ChatReply> {
     let payload = serde_json::to_vec(body)?;
     let mut head = format!(
@@ -199,9 +199,12 @@ fn exchange(
     }
 
     // After the first word the model is writing: from then on the shorter
-    // silence is the limit.
-    let mut on_word = |piece: &str| {
-        words.set(true);
+    // silence is the limit. Thinking is not a word: the longer silence
+    // holds through it, as before the first word.
+    let mut on_word = |piece: Delta<'_>| {
+        if let Delta::Words(_) = piece {
+            words.set(true);
+        }
         on_delta(piece);
     };
     let lines = BufReader::new(Body::new(reader, head.framing));
@@ -563,7 +566,11 @@ mod tests {
             &serde_json::json!({"stream": true}),
             silence,
             stop,
-            &mut |piece| pieces.push_str(piece),
+            &mut |piece| {
+                if let Delta::Words(words) = piece {
+                    pieces.push_str(words)
+                }
+            },
         );
         (answer, pieces)
     }

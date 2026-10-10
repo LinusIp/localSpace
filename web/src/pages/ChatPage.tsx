@@ -2,7 +2,7 @@
 // first message, then the conversation. Tool calls appear as what they did,
 // in words; anything that needs the person's say-so appears as a card.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, CloseIcon, SpinnerIcon, StopIcon } from "@localspace/ui";
 import type { ChatMessage, ToolCallRecord } from "../api/generated";
 import { initialsOf, outcomeLine, useSession } from "../store";
@@ -22,10 +22,17 @@ function useChatInProgress() {
   const turn = useSession((s) => s.turns[chat] ?? null);
   const liveCalls = useSession((s) => s.liveCalls[chat] ?? NO_CALLS);
   const continuing = useSession((s) => s.continuing[chat] ?? false);
-  return { streaming, turn, liveCalls, continuing };
+  const thinkingSince = useSession((s) => s.thinking[chat] ?? null);
+  return { streaming, turn, liveCalls, continuing, thinkingSince };
 }
 
 const NO_CALLS: LiveToolCall[] = [];
+
+/** Said in the answer's place from the send until the model's thinking or
+ *  first word is heard of, and while it thinks, with the seconds (ruled
+ *  2026-10-06 and 2026-10-09). */
+const STARTING = "Starting…";
+const THINKING = "Thinking…";
 
 /** Said while an answer waits for the person's other chat (ruled 2026-09-23):
  *  without the second sentence people send the message again. */
@@ -64,7 +71,7 @@ export function ChatPage() {
 /** The conversation itself: the page's body, and the board's drawer. */
 export function Conversation({ compact }: { compact?: boolean }) {
   const { transcript, approvals } = useSession();
-  const { streaming, turn, liveCalls, continuing } = useChatInProgress();
+  const { streaming, turn, liveCalls, continuing, thinkingSince } = useChatInProgress();
   const shown = shownOf(transcript);
   const bottom = useRef<HTMLDivElement>(null);
   // What is typed here belongs to the chat, and stays with it.
@@ -111,7 +118,7 @@ export function Conversation({ compact }: { compact?: boolean }) {
           })}
           {turn && !joining && (
             <div className="message">
-              <AssistantAvatar />
+              <AssistantAvatar thinking={turn === "writing" && !streaming && thinkingSince !== null} />
               <div className="message-body">
                 {liveCalls.map((c) => (
                   <LiveWork key={c.id} call={c} />
@@ -125,9 +132,7 @@ export function Conversation({ compact }: { compact?: boolean }) {
                     <Markdown text={streaming} />
                   </div>
                 ) : turn === "writing" ? (
-                  <span className="message-work">
-                    <SpinnerIcon size={14} className="ls-spin" /> Thinking…
-                  </span>
+                  <ThinkingLine key={thinkingSince ?? "starting"} since={thinkingSince} />
                 ) : (
                   turn === "waits_for_the_model" && (
                     <span className="message-work">
@@ -199,10 +204,31 @@ function Footnote() {
   return <div className="composer-note">{where}</div>;
 }
 
-function AssistantAvatar() {
+/** The mark; while the model thinks, its three nodes pulse in turn, in CSS
+ *  alone (ruled 2026-10-06). */
+function AssistantAvatar({ thinking }: { thinking?: boolean }) {
   return (
-    <span className="avatar small soft" aria-hidden="true">
+    <span className={`avatar small soft${thinking ? " thinking" : ""}`} aria-hidden="true">
       <Mark size={16} color="#1D7A55" />
+    </span>
+  );
+}
+
+/** "Starting…" until the model's thinking is heard of, then "Thinking…" with
+ *  the seconds since, written anew once a second in this one line and
+ *  nowhere else: the words give way at the first visible word. */
+function ThinkingLine({ since }: { since: number | null }) {
+  // Counted by the timer alone, from nought: the line is keyed on `since`
+  // by its parent, so a new thinking starts a new count.
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    if (since === null) return;
+    const timer = window.setInterval(() => setSeconds(Math.max(0, Math.floor((Date.now() - since) / 1000))), 1000);
+    return () => window.clearInterval(timer);
+  }, [since]);
+  return (
+    <span className="message-work">
+      <SpinnerIcon size={14} className="ls-spin" /> {since === null ? STARTING : `${THINKING} ${seconds}s`}
     </span>
   );
 }

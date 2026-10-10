@@ -515,6 +515,13 @@ pub struct ChatMessage {
     /// kept, and the model reads it on the next turn.
     #[serde(default)]
     pub stopped: bool,
+    /// The model's thinking before this answer, where the engine hands it
+    /// apart from the words; empty when it thought nothing or the model
+    /// does not think. Kept with its message, and gone with it: never read
+    /// back into a prompt, never written to a log, never shown to anyone
+    /// but the chat's own person (docs/DECISIONS.md, 2026-10-10).
+    #[serde(default)]
+    pub thinking: String,
 }
 
 /// Where the answer to a chat's last message is.
@@ -1522,6 +1529,12 @@ pub enum Event {
         conversation: String,
         text: String,
     },
+    /// The model began to think before its answer in `conversation`: the
+    /// chat shows that it thinks, and for how long, until the first word
+    /// comes. Nothing of the thinking itself is in it.
+    ThinkingStarted {
+        conversation: String,
+    },
     /// The answer in `conversation` is written, or ended: read it again.
     AssistantDone {
         conversation: String,
@@ -1747,6 +1760,27 @@ mod tests {
             },
             other => panic!("wrong body: {other:?}"),
         }
+    }
+
+    /// The thinking's event names its chat and nothing else; a stored
+    /// message without the thinking field reads as one that thought nothing.
+    #[test]
+    fn the_thinking_event_and_a_message_without_the_field_survive_the_wire() {
+        let env = Envelope {
+            id: 3,
+            body: Body::Event(Event::ThinkingStarted {
+                conversation: "c_1".into(),
+            }),
+        };
+        let back = decode(&encode(&env).unwrap()).unwrap();
+        match back.body {
+            Body::Event(Event::ThinkingStarted { conversation }) => assert_eq!(conversation, "c_1"),
+            other => panic!("wrong body: {other:?}"),
+        }
+        let old: ChatMessage =
+            serde_json::from_str(r#"{"role":"assistant","content":"Four."}"#).unwrap();
+        assert_eq!(old.thinking, "");
+        assert!(!old.stopped);
     }
 
     #[test]

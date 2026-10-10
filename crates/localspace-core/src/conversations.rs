@@ -361,6 +361,7 @@ mod tests {
             content: text.into(),
             tool_calls: Vec::new(),
             stopped: false,
+            thinking: String::new(),
         }
     }
 
@@ -393,6 +394,40 @@ mod tests {
         assert_eq!(c.messages.len(), 1);
         assert_eq!(c.updated_ms, 2000);
         assert_eq!(again.conversations.len(), 1, "nothing was started on top");
+    }
+
+    /// An answer's thinking is stored exactly like its message, and goes
+    /// with it: it survives a reload whole, and a deleted conversation
+    /// leaves nothing of it in the database (docs/DECISIONS.md, 2026-10-10).
+    #[test]
+    fn an_answers_thinking_is_stored_and_deleted_with_its_message() {
+        let db = db();
+        let mut s = Store::load(&db, "u", "ws_u", 1000);
+        let id = s.current.clone();
+        let mut answer = user("Four.");
+        answer.role = proto::Role::Assistant;
+        answer.thinking = "two and two, so four".into();
+        s.record(&[user("2 + 2?"), answer], 2000);
+
+        let again = Store::load(&db, "u", "ws_u", 3000);
+        let kept = &again.current().unwrap().messages[1];
+        assert_eq!(kept.thinking, "two and two, so four");
+        assert_eq!(kept.content, "Four.");
+
+        let mut again = again;
+        assert!(again.delete(&id, 4000));
+        let rows = db.conversations("u", "ws_u").unwrap();
+        assert!(
+            rows.iter().all(|c| c.id != id),
+            "the row is gone: {:?}",
+            rows.iter().map(|c| &c.id).collect::<Vec<_>>()
+        );
+        assert!(
+            rows.iter()
+                .flat_map(|c| &c.messages)
+                .all(|m| m.thinking.is_empty()),
+            "nothing of the thinking stays behind"
+        );
     }
 
     #[test]

@@ -220,6 +220,22 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
             );
         }
     }
+    // Whether any message of the request carries thinking from an earlier
+    // step: as a field, or as this engine's own thought among the words. A
+    // test reads the answer, never the messages (docs/DECISIONS.md,
+    // 2026-10-10).
+    let messages = request["messages"].as_array().into_iter().flatten();
+    let earlier_thinking = messages.clone().any(|m| {
+        !m["reasoning_content"].is_null()
+            || m["content"]
+                .as_str()
+                .is_some_and(|c| c.contains("Let me think about it."))
+    });
+    eprintln!(
+        "fake llama-server: {} messages; earlier thinking in them: {}",
+        messages.count(),
+        if earlier_thinking { "yes" } else { "no" }
+    );
     let begun = request["messages"]
         .as_array()
         .and_then(|messages| messages.last())

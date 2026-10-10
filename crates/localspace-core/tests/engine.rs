@@ -1075,6 +1075,30 @@ fn a_model_with_a_vision_file_starts_with_it_and_its_steps_are_measured() {
         "the request said so: {}",
         log()
     );
+    // What the fake thought is kept with its answer, and the next request
+    // carries nothing of it (docs/DECISIONS.md, 2026-10-10): the engine
+    // says of every request whether earlier thinking came with it.
+    let transcript = |core: &mut Core| match core.handle(proto::Request::GetTranscript) {
+        proto::Response::Transcript { messages } => messages,
+        other => panic!("expected the transcript, got {other:?}"),
+    };
+    assert_eq!(transcript(&mut core)[1].thinking, "Let me think about it. ");
+    core.handle(proto::Request::SendMessage {
+        text: "and again".into(),
+        conversation: None,
+    });
+    // Two chat turns at least (the warm-up and the read-time requests are
+    // asked of the engine too), none carrying earlier thinking.
+    assert!(
+        log().matches("earlier thinking in them: no").count() >= 2,
+        "{}",
+        log()
+    );
+    assert!(
+        !log().contains("earlier thinking in them: yes"),
+        "{}",
+        log()
+    );
 
     // A picture with a message goes to the engine as parts of one message.
     core.send_picture("what is this?", vec![0x89, b'P', b'N', b'G'], None);

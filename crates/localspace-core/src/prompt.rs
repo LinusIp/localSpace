@@ -290,7 +290,9 @@ pub fn with_pictures(
 }
 
 /// What one stored message is to the engine. A call is kept as a message of
-/// its own, holding the call and what came of it.
+/// its own, holding the call and what came of it. A message's `thinking` is
+/// not read here, on purpose: the model never reads its earlier thinking
+/// again (docs/DECISIONS.md, 2026-10-10).
 fn turns_of(m: &proto::ChatMessage) -> Vec<Turn> {
     let mut out = Vec::new();
     match m.role {
@@ -381,6 +383,7 @@ mod tests {
             content: text.into(),
             tool_calls: Vec::new(),
             stopped: false,
+            thinking: String::new(),
         }
     }
 
@@ -626,6 +629,39 @@ mod tests {
                 Turn::Answer(format!("Once upon {STOPPED_HERE}")),
             ]
         );
+    }
+
+    /// An answer's thinking is stored with it and is no part of what the
+    /// model reads: the turn is the words alone, stopped or whole, and the
+    /// rendered prompt holds none of the thinking (docs/DECISIONS.md,
+    /// 2026-10-10).
+    #[test]
+    fn an_answers_thinking_is_never_a_turn() {
+        let mut thought = msg(Role::Assistant, "Four.");
+        thought.thinking = "two and two, so four".into();
+        let mut stopped = msg(Role::Assistant, "Once upon");
+        stopped.stopped = true;
+        stopped.thinking = "a story, then".into();
+        let messages = [
+            msg(Role::User, "2 + 2?"),
+            thought,
+            msg(Role::User, "a story"),
+            stopped,
+        ];
+        assert_eq!(
+            turns(&messages, 10_000),
+            vec![
+                Turn::Person("2 + 2?".into()),
+                Turn::Answer("Four.".into()),
+                Turn::Person("a story".into()),
+                Turn::Answer(format!("Once upon {STOPPED_HERE}")),
+            ]
+        );
+        let p = ModelProfile::w32();
+        let rendered = build(&p, &active(&["canvas.list"]), &[], None, &messages).render();
+        assert!(!rendered.contains("two and two"), "{rendered}");
+        assert!(!rendered.contains("a story, then"), "{rendered}");
+        assert!(rendered.contains("Four."), "{rendered}");
     }
 
     /// A picture sits with the message it came with, counted among the

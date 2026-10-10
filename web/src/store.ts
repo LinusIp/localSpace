@@ -87,6 +87,10 @@ export type Session = {
   liveCalls: Record<string, LiveToolCall[]>;
   /** The chats whose stopped answer is being carried on: its words join it. */
   continuing: Record<string, boolean>;
+  /** The chats whose model is thinking before its answer: when the shell
+   *  heard so, in ms. Gone with the first word's arrival in the kept answer,
+   *  and with the turn's end. */
+  thinking: Record<string, number>;
   /** What the person typed in each chat and has not sent: kept while an
    *  answer is written, when they go to another page or chat, and when a
    *  send fails, so that it is never lost (ruled 2026-09-24). */
@@ -233,6 +237,7 @@ const EMPTY = {
   turns: {} as Record<string, TurnState>,
   liveCalls: {} as Record<string, LiveToolCall[]>,
   continuing: {} as Record<string, boolean>,
+  thinking: {} as Record<string, number>,
   drafts: {} as Record<string, string>,
   approvals: [] as Approval[],
   trace: [] as string[],
@@ -394,10 +399,18 @@ export const useSession = createStore<Session>((set, get) => {
       else if ("assistant_delta" in event) {
         const { conversation, text } = event.assistant_delta;
         set((s) => ({ streaming: { ...s.streaming, [conversation]: (s.streaming[conversation] ?? "") + text } }));
+      } else if ("thinking_started" in event) {
+        const chat = event.thinking_started.conversation;
+        set((s) => ({ thinking: { ...s.thinking, [chat]: Date.now() } }));
       } else if ("assistant_done" in event) {
         const chat = event.assistant_done.conversation;
         const clear = () =>
-          set((s) => ({ streaming: without(s.streaming, chat), liveCalls: without(s.liveCalls, chat), continuing: without(s.continuing, chat) }));
+          set((s) => ({
+            streaming: without(s.streaming, chat),
+            liveCalls: without(s.liveCalls, chat),
+            continuing: without(s.continuing, chat),
+            thinking: without(s.thinking, chat),
+          }));
         // The chat on screen keeps its words until the kept answer replaces
         // them, so that nothing blinks.
         if (chat === get().currentConversation) void get().refreshTranscript().then(clear);
@@ -407,7 +420,11 @@ export const useSession = createStore<Session>((set, get) => {
         void get().refreshHistory();
       } else if ("turn_changed" in event) {
         const { conversation, state } = event.turn_changed;
-        set((s) => ({ turns: ENDED.includes(state) ? without(s.turns, conversation) : { ...s.turns, [conversation]: state } }));
+        set((s) =>
+          ENDED.includes(state)
+            ? { turns: without(s.turns, conversation), thinking: without(s.thinking, conversation) }
+            : { turns: { ...s.turns, [conversation]: state } },
+        );
       } else if ("tool_call_started" in event) {
         const { conversation, id, tool, params } = event.tool_call_started;
         set((s) => ({
@@ -481,7 +498,7 @@ export const useSession = createStore<Session>((set, get) => {
       // sent twice meanwhile.
       set((s) => ({
         turns: { ...s.turns, [chat]: "writing" },
-        transcript: [...s.transcript, { role: "user", content: text, tool_calls: [], stopped: false }],
+        transcript: [...s.transcript, { role: "user", content: text, tool_calls: [], stopped: false, thinking: "" }],
       }));
       const transcript = await attempt(async () => pick(await call({ send_message: { text, conversation: chat } }), "transcript"));
       if (!transcript) {

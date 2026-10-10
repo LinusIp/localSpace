@@ -238,6 +238,7 @@ fn each_user_has_their_own_conversation_ledger_focus_and_board_over_one_environm
                     ev,
                     proto::Event::AssistantDone { .. }
                         | proto::Event::TurnChanged { .. }
+                        | proto::Event::ThinkingStarted { .. }
                         | proto::Event::TaskChanged(_)
                 )
         }),
