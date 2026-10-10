@@ -378,6 +378,7 @@ mod tests {
             tool_calls: Vec::new(),
             stopped: false,
             thinking: String::new(),
+            cut_short: None,
         }
     }
 

@@ -484,6 +484,9 @@ pub struct Core {
     /// budget; nothing for a model that does not think): the answer's
     /// limit grows by it when thinking is on.
     thinking_budget: u32,
+    /// The loaded model's sampling, from its catalog entry
+    /// (docs/DECISIONS.md, 2026-10-10); the plain temperature without one.
+    pub(crate) sampling: Option<models::ModelSampling>,
     /// Where a model's vision file goes at the next load.
     vision_place: VisionPlace,
     /// The pictures sent with messages, by chat and by the message's place
@@ -635,6 +638,7 @@ impl Core {
             run_inline: false,
             thinking: None,
             thinking_budget: 0,
+            sampling: None,
             vision_place: VisionPlace::default(),
             pictures: HashMap::new(),
             answer_measures: HashMap::new(),
@@ -1880,6 +1884,7 @@ impl Core {
                 self.thinking_budget = 0;
             }
         }
+        self.sampling = self.models.get(id).and_then(|m| m.sampling);
         let mut fixed = self.vision_flags(id);
         fixed.extend(self.thinking_flags(id));
         let engine = engine::Engine::start(

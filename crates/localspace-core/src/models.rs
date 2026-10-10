@@ -159,6 +159,31 @@ pub struct CatalogModel {
     /// (docs/DECISIONS.md, 2026-10-08).
     #[serde(default)]
     pub thinking: Option<Thinking>,
+    /// How the engine samples for this model, from its maker's published
+    /// card: one setting for answers, one for thinking (docs/DECISIONS.md,
+    /// 2026-10-10). Without it, the temperature alone, as before.
+    #[serde(default)]
+    pub sampling: Option<ModelSampling>,
+}
+
+/// A model's sampling, as its card gives it.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ModelSampling {
+    /// For an answer with thinking off, or a model that does not think.
+    pub answer: crate::model::Sampling,
+    /// For an answer with thinking on; the answer's own when absent.
+    #[serde(default)]
+    pub thinking: Option<crate::model::Sampling>,
+}
+
+impl ModelSampling {
+    /// The setting for a request that asks the model to think, or not.
+    pub fn for_thinking(&self, thinking: Option<bool>) -> crate::model::Sampling {
+        match thinking {
+            Some(true) => self.thinking.unwrap_or(self.answer),
+            _ => self.answer,
+        }
+    }
 }
 
 /// One pass of the message script a person read, on one tier of computer.
@@ -997,6 +1022,7 @@ impl Catalog {
             published_as: HashMap::new(),
             exercised: Vec::new(),
             thinking: None,
+            sampling: None,
         };
         let mut imports = self.imports();
         imports.retain(|m| m.id != id);
@@ -1691,6 +1717,19 @@ mod tests {
                 assert!(
                     m.exercised_day().is_empty(),
                     "{}: hidden, yet it says it went through the script",
+                    m.id
+                );
+            }
+            // Every entry of a maker who publishes sampling carries it
+            // (docs/DECISIONS.md, 2026-10-10).
+            if m.id.starts_with("qwen") {
+                let s = m
+                    .sampling
+                    .unwrap_or_else(|| panic!("{}: no sampling", m.id));
+                assert!(s.answer.temperature > 0.0 && s.answer.top_k > 0, "{}", m.id);
+                assert!(
+                    m.thinking.is_none() || s.thinking.is_some(),
+                    "{}: thinks, with no sampling for it",
                     m.id
                 );
             }

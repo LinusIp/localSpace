@@ -18,6 +18,7 @@ export type { Confirm } from "./Confirm";
 export type { ContextBlock } from "./ContextBlock";
 export type { ConversationSummary } from "./ConversationSummary";
 export type { CostHint } from "./CostHint";
+export type { CutShort } from "./CutShort";
 export type { DocKind } from "./DocKind";
 export type { DocumentInfo } from "./DocumentInfo";
 export type { DocumentSource } from "./DocumentSource";

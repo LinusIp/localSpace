@@ -23,6 +23,11 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+/// The longest answer, in tokens, before the thinking's budget: one that
+/// reaches it ends with a line saying so and can be carried on
+/// (docs/DECISIONS.md, 2026-10-10).
+pub const ANSWER_TOKENS: u32 = 2048;
+
 /// Where an answer's events go: the events of Core's own sink, to the
 /// answer's person, from whichever thread reads the model.
 type Delivery = Arc<dyn Fn(proto::Event) + Send + Sync>;
@@ -516,6 +521,10 @@ fn ask_the_model(core: &mut Core, id: u64) {
     request.grammar = grammar;
     request.begun = begun;
     request.thinking = core.thinking;
+    request.sampling = core.sampling.map(|s| s.for_thinking(request.thinking));
+    // An answer may be as long as [`ANSWER_TOKENS`]: about a minute of
+    // writing on a 4 GB card (docs/DECISIONS.md, 2026-10-10).
+    request.max_tokens = ANSWER_TOKENS;
     // With thinking on, the answer's limit grows by the thinking budget, so
     // that the answer keeps its room when the thinking takes all of its own
     // (docs/DECISIONS.md, 2026-10-08).
@@ -555,6 +564,7 @@ fn ask_the_model(core: &mut Core, id: u64) {
                     thought: String::new(),
                     thought_span: None,
                     word_pieces: 0,
+                    repeated: None,
                     first_piece: None,
                     took: Duration::ZERO,
                     prompt_estimate,
@@ -609,6 +619,7 @@ fn read_the_model(
     let mut thought = String::new();
     let mut thought_span: Option<(Duration, Duration)> = None;
     let mut word_pieces = 0usize;
+    let mut repeated: Option<String> = None;
     let reply = match streamer {
         None => Err(anyhow::anyhow!("no model is loaded in this environment")),
         Some(streamer) => streamer.chat_streaming_until(
@@ -631,9 +642,22 @@ fn read_the_model(
                     }
                     model::Delta::Words(piece) => piece,
                 };
+                // Stopped for repeating itself: whatever comes before the
+                // engine hears it is not the answer's.
+                if repeated.is_some() {
+                    return;
+                }
                 word_pieces += 1;
                 first_piece.get_or_insert_with(|| asked.elapsed());
                 seen.push_str(delta);
+                // An answer that says the same stretch a third time in a row
+                // is stopped, and what came before the loop is kept, with one
+                // saying of it (docs/DECISIONS.md, 2026-10-10).
+                if let Some(cut) = model::repeating_from(&seen) {
+                    repeated = Some(seen[..cut].to_string());
+                    stop.stop();
+                    return;
+                }
                 // Shown as it comes, up to a line that begins, or may yet
                 // begin, a block in the shape of a call: that line and all
                 // after it wait for the reply's end, so that a call is never
@@ -658,6 +682,7 @@ fn read_the_model(
         thought,
         thought_span,
         word_pieces,
+        repeated,
         first_piece,
         took: asked.elapsed(),
         prompt_estimate,
@@ -718,13 +743,35 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
         }
     }
 
+    // Stopped for repeating itself: the words before the loop, and one
+    // saying of it, are the answer, which reads to the model as finished; the
+    // chat says why it ended (docs/DECISIONS.md, 2026-10-10).
+    if let Some(kept) = &step.repeated {
+        core.trace(format!(
+            "answer: step {steps}, stopped for repeating itself after {} characters; {} kept",
+            step.shown.chars().count().max(kept.chars().count()),
+            kept.chars().count()
+        ));
+        keep(
+            core,
+            id,
+            kept,
+            &step.thought,
+            false,
+            true,
+            Some(proto::CutShort::Repeated),
+        );
+        end(core, id, TurnState::Done);
+        return;
+    }
+
     let reply = match step.reply {
         Ok(reply) => reply,
         Err(e) => {
             match e.downcast_ref::<Cut>() {
                 // What came is kept, marked as stopped, its thinking with it.
                 Some(cut) => {
-                    keep(core, id, &step.shown, &step.thought, true, true);
+                    keep(core, id, &step.shown, &step.thought, true, true, None);
                     let how = if *cut == Cut::Stopped {
                         TurnState::Stopped
                     } else {
@@ -742,6 +789,7 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
                         "",
                         false,
                         false,
+                        None,
                     );
                     end(core, id, TurnState::Done);
                 }
@@ -790,7 +838,21 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
                 text: rest.to_string(),
             });
         }
-        keep(core, id, &reply.text, &step.thought, false, true);
+        // An answer that reached the longest allowed is kept as stopped,
+        // so that Continue carries it on, and the chat says why it ended.
+        if reply.at_limit {
+            keep(
+                core,
+                id,
+                &reply.text,
+                &step.thought,
+                true,
+                true,
+                Some(proto::CutShort::Length),
+            );
+        } else {
+            keep(core, id, &reply.text, &step.thought, false, true, None);
+        }
         end(core, id, TurnState::Done);
         return;
     }
@@ -876,7 +938,7 @@ fn attempted(
             text: unseen,
         });
     }
-    keep(core, id, &answer, thought, false, true);
+    keep(core, id, &answer, thought, false, true, None);
     end(core, id, TurnState::Done);
 }
 
@@ -1012,8 +1074,17 @@ fn set_state(core: &mut Core, id: u64, state: TurnState) {
 /// The answer's words, into its chat, with the model's thinking before
 /// them. `stopped`: it ended before the model finished. Carrying on an
 /// answer that stopped, they join it, when `join`; thinking that came while
-/// carrying on joins the earlier thinking, a blank line between.
-fn keep(core: &mut Core, id: u64, text: &str, thinking: &str, stopped: bool, join: bool) {
+/// carrying on joins the earlier thinking, a blank line between. `cut`: why
+/// Core ended it early, if it did, which the chat shows.
+fn keep(
+    core: &mut Core,
+    id: u64,
+    text: &str,
+    thinking: &str,
+    stopped: bool,
+    join: bool,
+    cut: Option<proto::CutShort>,
+) {
     let Some(i) = index(core, id) else {
         return;
     };
@@ -1034,6 +1105,7 @@ fn keep(core: &mut Core, id: u64, text: &str, thinking: &str, stopped: bool, joi
         {
             last.content.push_str(text);
             last.stopped = stopped;
+            last.cut_short = cut;
             if !thinking.is_empty() {
                 if !last.thinking.is_empty() {
                     last.thinking.push_str("\n\n");
@@ -1045,6 +1117,7 @@ fn keep(core: &mut Core, id: u64, text: &str, thinking: &str, stopped: bool, joi
         let mut answer = message(proto::Role::Assistant, text);
         answer.stopped = stopped;
         answer.thinking = thinking.to_string();
+        answer.cut_short = cut;
         messages.push(answer);
     });
 }
@@ -1072,6 +1145,7 @@ fn record_call(core: &mut Core, id: u64, tool: &str, params: &J, outcome: proto:
             tool_calls: vec![record],
             stopped: false,
             thinking: String::new(),
+            cut_short: None,
         });
     });
 }
@@ -1151,6 +1225,7 @@ fn message(role: proto::Role, text: &str) -> proto::ChatMessage {
         tool_calls: Vec::new(),
         stopped: false,
         thinking: String::new(),
+        cut_short: None,
     }
 }
 
@@ -1514,7 +1589,11 @@ mod tests {
             .collect();
         assert_eq!(
             limits,
-            [(None, 1024), (Some(false), 1024), (Some(true), 2048)]
+            [
+                (None, ANSWER_TOKENS),
+                (Some(false), ANSWER_TOKENS),
+                (Some(true), ANSWER_TOKENS + 1024)
+            ]
         );
     }
 
@@ -1778,6 +1857,59 @@ mod tests {
             request.conversation()
         );
         assert!(core.transcript[1].stopped, "it stays marked");
+    }
+
+    /// An answer that says the same stretch a third time in a row is
+    /// stopped: what came before the loop and one saying of it are kept,
+    /// the answer reads as finished, and the chat is told why it ended
+    /// (docs/DECISIONS.md, 2026-10-10).
+    #[test]
+    fn an_answer_repeating_itself_is_stopped_and_its_start_kept() {
+        let looped = "Uning yuzasi taxminan 5500 daraja issiq. Quyosh juda katta yulduz. ";
+        let script = Script::new(vec![said(&format!(
+            "Quyosh haqida. {looped}{looped}{looped}{looped}"
+        ))]);
+        let mut core = core_with(script);
+        let events = events_of(&mut core);
+        turn(&mut core, "Quyosh haqida yozib ber.");
+        let answer = core.transcript.last().unwrap().clone();
+        assert_eq!(answer.content, format!("Quyosh haqida. {looped}"));
+        assert_eq!(answer.cut_short, Some(proto::CutShort::Repeated));
+        assert!(
+            !answer.stopped,
+            "it reads as finished, with nothing to carry on"
+        );
+        assert!(
+            events.lock().unwrap().iter().any(|e| matches!(
+                e,
+                proto::Event::TurnChanged {
+                    state: TurnState::Done,
+                    ..
+                }
+            )),
+            "the turn ends as done"
+        );
+        let measure = core
+            .answer_measure(&core.conversations.current.clone())
+            .unwrap();
+        assert!(measure.repeated);
+    }
+
+    /// An answer that reaches the longest allowed is kept as stopped, so
+    /// that Continue carries it on, and the chat is told why it ended.
+    #[test]
+    fn an_answer_at_the_length_limit_is_kept_to_carry_on() {
+        let script = Script::new(vec![ChatReply {
+            text: "A very long answer that".into(),
+            at_limit: true,
+            ..Default::default()
+        }]);
+        let mut core = core_with(script);
+        turn(&mut core, "Write a lot.");
+        let answer = core.transcript.last().unwrap().clone();
+        assert_eq!(answer.content, "A very long answer that");
+        assert!(answer.stopped);
+        assert_eq!(answer.cut_short, Some(proto::CutShort::Length));
     }
 
     /// With nothing installed, what the model is sent holds no tool and no

@@ -43,6 +43,10 @@ const WAITS_FOR_ANOTHER_CHAT = "Waiting for the answer in your other chat to fin
  *  model here. */
 const WAITS_FOR_THE_SERVER = "The server is answering other people right now. This one will start by itself.";
 
+/** Said under an answer Core ended early (ruled 2026-10-10). */
+const REPEATED = "The answer started repeating itself, so it was stopped.";
+const AT_LIMIT = "The answer reached its length limit.";
+
 /** Said where a proposal the person declined stood (ruled 2026-09-24). */
 const DECLINED = "You declined this change. The answer stopped here.";
 
@@ -280,9 +284,10 @@ function Message({ message, joined, mayContinue }: { message: ChatMessage; joine
             <Markdown text={text} />
           </div>
         )}
+        {joined === null && message.cut_short === "repeated" && <div className="message-stopped">{REPEATED}</div>}
         {joined === null && message.stopped && (
           <div className="message-stopped">
-            The answer stopped here.
+            {message.cut_short === "length" ? AT_LIMIT : "The answer stopped here."}
             {mayContinue && (
               <>
                 {" "}

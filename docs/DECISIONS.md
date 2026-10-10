@@ -58,6 +58,37 @@ met, and the owner's rulings on the builder's plan, the same day.
   there; an empty chat an older version saved stays in the database and is
   not listed. (Item 1.8 of the basics, "New chat reuses the empty one", is
   this.)
+- **Sampling per model, from its maker's card.** Core had sent a
+  temperature of 0.2 and nothing else. Each catalog entry now carries
+  `sampling: {answer, thinking}` as the card publishes it, read on
+  2026-10-10, and every request of that model takes the one for its
+  thinking setting:
+
+  | Models | Answer (thinking off) | Thinking on |
+  |---|---|---|
+  | Qwen3.5 0.8B, 2B | temperature 1.0, top_p 1.0, top_k 20, presence 2.0 | 1.0, 0.95, 20, presence 1.5 |
+  | Qwen3.5 4B, 9B, 27B, 35B-A3B | 0.7, 0.8, 20, presence 1.5 | 1.0, 0.95, 20, presence 1.5 |
+  | Qwen3.8-27B | 0.7, 0.8, 20, presence 1.5 | 1.0, 0.95, 20, presence 0 |
+  | Qwen3-30B-A3B | 0.7, 0.8, 20 | 0.6, 0.95, 20 |
+  | Qwen2.5 0.5B, 1.5B | 0.7, 0.8, 20, repetition 1.1 | — |
+  | Qwen2.5 3B, 7B, 14B | 0.7, 0.8, 20, repetition 1.05 | — |
+
+  min_p 0 throughout. **Qwen warns that a high presence penalty can mix
+  languages:** the cards' values stand only once the kit's Russian and
+  Uzbek runs show no mixing; where they do, the penalty is lowered for that
+  model and its entry says so. Every 4B measurement before this was at 0.2,
+  so the 4 GB counting runs (4B against 7B) run again under these settings.
+- **The loop guard.** An answer whose end is one stretch of at least 60
+  characters said three times in a row is stopped at once (the engine's
+  connection shut): what came before the loop and one saying of it are
+  kept, the answer reads to the model as finished, and the chat says "The
+  answer started repeating itself, so it was stopped." Text inside a code
+  block is not looked at, since code repeats lines on purpose (a matrix of
+  zeros was the case); a long table of like rows is not cut. Both are tests.
+- **The longest answer: 2,048 tokens**, plus the thinking budget when
+  thinking is on (it was 1,024), about a minute of writing on a 4 GB card.
+  One that reaches it is kept as stopped and ends with "The answer reached
+  its length limit." and the Continue button.
 - **The prompt work moves to Learn wave 1, as its first part and a gate:
   no tool ships until it passes.** The assistant-first instructions; the
   board's state kept apart from the person's words and the tools listed
