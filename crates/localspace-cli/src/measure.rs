@@ -146,6 +146,9 @@ struct Item {
     /// In the short thinking-on pass: one of the five messages where
     /// thinking could matter (docs/DECISIONS.md, 2026-10-08).
     thinking: bool,
+    /// What a right answer says, for a factual question: the reader counts
+    /// the wrong ones against it (docs/DECISIONS.md, 2026-10-10).
+    facts: Option<&'static str>,
 }
 
 fn item(name: &'static str, text: impl Into<String>) -> Item {
@@ -153,6 +156,14 @@ fn item(name: &'static str, text: impl Into<String>) -> Item {
         name,
         turns: vec![text.into()],
         thinking: false,
+        facts: None,
+    }
+}
+
+fn fact_item(name: &'static str, text: impl Into<String>, facts: &'static str) -> Item {
+    Item {
+        facts: Some(facts),
+        ..item(name, text)
     }
 }
 
@@ -275,7 +286,47 @@ fn script() -> Vec<Item> {
                 "Roughly what would that cost for two people?".into(),
             ],
             thinking: false,
+            facts: None,
         },
+        // After the founder's test of 2026-10-10: a long answer in each of the
+        // market's languages, where a loop shows (an Uzbek answer about the Sun
+        // said three sentences without end), and facts in both, where the same
+        // answer gave the Sun 27,000 °C. Last, so that the cases before keep
+        // their order and their names.
+        item(
+            "a long answer in Russian",
+            "Напиши подробное эссе о Солнце: его строение, температура, масса и значение для жизни на Земле.",
+        ),
+        item(
+            "a long answer in Uzbek (Latin)",
+            "Quyosh haqida batafsil yozib bering: uning tuzilishi, harorati, massasi va Yerdagi hayot uchun ahamiyati.",
+        ),
+        fact_item(
+            "a fact in Russian: the Sun's surface",
+            "Какая температура на поверхности Солнца?",
+            "about 5,500 °C (5,772 K)",
+        ),
+        fact_item(
+            "a fact in Russian: the Earth's mass",
+            "Какова масса Земли?",
+            "about 5.97 × 10^24 kg",
+        ),
+        fact_item(
+            "a fact in Uzbek: the Sun's mass",
+            "Quyoshning massasi qancha?",
+            "about 1.989 × 10^30 kg",
+        ),
+        fact_item(
+            "a fact in Uzbek: the Moon's distance",
+            "Oy Yerdan qancha uzoqlikda joylashgan?",
+            "about 384,400 km on average",
+        ),
+        // Maths in the answer, written as formulas: the case maths display is
+        // read against (docs/DECISIONS.md, 2026-10-10).
+        item(
+            "an integral, step by step",
+            "Show how to solve a basic integral, step by step.",
+        ),
     ]
 }
 
@@ -1346,6 +1397,11 @@ fn table(lines: &mut Vec<String>, items: &[(&'static str, Vec<Answered>)]) {
                 (None, true) => "**no reply**".to_string(),
                 (None, false) => t.reply.clone(),
             };
+            let back = if t.measure.as_ref().is_some_and(|m| m.repeated) {
+                format!("**stopped: it repeated itself** {back}")
+            } else {
+                back
+            };
             lines.push(format!(
                 "| {} | {:.1} s | {} | {} | {} | {} | {} |",
                 cell(&label),
@@ -1492,6 +1548,30 @@ fn report(run: &Progress) -> String {
         lines.push(String::new());
         table(&mut lines, &pass.items);
         lines.push(String::new());
+        // The loops Core stopped, counted (docs/DECISIONS.md, 2026-10-10).
+        let answers = pass.items.iter().flat_map(|(_, turns)| turns);
+        let looped = answers
+            .clone()
+            .filter(|t| t.measure.as_ref().is_some_and(|m| m.repeated))
+            .count();
+        lines.push(format!(
+            "Stopped for repeating itself: {looped} of {} answers.",
+            answers.count()
+        ));
+        lines.push(String::new());
+        let facts: Vec<(&str, &str)> = script()
+            .into_iter()
+            .filter(|i| pass.items.iter().any(|(name, _)| *name == i.name))
+            .filter_map(|i| i.facts.map(|f| (i.name, f)))
+            .collect();
+        if !facts.is_empty() {
+            lines.push("What a right answer to each factual question says:".into());
+            lines.push(String::new());
+            for (name, says) in facts {
+                lines.push(format!("- {name}: {says}"));
+            }
+            lines.push(String::new());
+        }
         // How often the thinking ran to its budget: what moves the budget
         // per model (docs/DECISIONS.md, 2026-10-09).
         if pass.thinking == Some(true) {

@@ -89,6 +89,15 @@ met, and the owner's rulings on the builder's plan, the same day.
   thinking is on (it was 1,024), about a minute of writing on a 4 GB card.
   One that reaches it is kept as stopped and ends with "The answer reached
   its length limit." and the Continue button.
+- **The kit gains seven messages, last in the script** so that the others
+  keep their order and names: a long answer in Russian and one in Uzbek
+  (Latin), about the Sun, where a loop shows; four factual questions, two
+  in each language (the Sun's surface temperature, the Earth's mass, the
+  Sun's mass, the Moon's distance), each with what a right answer says
+  printed under the table for the reader to count against; and "Show how
+  to solve a basic integral, step by step.", the case maths display is
+  read against. Every table says how many answers Core stopped for
+  repeating themselves, and such an answer is marked in the table.
 - **The prompt work moves to Learn wave 1, as its first part and a gate:
   no tool ships until it passes.** The assistant-first instructions; the
   board's state kept apart from the person's words and the tools listed
