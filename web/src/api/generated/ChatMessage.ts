@@ -12,4 +12,12 @@ tool_calls: Array<ToolCallRecord>,
  * person, or ended by itself (silence, the engine gone). What came is
  * kept, and the model reads it on the next turn.
  */
-stopped: boolean, };
+stopped: boolean,
+/**
+ * The model's thinking before this answer, where the engine hands it
+ * apart from the words; empty when it thought nothing or the model
+ * does not think. Kept with its message, and gone with it: never read
+ * back into a prompt, never written to a log, never shown to anyone
+ * but the chat's own person (docs/DECISIONS.md, 2026-10-10).
+ */
+thinking: string, };

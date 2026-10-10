@@ -552,6 +552,7 @@ fn ask_the_model(core: &mut Core, id: u64) {
                 let step = StepEnd {
                     reply: Err(anyhow::anyhow!("the model could not be read: {e}")),
                     shown: String::new(),
+                    thought: String::new(),
                     first_piece: None,
                     took: Duration::ZERO,
                     prompt_estimate,
@@ -603,11 +604,27 @@ fn read_the_model(
     let mut first_piece: Option<Duration> = None;
     let mut seen = String::new();
     let mut shown = String::new();
+    let mut thought = String::new();
     let reply = match streamer {
         None => Err(anyhow::anyhow!("no model is loaded in this environment")),
         Some(streamer) => streamer.chat_streaming_until(
             request,
-            &mut |delta: &str| {
+            &mut |delta: model::Delta<'_>| {
+                let delta = match delta {
+                    // The thinking is kept apart from the words, and the
+                    // person is told once that it began: a state, never
+                    // its words (docs/DECISIONS.md, 2026-10-10).
+                    model::Delta::Thinking(piece) => {
+                        if thought.is_empty() {
+                            deliver(proto::Event::ThinkingStarted {
+                                conversation: conversation.to_string(),
+                            });
+                        }
+                        thought.push_str(piece);
+                        return;
+                    }
+                    model::Delta::Words(piece) => piece,
+                };
                 first_piece.get_or_insert_with(|| asked.elapsed());
                 seen.push_str(delta);
                 // Shown as it comes, up to a line that begins, or may yet
@@ -631,6 +648,7 @@ fn read_the_model(
     StepEnd {
         reply,
         shown,
+        thought,
         first_piece,
         took: asked.elapsed(),
         prompt_estimate,
@@ -691,9 +709,9 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
         Ok(reply) => reply,
         Err(e) => {
             match e.downcast_ref::<Cut>() {
-                // What came is kept, marked as stopped.
+                // What came is kept, marked as stopped, its thinking with it.
                 Some(cut) => {
-                    keep(core, id, &step.shown, true, true);
+                    keep(core, id, &step.shown, &step.thought, true, true);
                     let how = if *cut == Cut::Stopped {
                         TurnState::Stopped
                     } else {
@@ -708,6 +726,7 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
                         core,
                         id,
                         &format!("I could not reach a model: {said}"),
+                        "",
                         false,
                         false,
                     );
@@ -737,7 +756,15 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
                 }
                 post(core, Internal::GoOn { turn: id });
             } else {
-                attempted(core, id, &reply.text, &step.shown, block, offered);
+                attempted(
+                    core,
+                    id,
+                    &reply.text,
+                    &step.shown,
+                    &step.thought,
+                    block,
+                    offered,
+                );
             }
             return;
         }
@@ -750,7 +777,7 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
                 text: rest.to_string(),
             });
         }
-        keep(core, id, &reply.text, false, true);
+        keep(core, id, &reply.text, &step.thought, false, true);
         end(core, id, TurnState::Done);
         return;
     }
@@ -787,6 +814,7 @@ fn attempted(
     id: u64,
     text: &str,
     shown: &str,
+    thought: &str,
     block: model::CallBlock,
     offered: bool,
 ) {
@@ -835,7 +863,7 @@ fn attempted(
             text: unseen,
         });
     }
-    keep(core, id, &answer, false, true);
+    keep(core, id, &answer, thought, false, true);
     end(core, id, TurnState::Done);
 }
 
@@ -968,9 +996,11 @@ fn set_state(core: &mut Core, id: u64, state: TurnState) {
     });
 }
 
-/// The answer's words, into its chat. `stopped`: it ended before the model
-/// finished. Carrying on an answer that stopped, they join it, when `join`.
-fn keep(core: &mut Core, id: u64, text: &str, stopped: bool, join: bool) {
+/// The answer's words, into its chat, with the model's thinking before
+/// them. `stopped`: it ended before the model finished. Carrying on an
+/// answer that stopped, they join it, when `join`; thinking that came while
+/// carrying on joins the earlier thinking, a blank line between.
+fn keep(core: &mut Core, id: u64, text: &str, thinking: &str, stopped: bool, join: bool) {
     let Some(i) = index(core, id) else {
         return;
     };
@@ -991,10 +1021,17 @@ fn keep(core: &mut Core, id: u64, text: &str, stopped: bool, join: bool) {
         {
             last.content.push_str(text);
             last.stopped = stopped;
+            if !thinking.is_empty() {
+                if !last.thinking.is_empty() {
+                    last.thinking.push_str("\n\n");
+                }
+                last.thinking.push_str(thinking);
+            }
             return;
         }
         let mut answer = message(proto::Role::Assistant, text);
         answer.stopped = stopped;
+        answer.thinking = thinking.to_string();
         messages.push(answer);
     });
 }
@@ -1021,6 +1058,7 @@ fn record_call(core: &mut Core, id: u64, tool: &str, params: &J, outcome: proto:
             content: String::new(),
             tool_calls: vec![record],
             stopped: false,
+            thinking: String::new(),
         });
     });
 }
@@ -1099,6 +1137,7 @@ fn message(role: proto::Role, text: &str) -> proto::ChatMessage {
         content: text.to_string(),
         tool_calls: Vec::new(),
         stopped: false,
+        thinking: String::new(),
     }
 }
 
@@ -1633,6 +1672,81 @@ mod tests {
             request.conversation()
         );
         assert!(core.transcript[1].stopped, "it stays marked");
+    }
+
+    /// The model's thinking is kept with its answer, as its own field, and
+    /// the model never reads it again: a second turn's prompt holds the
+    /// answer's words and nothing of the thinking before them
+    /// (docs/DECISIONS.md, 2026-10-10). The person is told once that the
+    /// thinking began, before any word.
+    #[test]
+    fn thinking_is_kept_with_its_answer_and_never_read_back() {
+        let script = Script::new(vec![
+            ChatReply {
+                text: "Four.".into(),
+                reasoning: "two and two, so four".into(),
+                ..Default::default()
+            },
+            ChatReply {
+                text: "Yes.".into(),
+                ..Default::default()
+            },
+        ]);
+        let seen = script.clone();
+        let mut core = core_with(script);
+        let events = events_of(&mut core);
+
+        turn(&mut core, "What is 2 + 2?");
+        let answer = core.transcript[1].clone();
+        assert_eq!(answer.content, "Four.");
+        assert_eq!(answer.thinking, "two and two, so four");
+        {
+            let events = events.lock().unwrap();
+            let began = events
+                .iter()
+                .position(|e| matches!(e, proto::Event::ThinkingStarted { .. }))
+                .expect("the person is told the thinking began");
+            let first_word = events
+                .iter()
+                .position(|e| matches!(e, proto::Event::AssistantDelta { .. }))
+                .expect("the words");
+            assert!(began < first_word, "{events:#?}");
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|e| matches!(e, proto::Event::ThinkingStarted { .. }))
+                    .count(),
+                1,
+                "told once"
+            );
+        }
+
+        turn(&mut core, "Are you sure?");
+        let second = seen.seen.lock().unwrap()[1].clone();
+        assert!(
+            !second.text().contains("two and two"),
+            "the thinking is not in what the model reads: {}",
+            second.text()
+        );
+        assert_eq!(
+            second.conversation(),
+            &[
+                prompt::Turn::Person("What is 2 + 2?".into()),
+                prompt::Turn::Answer("Four.".into()),
+                prompt::Turn::Person("Are you sure?".into()),
+            ]
+        );
+        // A reply without thinking keeps none, and tells nobody.
+        assert_eq!(core.transcript[3].thinking, "");
+        assert_eq!(
+            events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| matches!(e, proto::Event::ThinkingStarted { .. }))
+                .count(),
+            1
+        );
     }
 
     /// Continue carries on in the same answer: the model is handed its words

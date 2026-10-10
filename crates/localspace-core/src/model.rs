@@ -251,6 +251,16 @@ pub struct ChatReply {
 /// thinking, which is how a run counts the answers whose budget ran out.
 pub const THINKING_BUDGET_SPENT: &str = "Time is up; I give my answer now.";
 
+/// One piece of a model's reply as it streams: words of the answer, or
+/// thinking, which the engine hands apart from the words
+/// (`reasoning_content`). The two are never mixed: the thinking is shown
+/// as a state, never as words (docs/DECISIONS.md, 2026-10-10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Delta<'a> {
+    Words(&'a str),
+    Thinking(&'a str),
+}
+
 /// llama-server's figures for one request: how many tokens of the prompt it
 /// read anew and how long that took, how many it wrote and how long.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -285,16 +295,20 @@ pub struct ProposedCall {
 pub trait ModelWorker: Send + Sync {
     fn info(&self) -> proto::ModelInfo;
     fn chat(&self, req: &ChatRequest) -> Result<ChatReply>;
-    /// Like `chat`, but each piece of text reaches `on_delta` as the model
-    /// produces it (v2 step 3). A backend that cannot stream answers whole.
+    /// Like `chat`, but each piece reaches `on_delta` as the model produces
+    /// it (v2 step 3): its thinking, then its words. A backend that cannot
+    /// stream answers whole, the thinking first.
     fn chat_streaming(
         &self,
         req: &ChatRequest,
-        on_delta: &mut dyn FnMut(&str),
+        on_delta: &mut dyn FnMut(Delta<'_>),
     ) -> Result<ChatReply> {
         let reply = self.chat(req)?;
+        if !reply.reasoning.is_empty() {
+            on_delta(Delta::Thinking(&reply.reasoning));
+        }
         if !reply.text.is_empty() {
-            on_delta(&reply.text);
+            on_delta(Delta::Words(&reply.text));
         }
         Ok(reply)
     }
@@ -306,7 +320,7 @@ pub trait ModelWorker: Send + Sync {
     fn chat_streaming_until(
         &self,
         req: &ChatRequest,
-        on_delta: &mut dyn FnMut(&str),
+        on_delta: &mut dyn FnMut(Delta<'_>),
         stop: &Stop,
         _silence: Silence,
     ) -> Result<ChatReply> {
@@ -381,7 +395,7 @@ impl OpenAiWorker {
         body: &J,
         silence: Silence,
         stop: &Stop,
-        on_delta: &mut dyn FnMut(&str),
+        on_delta: &mut dyn FnMut(Delta<'_>),
     ) -> Result<ChatReply> {
         let mut request = ureq::post(url)
             .config()
@@ -489,7 +503,7 @@ impl ModelWorker for OpenAiWorker {
     fn chat_streaming(
         &self,
         req: &ChatRequest,
-        on_delta: &mut dyn FnMut(&str),
+        on_delta: &mut dyn FnMut(Delta<'_>),
     ) -> Result<ChatReply> {
         self.chat_streaming_until(req, on_delta, &Stop::default(), Silence::ANSWER)
     }
@@ -497,7 +511,7 @@ impl ModelWorker for OpenAiWorker {
     fn chat_streaming_until(
         &self,
         req: &ChatRequest,
-        on_delta: &mut dyn FnMut(&str),
+        on_delta: &mut dyn FnMut(Delta<'_>),
         stop: &Stop,
         silence: Silence,
     ) -> Result<ChatReply> {
@@ -505,7 +519,7 @@ impl ModelWorker for OpenAiWorker {
         let url = format!("{}/chat/completions", self.base_url);
         let mut again = SaidAgain::new(req.begun.as_deref().unwrap_or_default());
         let read = {
-            let mut pass = |piece: &str| again.pass(piece, on_delta);
+            let mut pass = |piece: Delta<'_>| again.pass(piece, on_delta);
             if url.starts_with("http://") {
                 // The engine, and a model on the organisation's network: read
                 // on a socket of our own, which a stop shuts and a silence ends.
@@ -732,9 +746,14 @@ impl<'a> SaidAgain<'a> {
         }
     }
 
-    fn pass(&mut self, piece: &str, on_delta: &mut dyn FnMut(&str)) {
+    fn pass(&mut self, piece: Delta<'_>, on_delta: &mut dyn FnMut(Delta<'_>)) {
+        // Thinking is never the handed words: it passes as it comes.
+        let piece = match piece {
+            Delta::Thinking(_) => return on_delta(piece),
+            Delta::Words(words) => words,
+        };
         if self.seed != Seed::Waiting {
-            on_delta(piece);
+            on_delta(Delta::Words(piece));
             return;
         }
         self.held.push_str(piece);
@@ -747,23 +766,23 @@ impl<'a> SaidAgain<'a> {
             Some(added) => {
                 self.seed = Seed::SaidAgain;
                 if !added.is_empty() {
-                    on_delta(added);
+                    on_delta(Delta::Words(added));
                 }
             }
             None => {
                 self.not_said_again();
-                on_delta(&held);
+                on_delta(Delta::Words(&held));
             }
         }
     }
 
     /// The stream is over: what was held back was not the handed words
     /// after all, only as far as they went, and is passed on.
-    fn finish(&mut self, on_delta: &mut dyn FnMut(&str)) {
+    fn finish(&mut self, on_delta: &mut dyn FnMut(Delta<'_>)) {
         if self.seed == Seed::Waiting && !self.held.is_empty() {
             let held = std::mem::take(&mut self.held);
             self.not_said_again();
-            on_delta(&held);
+            on_delta(Delta::Words(&held));
         }
     }
 
@@ -805,7 +824,7 @@ impl<'a> SaidAgain<'a> {
 /// or a reason for finishing) was cut, and says so: [`Cut::Lost`].
 pub fn read_sse<R: std::io::BufRead>(
     reader: R,
-    on_delta: &mut dyn FnMut(&str),
+    on_delta: &mut dyn FnMut(Delta<'_>),
     stop: &Stop,
 ) -> Result<ChatReply> {
     let began = Instant::now();
@@ -865,7 +884,7 @@ pub fn read_sse<R: std::io::BufRead>(
             && !piece.is_empty()
         {
             text.push_str(piece);
-            on_delta(piece);
+            on_delta(Delta::Words(piece));
         }
         if let Some(piece) = delta["reasoning_content"].as_str()
             && !piece.is_empty()
@@ -873,6 +892,7 @@ pub fn read_sse<R: std::io::BufRead>(
             reasoning_began.get_or_insert_with(|| began.elapsed());
             reasoning_ended = Some(began.elapsed());
             reasoning.push_str(piece);
+            on_delta(Delta::Thinking(piece));
         }
         if let Some(pieces) = delta["tool_calls"].as_array() {
             for tc in pieces {
@@ -1376,7 +1396,7 @@ impl Router {
         &self,
         role: WorkerRole,
         req: &ChatRequest,
-        on_delta: &mut dyn FnMut(&str),
+        on_delta: &mut dyn FnMut(Delta<'_>),
     ) -> Result<ChatReply> {
         self.chat_streaming_until(role, req, on_delta, &Stop::default(), Silence::ANSWER)
     }
@@ -1387,7 +1407,7 @@ impl Router {
         &self,
         role: WorkerRole,
         req: &ChatRequest,
-        on_delta: &mut dyn FnMut(&str),
+        on_delta: &mut dyn FnMut(Delta<'_>),
         stop: &Stop,
         silence: Silence,
     ) -> Result<ChatReply> {
@@ -1445,7 +1465,7 @@ impl Streamer {
     pub fn chat_streaming_until(
         &self,
         req: &ChatRequest,
-        on_delta: &mut dyn FnMut(&str),
+        on_delta: &mut dyn FnMut(Delta<'_>),
         stop: &Stop,
         silence: Silence,
     ) -> Result<ChatReply> {
@@ -1645,13 +1665,21 @@ mod tests {
             "data: [DONE]\n\n"
         );
         let mut words = String::new();
+        let mut thoughts = String::new();
         let reply = read_sse(
             std::io::BufReader::new(stream.as_bytes()),
-            &mut |piece| words.push_str(piece),
+            &mut |piece| match piece {
+                Delta::Words(w) => words.push_str(w),
+                Delta::Thinking(t) => thoughts.push_str(t),
+            },
             &Stop::default(),
         )
         .expect("a whole answer");
         assert_eq!(words, "Four.");
+        assert_eq!(
+            thoughts, "let me see",
+            "the thinking comes apart, as it streams"
+        );
         assert_eq!(reply.text, "Four.");
         assert_eq!(reply.reasoning, "let me see");
         assert!(reply.reasoning_began.is_some() && reply.reasoning_ended.is_some());
@@ -2046,7 +2074,9 @@ mod tests {
         let mut shown = String::new();
         let streamed = router
             .chat_streaming(WorkerRole::Chat, &request, &mut |delta| {
-                shown.push_str(delta)
+                if let Delta::Words(words) = delta {
+                    shown.push_str(words)
+                }
             })
             .unwrap();
         assert_eq!(streamed.calls.len(), 1);

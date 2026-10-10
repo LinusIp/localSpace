@@ -375,3 +375,11 @@ runs on real machines, before a build ships:
   A shipped told such a Windows it had "1 GB of system memory" and offered
   only the smallest model. A build checked only on English Windows has not
   been checked for the people it is for.
+- **The thinking indicator, on a model that thinks** (ruled 2026-10-09): with
+  the Qwen3.5 4B and thinking on (`localspace measure --thinking on` is the
+  nearest the kit gives; in the app, a message that makes it think), the
+  answer's place shows "Starting…", then "Thinking…" with the seconds
+  counting once a second and the mark's nodes pulsing, then the answer at
+  its first word; the rail's spinner stays throughout; Stop works during
+  the thinking. Afterwards `app.log` and the kit's `kit.log` hold no word
+  of the thinking: search them for a phrase of it.

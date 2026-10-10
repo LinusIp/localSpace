@@ -68,6 +68,10 @@ pub struct StepEnd {
     /// The text shown to the person as it came. A tool call the model wrote
     /// in the grammar's shape is held back and is not part of it.
     pub shown: String,
+    /// The model's thinking as it came, before and apart from the words:
+    /// kept with the answer, a stopped one included, which the reply of a
+    /// step cut short no longer holds (docs/DECISIONS.md, 2026-10-10).
+    pub thought: String,
     pub first_piece: Option<Duration>,
     pub took: Duration,
     /// The prompt's length as estimated before it was sent: the engine says
