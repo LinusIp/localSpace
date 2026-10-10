@@ -487,7 +487,10 @@ fn ask_the_model(core: &mut Core, id: u64) {
             core.cfg.profile.prompt_tokens_per_step
         ));
     }
-    let (tools, grammar) = if begun.is_some() {
+    // Nothing offered, nothing compiled: with no tool installed the request
+    // carries no tool, grammar or tool text at all (docs/DECISIONS.md,
+    // 2026-10-10).
+    let (tools, grammar) = if begun.is_some() || active.tools.is_empty() {
         (Vec::new(), None)
     } else {
         let grammar = core.grammars.compile(&active.tools);
