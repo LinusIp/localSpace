@@ -1687,8 +1687,11 @@ mod tests {
     #[test]
     fn the_script_is_the_message_scripts_message_for_message() {
         let items = script();
-        assert_eq!(items.len(), 28);
-        assert_eq!(items.iter().map(|i| i.turns.len()).sum::<usize>(), 30);
+        // Seven were added after the founder's test (docs/DECISIONS.md,
+        // 2026-10-10): two long answers, four facts, the integral.
+        assert_eq!(items.len(), 35);
+        assert_eq!(items.iter().map(|i| i.turns.len()).sum::<usize>(), 37);
+        assert_eq!(items.iter().filter(|i| i.facts.is_some()).count(), 4);
         // The five messages of the short thinking-on pass: the sum, the word
         // problem, the weather, the Russian and the Uzbek reasoning questions.
         let five: Vec<&str> = items
@@ -1710,9 +1713,9 @@ mod tests {
         // alphabets.
         assert_eq!(
             items.iter().filter(|i| i.name.contains("Russian")).count(),
-            6
+            9
         );
-        assert_eq!(items.iter().filter(|i| i.name.contains("Uzbek")).count(), 5);
+        assert_eq!(items.iter().filter(|i| i.name.contains("Uzbek")).count(), 8);
         assert_eq!(
             items.iter().filter(|i| i.name.contains("Cyrillic")).count(),
             2
