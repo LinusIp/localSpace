@@ -382,4 +382,7 @@ runs on real machines, before a build ships:
   counting once a second and the mark's nodes pulsing, then the answer at
   its first word; the rail's spinner stays throughout; Stop works during
   the thinking. Afterwards `app.log` and the kit's `kit.log` hold no word
-  of the thinking: search them for a phrase of it.
+  of the thinking: search them for a phrase of it. **Reduced motion** (ruled
+  2026-10-10): with "Animation effects" off (Settings, Accessibility,
+  Visual effects), the mark's dots stand still while "Thinking…" and its
+  seconds still count.

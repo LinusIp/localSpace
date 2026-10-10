@@ -553,6 +553,8 @@ fn ask_the_model(core: &mut Core, id: u64) {
                     reply: Err(anyhow::anyhow!("the model could not be read: {e}")),
                     shown: String::new(),
                     thought: String::new(),
+                    thought_span: None,
+                    word_pieces: 0,
                     first_piece: None,
                     took: Duration::ZERO,
                     prompt_estimate,
@@ -605,6 +607,8 @@ fn read_the_model(
     let mut seen = String::new();
     let mut shown = String::new();
     let mut thought = String::new();
+    let mut thought_span: Option<(Duration, Duration)> = None;
+    let mut word_pieces = 0usize;
     let reply = match streamer {
         None => Err(anyhow::anyhow!("no model is loaded in this environment")),
         Some(streamer) => streamer.chat_streaming_until(
@@ -621,10 +625,13 @@ fn read_the_model(
                             });
                         }
                         thought.push_str(piece);
+                        let now = asked.elapsed();
+                        thought_span = Some((thought_span.map_or(now, |(began, _)| began), now));
                         return;
                     }
                     model::Delta::Words(piece) => piece,
                 };
+                word_pieces += 1;
                 first_piece.get_or_insert_with(|| asked.elapsed());
                 seen.push_str(delta);
                 // Shown as it comes, up to a line that begins, or may yet
@@ -649,6 +656,8 @@ fn read_the_model(
         reply,
         shown,
         thought,
+        thought_span,
+        word_pieces,
         first_piece,
         took: asked.elapsed(),
         prompt_estimate,
@@ -680,11 +689,15 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
             let tools: Vec<&str> = r.calls.iter().map(|c| c.tool.as_str()).collect();
             tracing::info!(
                 "answer: step {steps}, {}, prompt of {} tokens, tools asked for: {}",
-                measure_of_an_answer(
-                    step.first_piece.map(|d| d.as_secs_f32()),
-                    step.took.as_secs_f32(),
-                    r.completion_tokens
-                ),
+                measure_of_an_answer(&StepSpeed {
+                    first_word: step.first_piece.map(|d| d.as_secs_f32()),
+                    took: step.took.as_secs_f32(),
+                    tokens: r.completion_tokens,
+                    word_pieces: step.word_pieces,
+                    thought: step
+                        .thought_span
+                        .map(|(began, ended)| (began.as_secs_f32(), ended.as_secs_f32())),
+                }),
                 r.prompt_tokens,
                 if tools.is_empty() {
                     "none".to_string()
@@ -1141,21 +1154,66 @@ fn message(role: proto::Role, text: &str) -> proto::ChatMessage {
     }
 }
 
+/// What the log says of one step's speed, in seconds from the request.
+struct StepSpeed {
+    /// The first word of the answer, not of the thinking.
+    first_word: Option<f32>,
+    took: f32,
+    /// Every token the engine wrote for the step, the thinking's included.
+    tokens: u32,
+    /// How many pieces of the answer's words came: the engine streams one
+    /// token to a piece (checked on b10869 with the 4B: 602 pieces of
+    /// thinking and 76 of words for 681 tokens, the rest the thinking's
+    /// end marks), so the answer's tokens are counted and the thinking's
+    /// are the rest of the engine's figure.
+    word_pieces: usize,
+    /// When the thinking's first and last pieces came, if it thought.
+    thought: Option<(f32, f32)>,
+}
+
 /// "first piece after 1.2 s, 180 tokens in 14.9 s (13.1 tokens a second while
 /// writing)". The rate is taken over the time in which pieces came, which is
 /// what a person watches; a reply that came whole, or too fast to tell the
-/// two apart, is measured over all of its time and says so.
-fn measure_of_an_answer(first_piece: Option<f32>, took: f32, tokens: u32) -> String {
-    match first_piece {
-        Some(first) if took - first >= 0.5 => format!(
-            "first piece after {first:.1} s, {tokens} tokens in {took:.1} s ({:.1} tokens a second while writing)",
-            tokens as f32 / (took - first)
+/// two apart, is measured over all of its time and says so. A step that
+/// thought has two speeds, the thinking's and the answer's, said apart:
+/// counted together, the thinking's tokens fell into the half second of
+/// the words and made a rate ten times too fast (docs/DECISIONS.md,
+/// 2026-10-10).
+fn measure_of_an_answer(s: &StepSpeed) -> String {
+    let (first, took, tokens) = (s.first_word, s.took, s.tokens);
+    let Some((began, ended)) = s.thought else {
+        return match first {
+            Some(first) if took - first >= 0.5 => format!(
+                "first piece after {first:.1} s, {tokens} tokens in {took:.1} s ({:.1} tokens a second while writing)",
+                tokens as f32 / (took - first)
+            ),
+            _ => format!(
+                "{tokens} tokens in {took:.1} s ({:.1} tokens a second over all of it)",
+                tokens as f32 / took.max(0.05)
+            ),
+        };
+    };
+    let words = (s.word_pieces as u32).min(tokens);
+    let thinking = tokens - words;
+    let rate = |n: u32, span: f32| {
+        if span >= 0.5 {
+            format!("{:.1} a second", n as f32 / span)
+        } else {
+            "too quick to time".to_string()
+        }
+    };
+    let thought = format!(
+        "thought from {began:.1} s to {ended:.1} s, {thinking} tokens ({})",
+        rate(thinking, ended - began)
+    );
+    let answer = match first {
+        Some(first) => format!(
+            "first word after {first:.1} s, {words} tokens of answer ({})",
+            rate(words, took - first)
         ),
-        _ => format!(
-            "{tokens} tokens in {took:.1} s ({:.1} tokens a second over all of it)",
-            tokens as f32 / took.max(0.05)
-        ),
-    }
+        None => "no words".to_string(),
+    };
+    format!("{thought}, {answer}, {tokens} tokens in {took:.1} s in all")
 }
 
 /// Close the run. In a shared workspace an agent's writes become a proposal
@@ -1220,23 +1278,71 @@ mod tests {
     use anyhow::Result;
     use std::sync::{Arc, Mutex};
 
+    fn speed(first_word: Option<f32>, took: f32, tokens: u32) -> StepSpeed {
+        StepSpeed {
+            first_word,
+            took,
+            tokens,
+            word_pieces: tokens as usize,
+            thought: None,
+        }
+    }
+
     #[test]
     fn the_measure_of_an_answer_never_divides_by_a_moment() {
         assert_eq!(
-            measure_of_an_answer(Some(1.2), 14.9, 180),
+            measure_of_an_answer(&speed(Some(1.2), 14.9, 180)),
             "first piece after 1.2 s, 180 tokens in 14.9 s (13.1 tokens a second while writing)"
         );
         // A tool call comes whole: there is no "while writing" to speak of.
         assert_eq!(
-            measure_of_an_answer(None, 0.3, 25),
+            measure_of_an_answer(&speed(None, 0.3, 25)),
             "25 tokens in 0.3 s (83.3 tokens a second over all of it)"
         );
         // Pieces, and too fast to tell the first from the last.
         assert_eq!(
-            measure_of_an_answer(Some(0.04), 0.2, 13),
+            measure_of_an_answer(&speed(Some(0.04), 0.2, 13)),
             "13 tokens in 0.2 s (65.0 tokens a second over all of it)"
         );
-        assert!(measure_of_an_answer(None, 0.0, 0).contains("0 tokens"));
+        assert!(measure_of_an_answer(&speed(None, 0.0, 0)).contains("0 tokens"));
+    }
+
+    /// The step the check of 2026-10-10 logged as "712.1 tokens a second
+    /// while writing": thinking and answer are two speeds, said apart.
+    #[test]
+    fn a_step_that_thought_says_the_thinkings_speed_and_the_answers_apart() {
+        let s = StepSpeed {
+            first_word: Some(11.9),
+            took: 12.5,
+            tokens: 450,
+            word_pieces: 20,
+            thought: Some((0.4, 11.8)),
+        };
+        assert_eq!(
+            measure_of_an_answer(&s),
+            "thought from 0.4 s to 11.8 s, 430 tokens (37.7 a second), first word after 11.9 s, \
+             20 tokens of answer (33.3 a second), 450 tokens in 12.5 s in all"
+        );
+        // An answer too short to time, and one stopped before any word.
+        let quick = StepSpeed { took: 12.0, ..s };
+        assert!(
+            measure_of_an_answer(&quick).contains("20 tokens of answer (too quick to time)"),
+            "{}",
+            measure_of_an_answer(&quick)
+        );
+        let wordless = StepSpeed {
+            first_word: None,
+            word_pieces: 0,
+            ..s
+        };
+        assert!(measure_of_an_answer(&wordless).contains("no words"));
+        // An engine that gave no count: no tokens are made up.
+        let uncounted = StepSpeed { tokens: 0, ..s };
+        assert!(
+            measure_of_an_answer(&uncounted).contains("0 tokens (0.0 a second)"),
+            "{}",
+            measure_of_an_answer(&uncounted)
+        );
     }
 
     /// A worker that replays a fixed script of replies, so the loop itself is

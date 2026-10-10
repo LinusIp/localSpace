@@ -72,6 +72,11 @@ pub struct StepEnd {
     /// kept with the answer, a stopped one included, which the reply of a
     /// step cut short no longer holds (docs/DECISIONS.md, 2026-10-10).
     pub thought: String,
+    /// When the thinking's first and last pieces came, from the request.
+    pub thought_span: Option<(Duration, Duration)>,
+    /// How many pieces of the answer's words came (one token each, as the
+    /// engine streams them): what the log's two speeds are counted from.
+    pub word_pieces: usize,
     pub first_piece: Option<Duration>,
     pub took: Duration,
     /// The prompt's length as estimated before it was sent: the engine says

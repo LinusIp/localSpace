@@ -87,14 +87,36 @@ how it looks.
   log, the engine's log or the audit log. **Not checked here:** the
   system's reduced-motion setting (the browser pane cannot set it), and
   the desktop window itself (the same client, served by the app).
-- **Found while checking, not fixed in this step:** the log's line for an
-  answer with thinking counts the thinking's tokens as written in the
-  time after the first word ("450 tokens in 12.5 s (712.1 tokens a second
-  while writing)", where the words took half a second): a figure that is
-  wrong for every thinking answer. The kit's own figures are right (they
-  come from the engine). The fix is the line's, a small one, asked
-  below. And a Core stopped from outside left its engine running, which
-  is the orphan-engine file of the 0.2 basics, already planned.
+- **Found while checking, and fixed (the owner's ruling, the same day):**
+  the log's line for an answer with thinking counted the thinking's tokens
+  as written in the time after the first word ("450 tokens in 12.5 s
+  (712.1 tokens a second while writing)", where the words took half a
+  second). A step that thought now says its two speeds apart: "thought
+  from 0.4 s to 11.8 s, 430 tokens (37.7 a second), first word after
+  11.9 s, 20 tokens of answer (33.3 a second), 450 tokens in 12.5 s in
+  all". The answer's tokens are its streamed pieces, one token each (the
+  packaged engine with the 4B, thinking on: 602 pieces of thinking and 76
+  of words for 681 tokens, the other 3 the thinking's end marks); the
+  thinking's are the rest of the engine's count. A step without thinking
+  keeps the line it had. **No recorded result used the wrong figure:** the
+  kit reads none of the log (its figures are the engine's own); the two
+  scripts that read the line (the prompt item's, 2026-10-07) took only the
+  first piece's time and the prompt's size, on Qwen2.5 models, which do
+  not think. A Core stopped from outside left its engine running: the
+  orphan-engine file of the 0.2 basics, already planned.
+- **The owner's rulings on this report (2026-10-10):** "Starting…" stays,
+  for every model: it is true, and the old "Thinking…" was not. A stopped
+  answer keeps the thinking it had at the stop; Continue appends new
+  thinking after a blank line; the thinking is deleted with its message
+  and never goes back to the model. **Reduced motion joins the release
+  check** on the founder's laptop: with "Animation effects" off in
+  Windows' settings, the dots stand still and the seconds still count.
+- **Maths display (KaTeX) is in 0.2** (the owner, the same day; ruled
+  earlier, the ruling had not reached the builder): KaTeX 0.19.0, MIT,
+  offline by design (fonts by relative address), rendered with
+  `katex.render()` into an element so that the strict CSP needs no inline
+  styles; the browser's woff2 fonts alone are shipped, about 0.34 MB
+  compressed.
 
 ## 2026-10-09, the refresh's first step: the thinking budget, the exercise record, the counting runs
 
