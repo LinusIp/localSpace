@@ -89,6 +89,33 @@ met, and the owner's rulings on the builder's plan, the same day.
   thinking is on (it was 1,024), about a minute of writing on a 4 GB card.
   One that reaches it is kept as stopped and ends with "The answer reached
   its length limit." and the Continue button.
+- **The 4 GB counting runs again, under the shipped sampling** (the package
+  of `773ca868`, this laptop, thinking off, the same messages five times
+  each as on 2026-10-09; results in the internal repository under
+  `docs/measure/2026-10-10/count/`; three independent readers, each
+  checking doubtful places on the web). **The 7B: 7 wrong of 35**, all
+  three readers alike: the Lisbon weather stated as fact five times of
+  five, and two places in the Berlin chat (a "Teufelsloch gorge" in
+  Brandenburg that does not exist; Bernauer Straße put in Friedrichshain).
+  **The 4B: 12 wrong of 35** on what all three readers count, 13 to 14
+  with the borderline ones: the egg problem answered 26 four times of five
+  (three on 2026-10-09 at temperature 0.2), the exchange rate answered in
+  roubles once and sent to a Tajik bank that does not exist once, and six
+  Berlin answers with false facts about real places (an "open-air museum
+  of German life" in the Tiergarten, a zoo at Sanssouci, hills and
+  waterfalls in the Spreewald, a 14th-century church at Wannsee, Dresden
+  "the White City", Neukölln in the south-west). On 2026-10-09 at 0.2 the
+  two tied at five each. **Under the rule of 2026-10-09 the 4B now errs
+  clearly more often**; the default is the owner's to confirm, asked.
+  The same package's language runs: **no loop in 45 answers of the 4B**
+  (long answers, facts and the integral, five times each), and **no
+  language mixing** (the Russian in Cyrillic, the Uzbek in Latin), so the
+  presence penalty of its card stands. The facts: the Sun's surface
+  temperature and both masses right every time, wrapped in invented
+  comparisons; "how far is the Moon" asked in Uzbek answered with the
+  Earth–Sun distance or the Earth's radius four times of five. The Uzbek
+  long answers are fluent-looking and full of invented facts; the founder
+  reads them.
 - **The kit gains seven messages, last in the script** so that the others
   keep their order and names: a long answer in Russian and one in Uzbek
   (Latin), about the Sun, where a loop shows; four factual questions, two
