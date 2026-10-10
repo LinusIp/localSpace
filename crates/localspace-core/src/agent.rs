@@ -1780,6 +1780,33 @@ mod tests {
         assert!(core.transcript[1].stopped, "it stays marked");
     }
 
+    /// With nothing installed, what the model is sent holds no tool and no
+    /// state: no tool list in the instructions or beside them, no board, no
+    /// ledger; the plain instructions alone (docs/DECISIONS.md, 2026-09-24,
+    /// and 2026-10-10, when 0.2 ships no tools).
+    #[test]
+    fn with_nothing_installed_the_request_holds_no_tool_text_and_no_state() {
+        let script = Script::new(vec![said("Hello.")]);
+        let seen = script.clone();
+        let mut core = core_with(script);
+        turn(&mut core, "What is the integral of 3x^2 + 2x dx?");
+        let request = seen.seen.lock().unwrap()[0].clone();
+        assert!(request.tools.is_empty(), "{:?}", request.tools);
+        assert!(request.grammar.is_none());
+        let text = request.text();
+        for absent in [
+            "[tools]",
+            "[state]",
+            "[ledger]",
+            "tool",
+            "board",
+            "find_capability",
+        ] {
+            assert!(!text.contains(absent), "{absent:?} in: {text}");
+        }
+        assert!(text.contains(prompt::SYSTEM_PLAIN), "{text}");
+    }
+
     /// The model's thinking is kept with its answer, as its own field, and
     /// the model never reads it again: a second turn's prompt holds the
     /// answer's words and nothing of the thinking before them

@@ -103,9 +103,15 @@ need(cli, "run `cargo build --release -p localspace-cli`");
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
 cpSync(join(root, "web/dist"), join(stage, "web"), { recursive: true });
-// The Store's catalog: every harness of this repository at its current
-// version, laid out afresh so that no older layout rides along.
-run(process.execPath, [join(root, "scripts/hpack.mjs"), "--out", join(stage, "registry"), ...(args.includes("--no-harness-build") ? ["--no-build"] : [])], root);
+// The Store's catalog: every harness of this repository the release ships
+// (`"ship": false` in scripts/harnesses.json keeps one out, its sources and
+// tests staying: the whiteboard and the planner in 0.2, docs/DECISIONS.md,
+// 2026-10-10), at its current version, laid out afresh so that no older
+// layout rides along.
+const shipped = Object.entries(JSON.parse(readFileSync(join(root, "scripts/harnesses.json"), "utf8")).harnesses)
+  .filter(([, h]) => h.ship !== false)
+  .map(([id]) => id);
+run(process.execPath, [join(root, "scripts/hpack.mjs"), ...shipped, "--out", join(stage, "registry"), ...(args.includes("--no-harness-build") ? ["--no-build"] : [])], root);
 const packages = readdirSync(join(stage, "registry"));
 cpSync(join(root, "packaging/licences"), join(stage, "licences"), { recursive: true });
 cpSync(join(root, "packaging/windows/README.txt"), join(stage, "README.txt"));

@@ -231,6 +231,8 @@ jobs:
           root = "$RUNNER_TEMP/data"
           [harnesses]
           catalogs = ["harnesses", "registry"]
+          # The tool machinery is walked with the whiteboard, which 0.2 sets aside.
+          set_aside = []
           EOF
           ./target/release/localspace serve --config "$RUNNER_TEMP/localspace.toml" \
             --personal --token ci-token --allow-below-floor \
@@ -249,6 +251,8 @@ jobs:
           root = "$RUNNER_TEMP/orgdata"
           [harnesses]
           catalogs = ["harnesses", "registry"]
+          # The tool machinery is walked with the whiteboard, which 0.2 sets aside.
+          set_aside = []
           EOF
           ./target/release/localspace serve --config "$RUNNER_TEMP/org.toml" --allow-below-floor --insecure \
             > "$RUNNER_TEMP/org-serve.log" 2>&1 &

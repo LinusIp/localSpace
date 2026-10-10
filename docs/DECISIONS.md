@@ -13,6 +13,53 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-10, after the founder's test of `aeb31fa`: the whiteboard and the planner leave 0.2; loops, sampling, empty chats
+
+The founder used the package of `aeb31fa` with the Qwen3.5 4B. What he
+met, and the owner's rulings on the builder's plan, the same day.
+
+- **What he met.** In a chat where the board had been used, "no need with
+  white board show how to solve a basic integral" was refused: "My tools
+  are designed only for managing the visual elements on your whiteboard."
+  In another, an Uzbek answer about the Sun repeated "Uning yuzasi
+  taxminan…" without end, and "in russian" after it was refused the same
+  way, in Russian. The trigger: a long chat with the board used earlier,
+  and in the second a looped answer in the history. The builder's own
+  thirty tries of shorter sequences on the same package (the whiteboard
+  installed, the board focused, the requests logged at the engine) met no
+  refusal; what they showed is that the 23 board tools reach the model
+  twice (in the instructions and through the engine's own tool format) and
+  that the board's state is joined to the end of the person's newest
+  message.
+- **The whiteboard and the planning board leave 0.2.** Neither is in the
+  package (`"ship": false` in `scripts/harnesses.json`; the types package
+  alone stays, which offers no tool). **Where an older version installed
+  them, Core sets them aside** (`localspace_core::SET_ASIDE`, which the app
+  and `localspace serve` use unless the settings' `[harnesses] set_aside`
+  names another list): not loaded, not offered by a catalog, not
+  installable, their boards and the files exported from them not listed
+  among the documents. **Nothing is deleted.** What stays on a computer that
+  used them, under `%LOCALAPPDATA%\localSpace`: the packages in
+  `installed\io.localspace.whiteboard\` and `installed\io.localspace.planner\`
+  (and `installed\io.localspace.types\`, their dependency); the boards and
+  their PNG and SVG exports in `db\localspace.redb` (the `documents` table
+  for their records, `blobs` and `meta` for their contents). No board is
+  written anywhere else. **The Store's place in the sidebar is shown only
+  once it has a tool to offer**, or one is installed. The tool machinery
+  (the agent loop, the tool format, the harness host, install and
+  uninstall) stays with every test; CI walks it with the whiteboard
+  (`set_aside = []` in its settings).
+- **With nothing installed the model is told of no tool** (ruled
+  2026-09-24); a new test holds a request to it: no tool list, no state,
+  no ledger, the plain instructions alone. A second test holds a whiteboard
+  left installed by an older version to "kept on disk, shown nowhere".
+- **The prompt work moves to Learn wave 1, as its first part and a gate:
+  no tool ships until it passes.** The assistant-first instructions; the
+  board's state kept apart from the person's words and the tools listed
+  once; a CI job with the real 4B, run when prompt, agent or model code
+  changes and before every release check; and a test built from the
+  founder's two sequences, with the whiteboard as the test tool.
+
 ## 2026-10-10, the thinking indicator: the thinking kept as its own field, a state shown, never words
 
 The owner's three rulings of 2026-10-09 on the indicator, and what is built

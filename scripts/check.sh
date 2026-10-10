@@ -128,6 +128,8 @@ bind = "127.0.0.1:8443"
 root = "$temp/data"
 [harnesses]
 catalogs = ["harnesses", "registry"]
+# The tool machinery is walked with the whiteboard, which 0.2 sets aside.
+set_aside = []
 EOF
 ./target/release/localspace serve --config "$temp/localspace.toml" \
   --personal --token ci-token --allow-below-floor > "$temp/serve.log" 2>&1 &
@@ -146,6 +148,8 @@ public_url = "http://127.0.0.1:8446"
 root = "$temp/orgdata"
 [harnesses]
 catalogs = ["harnesses", "registry"]
+# The tool machinery is walked with the whiteboard, which 0.2 sets aside.
+set_aside = []
 EOF
 ./target/release/localspace serve --config "$temp/org.toml" --allow-below-floor --insecure \
   > "$temp/org-serve.log" 2>&1 &

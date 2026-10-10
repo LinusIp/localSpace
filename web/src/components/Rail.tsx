@@ -78,6 +78,12 @@ export function Rail() {
   // what the person chose, remembered with them.
   const collapsed = page === "board" ? !boardRailOpen : railCollapsed;
   const harnesses = (environment?.harnesses ?? []).filter((h) => h.views.some((v) => v.kind === "web"));
+  // The Store is shown once it has a tool to offer, or one is installed:
+  // a Store with nothing in it promises what does not exist yet (ruled
+  // 2026-10-10, when 0.2 ships no tools).
+  const catalog = useSession((s) => s.catalog);
+  const store =
+    catalog.some((e) => e.kind === "harness" && e.tool_count > 0) || (environment?.harnesses ?? []).some((h) => h.tool_count > 0);
   const [allChats, setAllChats] = useState(false);
   const hasDocuments = useHasDocuments(harnesses.length);
 
@@ -119,9 +125,11 @@ export function Rail() {
             <FileIcon size={18} />
           </button>
         )}
-        <button type="button" className={`rail-icon${page === "store" ? " on" : ""}`} onClick={() => go("store")} aria-label="Store" title="Store">
-          <StoreIcon size={18} />
-        </button>
+        {store && (
+          <button type="button" className={`rail-icon${page === "store" ? " on" : ""}`} onClick={() => go("store")} aria-label="Store" title="Store">
+            <StoreIcon size={18} />
+          </button>
+        )}
         <div className="rail-spacer" />
         <div className="rail-bottom">
           {admin && (
@@ -197,9 +205,11 @@ export function Rail() {
             <FileIcon size={17} /> Documents
           </button>
         )}
-        <button type="button" className={`rail-item${page === "store" ? " on" : ""}`} onClick={() => go("store")}>
-          <StoreIcon size={17} /> Store
-        </button>
+        {store && (
+          <button type="button" className={`rail-item${page === "store" ? " on" : ""}`} onClick={() => go("store")}>
+            <StoreIcon size={17} /> Store
+          </button>
+        )}
       </div>
 
       <div className="rail-bottom">

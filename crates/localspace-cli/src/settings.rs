@@ -11,6 +11,15 @@ use localspace_server::{Cidr, ServerConfig, Tls};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+/// What this release does not offer, when the settings do not say
+/// (docs/DECISIONS.md, 2026-10-10).
+fn release_set_aside() -> Vec<String> {
+    localspace_core::SET_ASIDE
+        .iter()
+        .map(|id| id.to_string())
+        .collect()
+}
+
 /// Where the file is looked for when `--config` is not given.
 pub fn default_path() -> PathBuf {
     if cfg!(windows) {
@@ -39,7 +48,10 @@ pub fn load(explicit: Option<&Path>) -> Result<Loaded> {
     };
     let Some(path) = path else {
         return Ok(Loaded {
-            config: ServerConfig::default(),
+            config: ServerConfig {
+                set_aside: release_set_aside(),
+                ..ServerConfig::default()
+            },
             source: None,
         });
     };
@@ -88,7 +100,7 @@ const HONOURED: &[(&str, &[&str])] = &[
         "network",
         &["mode_ceiling", "allowlist", "blocklist", "search"],
     ),
-    ("harnesses", &["registry", "catalogs"]),
+    ("harnesses", &["registry", "catalogs", "set_aside"]),
     ("audit", &["sink"]),
     ("organisation", &["name"]),
 ];
@@ -273,6 +285,10 @@ struct Harnesses {
     registry: Option<String>,
     #[serde(default)]
     catalogs: Vec<PathBuf>,
+    /// The harnesses this release does not offer; `localspace_core::SET_ASIDE`
+    /// when the key is absent. Development and CI set it to `[]` to walk the
+    /// tool machinery with the whiteboard (docs/DECISIONS.md, 2026-10-10).
+    set_aside: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -467,6 +483,7 @@ fn apply(file: File, path: &Path) -> Result<ServerConfig> {
         }
     }
     cfg.registry = file.harnesses.catalogs;
+    cfg.set_aside = file.harnesses.set_aside.unwrap_or_else(release_set_aside);
 
     // [audit]
     if let Some(sinks) = file.audit.sink
@@ -521,6 +538,26 @@ mod tests {
         assert!(cfg.trusted_proxies.is_empty());
         assert_eq!(cfg.session_ttl_ms, defaults.session_ttl_ms);
         assert_eq!(cfg.max_upload_mb, 200);
+        // What 0.2 does not offer is set aside unless the settings say otherwise.
+        assert_eq!(cfg.set_aside, release_set_aside());
+        assert!(
+            cfg.set_aside
+                .iter()
+                .any(|id| id == "io.localspace.whiteboard")
+        );
+    }
+
+    /// Development and CI walk the tool machinery with the whiteboard:
+    /// an empty list sets nothing aside (docs/DECISIONS.md, 2026-10-10).
+    #[test]
+    fn an_empty_set_aside_list_offers_every_harness() {
+        let cfg = parsed(
+            "[harnesses]
+set_aside = []
+",
+        )
+        .unwrap();
+        assert!(cfg.set_aside.is_empty());
     }
 
     #[test]

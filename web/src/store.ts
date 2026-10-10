@@ -320,6 +320,8 @@ export const useSession = createStore<Session>((set, get) => {
       if (live && !was) {
         void get().refreshTurns();
         void get().refreshTranscript();
+        // The rail offers the Store only when it has a tool to offer.
+        void get().refreshCatalog();
       }
     },
     notify: (level, text) =>

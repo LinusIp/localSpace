@@ -1,7 +1,8 @@
 {
-  "about": "Where each harness's sources live in this repository, for scripts/hpack.mjs. A repository detail: a package's layout does not depend on it.",
+  "about": "Where each harness's sources live in this repository, for scripts/hpack.mjs. A repository detail: a package's layout does not depend on it. \"ship\": false keeps a harness out of the package (docs/DECISIONS.md, 2026-10-10); its sources, its in-place build and its tests stay.",
   "harnesses": {
     "io.localspace.whiteboard": {
+      "ship": false,
       "manifest": "harnesses/whiteboard",
       "logic": {
         "crate": "harnesses/whiteboard-logic",
@@ -16,6 +17,7 @@
       }
     },
     "io.localspace.planner": {
+      "ship": false,
       "manifest": "registry/planner",
       "logic": {
         "crate": "harnesses/planner-logic",

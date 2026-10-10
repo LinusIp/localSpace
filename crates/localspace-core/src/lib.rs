@@ -215,7 +215,20 @@ pub struct Config {
     /// measure` runs on a fresh data folder with the app's downloaded
     /// models, which are gigabytes and are not copied.
     pub model_files_dir: Option<PathBuf>,
+    /// Harnesses this release does not offer: not loaded from the installed
+    /// folder, not offered by a catalog, not installable, and their
+    /// documents not listed. Nothing of theirs is deleted: the files stay
+    /// where an older version put them. Empty unless the app or `serve`
+    /// says otherwise (see [`SET_ASIDE`]).
+    pub set_aside: Vec<String>,
 }
+
+/// The harnesses release 0.2 sets aside: the whiteboard and the planning
+/// board leave the release, and their tool machinery stays with its tests
+/// for the student tools (docs/DECISIONS.md, 2026-10-10). The desktop app
+/// and `localspace serve` set Core's [`Config::set_aside`] to this, unless
+/// the settings name another list.
+pub const SET_ASIDE: &[&str] = &["io.localspace.whiteboard", "io.localspace.planner"];
 
 impl Config {
     pub fn personal(user: &str) -> Config {
@@ -241,6 +254,7 @@ impl Config {
             silence: stream::Silence::ANSWER,
             show_hidden_models: false,
             model_files_dir: None,
+            set_aside: Vec::new(),
         }
     }
 
@@ -982,6 +996,21 @@ impl Core {
                 format!("harness `{name}` failed to install: {err:#}"),
             );
         }
+        // A harness this release sets aside is not loaded, and its files
+        // stay where they are (docs/DECISIONS.md, 2026-10-10).
+        for id in self.cfg.set_aside.clone() {
+            if self.registry.remove(&id).is_some() {
+                tracing::info!(
+                    "harnesses: `{id}` is not part of this version; its files stay in {}",
+                    without_the_home(&dir.join(&id).display().to_string())
+                );
+            }
+        }
+    }
+
+    /// Whether this release sets the harness aside ([`Config::set_aside`]).
+    fn set_aside(&self, harness: &str) -> bool {
+        self.cfg.set_aside.iter().any(|id| id == harness)
     }
 
     /// After the package directories are loaded. Packages loaded from a
@@ -1316,6 +1345,11 @@ impl Core {
         capabilities_approved: bool,
     ) -> Result<proto::Response> {
         let policy = self.cfg.policy.clone();
+        if let Ok(manifest) = manifest::Manifest::load(dir)
+            && self.set_aside(&manifest.harness.id)
+        {
+            anyhow::bail!("`{}` is not part of this version", manifest.harness.id);
+        }
         let persisted = self.persist_package(dir)?;
         let dir = persisted.as_path();
         let mut staged = Registry::stage(dir, &policy)?;
@@ -3263,6 +3297,18 @@ impl Core {
             if self.access.check(&identity, &id, Level::View).is_err() {
                 continue;
             }
+            // A set-aside harness's documents, and the files exported from
+            // them, are kept and not listed (docs/DECISIONS.md, 2026-10-10).
+            let owner = match &record.source {
+                proto::DocumentSource::Harness { harness }
+                | proto::DocumentSource::Export { harness, .. } => Some(harness.as_str()),
+            };
+            if owner
+                .or(record.harness.as_deref())
+                .is_some_and(|h| self.set_aside(h))
+            {
+                continue;
+            }
             let head = self.dag.head(&id).ok().flatten();
             let hash = head
                 .as_ref()
@@ -4589,9 +4635,9 @@ impl Core {
                 {
                     dirs.push(installed.clone());
                 }
-                proto::Response::Catalog {
-                    entries: catalog::scan(&dirs, &self.registry, &self.cfg.policy),
-                }
+                let mut entries = catalog::scan(&dirs, &self.registry, &self.cfg.policy);
+                entries.retain(|e| !self.set_aside(&e.id));
+                proto::Response::Catalog { entries }
             }
 
             R::ListModels => {

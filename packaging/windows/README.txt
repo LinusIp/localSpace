@@ -25,7 +25,7 @@ Windows setting for this; tell the person running the test.
 
 Where things are
 ----------------
-Your conversations, boards and downloaded models:
+Your conversations and downloaded models:
     %LOCALAPPDATA%\localSpace
 The log, if someone asks you for it:
     %LOCALAPPDATA%\localSpace\logs\app.log
@@ -48,5 +48,5 @@ localspace.exe       the command-line tool; "localspace doctor" describes
 measure.cmd          measures a model on this computer and writes one file
                      for you to send back; MEASURE.txt says how
 engine\              llama.cpp (release b10869, Vulkan), which runs the model
-web\, registry\      the interface, and the tools the Store offers
+web\, registry\      the interface, and what the Store will offer
 licences\            the licences of what is included
