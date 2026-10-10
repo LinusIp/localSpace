@@ -53,6 +53,11 @@ met, and the owner's rulings on the builder's plan, the same day.
   2026-09-24); a new test holds a request to it: no tool list, no state,
   no ledger, the plain instructions alone. A second test holds a whiteboard
   left installed by an older version to "kept on disk, shown nowhere".
+- **Empty chats no longer pile up.** A chat is written and listed once its
+  first message is sent; "New chat" in a chat with nothing in it stays
+  there; an empty chat an older version saved stays in the database and is
+  not listed. (Item 1.8 of the basics, "New chat reuses the empty one", is
+  this.)
 - **The prompt work moves to Learn wave 1, as its first part and a gate:
   no tool ships until it passes.** The assistant-first instructions; the
   board's state kept apart from the person's words and the tools listed

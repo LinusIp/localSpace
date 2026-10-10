@@ -30,16 +30,20 @@ fn a_message_lands_in_the_current_conversation_and_names_it() {
     let dir = tempfile::tempdir().unwrap();
     let mut core = core_in(dir.path());
     let (list, current) = conversations(&mut core);
-    assert_eq!(list.len(), 1, "a fresh environment has one conversation");
-    assert_eq!(list[0].id, current);
-    assert_eq!(list[0].title, "New chat");
+    assert!(
+        list.is_empty(),
+        "a fresh environment has a chat to type in, listed once its first message is sent"
+    );
+    assert!(!current.is_empty());
 
     // No model is loaded: the turn still records the message and the reply.
     core.handle(proto::Request::SendMessage {
         text: "What is on the board right now?".into(),
         conversation: None,
     });
-    let (list, _) = conversations(&mut core);
+    let (list, current_now) = conversations(&mut core);
+    assert_eq!(current_now, current);
+    assert_eq!(list[0].id, current);
     assert_eq!(list[0].title, "What is on the board right now?");
     assert_eq!(list[0].messages, 2, "the question and the answer");
 }
@@ -60,7 +64,11 @@ fn switching_conversations_switches_the_transcript_and_survives_a_restart() {
         match core.handle(proto::Request::NewConversation) {
             proto::Response::Conversations { current, list } => {
                 second = current;
-                assert_eq!(list.len(), 2);
+                assert_eq!(
+                    list.len(),
+                    1,
+                    "the new chat is listed once its first message is sent"
+                );
             }
             other => panic!("{other:?}"),
         }

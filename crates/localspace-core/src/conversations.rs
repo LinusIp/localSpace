@@ -82,7 +82,13 @@ impl Store {
         store
     }
 
+    /// A chat is written once it has a message: one that was only opened
+    /// is never saved, so empty chats do not pile up (docs/DECISIONS.md,
+    /// 2026-10-10).
     fn persist(&self, conversation: &Conversation) {
+        if conversation.messages.is_empty() {
+            return;
+        }
         if let Err(e) = self
             .db
             .put_conversation(&self.user, &self.workspace, conversation)
@@ -109,8 +115,15 @@ impl Store {
         self.current_index().map(|i| &self.conversations[i])
     }
 
-    /// A new, empty conversation, made current.
+    /// A new, empty conversation, made current; or the current one, when
+    /// it is still empty: "New chat" in a chat with nothing in it stays
+    /// there (docs/DECISIONS.md, 2026-10-10).
     pub fn start(&mut self, now_ms: u64) -> &Conversation {
+        if let Some(i) = self.current_index()
+            && self.conversations[i].messages.is_empty()
+        {
+            return &self.conversations[i];
+        }
         let id = format!("c_{now_ms}_{}", self.conversations.len() + 1);
         let conversation = Conversation {
             id: id.clone(),
@@ -258,11 +271,14 @@ impl Store {
         self.set_current(current);
     }
 
-    /// Newest first.
+    /// Newest first. A chat is listed once its first message is sent: one
+    /// with no message, including any an older version saved, is not
+    /// (docs/DECISIONS.md, 2026-10-10).
     pub fn summaries(&self) -> Vec<proto::ConversationSummary> {
         let mut list: Vec<proto::ConversationSummary> = self
             .conversations
             .iter()
+            .filter(|c| !c.messages.is_empty())
             .map(|c| proto::ConversationSummary {
                 id: c.id.clone(),
                 title: c.title.clone(),
@@ -476,15 +492,67 @@ mod tests {
             "deleting the last one starts a fresh one"
         );
         assert_ne!(s.current, second);
+        assert!(
+            s.summaries().is_empty(),
+            "a fresh chat is not listed until its first message"
+        );
 
-        let list = s.summaries();
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].messages, 0);
-
-        // Every step was written through.
+        // Every step was written through; the fresh, empty chat was not.
         let again = Store::load(&db, "u", "ws_u", 5000);
         assert_eq!(again.conversations.len(), 1);
-        assert_eq!(again.current, s.current);
+        assert!(again.current().unwrap().messages.is_empty());
+        assert!(db.conversations("u", "ws_u").unwrap().is_empty());
+    }
+
+    /// Empty chats do not pile up: "New chat" in an empty chat stays there,
+    /// a chat is written and listed once its first message is sent, and an
+    /// empty one an older version saved is not listed (docs/DECISIONS.md,
+    /// 2026-10-10).
+    #[test]
+    fn empty_chats_are_neither_saved_nor_listed() {
+        let db = db();
+        let mut s = Store::load(&db, "u", "ws_u", 1000);
+        let first = s.current.clone();
+        assert_eq!(
+            s.start(1100).id,
+            first,
+            "New chat in an empty chat stays there"
+        );
+        assert_eq!(s.start(1200).id, first);
+        assert_eq!(s.conversations.len(), 1);
+        assert!(
+            db.conversations("u", "ws_u").unwrap().is_empty(),
+            "nothing written"
+        );
+        assert!(s.summaries().is_empty());
+
+        s.record(&[user("hello")], 1300);
+        assert_eq!(
+            s.summaries().len(),
+            1,
+            "listed once its first message is sent"
+        );
+        assert_eq!(db.conversations("u", "ws_u").unwrap().len(), 1);
+        let second = s.start(1400).id.clone();
+        assert_ne!(second, first, "a chat with a message gets a new one");
+        assert_eq!(s.summaries().len(), 1);
+
+        // An empty chat an older version saved is kept and not listed.
+        db.put_conversation(
+            "u",
+            "ws_u",
+            &Conversation {
+                id: "c_old_empty".into(),
+                title: "New chat".into(),
+                created_ms: 10,
+                updated_ms: 10,
+                messages: Vec::new(),
+            },
+        )
+        .unwrap();
+        let again = Store::load(&db, "u", "ws_u", 2000);
+        let listed: Vec<String> = again.summaries().into_iter().map(|c| c.id).collect();
+        assert_eq!(listed, vec![first]);
     }
 
     #[test]
