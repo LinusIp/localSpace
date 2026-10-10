@@ -1491,11 +1491,35 @@ mod tests {
     fn passed(begun: &str, pieces: &[&str]) -> Vec<String> {
         let mut again = SaidAgain::new(begun);
         let mut passed = Vec::new();
+        let mut words = |p: Delta<'_>| match p {
+            Delta::Words(w) => passed.push(w.to_string()),
+            Delta::Thinking(t) => panic!("thinking among the words: {t}"),
+        };
         for piece in pieces {
-            again.pass(piece, &mut |p| passed.push(p.to_string()));
+            again.pass(Delta::Words(piece), &mut words);
         }
-        again.finish(&mut |p| passed.push(p.to_string()));
+        again.finish(&mut words);
         passed
+    }
+
+    /// Thinking is never the handed words: it passes at once, in order,
+    /// while the words are still held back as perhaps said again.
+    #[test]
+    fn thinking_passes_while_the_handed_words_are_still_being_checked() {
+        let mut again = SaidAgain::new("Once upon");
+        let mut seen: Vec<String> = Vec::new();
+        let mut keep = |p: Delta<'_>| {
+            seen.push(match p {
+                Delta::Words(w) => format!("w:{w}"),
+                Delta::Thinking(t) => format!("t:{t}"),
+            })
+        };
+        again.pass(Delta::Thinking("let me "), &mut keep);
+        again.pass(Delta::Words("Once"), &mut keep);
+        again.pass(Delta::Thinking("see"), &mut keep);
+        again.pass(Delta::Words(" upon a"), &mut keep);
+        again.finish(&mut keep);
+        assert_eq!(seen, ["t:let me ", "t:see", "w: a"]);
     }
 
     #[test]
@@ -1542,11 +1566,11 @@ mod tests {
         assert_eq!(again.carried_on(reply("Once up")).text, "Once up");
         // After a stream that did not say them again, the reply keeps all.
         let mut again = SaidAgain::new("Once upon");
-        again.pass("Once more", &mut |_| {});
+        again.pass(Delta::Words("Once more"), &mut |_| {});
         assert_eq!(again.carried_on(reply("Once more")).text, "Once more");
         // After one that did, only what was added.
         let mut again = SaidAgain::new("Once upon");
-        again.pass("Once upon a", &mut |_| {});
+        again.pass(Delta::Words("Once upon a"), &mut |_| {});
         assert_eq!(again.carried_on(reply("Once upon a")).text, " a");
     }
 
