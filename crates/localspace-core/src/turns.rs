@@ -77,6 +77,10 @@ pub struct StepEnd {
     /// How many pieces of the answer's words came (one token each, as the
     /// engine streams them): what the log's two speeds are counted from.
     pub word_pieces: usize,
+    /// The answer, when Core stopped it for saying the same stretch a third
+    /// time in a row: its words up to the end of the stretch's first saying
+    /// (docs/DECISIONS.md, 2026-10-10).
+    pub repeated: Option<String>,
     pub first_piece: Option<Duration>,
     pub took: Duration,
     /// The prompt's length as estimated before it was sent: the engine says
@@ -115,6 +119,9 @@ pub struct AnswerMeasure {
     /// The thinking ran to its budget and the engine ended it so that the
     /// answer came (`model::THINKING_BUDGET_SPENT` closes the thinking).
     pub budget_spent: bool,
+    /// Core stopped the answer for repeating itself: what the kit counts
+    /// as a loop (docs/DECISIONS.md, 2026-10-10).
+    pub repeated: bool,
 }
 
 impl AnswerMeasure {
@@ -123,6 +130,8 @@ impl AnswerMeasure {
             thinking_asked: step.thinking,
             first_word: step.first_piece,
             took: step.took,
+            // A loop is stopped from Core: the reply is then a stop.
+            repeated: step.repeated.is_some(),
             ..Default::default()
         };
         match &step.reply {

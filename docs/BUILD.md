@@ -12,6 +12,14 @@ excluded from the workspace: those crates target wasm and have their own lockfil
 
 ## The reference harness
 
+**Not shipped in 0.2** (docs/DECISIONS.md, 2026-10-10): the whiteboard and the
+planning board stay in this repository as the tool machinery's test harnesses
+(`"ship": false` in `scripts/harnesses.json`); the package does not carry
+them, and the app and `localspace serve` set them aside wherever an older
+version installed them (`localspace_core::SET_ASIDE`; `[harnesses] set_aside
+= []` in the settings walks them again, as CI does). The student tools are
+built on the same machinery.
+
 One command builds every harness's files from their sources and lays each
 package out as its `.hpack` will hold it (architecture v2.1 §7), in
 `dist/hpack/<id>-<version>/`. `--in-place` also puts the built files where
@@ -274,7 +282,8 @@ node scripts/package.mjs          # -> dist/windows/: …-setup.exe, …-portabl
 
 `scripts/package.mjs` lays the package out in `dist/package/` (the web
 client, the Store's catalog through `scripts/hpack.mjs`, the command line,
-the licences, and the engine), builds the NSIS installer with
+the licences, and the engine; in 0.2 the catalog holds the types package
+alone, so the app shows no Store until a tool ships), builds the NSIS installer with
 `cargo tauri build --config tauri.bundle.conf.json` in
 `crates/localspace-shell`, and zips the same files with the app as the
 portable copy. `--stage-only` stops after the layout.

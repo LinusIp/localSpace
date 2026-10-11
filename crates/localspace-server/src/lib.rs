@@ -88,6 +88,9 @@ pub struct ServerConfig {
     pub organisation: Option<String>,
     /// The network policy Core starts with (deployment §3.3 `[network]`).
     pub gateway: localspace_core::gateway::GatewayConfig,
+    /// The harnesses this release does not offer (`localspace_core::SET_ASIDE`
+    /// in the app and from the settings; none unless set).
+    pub set_aside: Vec<String>,
 }
 
 impl Default for ServerConfig {
@@ -114,6 +117,7 @@ impl Default for ServerConfig {
             max_upload_mb: 200,
             organisation: None,
             gateway: localspace_core::gateway::GatewayConfig::default(),
+            set_aside: Vec::new(),
         }
     }
 }
@@ -194,6 +198,7 @@ pub fn core_config(cfg: &ServerConfig) -> Config {
     core.data_dir = cfg.data.clone();
     core.session_ttl_ms = cfg.session_ttl_ms;
     core.gateway = cfg.gateway.clone();
+    core.set_aside = cfg.set_aside.clone();
     // A person's own computer is looked at as Core starts: the first run asks
     // what it is within a second of the window opening.
     core.look_at_start = cfg.personal;

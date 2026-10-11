@@ -16,6 +16,7 @@ use crate::prompt::Turn;
 use crate::stream::{Cut, Silence, Stop};
 use anyhow::{Context, Result, bail};
 use localspace_proto as proto;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value as J, json};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -69,6 +70,28 @@ pub enum Said {
     },
 }
 
+/// How the engine picks each next token, as a model's maker publishes it for
+/// the model (docs/DECISIONS.md, 2026-10-10). Sent with every request of a
+/// model whose catalog entry carries it; without one, the temperature alone.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Sampling {
+    pub temperature: f32,
+    pub top_p: f32,
+    pub top_k: u32,
+    #[serde(default)]
+    pub min_p: f32,
+    /// Lowers the chance of any token already written: Qwen's cure for
+    /// endless repetition, which it warns can mix languages when high.
+    #[serde(default)]
+    pub presence_penalty: f32,
+    #[serde(default = "no_penalty")]
+    pub repeat_penalty: f32,
+}
+
+fn no_penalty() -> f32 {
+    1.0
+}
+
 #[derive(Debug, Clone)]
 pub struct ChatRequest {
     pub said: Said,
@@ -86,6 +109,9 @@ pub struct ChatRequest {
     /// the engine (`enable_thinking`), `None` leaves the model its own
     /// default (docs/DECISIONS.md, 2026-10-08).
     pub thinking: Option<bool>,
+    /// The model's own sampling, when its entry gives one; it replaces
+    /// `temperature`.
+    pub sampling: Option<Sampling>,
 }
 
 impl ChatRequest {
@@ -112,6 +138,7 @@ impl ChatRequest {
             temperature: 0.2,
             class: RequestClass::Interactive,
             thinking: None,
+            sampling: None,
         }
     }
 
@@ -242,6 +269,74 @@ pub struct ChatReply {
     pub reasoning_ended: Option<Duration>,
     /// The engine's own figures for the step, where it gives them.
     pub timings: Option<Timings>,
+    /// The answer ended at the request's length limit, not where the model
+    /// would have ended it (`finish_reason: "length"`).
+    pub at_limit: bool,
+}
+
+/// The shortest stretch of an answer that, said three times in a row, stops
+/// it (docs/DECISIONS.md, 2026-10-10).
+pub const REPEATED_CHARS: usize = 60;
+
+/// Where to cut an answer that has begun repeating itself: when its end is
+/// one stretch of at least [`REPEATED_CHARS`] characters said three times in
+/// a row, the end of the stretch's first saying, so that what came before
+/// the loop and one saying of it are kept. Text inside a code block is not
+/// looked at: code repeats lines on purpose (a matrix of zeros); only text
+/// after the last code block counts. `None` while it does not repeat.
+pub fn repeating_from(text: &str) -> Option<usize> {
+    let fences = text.matches("```").count();
+    if fences % 2 == 1 {
+        return None;
+    }
+    let start = text.rfind("```").map_or(0, |i| i + 3);
+    let tail = &text.as_bytes()[start..];
+    let n = tail.len();
+    if n < 3 * REPEATED_CHARS {
+        return None;
+    }
+    // z[p]: how far the end, read backwards, matches itself read from p
+    // bytes further back. A stretch of p bytes said three times ends the
+    // text exactly when z[p] >= 2p.
+    let reversed: Vec<u8> = tail.iter().rev().copied().collect();
+    let z = z_function(&reversed);
+    let chars = |bytes: &[u8]| bytes.iter().filter(|b| (**b & 0xC0) != 0x80).count();
+    for p in REPEATED_CHARS..=n / 3 {
+        if z[p] >= 2 * p && chars(&tail[n - p..]) >= REPEATED_CHARS {
+            // Every saying after the first goes, however many came at once.
+            let again = z[p] / p;
+            let mut cut = start + n - again * p;
+            while !text.is_char_boundary(cut) {
+                cut += 1;
+            }
+            return Some(cut);
+        }
+    }
+    None
+}
+
+/// The Z-function of `s`: for each position, the length of the longest
+/// stretch from it that matches the start of `s`.
+fn z_function(s: &[u8]) -> Vec<usize> {
+    let n = s.len();
+    let mut z = vec![0; n];
+    let (mut l, mut r) = (0, 0);
+    for i in 1..n {
+        if i < r {
+            z[i] = (r - i).min(z[i - l]);
+        }
+        while i + z[i] < n && s[z[i]] == s[i + z[i]] {
+            z[i] += 1;
+        }
+        if i + z[i] > r {
+            l = i;
+            r = i + z[i];
+        }
+    }
+    if n > 0 {
+        z[0] = n;
+    }
+    z
 }
 
 /// The words the engine writes into a model's thinking when the thinking
@@ -448,6 +543,14 @@ impl OpenAiWorker {
             "temperature": req.temperature,
             "stream": stream,
         });
+        if let Some(s) = req.sampling {
+            body["temperature"] = json!(s.temperature);
+            body["top_p"] = json!(s.top_p);
+            body["top_k"] = json!(s.top_k);
+            body["min_p"] = json!(s.min_p);
+            body["presence_penalty"] = json!(s.presence_penalty);
+            body["repeat_penalty"] = json!(s.repeat_penalty);
+        }
         if stream {
             body["stream_options"] = json!({"include_usage": true});
         }
@@ -581,6 +684,7 @@ pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {
         );
     }
     let choice = res["choices"].get(0).context("model returned no choices")?;
+    let at_limit = choice["finish_reason"] == "length";
     let message = &choice["message"];
     let text = message["content"].as_str().unwrap_or_default().to_string();
 
@@ -621,6 +725,7 @@ pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {
             .unwrap_or_default()
             .to_string(),
         timings: Timings::from_json(&res["timings"]),
+        at_limit,
         ..Default::default()
     })
 }
@@ -834,6 +939,7 @@ pub fn read_sse<R: std::io::BufRead>(
     let mut prompt_tokens = 0u32;
     let mut completion_tokens = 0u32;
     let mut finished = false;
+    let mut at_limit = false;
     // The model's thinking, where the engine hands it apart from the
     // answer, and when it came.
     let mut reasoning = String::new();
@@ -878,6 +984,7 @@ pub fn read_sse<R: std::io::BufRead>(
         };
         if choice["finish_reason"].is_string() {
             finished = true;
+            at_limit = choice["finish_reason"] == "length";
         }
         let delta = &choice["delta"];
         if let Some(piece) = delta["content"].as_str()
@@ -949,6 +1056,7 @@ pub fn read_sse<R: std::io::BufRead>(
         reasoning_began,
         reasoning_ended,
         timings,
+        at_limit,
     })
 }
 
@@ -1717,6 +1825,134 @@ mod tests {
             })
         );
         assert_eq!((reply.prompt_tokens, reply.completion_tokens), (7, 9));
+    }
+
+    /// The founder's Uzbek answer about the Sun, which said three sentences
+    /// again and again (2026-10-10): cut after their first saying.
+    #[test]
+    fn an_answer_saying_the_same_stretch_three_times_is_cut_after_the_first() {
+        let before = "Quyosh — Quyosh tizimining markazidagi yulduz. ";
+        let looped = "Uning yuzasi taxminan 5500 daraja issiq. Quyosh juda katta yulduz.                       Uning nuri Yerga sakkiz daqiqada yetib keladi. ";
+        let twice = format!("{before}{looped}{looped}");
+        assert_eq!(repeating_from(&twice), None, "twice is not yet a loop");
+        let thrice = format!("{twice}{looped}");
+        let cut = repeating_from(&thrice).expect("a loop");
+        assert_eq!(&thrice[..cut], format!("{before}{looped}"));
+        // However many sayings came in one piece, one is kept.
+        let five = format!("{before}{}", looped.repeat(5));
+        assert_eq!(
+            &five[..repeating_from(&five).unwrap()],
+            format!("{before}{looped}")
+        );
+        // In Russian, two bytes a letter, the same.
+        let ru = "Солнце светит ярко, и его температура очень высокая на поверхности. ";
+        let text = format!("Вот ответ. {ru}{ru}{ru}");
+        let cut = repeating_from(&text).expect("a loop");
+        assert_eq!(&text[..cut], format!("Вот ответ. {ru}"));
+        // Short repeats are words, not a loop.
+        assert_eq!(repeating_from(&"ha ".repeat(20)), None);
+    }
+
+    /// A long table and code with like lines are answers, not loops (the
+    /// owner's condition, 2026-10-10); a loop after a code block still is.
+    #[test]
+    fn a_long_table_and_code_with_like_lines_are_not_cut() {
+        let days = [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+        ];
+        let mut table = String::from(
+            "| Day | Time | What | Where |
+|---|---|---|---|
+",
+        );
+        for week in 1..=4 {
+            for (i, day) in days.iter().enumerate() {
+                table.push_str(&format!(
+                    "| {day} | {}:00 | Lecture, week {week} | Room 10{i} |
+",
+                    9 + i
+                ));
+            }
+        }
+        assert_eq!(repeating_from(&table), None);
+        let row = "    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+";
+        let code = format!(
+            "A matrix of zeros:
+```python
+grid = [
+{}]
+```
+",
+            row.repeat(16)
+        );
+        assert_eq!(repeating_from(&code), None, "inside a code block");
+        assert_eq!(
+            repeating_from(&format!(
+                "```python
+grid = [
+{}",
+                row.repeat(16)
+            )),
+            None,
+            "a code block still being written"
+        );
+        let looped = "After the code, the answer says this one sentence once more again. ";
+        let text = format!("{code}{looped}{looped}{looped}");
+        let cut = repeating_from(&text).expect("a loop after the code");
+        assert_eq!(&text[..cut], format!("{code}{looped}"));
+    }
+
+    /// An answer that ran to the request's limit says so.
+    #[test]
+    fn an_answer_cut_at_the_length_limit_says_so() {
+        let stream = concat!(
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"A long \"},\"finish_reason\":null}]}
+
+",
+            "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"length\"}]}
+
+",
+            "data: [DONE]
+
+"
+        );
+        let reply = read_sse(
+            std::io::BufReader::new(stream.as_bytes()),
+            &mut |_| {},
+            &Stop::default(),
+        )
+        .expect("a reply");
+        assert!(reply.at_limit);
+        let whole = serde_json::json!({"choices": [{"message": {"content": "Done."}, "finish_reason": "stop"}]});
+        assert!(!parse_openai_reply(&whole).unwrap().at_limit);
+    }
+
+    /// A model's own sampling goes to the engine whole and replaces the
+    /// plain temperature.
+    #[test]
+    fn a_models_sampling_goes_to_the_engine() {
+        let worker = OpenAiWorker::new("http://127.0.0.1:1/v1", "m");
+        let mut req = ChatRequest::new("hi".into());
+        assert_eq!(worker.body_of(&req, true)["top_k"], serde_json::Value::Null);
+        req.sampling = Some(Sampling {
+            temperature: 0.7,
+            top_p: 0.8,
+            top_k: 20,
+            min_p: 0.0,
+            presence_penalty: 1.5,
+            repeat_penalty: 1.0,
+        });
+        let body = worker.body_of(&req, true);
+        assert_eq!(body["top_k"], 20);
+        assert_eq!(body["presence_penalty"], 1.5);
+        assert!((body["temperature"].as_f64().unwrap() - 0.7).abs() < 1e-6);
+        assert!((body["top_p"].as_f64().unwrap() - 0.8).abs() < 1e-6);
     }
 
     /// The prompt as a system message and turns (docs/DECISIONS.md,

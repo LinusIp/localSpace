@@ -320,6 +320,8 @@ export const useSession = createStore<Session>((set, get) => {
       if (live && !was) {
         void get().refreshTurns();
         void get().refreshTranscript();
+        // The rail offers the Store only when it has a tool to offer.
+        void get().refreshCatalog();
       }
     },
     notify: (level, text) =>
@@ -498,7 +500,7 @@ export const useSession = createStore<Session>((set, get) => {
       // sent twice meanwhile.
       set((s) => ({
         turns: { ...s.turns, [chat]: "writing" },
-        transcript: [...s.transcript, { role: "user", content: text, tool_calls: [], stopped: false, thinking: "" }],
+        transcript: [...s.transcript, { role: "user", content: text, tool_calls: [], stopped: false, thinking: "", cut_short: null }],
       }));
       const transcript = await attempt(async () => pick(await call({ send_message: { text, conversation: chat } }), "transcript"));
       if (!transcript) {

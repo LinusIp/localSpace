@@ -260,6 +260,12 @@ fn config() -> ServerConfig {
     let mut cfg = ServerConfig {
         bind: "127.0.0.1:0".into(),
         personal: true,
+        // What this release does not offer, wherever an older version put
+        // it (docs/DECISIONS.md, 2026-10-10).
+        set_aside: localspace_core::SET_ASIDE
+            .iter()
+            .map(|id| id.to_string())
+            .collect(),
         ..ServerConfig::default()
     };
     // The bundle: beside the executable in an installed app, `web/dist` in a

@@ -111,8 +111,7 @@ fn each_user_has_their_own_conversation_ledger_focus_and_board_over_one_environm
     );
     match core.handle_as(&ben, proto::Request::ListConversations) {
         proto::Response::Conversations { list, .. } => {
-            assert_eq!(list.len(), 1);
-            assert_eq!(list[0].messages, 0);
+            assert!(list.is_empty(), "Ben has no chat with a message: {list:?}");
         }
         other => panic!("{other:?}"),
     }

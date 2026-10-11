@@ -13,6 +13,125 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-10, after the founder's test of `aeb31fa`: the whiteboard and the planner leave 0.2; loops, sampling, empty chats
+
+The founder used the package of `aeb31fa` with the Qwen3.5 4B. What he
+met, and the owner's rulings on the builder's plan, the same day.
+
+- **What he met.** In a chat where the board had been used, "no need with
+  white board show how to solve a basic integral" was refused: "My tools
+  are designed only for managing the visual elements on your whiteboard."
+  In another, an Uzbek answer about the Sun repeated "Uning yuzasi
+  taxminan…" without end, and "in russian" after it was refused the same
+  way, in Russian. The trigger: a long chat with the board used earlier,
+  and in the second a looped answer in the history. The builder's own
+  thirty tries of shorter sequences on the same package (the whiteboard
+  installed, the board focused, the requests logged at the engine) met no
+  refusal; what they showed is that the 23 board tools reach the model
+  twice (in the instructions and through the engine's own tool format) and
+  that the board's state is joined to the end of the person's newest
+  message.
+- **The whiteboard and the planning board leave 0.2.** Neither is in the
+  package (`"ship": false` in `scripts/harnesses.json`; the types package
+  alone stays, which offers no tool). **Where an older version installed
+  them, Core sets them aside** (`localspace_core::SET_ASIDE`, which the app
+  and `localspace serve` use unless the settings' `[harnesses] set_aside`
+  names another list): not loaded, not offered by a catalog, not
+  installable, their boards and the files exported from them not listed
+  among the documents. **Nothing is deleted.** What stays on a computer that
+  used them, under `%LOCALAPPDATA%\localSpace`: the packages in
+  `installed\io.localspace.whiteboard\` and `installed\io.localspace.planner\`
+  (and `installed\io.localspace.types\`, their dependency); the boards and
+  their PNG and SVG exports in `db\localspace.redb` (the `documents` table
+  for their records, `blobs` and `meta` for their contents). No board is
+  written anywhere else. **The Store's place in the sidebar is shown only
+  once it has a tool to offer**, or one is installed. The tool machinery
+  (the agent loop, the tool format, the harness host, install and
+  uninstall) stays with every test; CI walks it with the whiteboard
+  (`set_aside = []` in its settings).
+- **With nothing installed the model is told of no tool** (ruled
+  2026-09-24); a new test holds a request to it: no tool list, no state,
+  no ledger, the plain instructions alone. A second test holds a whiteboard
+  left installed by an older version to "kept on disk, shown nowhere".
+- **Empty chats no longer pile up.** A chat is written and listed once its
+  first message is sent; "New chat" in a chat with nothing in it stays
+  there; an empty chat an older version saved stays in the database and is
+  not listed. (Item 1.8 of the basics, "New chat reuses the empty one", is
+  this.)
+- **Sampling per model, from its maker's card.** Core had sent a
+  temperature of 0.2 and nothing else. Each catalog entry now carries
+  `sampling: {answer, thinking}` as the card publishes it, read on
+  2026-10-10, and every request of that model takes the one for its
+  thinking setting:
+
+  | Models | Answer (thinking off) | Thinking on |
+  |---|---|---|
+  | Qwen3.5 0.8B, 2B | temperature 1.0, top_p 1.0, top_k 20, presence 2.0 | 1.0, 0.95, 20, presence 1.5 |
+  | Qwen3.5 4B, 9B, 27B, 35B-A3B | 0.7, 0.8, 20, presence 1.5 | 1.0, 0.95, 20, presence 1.5 |
+  | Qwen3.8-27B | 0.7, 0.8, 20, presence 1.5 | 1.0, 0.95, 20, presence 0 |
+  | Qwen3-30B-A3B | 0.7, 0.8, 20 | 0.6, 0.95, 20 |
+  | Qwen2.5 0.5B, 1.5B | 0.7, 0.8, 20, repetition 1.1 | — |
+  | Qwen2.5 3B, 7B, 14B | 0.7, 0.8, 20, repetition 1.05 | — |
+
+  min_p 0 throughout. **Qwen warns that a high presence penalty can mix
+  languages:** the cards' values stand only once the kit's Russian and
+  Uzbek runs show no mixing; where they do, the penalty is lowered for that
+  model and its entry says so. Every 4B measurement before this was at 0.2,
+  so the 4 GB counting runs (4B against 7B) run again under these settings.
+- **The loop guard.** An answer whose end is one stretch of at least 60
+  characters said three times in a row is stopped at once (the engine's
+  connection shut): what came before the loop and one saying of it are
+  kept, the answer reads to the model as finished, and the chat says "The
+  answer started repeating itself, so it was stopped." Text inside a code
+  block is not looked at, since code repeats lines on purpose (a matrix of
+  zeros was the case); a long table of like rows is not cut. Both are tests.
+- **The longest answer: 2,048 tokens**, plus the thinking budget when
+  thinking is on (it was 1,024), about a minute of writing on a 4 GB card.
+  One that reaches it is kept as stopped and ends with "The answer reached
+  its length limit." and the Continue button.
+- **The 4 GB counting runs again, under the shipped sampling** (the package
+  of `773ca868`, this laptop, thinking off, the same messages five times
+  each as on 2026-10-09; results in the internal repository under
+  `docs/measure/2026-10-10/count/`; three independent readers, each
+  checking doubtful places on the web). **The 7B: 7 wrong of 35**, all
+  three readers alike: the Lisbon weather stated as fact five times of
+  five, and two places in the Berlin chat (a "Teufelsloch gorge" in
+  Brandenburg that does not exist; Bernauer Straße put in Friedrichshain).
+  **The 4B: 12 wrong of 35** on what all three readers count, 13 to 14
+  with the borderline ones: the egg problem answered 26 four times of five
+  (three on 2026-10-09 at temperature 0.2), the exchange rate answered in
+  roubles once and sent to a Tajik bank that does not exist once, and six
+  Berlin answers with false facts about real places (an "open-air museum
+  of German life" in the Tiergarten, a zoo at Sanssouci, hills and
+  waterfalls in the Spreewald, a 14th-century church at Wannsee, Dresden
+  "the White City", Neukölln in the south-west). On 2026-10-09 at 0.2 the
+  two tied at five each. **Under the rule of 2026-10-09 the 4B now errs
+  clearly more often**; the default is the owner's to confirm, asked.
+  The same package's language runs: **no loop in 45 answers of the 4B**
+  (long answers, facts and the integral, five times each), and **no
+  language mixing** (the Russian in Cyrillic, the Uzbek in Latin), so the
+  presence penalty of its card stands. The facts: the Sun's surface
+  temperature and both masses right every time, wrapped in invented
+  comparisons; "how far is the Moon" asked in Uzbek answered with the
+  Earth–Sun distance or the Earth's radius four times of five. The Uzbek
+  long answers are fluent-looking and full of invented facts; the founder
+  reads them.
+- **The kit gains seven messages, last in the script** so that the others
+  keep their order and names: a long answer in Russian and one in Uzbek
+  (Latin), about the Sun, where a loop shows; four factual questions, two
+  in each language (the Sun's surface temperature, the Earth's mass, the
+  Sun's mass, the Moon's distance), each with what a right answer says
+  printed under the table for the reader to count against; and "Show how
+  to solve a basic integral, step by step.", the case maths display is
+  read against. Every table says how many answers Core stopped for
+  repeating themselves, and such an answer is marked in the table.
+- **The prompt work moves to Learn wave 1, as its first part and a gate:
+  no tool ships until it passes.** The assistant-first instructions; the
+  board's state kept apart from the person's words and the tools listed
+  once; a CI job with the real 4B, run when prompt, agent or model code
+  changes and before every release check; and a test built from the
+  founder's two sequences, with the whiteboard as the test tool.
+
 ## 2026-10-10, the thinking indicator: the thinking kept as its own field, a state shown, never words
 
 The owner's three rulings of 2026-10-09 on the indicator, and what is built

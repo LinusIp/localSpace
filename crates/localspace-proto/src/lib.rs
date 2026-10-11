@@ -522,6 +522,23 @@ pub struct ChatMessage {
     /// but the chat's own person (docs/DECISIONS.md, 2026-10-10).
     #[serde(default)]
     pub thinking: String,
+    /// Why Core ended an answer early, when it did: the chat says so under
+    /// it (docs/DECISIONS.md, 2026-10-10).
+    #[serde(default)]
+    pub cut_short: Option<CutShort>,
+}
+
+/// Why Core ended an answer before the model did.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum CutShort {
+    /// It began saying the same stretch again and again: what came before
+    /// the loop, and one saying of it, are kept.
+    Repeated,
+    /// It reached the longest answer allowed; Continue carries it on.
+    Length,
 }
 
 /// Where the answer to a chat's last message is.

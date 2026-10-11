@@ -219,3 +219,89 @@ fn a_write_without_a_commit_moves_the_document_but_not_the_history() {
         "the same document again is no change"
     );
 }
+
+/// A whiteboard installed by an older version, in a release that sets it
+/// aside (docs/DECISIONS.md, 2026-10-10): its files stay where they are and
+/// nothing of it is shown or offered. It is not loaded, the catalog does not
+/// offer it, it cannot be installed again, its board is not listed among the
+/// documents, and the model is told about no tool and no board.
+#[test]
+fn a_set_aside_harness_left_installed_is_kept_on_disk_and_shown_nowhere() {
+    let Some(harnesses) = harnesses() else { return };
+    let Some(registry) = registry() else { return };
+    let data = tempfile::tempdir().unwrap();
+    let copy = data.path().join("installed/io.localspace.whiteboard");
+    let config = |set_aside: bool| {
+        let mut cfg = Config::personal("tester");
+        cfg.data_dir = Some(data.path().to_path_buf());
+        cfg.catalog_dirs = vec![harnesses.clone(), registry.clone()];
+        if set_aside {
+            cfg.set_aside = localspace_core::SET_ASIDE
+                .iter()
+                .map(|id| id.to_string())
+                .collect();
+        }
+        cfg
+    };
+    let documents = |core: &mut Core| match core.handle(proto::Request::ListDocuments) {
+        proto::Response::Documents { documents } => documents,
+        other => panic!("expected the documents, got {other:?}"),
+    };
+
+    // An older version: the whiteboard installed, its board made.
+    {
+        let mut core = Core::new(config(false)).expect("creating Core");
+        let path = harnesses.join("whiteboard").display().to_string();
+        match core.handle(proto::Request::InstallHarness { path }) {
+            proto::Response::Ok => {}
+            other => panic!("install: {other:?}"),
+        }
+        assert!(
+            !documents(&mut core).is_empty(),
+            "the board is a document of the workspace"
+        );
+    }
+    assert!(copy.join("harness.toml").exists());
+
+    // This version: the same data, the whiteboard set aside.
+    let mut core = Core::new(config(true)).expect("creating Core again");
+    assert!(
+        copy.join("harness.toml").exists() && copy.join("logic.wasm").exists(),
+        "its files stay where they were"
+    );
+    let env = environment(&mut core);
+    assert!(
+        env.harnesses.iter().all(|h| h.tool_count == 0),
+        "no tool is loaded: {:?}",
+        env.harnesses.iter().map(|h| &h.id).collect::<Vec<_>>()
+    );
+    match core.handle(proto::Request::ListCatalog) {
+        proto::Response::Catalog { entries } => assert!(
+            entries
+                .iter()
+                .all(|e| !localspace_core::SET_ASIDE.contains(&e.id.as_str())),
+            "the catalog offers neither: {:?}",
+            entries.iter().map(|e| &e.id).collect::<Vec<_>>()
+        ),
+        other => panic!("expected the catalog, got {other:?}"),
+    }
+    let path = harnesses.join("whiteboard").display().to_string();
+    match core.handle(proto::Request::InstallHarness { path }) {
+        proto::Response::Error { message } => {
+            assert!(message.contains("not part of this version"), "{message}")
+        }
+        other => panic!("a set-aside harness was installed: {other:?}"),
+    }
+    assert!(
+        documents(&mut core).is_empty(),
+        "its board is kept and not listed"
+    );
+    match core.handle(proto::Request::PreviewContext { budget: 0 }) {
+        proto::Response::Context { prompt_preview, .. } => {
+            assert!(!prompt_preview.contains("[tools]"), "{prompt_preview}");
+            assert!(!prompt_preview.contains("[state]"), "{prompt_preview}");
+            assert!(!prompt_preview.contains("canvas"), "{prompt_preview}");
+        }
+        other => panic!("expected the context, got {other:?}"),
+    }
+}

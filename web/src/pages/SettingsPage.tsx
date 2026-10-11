@@ -735,7 +735,7 @@ function RunToolSection() {
       </p>
       <label className="field">
         <span>Tool</span>
-        <input className="input mono" list="tool-names" value={tool} onChange={(e) => setTool(e.target.value)} placeholder="canvas.add_sticky" />
+        <input className="input mono" list="tool-names" value={tool} onChange={(e) => setTool(e.target.value)} placeholder="a tool's name" />
         <datalist id="tool-names">{active?.tools.map((t) => <option key={t.name} value={t.name} />)}</datalist>
       </label>
       <label className="field">
