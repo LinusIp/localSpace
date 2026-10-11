@@ -75,6 +75,9 @@ pub struct CatalogModel {
     pub title: String,
     #[serde(default)]
     pub family: String,
+    /// Who made the model, for the label on its row.
+    #[serde(default)]
+    pub maker: String,
     pub params_b: f32,
     #[serde(default)]
     pub active_params_b: f32,
@@ -802,6 +805,7 @@ impl Catalog {
                     id: m.id.clone(),
                     title: m.title.clone(),
                     family: m.family.clone(),
+                    maker: m.maker.clone(),
                     params_b: m.params_b,
                     active_params_b: if m.active_params_b > 0.0 {
                         m.active_params_b
@@ -1023,6 +1027,7 @@ impl Catalog {
             exercised: Vec::new(),
             thinking: None,
             sampling: None,
+            maker: String::new(),
         };
         let mut imports = self.imports();
         imports.retain(|m| m.id != id);

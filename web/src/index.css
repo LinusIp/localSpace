@@ -205,6 +205,7 @@ button {
 .pane-inner { max-width: 660px; }
 .pane-title { font-size: 22px; font-weight: 600; letter-spacing: -0.3px; margin: 0; }
 .pane-sub { font-size: 14.5px; color: var(--ls-muted); margin-top: 6px; line-height: 1.55; }
+.pane-section-title { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; }
 .options { display: flex; flex-direction: column; gap: 11px; margin-top: 26px; }
 .opt { display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; border: 1px solid var(--ls-line); border-radius: 12px; background: var(--ls-surface); text-align: left; font: inherit; color: var(--ls-ink); cursor: pointer; width: 100%; }
 .opt:hover { border-color: var(--ls-line-strong); }

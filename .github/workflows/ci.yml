@@ -63,6 +63,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      # Every catalog file still at its address, with the size and SHA-256
+      # its entry records: one request per file, nothing downloaded
+      # (docs/DECISIONS.md, 2026-10-11).
+      - name: the catalog's download addresses
+        run: node scripts/check-catalog-files.mjs
       - name: rustfmt, the workspace and the harness crates
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt

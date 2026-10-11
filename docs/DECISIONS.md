@@ -13,6 +13,57 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-11, other labs in, Qwen2.5 out (document 34): the rulings, the entries, the revised 4 GB run
+
+The owner's rulings on the builder's reply (the reply and the dates are in
+the internal log).
+
+- **0.2 takes Gemma 4 and the Ministral 3 8B; Qwen2.5 leaves the catalog.**
+  Ministral 3 3B and 14B, Phi-4-mini and gpt-oss-20b (low effort by
+  default, the renamed file with its new SHA-256) go to 0.2.1; Ministral's
+  Instruct models only; Phi-4-reasoning-vision waits until ggml-org or
+  unsloth publishes it; Mistral Small 4 belongs with server mode. **The pin
+  stays at `b10869`**: it knows `gemma4`, `mistral3`, `phi3`, `gpt-oss` and
+  their image projectors.
+- **The Gemma 4 files are ggml-org's 4-bit ones built from Google's own
+  4-bit-trained weights** (Q4_0, with the Q8_0 vision file); ggml-org no
+  longer publishes Q4_K_M. The 12B is the June 2026 model (there was no
+  April 12B). Five entries, `hidden` until each has passed its checks; the
+  26B-A4B and the 31B need a borrowed machine. **Gemma's attention-cache
+  figure** counts its full-attention layers per token and its
+  sliding-window layers at their window (512 or 1,024 tokens), spread over
+  an 8,192-token context, and leaves out the layers that share another's
+  cache: a plain per-token figure would overstate it several times.
+- **The Ministral 3 8B Instruct** from unsloth (Q4_K_M and its F16 vision
+  file, kept under a name of its own), `hidden` until checked; its template
+  refuses a late system message, so the task notes go in the person's
+  message (shape 2), found at load as for every model.
+- **Temperature: 0.3 for every answer with thinking off, on every model;
+  with thinking on, the card's values.** A model whose short pass loops or
+  mixes languages at 0.3 takes its card's value instead, and its entry says
+  so.
+- **Every entry names its maker**, shown as a small label on its row. **The
+  list of models that can be added is always open and grouped by verdict**:
+  what runs well here first, then what works more slowly, what is too slow,
+  what is not yet sized; what will not fit is folded behind one button
+  (1.10 of the basics with document 34 §5).
+- **Every catalog file's download address is checked in CI**: one request
+  per file at the entry's pinned revision, comparing the size and SHA-256
+  Hugging Face reports with the entry's (`scripts/check-catalog-files.mjs`);
+  nothing is downloaded.
+- **The revised 4 GB run**, rules fixed in advance: four contestants, the
+  Qwen3.5 4B, Gemma 4 E4B, the Qwen3.5 9B and the Ministral 3 8B (the 9B
+  and the 8B partly off the card, with their vision files). **A model
+  qualifies** when, on this laptop (the founder's: RTX 3050 Ti with 4 GB, 16
+  GB of memory), the median writing speed over the whole message script is
+  at least 8 tokens a second and the first word of "Hi there!" comes within
+  5 seconds. **Among the qualifiers with no loop and no language mixing, the
+  fewest wrong answers on the 35 counting cases wins** (three independent
+  readers); a model that reads images beats one that does not on a tie.
+  **Before the winner becomes the default**, the founder uses a package with
+  it for ten minutes and may veto it on how it feels; then the next
+  qualifier wins.
+
 ## 2026-10-10, after the founder's test of `aeb31fa`: the whiteboard and the planner leave 0.2; loops, sampling, empty chats
 
 The founder used the package of `aeb31fa` with the Qwen3.5 4B. What he

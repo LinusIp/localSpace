@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "notes": "The curated model catalog (architecture v2 §4.4). An entry's files, their exact sizes and SHA-256 digests, its layers and its KV size are Hugging Face's own facts, gathered by scripts/catalog-entry.mjs, or read from the file's own header by scripts/gguf-header.mjs where that says more than the base model's config.json does (a Qwen3.5 keeps a KV cache on every fourth layer alone); `verify` is what a finished download must be. An entry marked `hidden` has not passed its checks yet: the app's Core leaves it out, and `localspace measure` keeps it (docs/DECISIONS.md, 2026-10-08). `vision_file` names the file among `files` that reads images; `thinking` says whether a model thinks before it answers by default and for at most how many tokens (the answer always arrives: the engine ends the thinking at the budget); `exercised` lists every pass of the message script a person read, by tier, and `exercised_on` is the latest of those days (docs/DECISIONS.md, 2026-10-08); `published_as` gives a file's name in the repository where it differs from the name it is kept under. Entries without `verify` carry approximate sizes, and their download is held to the length the server announces. `exercised_on` is the day an entry last went through the message script (`localspace measure`) on some machine and a person read what came back (docs/test-a/MESSAGE-SCRIPT.md): a model may only be the default if it has been, and an entry that does not say is listed and never offered first. Tensor maps are the numbers the placement needs: bytes of the dense core, bytes of routed experts, layers, and the expert layout. Sampling per entry is its maker's published card (Hugging Face model cards and generation_config.json, read 2026-10-10): `answer` for thinking off, `thinking` for on; Qwen3.5's presence penalty stands until the Russian and Uzbek runs show no language mixing (docs/DECISIONS.md, 2026-10-10).",
+  "notes": "The curated model catalog (architecture v2 §4.4). An entry's files, their exact sizes and SHA-256 digests, its layers and its KV size are Hugging Face's own facts, gathered by scripts/catalog-entry.mjs, or read from the file's own header by scripts/gguf-header.mjs where that says more than the base model's config.json does (a Qwen3.5 keeps a KV cache on every fourth layer alone); `verify` is what a finished download must be. An entry marked `hidden` has not passed its checks yet: the app's Core leaves it out, and `localspace measure` keeps it (docs/DECISIONS.md, 2026-10-08). `vision_file` names the file among `files` that reads images; `thinking` says whether a model thinks before it answers by default and for at most how many tokens (the answer always arrives: the engine ends the thinking at the budget); `exercised` lists every pass of the message script a person read, by tier, and `exercised_on` is the latest of those days (docs/DECISIONS.md, 2026-10-08); `published_as` gives a file's name in the repository where it differs from the name it is kept under. Entries without `verify` carry approximate sizes, and their download is held to the length the server announces. `exercised_on` is the day an entry last went through the message script (`localspace measure`) on some machine and a person read what came back (docs/test-a/MESSAGE-SCRIPT.md): a model may only be the default if it has been, and an entry that does not say is listed and never offered first. Tensor maps are the numbers the placement needs: bytes of the dense core, bytes of routed experts, layers, and the expert layout. Sampling per entry is its maker's published card (Hugging Face model cards and generation_config.json, read 2026-10-10): `answer` for thinking off, `thinking` for on; Qwen3.5's presence penalty stands until the Russian and Uzbek runs show no language mixing (docs/DECISIONS.md, 2026-10-10). Every answer with thinking off samples at temperature 0.3, on every model; with thinking on, the card's own values; a model whose short pass loops or mixes languages at 0.3 takes its card's value instead, said in its entry (ruled 2026-10-11). Gemma 4's attention cache figure counts its full-attention layers per token and its sliding-window layers at their window, spread over an 8,192-token context.",
   "defaults": {
     "4 GB": "qwen3.5-4b-q4_k_m"
   },
@@ -41,14 +41,15 @@
       },
       "sampling": {
         "answer": {
-          "temperature": 0.7,
+          "temperature": 0.3,
           "top_p": 0.8,
           "top_k": 20,
           "min_p": 0,
           "presence_penalty": 0,
           "repeat_penalty": 1.1
         }
-      }
+      },
+      "maker": "Alibaba (Qwen)"
     },
     {
       "id": "qwen2.5-1.5b-instruct-q4_k_m",
@@ -86,14 +87,15 @@
       },
       "sampling": {
         "answer": {
-          "temperature": 0.7,
+          "temperature": 0.3,
           "top_p": 0.8,
           "top_k": 20,
           "min_p": 0,
           "presence_penalty": 0,
           "repeat_penalty": 1.1
         }
-      }
+      },
+      "maker": "Alibaba (Qwen)"
     },
     {
       "id": "qwen2.5-3b-instruct-q4_k_m",
@@ -130,14 +132,15 @@
       },
       "sampling": {
         "answer": {
-          "temperature": 0.7,
+          "temperature": 0.3,
           "top_p": 0.8,
           "top_k": 20,
           "min_p": 0,
           "presence_penalty": 0,
           "repeat_penalty": 1.05
         }
-      }
+      },
+      "maker": "Alibaba (Qwen)"
     },
     {
       "id": "qwen2.5-7b-instruct-q4_k_m",
@@ -180,14 +183,15 @@
       },
       "sampling": {
         "answer": {
-          "temperature": 0.7,
+          "temperature": 0.3,
           "top_p": 0.8,
           "top_k": 20,
           "min_p": 0,
           "presence_penalty": 0,
           "repeat_penalty": 1.05
         }
-      }
+      },
+      "maker": "Alibaba (Qwen)"
     },
     {
       "id": "qwen2.5-14b-instruct-q4_k_m",
@@ -235,14 +239,15 @@
       },
       "sampling": {
         "answer": {
-          "temperature": 0.7,
+          "temperature": 0.3,
           "top_p": 0.8,
           "top_k": 20,
           "min_p": 0,
           "presence_penalty": 0,
           "repeat_penalty": 1.05
         }
-      }
+      },
+      "maker": "Alibaba (Qwen)"
     },
     {
       "id": "qwen3-30b-a3b-q4_k_m",
@@ -283,7 +288,7 @@
       },
       "sampling": {
         "answer": {
-          "temperature": 0.7,
+          "temperature": 0.3,
           "top_p": 0.8,
           "top_k": 20,
           "min_p": 0,
@@ -298,7 +303,8 @@
           "presence_penalty": 0,
           "repeat_penalty": 1
         }
-      }
+      },
+      "maker": "Alibaba (Qwen)"
     },
     {
       "id": "gpt-oss-120b-mxfp4",
@@ -335,6 +341,25 @@
         "gpt-oss-120b-MXFP4.gguf": {
           "bytes": 63387346208,
           "sha256": "582bd40f6886200101f4c4ed9f25f3fe80cc14c86e9e2b37746cd8904a0c622d"
+        }
+      },
+      "maker": "OpenAI",
+      "sampling": {
+        "answer": {
+          "temperature": 0.3,
+          "top_p": 1,
+          "top_k": 0,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1
+        },
+        "thinking": {
+          "temperature": 1,
+          "top_p": 1,
+          "top_k": 0,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1
         }
       }
     },
@@ -387,7 +412,7 @@
       },
       "sampling": {
         "answer": {
-          "temperature": 1,
+          "temperature": 0.3,
           "top_p": 1,
           "top_k": 20,
           "min_p": 0,
@@ -402,7 +427,8 @@
           "presence_penalty": 1.5,
           "repeat_penalty": 1
         }
-      }
+      },
+      "maker": "Alibaba (Qwen)"
     },
     {
       "id": "qwen3.5-2b-q4_k_m",
@@ -453,7 +479,7 @@
       },
       "sampling": {
         "answer": {
-          "temperature": 1,
+          "temperature": 0.3,
           "top_p": 1,
           "top_k": 20,
           "min_p": 0,
@@ -468,7 +494,8 @@
           "presence_penalty": 1.5,
           "repeat_penalty": 1
         }
-      }
+      },
+      "maker": "Alibaba (Qwen)"
     },
     {
       "id": "qwen3.5-4b-q4_k_m",
@@ -528,7 +555,7 @@
       },
       "sampling": {
         "answer": {
-          "temperature": 0.7,
+          "temperature": 0.3,
           "top_p": 0.8,
           "top_k": 20,
           "min_p": 0,
@@ -543,7 +570,8 @@
           "presence_penalty": 1.5,
           "repeat_penalty": 1
         }
-      }
+      },
+      "maker": "Alibaba (Qwen)"
     },
     {
       "id": "qwen3.5-9b-q4_k_m",
@@ -594,7 +622,7 @@
       },
       "sampling": {
         "answer": {
-          "temperature": 0.7,
+          "temperature": 0.3,
           "top_p": 0.8,
           "top_k": 20,
           "min_p": 0,
@@ -609,7 +637,8 @@
           "presence_penalty": 1.5,
           "repeat_penalty": 1
         }
-      }
+      },
+      "maker": "Alibaba (Qwen)"
     },
     {
       "id": "qwen3.5-27b-q4_k_m",
@@ -660,7 +689,7 @@
       },
       "sampling": {
         "answer": {
-          "temperature": 0.7,
+          "temperature": 0.3,
           "top_p": 0.8,
           "top_k": 20,
           "min_p": 0,
@@ -675,7 +704,8 @@
           "presence_penalty": 1.5,
           "repeat_penalty": 1
         }
-      }
+      },
+      "maker": "Alibaba (Qwen)"
     },
     {
       "id": "qwen3.5-35b-a3b-q4_k_m",
@@ -730,7 +760,7 @@
       },
       "sampling": {
         "answer": {
-          "temperature": 0.7,
+          "temperature": 0.3,
           "top_p": 0.8,
           "top_k": 20,
           "min_p": 0,
@@ -745,7 +775,8 @@
           "presence_penalty": 1.5,
           "repeat_penalty": 1
         }
-      }
+      },
+      "maker": "Alibaba (Qwen)"
     },
     {
       "id": "qwen3.8-27b-q4_k_m",
@@ -793,7 +824,7 @@
       },
       "sampling": {
         "answer": {
-          "temperature": 0.7,
+          "temperature": 0.3,
           "top_p": 0.8,
           "top_k": 20,
           "min_p": 0,
@@ -804,6 +835,386 @@
           "temperature": 1,
           "top_p": 0.95,
           "top_k": 20,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1
+        }
+      },
+      "maker": "Alibaba (Qwen)"
+    },
+    {
+      "id": "gemma-4-e2b-q4_0",
+      "title": "Gemma 4 E2B",
+      "family": "Gemma 4",
+      "maker": "Google",
+      "params_b": 4.63,
+      "active_params_b": 2.3,
+      "quant": "Q4_0 (Google's 4-bit-trained weights)",
+      "license": "Apache-2.0",
+      "license_url": "https://ai.google.dev/gemma/docs/gemma_4_license",
+      "license_words": "Free to use, also for commercial use.",
+      "commercial_use": true,
+      "hidden": true,
+      "thinking": {
+        "default": "off",
+        "budget": 1024
+      },
+      "bytes": 3398849248,
+      "context_len": 131072,
+      "repo": "ggml-org/gemma-4-E2B-it-GGUF",
+      "revision": "b4243c156154b6dca9324415f8c7ccc098b4aed1",
+      "files": [
+        "gemma-4-E2B-it-Q4_0.gguf",
+        "mmproj-gemma-4-E2B-it-Q8_0.gguf"
+      ],
+      "vision_file": "mmproj-gemma-4-E2B-it-Q8_0.gguf",
+      "verify": {
+        "gemma-4-E2B-it-Q4_0.gguf": {
+          "bytes": 2841481184,
+          "sha256": "8e30dff3ac4c8434c49a7036fa15564bdbb6044e42bf04550bf1a096ad7e6a52"
+        },
+        "mmproj-gemma-4-E2B-it-Q8_0.gguf": {
+          "bytes": 557368064,
+          "sha256": "9406f99c16d68cda4f1f0552192dcc99021ea1fc6d2fd50b1dc3ccf30d04b292"
+        }
+      },
+      "supports_tools": true,
+      "notes": "Google's Gemma 4, from Google's own 4-bit-trained weights as ggml-org publishes them. Reads images with its vision file. Thinks before answering only where its entry says so. Not yet through the message script: hidden until it is.",
+      "tensor": {
+        "core_bytes": 2825664652,
+        "routed_expert_bytes": 0,
+        "layers": 35,
+        "moe": null,
+        "kv_bytes_per_token_fp16": 6912
+      },
+      "sampling": {
+        "answer": {
+          "temperature": 0.3,
+          "top_p": 0.95,
+          "top_k": 64,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1
+        },
+        "thinking": {
+          "temperature": 1,
+          "top_p": 0.95,
+          "top_k": 64,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1
+        }
+      }
+    },
+    {
+      "id": "gemma-4-e4b-q4_0",
+      "title": "Gemma 4 E4B",
+      "family": "Gemma 4",
+      "maker": "Google",
+      "params_b": 7.46,
+      "active_params_b": 4.5,
+      "quant": "Q4_0 (Google's 4-bit-trained weights)",
+      "license": "Apache-2.0",
+      "license_url": "https://ai.google.dev/gemma/docs/gemma_4_license",
+      "license_words": "Free to use, also for commercial use.",
+      "commercial_use": true,
+      "hidden": true,
+      "thinking": {
+        "default": "off",
+        "budget": 1024
+      },
+      "bytes": 5150682208,
+      "context_len": 131072,
+      "repo": "ggml-org/gemma-4-E4B-it-GGUF",
+      "revision": "b8093469224f83f5c38f691eb906c380e9e63114",
+      "files": [
+        "gemma-4-E4B-it-Q4_0.gguf",
+        "mmproj-gemma-4-E4B-it-Q8_0.gguf"
+      ],
+      "vision_file": "mmproj-gemma-4-E4B-it-Q8_0.gguf",
+      "verify": {
+        "gemma-4-E4B-it-Q4_0.gguf": {
+          "bytes": 4590807392,
+          "sha256": "a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2"
+        },
+        "mmproj-gemma-4-E4B-it-Q8_0.gguf": {
+          "bytes": 559874816,
+          "sha256": "197f49a93027f9843772bd24a6a9e0be2a32a788de5a3def330e9c585d86edd1"
+        }
+      },
+      "supports_tools": true,
+      "notes": "Google's Gemma 4, from Google's own 4-bit-trained weights as ggml-org publishes them. Reads images with its vision file. Thinks before answering only where its entry says so. Not yet through the message script: hidden until it is.",
+      "tensor": {
+        "core_bytes": 4574983336,
+        "routed_expert_bytes": 0,
+        "layers": 42,
+        "moe": null,
+        "kv_bytes_per_token_fp16": 18944
+      },
+      "sampling": {
+        "answer": {
+          "temperature": 0.3,
+          "top_p": 0.95,
+          "top_k": 64,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1
+        },
+        "thinking": {
+          "temperature": 1,
+          "top_p": 0.95,
+          "top_k": 64,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1
+        }
+      }
+    },
+    {
+      "id": "gemma-4-12b-q4_0",
+      "title": "Gemma 4 12B",
+      "family": "Gemma 4",
+      "maker": "Google",
+      "params_b": 11.91,
+      "active_params_b": 11.91,
+      "quant": "Q4_0 (Google's 4-bit-trained weights)",
+      "license": "Apache-2.0",
+      "license_url": "https://ai.google.dev/gemma/docs/gemma_4_license",
+      "license_words": "Free to use, also for commercial use.",
+      "commercial_use": true,
+      "hidden": true,
+      "thinking": {
+        "default": "off",
+        "budget": 1024
+      },
+      "bytes": 7378660832,
+      "context_len": 262144,
+      "repo": "ggml-org/gemma-4-12B-it-GGUF",
+      "revision": "e3e681731089efaa3f0917336944ac64752db8ba",
+      "files": [
+        "gemma-4-12B-it-Q4_0.gguf",
+        "mmproj-gemma-4-12B-it-Q8_0.gguf"
+      ],
+      "vision_file": "mmproj-gemma-4-12B-it-Q8_0.gguf",
+      "verify": {
+        "gemma-4-12B-it-Q4_0.gguf": {
+          "bytes": 7219673216,
+          "sha256": "3712b9bd32cae83a22f67ee7a4466d8d7a4f21646ac8a07d19bf9418e8767a70"
+        },
+        "mmproj-gemma-4-12B-it-Q8_0.gguf": {
+          "bytes": 158987616,
+          "sha256": "59e62255435dda870e2d1de97cc031330b31a898bac12b38a182cecff9cd3738"
+        }
+      },
+      "supports_tools": true,
+      "notes": "Google's Gemma 4, from Google's own 4-bit-trained weights as ggml-org publishes them. Reads images with its vision file. Thinks before answering only where its entry says so. Not yet through the message script: hidden until it is.",
+      "tensor": {
+        "core_bytes": 7203848384,
+        "routed_expert_bytes": 0,
+        "layers": 48,
+        "moe": null,
+        "kv_bytes_per_token_fp16": 57344
+      },
+      "sampling": {
+        "answer": {
+          "temperature": 0.3,
+          "top_p": 0.95,
+          "top_k": 64,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1
+        },
+        "thinking": {
+          "temperature": 1,
+          "top_p": 0.95,
+          "top_k": 64,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1
+        }
+      }
+    },
+    {
+      "id": "gemma-4-26b-a4b-q4_0",
+      "title": "Gemma 4 26B-A4B",
+      "family": "Gemma 4",
+      "maker": "Google",
+      "params_b": 25.23,
+      "active_params_b": 3.82,
+      "quant": "Q4_0 (Google's 4-bit-trained weights)",
+      "license": "Apache-2.0",
+      "license_url": "https://ai.google.dev/gemma/docs/gemma_4_license",
+      "license_words": "Free to use, also for commercial use.",
+      "commercial_use": true,
+      "hidden": true,
+      "thinking": {
+        "default": "off",
+        "budget": 1024
+      },
+      "bytes": 15424554144,
+      "context_len": 262144,
+      "repo": "ggml-org/gemma-4-26B-A4B-it-GGUF",
+      "revision": "bb4531cda34d1ea09d9814959ed4d5833cf2a4c8",
+      "files": [
+        "gemma-4-26B-A4B-it-Q4_0.gguf",
+        "mmproj-gemma-4-26B-A4B-it-Q8_0.gguf"
+      ],
+      "vision_file": "mmproj-gemma-4-26B-A4B-it-Q8_0.gguf",
+      "verify": {
+        "gemma-4-26B-A4B-it-Q4_0.gguf": {
+          "bytes": 14618145824,
+          "sha256": "d208665ab1cd3a69f7a9a4bc59430e8448c8093d9b06334f566ac59d6d504a03"
+        },
+        "mmproj-gemma-4-26B-A4B-it-Q8_0.gguf": {
+          "bytes": 806408320,
+          "sha256": "cc4e855736da450bf1e162d8cccfe0ad685727d0c9e04ef7dd8d884f3121039b"
+        }
+      },
+      "supports_tools": true,
+      "notes": "Google's Gemma 4, from Google's own 4-bit-trained weights as ggml-org publishes them. Reads images with its vision file. Thinks before answering only where its entry says so. Not yet through the message script: hidden until it is.",
+      "tensor": {
+        "core_bytes": 1755938936,
+        "routed_expert_bytes": 12846382080,
+        "layers": 30,
+        "moe": {
+          "experts_per_layer": 128,
+          "active_experts": 8,
+          "shared_experts": 1
+        },
+        "kv_bytes_per_token_fp16": 46080
+      },
+      "sampling": {
+        "answer": {
+          "temperature": 0.3,
+          "top_p": 0.95,
+          "top_k": 64,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1
+        },
+        "thinking": {
+          "temperature": 1,
+          "top_p": 0.95,
+          "top_k": 64,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1
+        }
+      }
+    },
+    {
+      "id": "gemma-4-31b-q4_0",
+      "title": "Gemma 4 31B",
+      "family": "Gemma 4",
+      "maker": "Google",
+      "params_b": 30.7,
+      "active_params_b": 30.7,
+      "quant": "Q4_0 (Google's 4-bit-trained weights)",
+      "license": "Apache-2.0",
+      "license_url": "https://ai.google.dev/gemma/docs/gemma_4_license",
+      "license_words": "Free to use, also for commercial use.",
+      "commercial_use": true,
+      "hidden": true,
+      "thinking": {
+        "default": "off",
+        "budget": 1024
+      },
+      "bytes": 18801854816,
+      "context_len": 262144,
+      "repo": "ggml-org/gemma-4-31B-it-GGUF",
+      "revision": "4fa4fdf38bee237b5c9e8a5b4e72cf39404c9dcc",
+      "files": [
+        "gemma-4-31B-it-Q4_0.gguf",
+        "mmproj-gemma-4-31B-it-Q8_0.gguf"
+      ],
+      "vision_file": "mmproj-gemma-4-31B-it-Q8_0.gguf",
+      "verify": {
+        "gemma-4-31B-it-Q4_0.gguf": {
+          "bytes": 17992313088,
+          "sha256": "031dc1c5fa9c5a0abbf3c39c5173fb2af65f5ac2dc2a090268561d3c72dcd834"
+        },
+        "mmproj-gemma-4-31B-it-Q8_0.gguf": {
+          "bytes": 809541728,
+          "sha256": "8872f1dd7ba6a750a039c04b45812511f4ecf004e229420cea58c8049a970fb6"
+        }
+      },
+      "supports_tools": true,
+      "notes": "Google's Gemma 4, from Google's own 4-bit-trained weights as ggml-org publishes them. Reads images with its vision file. Thinks before answering only where its entry says so. Not yet through the message script: hidden until it is.",
+      "tensor": {
+        "core_bytes": 17976477936,
+        "routed_expert_bytes": 0,
+        "layers": 60,
+        "moe": null,
+        "kv_bytes_per_token_fp16": 184320
+      },
+      "sampling": {
+        "answer": {
+          "temperature": 0.3,
+          "top_p": 0.95,
+          "top_k": 64,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1
+        },
+        "thinking": {
+          "temperature": 1,
+          "top_p": 0.95,
+          "top_k": 64,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1
+        }
+      }
+    },
+    {
+      "id": "ministral-3-8b-instruct-q4_k_m",
+      "title": "Ministral 3 8B",
+      "family": "Ministral 3",
+      "maker": "Mistral",
+      "params_b": 8.49,
+      "active_params_b": 8.49,
+      "quant": "Q4_K_M",
+      "license": "Apache-2.0",
+      "license_url": "https://huggingface.co/mistralai/Ministral-3-8B-Instruct-2512",
+      "license_words": "Free to use, also for commercial use.",
+      "commercial_use": true,
+      "hidden": true,
+      "bytes": 6055464640,
+      "context_len": 262144,
+      "repo": "unsloth/Ministral-3-8B-Instruct-2512-GGUF",
+      "revision": "3731507ec3e867db16d620f73e14d689125758f4",
+      "files": [
+        "Ministral-3-8B-Instruct-2512-Q4_K_M.gguf",
+        "Ministral-3-8B-Instruct-2512-mmproj-F16.gguf"
+      ],
+      "vision_file": "Ministral-3-8B-Instruct-2512-mmproj-F16.gguf",
+      "published_as": {
+        "Ministral-3-8B-Instruct-2512-mmproj-F16.gguf": "mmproj-F16.gguf"
+      },
+      "verify": {
+        "Ministral-3-8B-Instruct-2512-Q4_K_M.gguf": {
+          "bytes": 5198386720,
+          "sha256": "5dbc3647eb563b9f8d3c70ec3d906cce84b86bb35c5e0b8a36e7df3937ab7174"
+        },
+        "Ministral-3-8B-Instruct-2512-mmproj-F16.gguf": {
+          "bytes": 857077920,
+          "sha256": "35f84351450a8935b4bb8f683c123f9a4949699baaf9e206db7816cd7b78f74d"
+        }
+      },
+      "supports_tools": true,
+      "notes": "Mistral's Ministral 3 8B Instruct, which does not think. Reads images with its vision file. Its card names no sampling beyond a low temperature; the rest is the engine's plain sampling. Not yet through the message script: hidden until it is.",
+      "tensor": {
+        "core_bytes": 5190500352,
+        "routed_expert_bytes": 0,
+        "layers": 34,
+        "moe": null,
+        "kv_bytes_per_token_fp16": 139264
+      },
+      "sampling": {
+        "answer": {
+          "temperature": 0.3,
+          "top_p": 1,
+          "top_k": 0,
           "min_p": 0,
           "presence_penalty": 0,
           "repeat_penalty": 1
