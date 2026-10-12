@@ -13,6 +13,40 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-12, the 4 GB run paused for the laptop's service; its temperatures before it
+
+The founder's laptop (ASUS, AMD Ryzen 7 6800H, 8 cores and 16 threads,
+3.2 GHz base; RTX 3050 Ti with 4 GB; 16 GB of memory) ran at about 93 °C on
+the processor for an hour during the run, its fans at about 5,000 RPM. It is
+being cleaned and its thermal paste replaced; **the run is paused until the
+founder says it is back** (stopped at 20:19, nothing left running).
+
+- **Before the service, as measured** (read-only, without administrator
+  rights): at 20:17–20:18 the processor's thermal zone read **92.9 °C**, its
+  effective clock **4.04 to 4.06 GHz** (126 to 127 % of its base), its load
+  68 to 69 %, with the Ministral 3 8B writing; not under its base clock, so
+  not throttling by that measure, but 2 °C from its 95 °C limit. **Armoury
+  Crate's mode on mains power: Silent** (`ThrottleModeOnAC = 2` in its
+  registry, which ASUS's tools read as Silent). **Windows' power plan:
+  Performance.** **The engine's threads: 8**, the physical cores: llama.cpp's
+  default, as Core passes no thread count.
+- **After the service, the speed part runs again for all four models**, the
+  ones already finished included, so that all four are measured on the
+  serviced laptop: the Qwen3.5 4B's and Gemma 4 E4B's of 2026-10-11 and the
+  Ministral 3 8B's of this evening stand as before-service records and do not
+  count. Gently, as the owner ruled the same evening: three minutes'
+  cooldown between models and between the speed and accuracy parts; the
+  processor's temperature and clock sampled every 15 seconds through each
+  speed part, its first and last samples the start and end; a speed part
+  that ran while the processor throttled (95 °C or more, or under the base
+  clock while busy) is marked and run again after a cooldown, once;
+  Armoury Crate's mode left as it is and recorded.
+- **The accuracy results stand**, since the answers do not depend on the
+  temperature: the 4B's and the E4B's counting and language parts, and the
+  Ministral 8B's counting part. **Still to run:** the Ministral 8B's
+  language part (stopped partway), and the Qwen3.5 9B's counting and
+  language parts.
+
 ## 2026-10-12, the kit stops cleanly and keeps the computer awake
 
 The owner's ruling, after a stopped run left an engine behind and its
