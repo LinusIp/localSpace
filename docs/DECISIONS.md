@@ -13,6 +13,25 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-12, the kit stops cleanly and keeps the computer awake
+
+The owner's ruling, after a stopped run left an engine behind and its
+script went on to the next model.
+
+- **Every engine Core starts ends with Core's process** (Windows): it joins
+  a job object that ends everything in it when Core's process ends, however
+  it ends. So Ctrl+C on `localspace measure`, or one stop of it, ends its
+  engine too. The calls are declared in Core's own isolated module
+  (`os`), as `footprint` declares its own: no crate is added. **The test**
+  (Windows only, so it runs in the package workflow on the Windows runner)
+  holds that the first engine and one started again are both in that job.
+  Elsewhere nothing changes: the orphan-engine file of the 0.2 basics still
+  covers a power cut and other systems.
+- **`localspace measure` keeps the computer awake while it runs**, by
+  asking Windows as long as the run lasts (`SetThreadExecutionState`): no
+  sleep setting is changed, so there is none to restore, and the request
+  ends with the run, however it ends.
+
 ## 2026-10-11, other labs in, Qwen2.5 out (document 34): the rulings, the entries, the revised 4 GB run
 
 The owner's rulings on the builder's reply (the reply and the dates are in

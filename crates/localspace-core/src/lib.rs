@@ -23,6 +23,8 @@ pub mod fit;
 // directly (`CLAUDE.md`: unsafe only in isolated, documented modules).
 #[allow(unsafe_code)]
 pub mod footprint;
+// The other: the job object that ends an engine with Core, and the request
+// to stay awake while measuring (docs/DECISIONS.md, 2026-10-12).
 pub mod gateway;
 pub mod grammar;
 pub mod hardware;
@@ -31,6 +33,8 @@ pub mod lock;
 pub mod manifest;
 pub mod model;
 pub mod models;
+#[allow(unsafe_code)]
+pub mod os;
 pub mod planner;
 pub mod presence;
 pub mod profile;
@@ -702,6 +706,12 @@ impl Core {
 
     /// The measure of the last model step in `conversation`: the figures,
     /// never a word of the answer.
+    /// The engine's process, while there is one: for a test that asks
+    /// whether it ends with Core's own.
+    pub fn engine_pid(&self) -> Option<u32> {
+        self.engine.as_ref().and_then(|e| e.pid())
+    }
+
     pub fn answer_measure(&self, conversation: &str) -> Option<turns::AnswerMeasure> {
         self.answer_measures.get(conversation).cloned()
     }

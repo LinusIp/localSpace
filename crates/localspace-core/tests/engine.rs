@@ -1118,3 +1118,35 @@ fn a_model_with_a_vision_file_starts_with_it_and_its_steps_are_measured() {
         "{again}"
     );
 }
+
+/// An engine Core starts ends with Core's process, however that ends: it is
+/// in a job that Windows closes, ending everything in it, when Core's
+/// process goes. Ctrl+C on `localspace measure`, or one stop of it, ends its
+/// engine too (docs/DECISIONS.md, 2026-10-12). The kill itself is Windows':
+/// what is tested is that every engine, the first and one started again, is
+/// in that job.
+#[cfg(windows)]
+#[test]
+fn every_engine_core_starts_ends_with_cores_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut core, _events) = core_with_fake_engine(dir.path());
+    assert!(matches!(
+        core.handle(proto::Request::LoadModel { id: "tiny".into() }),
+        proto::Response::Ok
+    ));
+    wait_until(&core, "the sidecar to answer", |s| s.running);
+    let first = core.engine_pid().expect("an engine");
+    assert!(
+        localspace_core::os::ends_with_this_process(first),
+        "engine {first} would outlive Core"
+    );
+    // Loaded again: a new engine process, in the same job.
+    core.handle(proto::Request::UnloadModel);
+    assert!(matches!(
+        core.handle(proto::Request::LoadModel { id: "tiny".into() }),
+        proto::Response::Ok
+    ));
+    wait_until(&core, "the sidecar to answer again", |s| s.running);
+    let second = core.engine_pid().expect("an engine");
+    assert!(localspace_core::os::ends_with_this_process(second));
+}

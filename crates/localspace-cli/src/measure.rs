@@ -837,6 +837,10 @@ struct Progress {
 }
 
 pub fn run(args: MeasureArgs) -> Result<()> {
+    // An unattended run of hours: the computer stays awake while it lasts,
+    // with no setting changed; the engine Core starts ends with this process,
+    // so Ctrl+C or one stop ends the run whole (docs/DECISIONS.md, 2026-10-12).
+    let _awake = localspace_core::os::stay_awake();
     let models_dir = match &args.models {
         Some(dir) => dir.clone(),
         None => localspace_core::default_data_dir()
