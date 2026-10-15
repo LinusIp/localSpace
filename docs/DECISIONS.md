@@ -13,6 +13,31 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-15, what CI runs when
+
+The owner's ruling, so that the repository can become private and stay inside
+the free plan's 2,000 minutes a month:
+
+- **On every push and pull request:** `check` (formatting, lint, types),
+  `rust` (clippy, tests) and `web` (tests, build, sizes, frame times), as
+  before.
+- **On pull requests, on merges to `main` and by hand only:** `e2e` (the
+  end-to-end walk) and `measure` (the kit against the test engine), with
+  `if: github.event_name != 'push' || github.ref == 'refs/heads/main'`. A
+  push to a branch with a pull request open still runs them, through the
+  pull request.
+- **The Windows package** (`package.yml`): by hand before a merge to `main`,
+  for a check, and for a release tag; it never ran per push.
+- **Why, in minutes** (the last 30 days, before the change): `ci` about 20
+  billed minutes a push over 115 runs, about 2,300; the package about 13
+  minutes a run, counted twice for Windows, over 38 runs, about 1,000; about
+  3,300 together. After it: about 9 minutes a branch push, the full 20 only on
+  pull requests and `main`, and the package only before a merge or a release,
+  about 1,200 a month at the same pace.
+- **What does not change:** nothing reaches a tester until `ci` is green on
+  that exact commit, the walk and the kit included (they run on the pull
+  request and on `main`), and the release check has passed.
+
 ## 2026-10-10, after the founder's test of `aeb31fa`: the whiteboard and the planner leave 0.2; loops, sampling, empty chats
 
 The founder used the package of `aeb31fa` with the Qwen3.5 4B. What he
