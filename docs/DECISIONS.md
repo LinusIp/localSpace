@@ -13,6 +13,34 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-15, the laptop back from its service: its temperatures after it
+
+Document 36, section 2, steps 1 and 2. Measured as before (read-only,
+without administrator rights, sampled every 15 seconds), on mains power,
+Windows' power plan Performance, the engine at 8 threads.
+
+| | Before the service (2026-10-12) | After the service (2026-10-15) |
+|---|---|---|
+| Idle | not measured | **53.9 °C** a minute after the computer settled (74.9 °C at 10:00:26, 53.9 °C at 10:01:21) |
+| Writing, the model | Ministral 3 8B, an hour into the run | Qwen3.5 4B, five minutes answering (10:02–10:07) |
+| Temperature under load | 92.9 °C | **92.9 °C** from 45 seconds in, held to the end; mean 91.2 °C over the 19 samples |
+| Effective clock | 4.04 to 4.06 GHz (126 to 127 % of base) | **3.34 to 4.05 GHz** (104 to 127 %), mostly 3.5 to 3.7 GHz once hot |
+| Throttling by the run's rule | no | **no**: never 95 °C, never under the 3.2 GHz base clock while busy |
+| Armoury Crate's registry on mains | Silent (`ThrottleModeOnAC = 2`) | **Silent (`ThrottleModeOnAC = 2`)**, `OnDC = 1` |
+
+- **The service did not lower the temperature under load**: the processor
+  reaches the same 92.9 °C, and now holds a lower clock there, which is what
+  the processor does to stay under its limit. Idle it cools faster than it
+  did before (not measured then, so not compared).
+- **Every speed figure measured before today is Silent-mode history**, as the
+  owner ruled the same day (document 36, section 2, step 2): the Qwen3.5 4B's
+  and Gemma 4 E4B's of 2026-10-11 and the Ministral 3 8B's of 2026-10-12. They
+  are kept as records and count for nothing.
+- **The owner says Armoury Crate is on Performance; its registry still reads
+  Silent.** The run's speed parts wait until the founder confirms the mode in
+  Armoury Crate's own window; the mode is never changed from here. Whatever
+  he confirms is recorded with the run.
+
 ## 2026-10-12, the 4 GB run paused for the laptop's service; its temperatures before it
 
 The founder's laptop (ASUS, AMD Ryzen 7 6800H, 8 cores and 16 threads,
