@@ -11,8 +11,12 @@
 # that builds Rust, and every job has a timeout, so a broken commit costs
 # minutes rather than an hour.
 #
-# Runs on every push and pull request again since the repository became
-# public, where a runner costs nothing (docs/DECISIONS.md, 2026-09-25).
+# What runs when (docs/DECISIONS.md, 2026-10-15), so that a private
+# repository stays inside the free plan's minutes: formatting, lint, types,
+# the Rust tests and the web checks on every push and pull request; the
+# end-to-end walk and the measurement kit on pull requests, on merges to
+# main and when run by hand. The Windows package (`package.yml`) runs only
+# by hand, before a merge to main, and for a release tag.
 # Nothing reaches a tester until this is green on that exact commit and
 # the release check has passed. `scripts/check.sh` runs the same jobs on a
 # Linux machine, kept for later; no push waits on it.
@@ -195,6 +199,9 @@ jobs:
 
   e2e:
     name: the step-5 gate and Phase A's gate, end to end in a browser
+    # Not on every push (docs/DECISIONS.md, 2026-10-15): on pull requests,
+    # on merges to main and when run by hand.
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     needs: [web, rust]
     timeout-minutes: 45
@@ -278,6 +285,9 @@ jobs:
     # the way answers arrive without a test failing (docs/DECISIONS.md,
     # 2026-09-24 and 2026-10-08).
     name: the measurement kit against the test engine (every message answered, Continue carried through)
+    # Not on every push (docs/DECISIONS.md, 2026-10-15): on pull requests,
+    # on merges to main and when run by hand.
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     needs: rust
     timeout-minutes: 30
