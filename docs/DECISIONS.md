@@ -71,6 +71,25 @@ moved with them.
     supersedes the marketplace spec's "one author" principle (§1).
 - **`docs/STATUS.md` corrected:** the tool-call grammar is compiled but not
   sent to the engine (H§9 is partial, not built).
+- **Later the same day, the roles in full:** `Viewer` maps to `Member`, with
+  read-only access given per document (the access levels already allow it).
+  The Owner is the first administrator, created at install; ownership passes
+  only by the Owner's own action; no Admin can disable, demote or remove the
+  Owner. A lost Owner account is recovered only from the server machine
+  itself, by a local command run by someone with administrator access to that
+  machine, and the recovery is written to the action log.
+- **The documents tool and the code runner are built once, for the server**
+  (document 37, step 3), switched off there until an admin enables them. On
+  the desktop they become optional first-party add-ons from the Store once it
+  reopens; nothing of them is in the desktop base install. There is no maths
+  checker: the agent checks calculations by running them in the code runner.
+- **The local API:** the server's OpenAI-compatible endpoint, with accounts,
+  in document 37's step 1; the desktop's after step 3. **The desktop's
+  listener amends deployment spec §8 ("the gateway is the only socket") when
+  it is built, on these conditions:** off by default and switched on by the
+  person; `127.0.0.1` only; every program that asks is shown and approved once;
+  and the screen says plainly that this approval is a courtesy, not
+  protection against software already on the computer.
 
 ## 2026-10-15, the laptop back from its service: its temperatures after it
 
