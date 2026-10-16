@@ -138,6 +138,39 @@ moved with them.
   - The figures and the method are in the internal repository's
     `docs/measure/2026-10-16/cuda/`.
 
+- **A timed Linux build of `other-labs` (`acb8b1b`) in WSL**, Ubuntu 22.04,
+  `.wslconfig` 6 processors, 6 GB memory, 4 GB swap. Rust 1.99.0, Node
+  24.19.0. CI's settings (`CARGO_INCREMENTAL=0`, line tables only) and CI's
+  commands, `-j 4`, in a clone on Ubuntu's own disk.
+
+  | Step | Time |
+  |---|---|
+  | `cargo fetch` | 21 min, slowed by WSL's connection to crates.io |
+  | the web bundle and harness packages | 2.1 min |
+  | clippy, clean | 5.2 min |
+  | the tests, clean build and run | 11.1 min |
+  | the whole suite again, already built, `--no-fail-fast` | 2.0 min, all passing |
+  | after a one-line change in `localspace-core`, the tests rebuilt | 1.9 min |
+  | the desktop app (`localspace-shell`) | 4.3 min |
+
+  - **The connection:** WSL resolved `index.crates.io` to IPv6 first and its
+    NAT stalled on it, so index requests took 15 to 20 s or timed out against
+    2 to 4 s from Windows. `CARGO_HTTP_TIMEOUT=120`, `CARGO_NET_RETRY=10` and
+    `CARGO_HTTP_MULTIPLEXING=false` for that run got through; nothing in WSL
+    or Windows was changed.
+  - **Peak memory:** 3.6 GB used, with 0.2 GB of swap, under the 6 GB cap.
+  - **Disk:** `target` 14 GB, the crate cache 1.4 GB, `web/node_modules`
+    150 MB.
+  - **WSLg:** the app starts and opens its window ("the window is open", the
+    web client served). It finds no graphics card in WSL, so it recommends
+    the 1.5B.
+  - **Missing packages:** none.
+  - **One timing failure under load:** `a_stop_mid_answer_keeps_what_came_marked_as_stopped`
+    (`crates/localspace-core/tests/turns.rs`) took 8.7 s to stop against its
+    2-second limit during the first run, while four compile jobs shared six
+    processors. It passed three times alone and in the full rerun. CI is
+    still the check before a merge.
+
 ## 2026-10-15, the laptop back from its service: its temperatures after it
 
 Document 36, section 2, steps 1 and 2. Measured as before (read-only,
