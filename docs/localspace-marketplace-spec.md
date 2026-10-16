@@ -12,7 +12,7 @@ Companion to the Harness Plugin System and Organisation Deployment specs. Covers
 - **An environment is the unit of customisation.** A physics researcher, an architect and a planner do not configure features; they install environments — and an environment template is a listing like any other.
 - **Purchases are entitlements, verified offline.** No component needs to be online to know what a user or organisation is allowed to run.
 - **Organisations decide what their people see.** The catalog is the supply; the org catalog is the shelf.
-- **One author, one quality bar.** Because localSpace writes every harness, every listing meets the same budgets, uses the same interchange types, ships the same evals, and is tested against every hardware profile before release. The sandbox (plugin spec §6) stays — for fault isolation and memory budgets, not because the code is untrusted.
+- **One author, one quality bar.** Because localSpace writes every harness, every listing meets the same budgets, uses the same interchange types, ships the same evals, and is tested against every hardware profile before release. The sandbox (plugin spec §6) stays — for fault isolation and memory budgets, not because the code is untrusted. **Superseded for environments on 2026-10-16:** partners may build environments later, signed and reviewed (docs/DECISIONS.md, 2026-10-16).
 
 ---
 

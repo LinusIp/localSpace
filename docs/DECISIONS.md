@@ -13,6 +13,65 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-16, the language rule in the prompt; CUDA as an NVIDIA edition; document 37's design rulings
+
+- **Both system prompts now say "Answer in the language and alphabet the
+  person writes in."** (`prompt::LANGUAGE`, in `SYSTEM` and `SYSTEM_PLAIN`,
+  with a test). It stays in the product whatever the retest shows. Measured on
+  2026-10-15: Gemma 4 E4B answered the Uzbek Moon question in English five
+  times of six and drifted from Cyrillic Uzbek into Latin; the Qwen3.5 4B wrote
+  one answer in Azerbaijani.
+- **"Mixing" for the 4 GB rule:** a single word with letters from the other
+  alphabet is a typo; an answer in, or drifting into, another language is
+  mixing. One retest, fixed in advance: the Russian and Uzbek language set
+  again for the Qwen3.5 9B, Gemma 4 E4B and Qwen3.5 4B with the instruction,
+  read by the same three readers. The decision itself is in the business log.
+- **Near-repeating loops** (lines that vary slightly, as the Ministral 3 8B's
+  did on 2026-10-15): the 2,048-token answer limit covers them in 0.2; a wider
+  loop guard comes in 0.2.1.
+- **CUDA, for 0.2.1, ships as a second installer, not a download inside the
+  app:** the standard edition (Vulkan) and an NVIDIA edition (llama.cpp's
+  b10869 CUDA 13.3 build and NVIDIA's runtime files inside, Vulkan beside it as
+  the fallback), both from `localSpace-releases`. NVIDIA's licence lets its
+  runtime files go out only inside an application (CUDA Toolkit EULA §1.1.1(3),
+  §1.1.2, Attachment A §2.6); its licence goes into `licences/`. When the app
+  finds a suitable NVIDIA card and driver it suggests the NVIDIA edition, which
+  the person downloads and installs like an update: **no download from inside
+  the app**, so the only outbound connection stays the model download the
+  person asks for. If the CUDA engine fails to start or crashes, Core starts
+  the Vulkan engine, unasked, and logs why.
+- **CUDA becomes the default on a card only where it is clearly faster:** at
+  least 15 % faster writing and not slower reading or to the first word, or at
+  least 30 % faster reading with writing no slower. Measured on the founder's
+  RTX 3050 Ti (the 4 GB default and the 9B; first word, writing, reading a
+  3,000-token message), and the RTX 5080 laptop when it is available.
+- **Document 37's design, ruled (built after 0.2):**
+  - **Roles: three.** Owner (one per installation), Admin (people, models,
+    tools) and Member. No role can read anyone's chats. The code's `Admin` and
+    `Member` keep their meaning; `Owner` is new; `Viewer` is to be mapped
+    (asked).
+  - **Built-in tools:** on the server edition the documents tool and the code
+    runner ship built in, switched off until an admin enables them. The desktop
+    base install stays as it is.
+  - **MCP servers** run as separate processes with only the access the admin
+    grants: named folders, and network only to named hosts. Until that sandbox
+    exists they are admin-installed only, off by default, and marked on screen
+    "runs with full access".
+  - **The code runner:** Python inside the existing WebAssembly sandbox
+    (WASI): no network, no files outside its folder, time and memory limits.
+    Its size is reported before it is added.
+  - **The action log:** for reads, the user, tool, time, outcome and how many
+    items were read, never their names; for actions that change something,
+    also the target (a file path or a record id). Never chat text, prompts or
+    document contents. People see on screen that actions are logged.
+  - **Web tools:** the ruling that hid them (`WEB_RESULTS_REACH_THE_MODEL`) is
+    lifted for the server edition only: off by default, switched on by an
+    admin, every use visible to the person.
+  - **Partners may build environments** later, signed and reviewed. This
+    supersedes the marketplace spec's "one author" principle (§1).
+- **`docs/STATUS.md` corrected:** the tool-call grammar is compiled but not
+  sent to the engine (H§9 is partial, not built).
+
 ## 2026-10-15, the laptop back from its service: its temperatures after it
 
 Document 36, section 2, steps 1 and 2. Measured as before (read-only,
