@@ -107,6 +107,37 @@ moved with them.
   and the screen says plainly that this approval is a courtesy, not
   protection against software already on the computer.
 
+- **The NVIDIA edition takes CUDA 12.4, not 13.3** (ruled after the
+  measurement below).
+  - **Why:** 12.4 runs on far older drivers, and on the older cards (GTX 10
+    series, Pascal) that CUDA 13 drops.
+  - **When to move:** to 13.x only if a later measurement shows it clearly
+    faster on newer cards, by the same rule.
+  - **Minimum driver, from NVIDIA's own release notes:** CUDA 12.4 GA needs
+    **551.61 or newer on Windows** (550.54.14 on Linux; Table 4,
+    "Corresponding Driver Versions"). With minor version compatibility, any
+    12.x driver of 525 or newer (Table 3). CUDA 13.x needs 580 or newer
+    (Table 3).
+  - **Measured:** CUDA 13.3 does not start on the founder's driver, 566.07
+    (`failed to initialize CUDA`); 12.4 does.
+- **The NVIDIA edition is suggested only when the card and the driver can
+  both run it.** When the card can and the driver is too old, the app shows
+  one plain line, at most once, and the person can dismiss it: "A newer NVIDIA
+  driver would let you use the faster NVIDIA edition." No link is opened and
+  nothing is downloaded.
+- **Vulkan against CUDA 12.4 on the RTX 3050 Ti** (driver 566.07, llama.cpp
+  b10869 both ways; Core chose the placement).
+  - **Writing:** +5 % on the 9B (9.2 to 9.7 tokens a second), +2 % on the 4B
+    (38.6 to 39.2).
+  - **The first word:** the same or faster.
+  - **Reading a 3,000-token message:** +58 % on the 9B (6.85 s to 4.32 s), +55 %
+    on the 4B (3.08 s to 1.98 s).
+  - **The verdict:** under the rule (at least 15 % faster writing with
+    nothing slower, or at least 30 % faster reading with writing no slower),
+    **CUDA is clearly faster on this card, by the reading clause.**
+  - The figures and the method are in the internal repository's
+    `docs/measure/2026-10-16/cuda/`.
+
 ## 2026-10-15, the laptop back from its service: its temperatures after it
 
 Document 36, section 2, steps 1 and 2. Measured as before (read-only,
