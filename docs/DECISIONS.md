@@ -165,11 +165,29 @@ moved with them.
     web client served). It finds no graphics card in WSL, so it recommends
     the 1.5B.
   - **Missing packages:** none.
-  - **One timing failure under load:** `a_stop_mid_answer_keeps_what_came_marked_as_stopped`
-    (`crates/localspace-core/tests/turns.rs`) took 8.7 s to stop against its
-    2-second limit during the first run, while four compile jobs shared six
-    processors. It passed three times alone and in the full rerun. CI is
-    still the check before a merge.
+  - **One timing failure:** `a_stop_mid_answer_keeps_what_came_marked_as_stopped`
+    (`crates/localspace-core/tests/turns.rs`) took 8.7 s to reach "stopped"
+    against its 2-second limit, on the first run of the tests right after the
+    14 GB build, with C: 93 % full. (Not during compiling: `cargo test`
+    compiles everything before it runs a test.) **It did not happen again in
+    58 stops:**
+    - 5 ms idle;
+    - 5 to 15 ms with all six processors busy;
+    - 5 to 15 ms with 2 GB files written over and over;
+    - 5 ms with the whole file's 15 tests running together;
+    - 5 to 46 ms with 1.5 GB written and flushed to disk (`sync`) over and
+      over.
+
+    **The path:** a Stop shuts the engine's socket at once, so the words end
+    at once (`stream::Stop::stop`). The turn is announced "stopped" only
+    after Core's thread has saved the chat (`agent::keep` → redb commit,
+    which waits for the disk; no transaction sets a durability) and closed
+    the run (`agent::end`, `finish_run`, then `TurnChanged`). A disk that
+    stalls therefore delays the "stopped" state and every other request on
+    Core's one thread: measured, a forced flush took it from 5 ms to 46 ms.
+    The 8.7 s once is most likely the host's disk catching up after the
+    build, on a nearly full drive, but that is not proven. No change to the
+    product or the test is made; the 2-second limit stays.
 
 ## 2026-10-15, the laptop back from its service: its temperatures after it
 
