@@ -5453,12 +5453,12 @@ mod tests {
         let shown = listed(&mut app);
         assert!(shown.iter().any(|id| id == "qwen2.5-7b-instruct-q4_k_m"));
         assert!(
-            !shown.iter().any(|id| id == "qwen3.5-9b-q4_k_m"),
+            !shown.iter().any(|id| id == "gemma-4-31b-q4_0"),
             "a hidden entry in the app's list: {shown:?}"
         );
         // Not loadable either: to the app it is not in the catalog.
         match app.handle(proto::Request::LoadModel {
-            id: "qwen3.5-9b-q4_k_m".into(),
+            id: "gemma-4-31b-q4_0".into(),
         }) {
             proto::Response::Error { .. } => {}
             other => panic!("expected a refusal, got {other:?}"),
@@ -5469,7 +5469,7 @@ mod tests {
         assert!(
             listed(&mut measure)
                 .iter()
-                .any(|id| id == "qwen3.5-9b-q4_k_m")
+                .any(|id| id == "gemma-4-31b-q4_0")
         );
     }
 

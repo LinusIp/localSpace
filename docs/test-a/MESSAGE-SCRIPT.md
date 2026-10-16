@@ -290,3 +290,23 @@ right with thinking on; twice among the Berlin ideas a place that does not
 exist. The 4 GB tier's default from 2026-10-09, with that limit named in
 its entry. The answers themselves are in the internal repository,
 `docs/measure/2026-10-08/` and `docs/measure/2026-10-09/`.
+
+### Qwen3.5 9B
+
+Run by `localspace measure` on the development laptop (the founder's ASUS,
+RTX 3050 Ti with 4 GB, 16 GB of memory) at temperature 0.3, thinking off:
+the counting runs on 2026-10-15 (package `e317f6d`; the sum, the egg problem,
+the weather, the exchange rate and the Berlin ideas, five times each), the
+whole script and the Russian and Uzbek set the same day, and the Russian and
+Uzbek set again on 2026-10-16 with the language instruction (package
+`eba7ee1`). Read by three independent readers each time. The judgment
+(docs/DECISIONS.md, 2026-10-16): 9.2 tokens a second over the script, the
+first word in 0.5 s; no loop; no answer in or drifting into another language,
+before or after the instruction, only one-word slips of the alphabet; 8 to 11
+wrong of 35, all among the Berlin ideas (places put in the wrong region, a
+castle and a cathedral that are not there) and, for two readers, sources it
+named for the exchange rate that do not exist; the sum and the egg problem
+right every time, the weather and the rate declined honestly every time. The
+4 GB tier's default from 2026-10-16. The answers themselves are in the
+internal repository, `docs/measure/2026-10-15/` and
+`docs/measure/2026-10-16/`.

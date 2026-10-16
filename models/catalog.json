@@ -2,7 +2,7 @@
   "version": 4,
   "notes": "The curated model catalog (architecture v2 §4.4). An entry's files, their exact sizes and SHA-256 digests, its layers and its KV size are Hugging Face's own facts, gathered by scripts/catalog-entry.mjs, or read from the file's own header by scripts/gguf-header.mjs where that says more than the base model's config.json does (a Qwen3.5 keeps a KV cache on every fourth layer alone); `verify` is what a finished download must be. An entry marked `hidden` has not passed its checks yet: the app's Core leaves it out, and `localspace measure` keeps it (docs/DECISIONS.md, 2026-10-08). `vision_file` names the file among `files` that reads images; `thinking` says whether a model thinks before it answers by default and for at most how many tokens (the answer always arrives: the engine ends the thinking at the budget); `exercised` lists every pass of the message script a person read, by tier, and `exercised_on` is the latest of those days (docs/DECISIONS.md, 2026-10-08); `published_as` gives a file's name in the repository where it differs from the name it is kept under. Entries without `verify` carry approximate sizes, and their download is held to the length the server announces. `exercised_on` is the day an entry last went through the message script (`localspace measure`) on some machine and a person read what came back (docs/test-a/MESSAGE-SCRIPT.md): a model may only be the default if it has been, and an entry that does not say is listed and never offered first. Tensor maps are the numbers the placement needs: bytes of the dense core, bytes of routed experts, layers, and the expert layout. Sampling per entry is its maker's published card (Hugging Face model cards and generation_config.json, read 2026-10-10): `answer` for thinking off, `thinking` for on; Qwen3.5's presence penalty stands until the Russian and Uzbek runs show no language mixing (docs/DECISIONS.md, 2026-10-10). Every answer with thinking off samples at temperature 0.3, on every model; with thinking on, the card's own values; a model whose short pass loops or mixes languages at 0.3 takes its card's value instead, said in its entry (ruled 2026-10-11). Gemma 4's attention cache figure counts its full-attention layers per token and its sliding-window layers at their window, spread over an 8,192-token context.",
   "defaults": {
-    "4 GB": "qwen3.5-4b-q4_k_m"
+    "4 GB": "qwen3.5-9b-q4_k_m"
   },
   "models": [
     {
@@ -584,7 +584,16 @@
       "license_url": "https://huggingface.co/Qwen/Qwen3.5-9B/blob/main/LICENSE",
       "license_words": "Free to use, also for commercial use.",
       "commercial_use": true,
-      "hidden": true,
+      "hidden": false,
+      "exercised": [
+        {
+          "tier": "4 GB",
+          "thinking": "off",
+          "day": "2026-10-15",
+          "machine": "NVIDIA GeForce RTX 3050 Ti Laptop GPU, 4 GB of graphics memory, 16 GB of system memory",
+          "build": "e317f6dc"
+        }
+      ],
       "thinking": {
         "default": "off",
         "budget": 1024
@@ -612,7 +621,7 @@
         }
       },
       "supports_tools": true,
-      "notes": "Hidden until it has passed its checks (docs/DECISIONS.md, 2026-10-08): reachable by `localspace measure` alone. Reads images with its vision file. Thinks before answering unless told not to.",
+      "notes": "The 4 GB tier's default since 2026-10-16: of the four measured on the 4 GB laptop, the one that passed the speed rule with no loops and no language mixing, and the fewest wrong answers among those (docs/DECISIONS.md, 2026-10-16). Partly on a 4 GB card, the rest in system memory. Reads images with its vision file. Thinks before answering unless told not to.",
       "tensor": {
         "core_bytes": 5669554176,
         "routed_expert_bytes": 0,

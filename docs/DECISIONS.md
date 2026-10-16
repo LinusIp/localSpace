@@ -71,6 +71,22 @@ moved with them.
     supersedes the marketplace spec's "one author" principle (§1).
 - **`docs/STATUS.md` corrected:** the tool-call grammar is compiled but not
   sent to the engine (H§9 is partial, not built).
+- **The Qwen3.5 9B is the 4 GB tier's default** (`defaults` in
+  `models/catalog.json`, no longer hidden, its 4 GB run of 2026-10-15
+  recorded under `exercised`). The rule fixed on 2026-10-11:
+  - at least 8 tokens a second and the first word within 5 seconds: all
+    four pass (the 9B: 9.2 tokens a second, 0.5 s);
+  - no loops: the Ministral 3 8B is out;
+  - no mixing, as read above: after the retest with the language
+    instruction, Gemma 4 E4B still answered an Uzbek question in English and
+    switched two Cyrillic answers to Latin, and the 9B mixed in none of 35 by
+    any of the three readers;
+  - among those left, the fewest wrong answers: the 9B, 8 to 11 of 35.
+
+  The tests that named the 4B as the default now name the 9B. Those that
+  need a hidden entry use Gemma 4 31B. On a 4 GB card the 9B is partly in
+  system memory; where it neither runs well nor works, the rule below the
+  default still applies.
 - **Later the same day, the roles in full:** `Viewer` maps to `Member`, with
   read-only access given per document (the access levels already allow it).
   The Owner is the first administrator, created at install; ownership passes

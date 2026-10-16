@@ -1659,9 +1659,9 @@ mod tests {
         assert_eq!(tier_of(&four_gb), "4 GB");
         assert_eq!(
             catalog.recommend(&four_gb).as_deref(),
-            Some("qwen3.5-4b-q4_k_m")
+            Some("qwen3.5-9b-q4_k_m")
         );
-        // An 8 GB card is another tier: the 4B is not exercised there, and
+        // An 8 GB card is another tier: the 9B is not exercised there, and
         // the rule gives the 7B as before.
         let eight_gb = laptop_with_32_gb();
         assert_eq!(tier_of(&eight_gb), "8 GB");
@@ -1669,10 +1669,10 @@ mod tests {
             catalog.recommend(&eight_gb).as_deref(),
             Some("qwen2.5-7b-instruct-q4_k_m")
         );
-        // Without its record for the 4 GB tier, the 4B is not offered first
+        // Without its record for the 4 GB tier, the 9B is not offered first
         // there either, decided default or not.
         for m in &mut catalog.models {
-            if m.id == "qwen3.5-4b-q4_k_m" {
+            if m.id == "qwen3.5-9b-q4_k_m" {
                 m.exercised.clear();
             }
         }
@@ -1715,7 +1715,7 @@ mod tests {
         assert!(
             file.models
                 .iter()
-                .any(|m| m.hidden && m.id == "qwen3.5-9b-q4_k_m")
+                .any(|m| m.hidden && m.id == "gemma-4-31b-q4_0")
         );
         for m in &file.models {
             if m.hidden {
@@ -1949,14 +1949,14 @@ mod tests {
         );
 
         // The model to start with on this laptop: the 4 GB tier's default
-        // decided by the counts (docs/DECISIONS.md, 2026-10-09), the Qwen3.5
-        // 4B; the rule below it would give the 7B, the largest that runs
+        // decided by the 4 GB run (docs/DECISIONS.md, 2026-10-16), the Qwen3.5
+        // 9B; the rule below it would give the 7B, the largest that runs
         // well here.
         assert_eq!(
             catalog.recommend(&found).as_deref(),
-            Some("qwen3.5-4b-q4_k_m")
+            Some("qwen3.5-9b-q4_k_m")
         );
-        // **Of those whose licence permits commercial use**: without the 4B,
+        // **Of those whose licence permits commercial use**: without the 4B, the 9B,
         // the 7B and the 14B, the 3B is the largest that runs well, and it is
         // passed over without a word for the 1.5B: it is for research and
         // evaluation only.
@@ -2038,9 +2038,9 @@ mod tests {
         const SEVEN_B: &str = "qwen2.5-7b-instruct-q4_k_m";
         const FOURTEEN_B: &str = "qwen2.5-14b-instruct-q4_k_m";
         const THIRTY_B: &str = "qwen3-30b-a3b-q4_k_m";
-        // The 4 GB tier's default since 2026-10-09, by the counts: every
+        // The 4 GB tier's default since 2026-10-16, by the 4 GB run: every
         // card under 7 GB (docs/DECISIONS.md).
-        const FOUR_B: &str = "qwen3.5-4b-q4_k_m";
+        const NINE_B: &str = "qwen3.5-9b-q4_k_m";
         const IDS: [&str; 6] = [HALF_B, ONE_HALF_B, THREE_B, SEVEN_B, FOURTEEN_B, THIRTY_B];
 
         struct Shape {
@@ -2060,7 +2060,7 @@ mod tests {
                 card: Some("NVIDIA GeForce RTX 3050 Ti Laptop GPU (3962 MiB, 3367 MiB free)"),
                 memory_mib: 15_613,
                 copy_gbps: 19.3,
-                default: FOUR_B,
+                default: NINE_B,
                 verdicts: [WELL, WELL, WELL, WELL, SLOW, NO],
             },
             Shape {
@@ -2068,18 +2068,18 @@ mod tests {
                 card: Some("NVIDIA GeForce GTX 1650 (4096 MiB, 3500 MiB free)"),
                 memory_mib: 16_000,
                 copy_gbps: 12.0,
-                default: FOUR_B,
+                default: NINE_B,
                 verdicts: [WELL, WELL, WELL, WORKS, SLOW, NO],
             },
             Shape {
                 // Its 14B is shown "about 3 to 4 words a second": about as fast as
                 // a person reads, by the numbers themselves. A 6 GB card is of
-                // the 4 GB tier, whose default is the 4B.
+                // the 4 GB tier, whose default is the 9B.
                 what: "16 GB and an RTX 3060 Laptop with 6 GB",
                 card: Some("NVIDIA GeForce RTX 3060 Laptop GPU (6144 MiB, 5400 MiB free)"),
                 memory_mib: 16_000,
                 copy_gbps: 15.0,
-                default: FOUR_B,
+                default: NINE_B,
                 verdicts: [WELL, WELL, WELL, WELL, WORKS, NO],
             },
             Shape {
