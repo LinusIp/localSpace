@@ -72,6 +72,18 @@ const WORDS_PER_TOKEN: f32 = 0.75;
 /// The shown range reaches this far below the estimate.
 const RANGE_LOW: f32 = 0.75;
 
+/// Words a second from tokens a second, rounded: what a measured speed is
+/// shown as.
+pub fn words_a_second(tokens_per_second: f32) -> u32 {
+    (tokens_per_second * WORDS_PER_TOKEN).round() as u32
+}
+
+/// Whether a speed in words a second is above the pace of reading: where
+/// "runs well" begins.
+pub fn faster_than_reading(words_per_second: u32) -> bool {
+    words_per_second > READING_WORDS_PER_SECOND
+}
+
 /// A model's own numbers, from the catalog or from its file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Shape {
@@ -83,6 +95,13 @@ pub struct Shape {
     /// Repeating layers; the engine counts one more, the output layer.
     pub layers: u32,
     pub kv_bytes_per_token_fp16: u64,
+    /// What the engine holds in system memory whatever goes to the card,
+    /// and does not read for each word: the vision file, which Core starts
+    /// the engine with and keeps off the card (`--no-mmproj-offload`).
+    /// It counts towards fitting, and not towards the speed
+    /// (docs/DECISIONS.md, 2026-10-18).
+    #[serde(default)]
+    pub ram_only_bytes: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -229,7 +248,9 @@ pub fn fit(shape: &Shape, hardware: &Hardware, ask: Ask, gpu_layer_cap: Option<u
     } else {
         0
     };
-    let ram_bytes = shape.weight_bytes.saturating_sub(gpu_weight) + kv_bytes.saturating_sub(gpu_kv);
+    let ram_bytes = shape.weight_bytes.saturating_sub(gpu_weight)
+        + kv_bytes.saturating_sub(gpu_kv)
+        + shape.ram_only_bytes;
 
     let fits = ram_bytes / MIB <= usable_ram_mib(hardware);
 
@@ -393,6 +414,7 @@ mod tests {
             active_bytes: 2_104_932_768,
             layers: 36,
             kv_bytes_per_token_fp16: 36_864,
+            ram_only_bytes: 0,
         }
     }
 
@@ -402,6 +424,7 @@ mod tests {
             active_bytes: 491_400_032,
             layers: 24,
             kv_bytes_per_token_fp16: 12_288,
+            ram_only_bytes: 0,
         }
     }
 
@@ -411,6 +434,7 @@ mod tests {
             active_bytes: 4_683_073_536,
             layers: 28,
             kv_bytes_per_token_fp16: 57_344,
+            ram_only_bytes: 0,
         }
     }
 
@@ -634,6 +658,7 @@ mod tests {
             active_bytes: 40 * GB,
             layers: 80,
             kv_bytes_per_token_fp16: 327_680,
+            ram_only_bytes: 0,
         };
         let plan = fit(&huge, &laptop_3050ti(), ASK, None);
         assert_eq!(plan.verdict, Verdict::WillNotFit);
