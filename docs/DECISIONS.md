@@ -13,6 +13,31 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-18, Gemma 4 E2B and E4B shown; the small Qwen3.5 stay hidden; the Uzbek Moon question reworded
+
+The owner's rulings of 2026-10-17 on the six small hidden entries (the 0.2 plan, item 2), after their runs on the founder's 4 GB laptop (package `96efd0e8`, engine b10869 on Vulkan, Silent mode, NVIDIA driver 617.42; the results in the internal repository under `docs/measure/2026-10-17/`).
+
+- **Gemma 4 E2B and Gemma 4 E4B are shown** (`hidden` removed from their entries in `models/catalog.json`).
+  - They went through the whole script with no loops, no crashes and no answer in the wrong language.
+  - Every sum, and the picture, is right.
+  - E4B answered the Uzbek (Cyrillic) question in Latin script.
+  - Both misread the Uzbek Moon question (below).
+  - Speeds while writing: E2B 45 tok/s, E4B 20 tok/s.
+- **They have no exercise record, so they are never offered first.** `recommend` only offers a model that has been measured: one measured on the tier itself, or, where none has been, the best measured one. A shown entry without a record is listed with the verdict its fit gives it, and is chosen only by the person.
+- **Qwen3.5 0.8B and 2B stay hidden for 0.2.**
+  - The 0.8B loops in Uzbek (four answers, two with no answer at all), and loops until it is cut off when thinking.
+  - The 2B repeats a block in one Uzbek answer, gives the train's arrival as 11:15 instead of 12:15 with thinking off, and puts the Moon at 75,000 km.
+- **Ministral 3 8B is not yet decided.** Its run was stopped at the 3 GB memory rule while it loaded. It runs again with the founder's other programs closed. Gemma 4 12B waits for a 16 GB machine.
+- **The Uzbek Moon question is reworded** in the kit's script (`crates/localspace-cli/src/measure.rs`):
+  - It read "Oy Yerdan qancha uzoqlikda joylashgan?". "Oy" alone is both the Moon and a month, and both Gemma models took it as a question about a place they couldn't identify.
+  - It now reads "Yer bilan Oy orasidagi masofa qancha?" ("What is the distance between the Earth and the Moon?"). The Earth beside "Oy" says which one is meant.
+  - Its expected fact is unchanged (about 384,400 km).
+  - Results recorded before this date used the old wording.
+  - **Rerun of that question alone, on both models,** with thinking off (a development build of the kit, the same engine, Silent mode):
+    - **E4B now answers right:** "o'rtacha masofa taxminan 384 400 kilometr".
+    - **E2B still misreads it,** now as a question about itself ("Men siz bilan jismonan qandaydir masofada emasman"). For E2B the miss is the model's, not the wording's. It is shown all the same: one wrong fact, with no loop and no wrong language.
+- **Tested:** `an_entry_that_has_not_passed_its_checks_is_hidden_from_the_app_and_kept_for_measure` now also asserts that the two Gemma entries are in the app's list and the two small Qwen3.5 are not.
+
 ## 2026-10-18, publishing to localSpace-releases, after the release check only
 
 - **`package.yml` publishes** (the owner, 2026-10-17). A `v*` tag builds the
