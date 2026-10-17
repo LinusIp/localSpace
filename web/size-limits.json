@@ -1,7 +1,8 @@
 {
-  "about": "Gzipped bytes, at zlib's default level as gzip -c gives. The shell's limit is the architecture's budget for the base client bundle, 2 MB compressed. Each package's limit is its size on 2026-09-10 plus about a quarter, so a regression fails the build and growth is a decision. Automerge's WebAssembly is a vendor file held at the exact size of the version in use: any change to it is a version change, noticed on purpose.",
+  "about": "Gzipped bytes, at zlib's default level as gzip -c gives. The shell's limit is the architecture's budget for the base client bundle, 2 MB compressed. Each package's limit is its size on 2026-09-10 plus about a quarter, so a regression fails the build and growth is a decision. KaTeX is fetched only when an answer has maths, so it is held apart from the shell's 2 MB, at its size as CI first measured it (333.2 KB, 2026-10-17) plus about a quarter. Automerge's WebAssembly is a vendor file held at the exact size of the version in use: any change to it is a version change, noticed on purpose.",
   "limits": [
-    { "name": "shell: index.html and assets", "files": ["dist/index.html"], "dir": "dist/assets", "match": "\\.(js|css)$", "gzip": 2097152 },
+    { "name": "shell: index.html and assets", "files": ["dist/index.html"], "dir": "dist/assets", "match": "^(?!katex|KaTeX_).*\\.(js|css)$", "gzip": 2097152 },
+    { "name": "KaTeX 0.19.0, fetched with the first formula: its script, stylesheet and woff2 fonts", "dir": "dist/assets", "match": "^(katex|KaTeX_)", "gzip": 426500 },
     { "name": "@localspace/canvas", "files": ["dist/_localspace/canvas.js"], "gzip": 20000 },
     { "name": "@localspace/ui", "files": ["dist/_localspace/ui.js", "dist/_localspace/ui.css"], "gzip": 10600 },
     { "name": "React for frames", "files": ["dist/_localspace/react.js", "dist/_localspace/react-jsx-runtime.js", "dist/_localspace/react-dom-client.js"], "gzip": 85000 },

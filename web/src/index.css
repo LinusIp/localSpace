@@ -290,6 +290,10 @@ button {
 .prose-chat .codeblock { position: relative; margin: 0.75em 0; border-radius: 9px; background: var(--ls-rail); }
 .prose-chat .codeblock > .copy { position: absolute; right: 8px; top: 8px; display: inline-flex; padding: 4px; border: 0; border-radius: 6px; background: transparent; color: var(--ls-faint); cursor: pointer; }
 .prose-chat .codeblock > .copy:hover { background: var(--ls-surface); color: var(--ls-ink); }
+/* A formula on a line of its own scrolls sideways in its own box when it is wider than the answer. */
+.prose-chat .maths-display { display: block; margin: 0.75em 0; overflow-x: auto; overflow-y: hidden; text-align: center; }
+.prose-chat .maths-display .katex-display { margin: 0; }
+.prose-chat .maths-source { white-space: pre-wrap; }
 .prose-chat table { border-collapse: collapse; margin: 0.5em 0; }
 .prose-chat th, .prose-chat td { border: 1px solid var(--ls-line); padding: 0.25em 0.6em; }
 .prose-chat blockquote { margin: 0.5em 0; padding-left: 0.8em; border-left: 3px solid var(--ls-line); color: var(--ls-muted); }

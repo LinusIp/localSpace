@@ -233,7 +233,7 @@ jobs:
         run: |
           (cd web && npm ci && npm run build)
           node scripts/hpack.mjs --in-place
-          cargo build --release -p localspace-cli
+          cargo build --release -p localspace-cli -p localspace-core --bin localspace --bin fake_llama_server
       - name: serve, then install the whiteboard from the catalog and walk the gate
         run: |
           cat > "$RUNNER_TEMP/localspace.toml" <<EOF
@@ -251,6 +251,33 @@ jobs:
             > "$RUNNER_TEMP/serve.log" 2>&1 &
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8443/healthz > /dev/null && break; sleep 1; done
           cd web && node e2e/whiteboard.mjs http://127.0.0.1:8443 ci-token --no-agent
+      - name: maths in a chat answer, rendered by KaTeX (the test engine writes a formula)
+        run: |
+          mkdir -p "$RUNNER_TEMP/mathsdata/models" "$RUNNER_TEMP/mathscatalog"
+          printf 'writes maths\n' > "$RUNNER_TEMP/mathsdata/models/maths.gguf"
+          bytes="$(wc -c < "$RUNNER_TEMP/mathsdata/models/maths.gguf" | tr -d ' ')"
+          cat > "$RUNNER_TEMP/mathscatalog/catalog.json" <<EOF
+          {"version": 1, "models": [
+            {"id": "maths", "title": "The test engine that writes maths", "params_b": 0.1, "bytes": $bytes, "context_len": 2048,
+             "repo": "example/maths", "files": ["maths.gguf"],
+             "tensor": {"core_bytes": 16, "routed_expert_bytes": 0, "layers": 2, "moe": null, "kv_bytes_per_token_fp16": 256}}
+          ]}
+          EOF
+          cat > "$RUNNER_TEMP/maths.toml" <<EOF
+          [server]
+          bind = "127.0.0.1:8447"
+          [storage]
+          root = "$RUNNER_TEMP/mathsdata"
+          [models]
+          dir = "$RUNNER_TEMP/mathscatalog"
+          EOF
+          LOCALSPACE_LLAMA_SERVER="$PWD/target/release/fake_llama_server" ./target/release/localspace serve \
+            --config "$RUNNER_TEMP/maths.toml" --personal --token ci-token --allow-below-floor \
+            > "$RUNNER_TEMP/maths-serve.log" 2>&1 &
+          MATHS=$!
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8447/healthz > /dev/null && break; sleep 1; done
+          (cd web && node e2e/maths.mjs http://127.0.0.1:8447 ci-token maths) || { echo "--- the server's log"; tail -n 60 "$RUNNER_TEMP/maths-serve.log"; exit 1; }
+          kill "$MATHS"; wait "$MATHS" || true
       - name: an organisation server; two people in two browsers; a viewer refused; the audit log verified
         run: |
           cat > "$RUNNER_TEMP/org.toml" <<EOF
@@ -281,6 +308,7 @@ jobs:
           path: |
             ${{ runner.temp }}/serve.log
             ${{ runner.temp }}/org-serve.log
+            ${{ runner.temp }}/maths-serve.log
 
   measure:
     # The measurement kit, run against the test engine: it judges nothing

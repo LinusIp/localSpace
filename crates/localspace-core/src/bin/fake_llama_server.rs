@@ -16,8 +16,9 @@
 //! (twenty words, a pause between each), `stalls before the first piece`,
 //! `stalls after N pieces`, `dies after N pieces` (the connection closes
 //! mid-answer), `writes in Russian` (every event's bytes in two writes, split
-//! inside a letter). An answer begun for it (the last message is the
-//! assistant's) is carried on, its words said again first, as llama-server's
+//! inside a letter), `writes maths` (a display formula and an inline one,
+//! in the dollar marks models use). An answer begun for it (the last
+//! message is the assistant's) is carried on, its words said again first, as llama-server's
 //! prefill does. `/apply-template` renders messages plainly, one line each;
 //! a stub that says `takes no late system message` refuses a system message
 //! after the first, as some models' templates do. Asked for `--list-devices`, it lists none and ends, as
@@ -38,6 +39,7 @@ struct Style {
     stall_after: Option<usize>,
     die_after: Option<usize>,
     russian: bool,
+    maths: bool,
     no_late_system: bool,
     /// Thinks before it answers: a few words of `reasoning_content` come
     /// before the first word, as a model that thinks hands them through
@@ -59,6 +61,7 @@ impl Style {
             stall_after: count("stalls after "),
             die_after: count("dies after "),
             russian: stub.contains("writes in Russian"),
+            maths: stub.contains("writes maths"),
             no_late_system: stub.contains("takes no late system message"),
             thinks_first: stub.contains("thinks first"),
         }
@@ -253,6 +256,14 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
             ["Привет, ", "мир! ", "Как ", "дела?"]
                 .map(String::from)
                 .to_vec()
+        } else if style.maths {
+            [
+                "The area under the curve is\n",
+                "$$\\int_0^1 x^2\\,dx = \\frac{1}{3}$$\n",
+                "and in a right triangle $a^2 + b^2 = c^2$.",
+            ]
+            .map(String::from)
+            .to_vec()
         } else if style.slowly || style.stall_after.is_some() || style.die_after.is_some() {
             (1..=20).map(|i| format!("word{i} ")).collect()
         } else {
