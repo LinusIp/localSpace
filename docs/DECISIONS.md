@@ -13,6 +13,30 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-18, publishing to localSpace-releases, after the release check only
+
+- **`package.yml` publishes** (the owner, 2026-10-17). A `v*` tag builds the
+  package as before, and keeps it 14 days instead of one, for the release
+  check. Nothing is published by the tag itself.
+- **After the check has passed on that package,** the founder starts the
+  workflow by hand with `publish_tag` and `release_check_passed`. The
+  `publish` job then:
+  - refuses unless the tag is a version (`v0.2.0`) and the box is ticked;
+  - finds that tag's successful package run, at the tag's own commit;
+  - downloads **the very files the check ran on**, and checks them against
+    their `SHA256SUMS.txt`;
+  - requires `docs/release-notes/<tag>.md`;
+  - creates the release in `LinusIp/localSpace-releases` with the installer,
+    the portable zip, `SHA256SUMS.txt` and the notes.
+- **The token:** `RELEASES_TOKEN`, made by the founder, a fine-grained token
+  with Contents read and write on `localSpace-releases` only. It is read by
+  the publishing step and nothing else.
+- **No environment approval is used:** GitHub's free plan has none for a
+  private repository, and this one is to become private. The gate is the
+  hand start and the box, after the check.
+- **Signing:** 0.2 ships unsigned to testers. The rehearsal signing stays in
+  the workflow, and an OV certificate is the founder's later decision.
+
 ## 2026-10-17, the NVIDIA edition approved for 0.2.1; "stopped" after the save; localSpace moves to D:
 
 - **The NVIDIA edition is approved for 0.2.1, on CUDA 12.4.** It meets the
