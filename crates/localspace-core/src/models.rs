@@ -451,7 +451,19 @@ impl CatalogModel {
             active_bytes: map.core_bytes + map.expert_bytes_per_token(),
             layers: map.layers,
             kv_bytes_per_token_fp16: map.kv_bytes_per_token_fp16,
+            ram_only_bytes: self.vision_bytes(),
         })
+    }
+
+    /// The vision file's size, from the entry's own check of it; nothing for
+    /// a model that reads text alone.
+    pub fn vision_bytes(&self) -> u64 {
+        if self.vision_file.is_empty() {
+            return 0;
+        }
+        self.verify
+            .get(&self.vision_file)
+            .map_or(0, |check| check.bytes)
     }
 
     /// What a person is told about this model's answers, where its size calls
@@ -851,10 +863,18 @@ impl Catalog {
                 // least it can expect, as measured there, never an estimate,
                 // and never as if measured on this computer (document 36 §4;
                 // docs/DECISIONS.md, 2026-10-17).
+                // A bigger card is not always a faster one: the note stands only
+                // where this card's own estimate is at least what was measured,
+                // so that a card the table does not know, promised only what
+                // the processor would do, is never told more.
                 let measured = placed.as_ref().zip(fitted).and_then(|(p, hw)| {
                     let below = m.measured_below(tier_of(hw))?;
-                    let words = fit::words_a_second(below.writing_tok_s?);
-                    let whole = p.gpu_layers >= p.layers_total && p.device.is_some();
+                    let measured_tok_s = below.writing_tok_s?;
+                    let words = fit::words_a_second(measured_tok_s);
+                    let whole = p.gpu_layers >= p.layers_total
+                        && p.device.is_some()
+                        && !p.at_least
+                        && p.tokens_per_second >= measured_tok_s;
                     let what = if below.machine.contains("Laptop") {
                         "laptop"
                     } else {
@@ -1841,11 +1861,15 @@ mod tests {
             four.speed,
             "at least about 29 words a second (measured on a 4 GB laptop)"
         );
-        // On the tier it was measured on, and with no card, nothing is said
-        // as measured: the estimate, as before.
+        // On the tier it was measured on, with no card, and on a larger card
+        // the table does not know, nothing is said as measured: the estimate,
+        // as before.
         let mut no_card = found_laptop();
         no_card.gpus.clear();
-        for hardware in [found_laptop(), no_card] {
+        let mut unknown = laptop_with_32_gb();
+        unknown.gpus[0].name = "Glenfly Arise 8G".into();
+        unknown.gpus[0].bandwidth_gbps = None;
+        for hardware in [found_laptop(), no_card, unknown] {
             let said = entry(&hardware, "qwen3.5-9b-q4_k_m").speed;
             assert!(!said.contains("measured"), "{said}");
         }
@@ -2226,6 +2250,18 @@ mod tests {
                 copy_gbps: 19.3,
                 default: NINE_B,
                 verdicts: [WELL, WELL, WELL, WELL, SLOW, NO],
+            },
+            Shape {
+                // The same card with half the memory. The fit leaves Windows
+                // the larger of 4 GB or a quarter of the memory, and counts
+                // the vision file, which stays in system memory
+                // (docs/DECISIONS.md, 2026-10-18).
+                what: "8 GB and an RTX 3050 Ti with 4 GB",
+                card: Some("NVIDIA GeForce RTX 3050 Ti Laptop GPU (3962 MiB, 3367 MiB free)"),
+                memory_mib: 7_900,
+                copy_gbps: 19.3,
+                default: FOUR_B,
+                verdicts: [WELL, WELL, WELL, WELL, NO, NO],
             },
             Shape {
                 what: "16 GB and an older 4 GB card, a GTX 1650",

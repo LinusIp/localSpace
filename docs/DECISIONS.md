@@ -42,6 +42,21 @@ moved with them.
     2026-10-15 (9.2) and the 4B's of 2026-10-08 (38.7), so 7 and 29 words a
     second.
   - **Elsewhere,** the estimate stays as before.
+- **The fit now counts the vision file in system memory**
+  (`Shape::ram_only_bytes`, from the entry's own check of the file). Core
+  always starts the engine with `--mmproj … --no-mmproj-offload`, so the 9B's
+  0.9 GB vision file sits in system memory whatever goes to the card. It
+  counts towards fitting, not towards the speed. The room left for Windows is
+  unchanged: the larger of 4 GB or a quarter of the memory.
+  - **Checked as the owner asked:** a laptop with the same 4 GB RTX 3050 Ti
+    and 8 GB of memory is offered the **4B**, since the 9B "will not fit"
+    there. It is a new row of the typical-computers table.
+- **The measured note stands only where this card's own estimate is at
+  least the measured speed.** A bigger card is not always a faster one.
+  Without this, "16 GB of slower memory and an 8 GB card the table does not
+  know" showed the 9B as "at least about 7 words a second (measured …)" while
+  offering the 4B first. A card the table does not know is promised only what
+  the processor would do, and is never told more.
 - **Tests:** the rule tests keep their Qwen2.5 fixtures, un-retired in each
   test's own catalog (`offered_again`). The tests about typical computers
   take the new defaults. New tests cover an older model never offered first,
