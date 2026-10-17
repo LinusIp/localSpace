@@ -44,9 +44,9 @@ What the 2026-10-10 ruling ("Maths display (KaTeX) is in 0.2") is built as
   emitted.
 - **Its own size row:** `web/size-limits.json` holds KaTeX's script,
   stylesheet and fonts apart from the shell's 2 MB, since they are not part
-  of the base bundle. The limit, 560,000 gzipped bytes, is a first bound.
-  It is set to the measured size plus about a quarter once CI has measured
-  it.
+  of the base bundle. CI first measured them at 333.2 KB gzipped (the
+  shell itself at 128.1 KB), and the limit is that plus about a quarter,
+  426,500 bytes.
 - **The walk covers one formula** (`web/e2e/maths.mjs`, in CI's `e2e` job).
   The test engine, given a stub that says `writes maths`, answers with a
   display formula and an inline one. The walk checks that:
