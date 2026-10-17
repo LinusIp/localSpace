@@ -52,14 +52,11 @@ try {
   page.on("pageerror", (e) => console.log(`  [pageerror] ${e.message.slice(0, 200)}`));
   await page.goto(`${origin}/?token=${token}`);
 
-  // With a model here the shell opens directly; the first run is passed if it shows.
+  // With a model here the shell opens on the chat; the first run is passed if it shows.
   const notNow = page.getByRole("button", { name: "Not now", exact: true });
-  const chat = page.getByRole("button", { name: "Chat", exact: true });
-  await until("the shell or the first run", async () => (await chat.count()) + (await notNow.count()) > 0, 60000);
-  if (await notNow.count()) await notNow.click();
-  await chat.first().click();
-
   const box = page.getByRole("textbox", { name: "Message" });
+  await until("the chat or the first run", async () => (await box.count()) + (await notNow.count()) > 0, 60000);
+  if (await notNow.count()) await notNow.click();
   await until("the composer to take a message", async () => (await box.count()) > 0 && (await box.isEnabled()), 15000);
   await box.fill("Show me a formula.");
   await box.press("Enter");
