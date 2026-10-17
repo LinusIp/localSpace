@@ -41,7 +41,7 @@ on:
         options: [none, rehearsal]
         default: none
       publish_tag:
-        description: "After the release check passed: the v* tag whose package is published to localSpace-releases. Empty builds a package as usual."
+        description: "After the release check passed: the v* tag whose package is published to localSpace-releases (v0.2.0; v0.2.0-rc.1 goes out as a pre-release). Empty builds a package as usual."
         type: string
         default: ""
       release_check_passed:
@@ -274,7 +274,11 @@ jobs:
           TAG: ${{ inputs.publish_tag }}
           PASSED: ${{ inputs.release_check_passed }}
         run: |
-          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$TAG is not a version tag (v0.2.0)"; exit 1; }
+          # A release (v0.2.0), or a release candidate (v0.2.0-rc.1), which goes
+          # out only as a pre-release (docs/DECISIONS.md, 2026-10-18).
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "KIND=release" >> "$GITHUB_ENV"
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then echo "KIND=pre-release" >> "$GITHUB_ENV"
+          else echo "::error::$TAG is not a version tag (v0.2.0) or a release candidate's (v0.2.0-rc.1)"; exit 1; fi
           [ "$PASSED" = true ] || { echo "::error::tick release_check_passed once the release check has passed"; exit 1; }
       - uses: actions/checkout@v4
         with:
@@ -300,5 +304,7 @@ jobs:
           TAG: ${{ inputs.publish_tag }}
         run: |
           [ -n "$GH_TOKEN" ] || { echo "::error::the RELEASES_TOKEN secret is not set"; exit 1; }
-          gh release create "$TAG" --repo LinusIp/localSpace-releases --title "localSpace ${TAG#v}" --notes-file "$NOTES" out/*
+          if [ "$KIND" = pre-release ]; then pre=(--prerelease); else pre=(--latest); fi
+          gh release create "$TAG" --repo LinusIp/localSpace-releases --title "localSpace ${TAG#v}" --notes-file "$NOTES" "${pre[@]}" out/*
+          echo "as a $KIND"
           echo "published: https://github.com/LinusIp/localSpace-releases/releases/tag/$TAG"

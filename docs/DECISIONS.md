@@ -31,6 +31,10 @@ moved with them.
 - **The token:** `RELEASES_TOKEN`, made by the founder, a fine-grained token
   with Contents read and write on `localSpace-releases` only. It is read by
   the publishing step and nothing else.
+- **A release candidate** (`v0.2.0-rc.1`) is accepted only as a
+  pre-release. It is deleted from `localSpace-releases` after the check, so
+  that the first public release is 0.2 (the owner, 2026-10-17). A release
+  (`v0.2.0`) goes out as the latest.
 - **No environment approval is used:** GitHub's free plan has none for a
   private repository, and this one is to become private. The gate is the
   hand start and the box, after the check.
