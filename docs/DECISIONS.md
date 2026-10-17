@@ -13,6 +13,41 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-18, publishing to localSpace-releases, after the release check only
+
+- **`package.yml` publishes** (the owner, 2026-10-17). A `v*` tag builds the
+  package as before, and keeps it 14 days instead of one, for the release
+  check. Nothing is published by the tag itself.
+- **After the check has passed on that package,** the founder starts the
+  workflow by hand with `publish_tag` and `release_check_passed`. The
+  `publish` job then:
+  - refuses unless the tag is a version (`v0.2.0`) and the box is ticked;
+  - finds that tag's successful package run, at the tag's own commit;
+  - downloads **the very files the check ran on**, and checks them against
+    their `SHA256SUMS.txt`;
+  - requires `docs/release-notes/<tag>.md`;
+  - creates the release in `LinusIp/localSpace-releases` with the installer,
+    the portable zip, `SHA256SUMS.txt` and the notes.
+- **The token:** `RELEASES_TOKEN`, made by the founder, a fine-grained token
+  with Contents read and write on `localSpace-releases` only. It is read by
+  the publishing step and nothing else.
+- **A release** (`vX.Y.Z`) is published only with the box ticked, and goes
+  out as the latest.
+- **A release candidate** (`vX.Y.Z-rc.N`) is published only as a
+  pre-release, without the box: it tests the path before the check. Its notes
+  must say "Test release: not for use, deleted after the check." It is
+  deleted from `localSpace-releases` after the check, so that the first
+  public release is 0.2 (the owner, 2026-10-17 and 2026-10-18).
+- **Refused, each tried in a hand run that published nothing:**
+  - a release tag without the box;
+  - a release candidate with the box, which would make it a full release;
+  - a tag that is neither.
+- **No environment approval is used:** GitHub's free plan has none for a
+  private repository, and this one is to become private. The gate is the
+  hand start and the box, after the check.
+- **Signing:** 0.2 ships unsigned to testers. The rehearsal signing stays in
+  the workflow, and an OV certificate is the founder's later decision.
+
 ## 2026-10-18, Qwen2.5 retired; a tier without its own measurement takes the best measured model; the measured note on bigger cards
 
 - **Qwen2.5 is retired, not removed** (document 34; the owner, 2026-10-17).

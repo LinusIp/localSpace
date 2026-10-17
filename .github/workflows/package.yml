@@ -18,6 +18,19 @@
 # one day, to be downloaded for the release check, and nothing here changes
 # what `ci` decides about a commit. A first run after a week without one
 # starts cold (81 minutes on 2026-09-18).
+#
+# Publishing (docs/DECISIONS.md, 2026-10-18): a `v*` tag builds the package
+# and keeps it 14 days, for the release check. Nothing is published by the tag
+# itself. When the release check has passed on that package, the founder
+# starts this workflow by hand with `publish_tag` and the box that says so.
+# A release candidate (`v0.2.0-rc.1`) goes out only as a pre-release, without
+# the box and with notes that say it is a test, and is deleted after the check.
+# The `publish` job then takes **the very files the check ran on** (that tag's
+# run, checked against its SHA256SUMS.txt) to the public repository
+# `LinusIp/localSpace-releases`, with the notes in
+# `docs/release-notes/<tag>.md`. Its token, `RELEASES_TOKEN`, may write
+# that repository's contents and nothing else; it is the founder's, and only
+# this job reads it.
 
 name: package
 
@@ -29,6 +42,14 @@ on:
         type: choice
         options: [none, rehearsal]
         default: none
+      publish_tag:
+        description: "After the release check passed: the v* tag whose package is published to localSpace-releases (v0.2.0; v0.2.0-rc.1 goes out as a pre-release). Empty builds a package as usual."
+        type: string
+        default: ""
+      release_check_passed:
+        description: "The release check passed on that tag's package. Required for a release (v0.2.0); refused for a release candidate (v0.2.0-rc.1), which goes out only as a pre-release."
+        type: boolean
+        default: false
   push:
     tags: ["v*"]
 
@@ -47,6 +68,7 @@ env:
 jobs:
   windows:
     name: the Windows installer and the portable zip, installed and started
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_tag == '' }}
     runs-on: windows-2025
     timeout-minutes: 120
     steps:
@@ -229,12 +251,75 @@ jobs:
           if (Test-Path (Join-Path $env:INSTALL_DIR 'localspace-app.exe')) { throw "the uninstaller left the program behind" }
           # "Delete the application data" was not asked for, so it stays.
           if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'localSpace\db'))) { throw "the data went with the program" }
-      # Kept one day, for downloading to the build machine: the repository is
-      # public, and anything public goes out only as a GitHub Release when the
-      # founder decides (docs/DECISIONS.md, 2026-09-25).
+      # Kept one day, for downloading to the build machine; a tag's package 14
+      # days, for the release check and the publishing after it. Anything
+      # public goes out only from `localSpace-releases`, when the founder
+      # decides (docs/DECISIONS.md, 2026-09-25 and 2026-10-18).
       - uses: actions/upload-artifact@v4
         with:
           name: localSpace-windows-${{ env.LOCALSPACE_BUILD_ID }}
           path: dist/windows/
-          retention-days: 1
+          retention-days: ${{ startsWith(github.ref, 'refs/tags/v') && 14 || 1 }}
           if-no-files-found: error
+
+  publish:
+    name: the checked package of a tag, to localSpace-releases
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_tag != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: only after the release check, only a tag
+        env:
+          TAG: ${{ inputs.publish_tag }}
+          PASSED: ${{ inputs.release_check_passed }}
+        run: |
+          # A release (v0.2.0) only once the release check has passed; a release
+          # candidate (v0.2.0-rc.1) only as a pre-release, a test of this path,
+          # never with the box (docs/DECISIONS.md, 2026-10-18).
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            [ "$PASSED" = true ] || { echo "::error::a release is published only once the release check has passed: tick release_check_passed"; exit 1; }
+            echo "KIND=release" >> "$GITHUB_ENV"
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            [ "$PASSED" != true ] || { echo "::error::a release candidate goes out only as a pre-release, never as a release: untick release_check_passed"; exit 1; }
+            echo "KIND=pre-release" >> "$GITHUB_ENV"
+          else
+            echo "::error::$TAG is not a release tag (v0.2.0) or a release candidate's (v0.2.0-rc.1)"; exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.publish_tag }}
+      - name: the package that tag's run built, and the notes it carries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.publish_tag }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow package.yml --event push --branch "$TAG" --status success --limit 1 --json databaseId,headSha --jq ".[] | select(.headSha == \"$sha\") | .databaseId")
+          [ -n "$run" ] || { echo "::error::no successful package run of $TAG ($sha)"; exit 1; }
+          echo "package run $run of $TAG ($sha)"
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" --name "localSpace-windows-${sha:0:8}" --dir out
+          (cd out && sha256sum -c SHA256SUMS.txt)
+          ls -l out
+          notes="docs/release-notes/$TAG.md"
+          [ -s "$notes" ] || { echo "::error::$notes is missing or empty"; exit 1; }
+          if [ "$KIND" = pre-release ] && ! grep -qF "Test release: not for use, deleted after the check." "$notes"; then
+            echo "::error::a release candidate's notes must say: Test release: not for use, deleted after the check."; exit 1
+          fi
+          echo "NOTES=$notes" >> "$GITHUB_ENV"
+      - name: published to localSpace-releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          TAG: ${{ inputs.publish_tag }}
+        run: |
+          [ -n "$GH_TOKEN" ] || { echo "::error::the RELEASES_TOKEN secret is not set"; exit 1; }
+          case "$KIND" in
+            pre-release) pre=(--prerelease) ;;
+            release) pre=(--latest) ;;
+            *) echo "::error::no kind of release decided"; exit 1 ;;
+          esac
+          gh release create "$TAG" --repo LinusIp/localSpace-releases --title "localSpace ${TAG#v}" --notes-file "$NOTES" "${pre[@]}" out/*
+          echo "as a $KIND"
+          echo "published: https://github.com/LinusIp/localSpace-releases/releases/tag/$TAG"
