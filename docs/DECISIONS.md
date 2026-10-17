@@ -13,6 +13,55 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-18, maths in chat answers, rendered by KaTeX
+
+What the 2026-10-10 ruling ("Maths display (KaTeX) is in 0.2") is built as
+(the owner's plan for 0.2, item 3; architecture v2.1 §6 for the client).
+
+- **Maths is found before the Markdown parse** (`web/src/lib/maths.ts`).
+  Remark would read `x_1` inside a formula as emphasis and `\(` as an
+  escaped bracket. So each formula is lifted out first, and a placeholder of
+  private-use characters is left in its place. The renderer puts KaTeX's
+  rendering where the placeholder is. No `remark-math` or other new
+  dependency: KaTeX is the only one, as ruled.
+- **What counts as maths** is what models write:
+  - `$$ … $$` and `\[ … \]` on a line of their own (display);
+  - `\( … \)` within a sentence;
+  - `$ … $` within a sentence, as Pandoc reads it: no space inside either
+    mark, and the closing mark not followed by a digit, so that
+    "$5 and $10" stays two prices.
+
+  Code, fenced or inline, is never touched. An answer cannot forge a
+  placeholder: the private-use marks are stripped from it first.
+- **KaTeX is fetched with the first formula,** not with the shell
+  (`web/src/components/Maths.tsx`). Until it is ready, or if it cannot be
+  loaded, the formula's source shows as code. `katex.render()` writes into
+  an element that React never fills, with `throwOnError: false` (a formula
+  it cannot read shows in red as written), `trust: false` and
+  `strict: "ignore"`.
+- **woff2 fonts only.** A Vite plugin removes the woff and ttf alternatives
+  from KaTeX's stylesheet before it is bundled, so those fonts are never
+  emitted.
+- **Its own size row:** `web/size-limits.json` holds KaTeX's script,
+  stylesheet and fonts apart from the shell's 2 MB, since they are not part
+  of the base bundle. The limit, 560,000 gzipped bytes, is a first bound.
+  It is set to the measured size plus about a quarter once CI has measured
+  it.
+- **The walk covers one formula** (`web/e2e/maths.mjs`, in CI's `e2e` job).
+  The test engine, given a stub that says `writes maths`, answers with a
+  display formula and an inline one. The walk checks that:
+  - both are rendered by KaTeX;
+  - no dollar mark is left;
+  - the words around them are kept;
+  - every font fetched is woff2.
+
+  Unit tests for the extraction run with `npm test` (`src/**/*.test.ts`,
+  added to the test script).
+- **Built and tested by CI only** (the owner, 2026-10-17): after the
+  founder's laptop froze under a model run, nothing heavy runs on it until
+  its health check after the fixes is clean. This branch was written by
+  editing files, and its first build, lint and test runs were CI's.
+
 ## 2026-10-18, publishing to localSpace-releases, after the release check only
 
 - **`package.yml` publishes** (the owner, 2026-10-17). A `v*` tag builds the

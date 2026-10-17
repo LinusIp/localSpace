@@ -1,14 +1,18 @@
 // Assistant messages are Markdown. The parser is remark (infrastructure,
 // behind this one module); the rendering is ours: the syntax tree becomes
 // React elements, never HTML strings, so model output cannot inject markup
-// into the shell. Code blocks get a copy button; nothing else is special.
+// into the shell. Code blocks get a copy button. Maths is lifted out before
+// the parse and rendered by KaTeX where its placeholder is
+// (docs/DECISIONS.md, 2026-10-18; see `lib/maths`).
 
-import { useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import type { Root, RootContent, PhrasingContent } from "mdast";
 import { CheckIcon, CopyIcon } from "@localspace/ui";
+import { OPEN, extractMaths, splitAtMaths, type MathsPart } from "../lib/maths";
+import { Maths } from "./Maths";
 
 const parser = unified().use(remarkParse).use(remarkGfm);
 
@@ -16,9 +20,37 @@ export function parseMarkdown(text: string): Root {
   return parser.parse(text) as Root;
 }
 
+/** The formulas of the answer being rendered, by their placeholders' numbers. */
+const Formulas = createContext<MathsPart[]>([]);
+
 export function Markdown({ text }: { text: string }) {
-  const tree = useMemo(() => parseMarkdown(text), [text]);
-  return <div className="prose-chat">{tree.children.map((node, i) => render(node, i))}</div>;
+  const { tree, parts } = useMemo(() => {
+    const lifted = extractMaths(text);
+    return { tree: parseMarkdown(lifted.text), parts: lifted.parts };
+  }, [text]);
+  return (
+    <Formulas.Provider value={parts}>
+      <div className="prose-chat">{tree.children.map((node, i) => render(node, i))}</div>
+    </Formulas.Provider>
+  );
+}
+
+/** Text that holds placeholders: its plain pieces, and each formula where it stood. */
+function WithMaths({ value }: { value: string }) {
+  const parts = useContext(Formulas);
+  return (
+    <>
+      {splitAtMaths(value).map((piece, i) => {
+        if (typeof piece === "string") return piece;
+        const part = parts[piece];
+        return part ? <Maths key={i} tex={part.tex} display={part.display} /> : null;
+      })}
+    </>
+  );
+}
+
+function prose(value: string, key: number): ReactNode {
+  return value.includes(OPEN) ? <WithMaths key={key} value={value} /> : value;
 }
 
 type Node = RootContent | PhrasingContent;
@@ -45,7 +77,7 @@ function render(node: Node, key: number): ReactNode {
       }
     }
     case "text":
-      return node.value;
+      return prose(node.value, key);
     case "emphasis":
       return <em key={key}>{children(node.children)}</em>;
     case "strong":
@@ -111,7 +143,7 @@ function render(node: Node, key: number): ReactNode {
     }
     case "html":
       // Raw HTML is shown as the text it is, never interpreted.
-      return <span key={key}>{node.value}</span>;
+      return <span key={key}>{prose(node.value, key)}</span>;
     case "footnoteReference":
       return <sup key={key}>[{node.identifier}]</sup>;
     case "footnoteDefinition":

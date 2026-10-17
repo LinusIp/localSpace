@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/build-libs.mjs",
-    "test": "node --test \"packages/**/src/**/*.test.ts\"",
+    "test": "node --test \"packages/**/src/**/*.test.ts\" \"src/**/*.test.ts\"",
     "typecheck": "tsc -b",
     "typecheck:packages": "tsc --noEmit -p packages/canvas/tsconfig.json",
     "lint": "oxlint",
@@ -19,6 +19,7 @@
   "dependencies": {
     "@automerge/automerge": "^3.4.1",
     "@types/mdast": "^4.0.4",
+    "katex": "0.19.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "remark-gfm": "^4.0.1",
