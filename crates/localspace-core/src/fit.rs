@@ -72,6 +72,18 @@ const WORDS_PER_TOKEN: f32 = 0.75;
 /// The shown range reaches this far below the estimate.
 const RANGE_LOW: f32 = 0.75;
 
+/// Words a second from tokens a second, rounded: what a measured speed is
+/// shown as.
+pub fn words_a_second(tokens_per_second: f32) -> u32 {
+    (tokens_per_second * WORDS_PER_TOKEN).round() as u32
+}
+
+/// Whether a speed in words a second is above the pace of reading: where
+/// "runs well" begins.
+pub fn faster_than_reading(words_per_second: u32) -> bool {
+    words_per_second > READING_WORDS_PER_SECOND
+}
+
 /// A model's own numbers, from the catalog or from its file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Shape {

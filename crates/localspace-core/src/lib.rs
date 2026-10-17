@@ -1564,6 +1564,16 @@ impl Core {
             &downloads,
             self.engine.as_ref().map(|e| e.model_id.as_str()),
         );
+        // An older model is listed only where a copy is on this computer,
+        // and says so plainly (document 34; docs/DECISIONS.md, 2026-10-17).
+        let retired = |id: &str| self.models.get(id).is_some_and(|m| m.retired);
+        entries.retain(|e| e.installed || !retired(&e.id));
+        for entry in entries.iter_mut().filter(|e| retired(&e.id)) {
+            entry.verdict = "retired".into();
+            entry.verdict_label = models::RETIRED_WORDS.into();
+            entry.speed.clear();
+            entry.placement.clear();
+        }
         // Whether the drive has room is said here, in the list, before a
         // download can be started: never a refusal at the click, and never a
         // download that fails at eighty per cent.
@@ -1735,6 +1745,14 @@ impl Core {
     /// Provisioning egress (v2 §4.4): allowed unless the environment is
     /// air-gapped, in which case the answer is an offline import.
     fn download_model(&mut self, id: &str) -> Result<()> {
+        // An older model is kept where it is, never fetched again
+        // (document 34; docs/DECISIONS.md, 2026-10-17).
+        if let Some(model) = self.models.get(id).filter(|m| m.retired) {
+            anyhow::bail!(
+                "{} is an older model and is no longer offered.",
+                model.title
+            );
+        }
         let mode = self.gateway.lock().unwrap().config.mode;
         if mode == proto::NetworkMode::Airgapped {
             anyhow::bail!(
@@ -5451,7 +5469,7 @@ mod tests {
         };
         let mut app = Core::new(Config::personal("anna")).unwrap();
         let shown = listed(&mut app);
-        assert!(shown.iter().any(|id| id == "qwen2.5-7b-instruct-q4_k_m"));
+        assert!(shown.iter().any(|id| id == "qwen3.5-4b-q4_k_m"));
         assert!(
             !shown.iter().any(|id| id == "gemma-4-31b-q4_0"),
             "a hidden entry in the app's list: {shown:?}"
@@ -5473,6 +5491,66 @@ mod tests {
         );
     }
 
+    /// An older model is listed only where a checked copy is on this
+    /// computer, says so in document 34's words, and is never downloaded
+    /// again (docs/DECISIONS.md, 2026-10-17).
+    #[test]
+    fn an_older_model_is_listed_only_where_it_is_on_this_computer() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = || {
+            let mut cfg = Config::personal("anna");
+            cfg.data_dir = Some(dir.path().to_path_buf());
+            cfg
+        };
+        let listed = |core: &mut Core| match core.handle(proto::Request::ListModelCatalog) {
+            proto::Response::ModelCatalog { entries } => entries,
+            other => panic!("expected the catalog, got {other:?}"),
+        };
+        let mut core = Core::new(config()).unwrap();
+        assert!(
+            !listed(&mut core)
+                .iter()
+                .any(|e| e.id.starts_with("qwen2.5-"))
+        );
+        match core.handle(proto::Request::DownloadModel {
+            id: "qwen2.5-0.5b-instruct-q4_k_m".into(),
+        }) {
+            proto::Response::Error { message } => {
+                assert!(message.contains("older model"), "{message}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        // A copy already here, its check recorded: listed, as an older model.
+        let models = dir.path().join("models");
+        std::fs::create_dir_all(&models).unwrap();
+        let file = models.join("qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        std::fs::write(&file, b"a stand-in for the published file").unwrap();
+        let meta = std::fs::metadata(&file).unwrap();
+        let modified_ms = meta
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let stamp = serde_json::json!({ "qwen2.5-0.5b-instruct-q4_k_m.gguf": {
+            "bytes": meta.len(),
+            "modified_ms": modified_ms,
+            "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+        }});
+        std::fs::write(models.join("verified.json"), stamp.to_string()).unwrap();
+        drop(core);
+        let mut core = Core::new(config()).unwrap();
+        let older: Vec<_> = listed(&mut core)
+            .into_iter()
+            .filter(|e| e.id.starts_with("qwen2.5-"))
+            .collect();
+        assert_eq!(older.len(), 1, "{older:?}");
+        assert!(older[0].installed);
+        assert_eq!(older[0].verdict, "retired");
+        assert_eq!(older[0].verdict_label, models::RETIRED_WORDS);
+        assert!(older[0].speed.is_empty() && older[0].placement.is_empty());
+    }
+
     #[test]
     fn the_list_says_when_the_drive_has_no_room_before_a_download_can_begin() {
         let mut core = Core::new(Config::personal("anna")).unwrap();
@@ -5483,17 +5561,17 @@ mod tests {
         // A reading that stays fresh however long the first look at the
         // computer takes on a busy machine: one from an hour ahead.
         let ahead = std::time::Instant::now() + std::time::Duration::from_secs(3600);
-        // Two gigabytes free: the 0.5B has room (with the gigabyte that is
-        // always kept free), and nothing larger has.
-        core.disk_free = Some((ahead, Some(2048)));
+        // About 4.9 GB free: the 4B has room (with the gigabyte that is
+        // always kept free), and the 9B has not.
+        core.disk_free = Some((ahead, Some(5000)));
         let listed = entries(&mut core);
         let of = |id: &str| listed.iter().find(|e| e.id == id).unwrap().no_room.clone();
-        assert_eq!(of("qwen2.5-0.5b-instruct-q4_k_m"), "");
-        let seven = of("qwen2.5-7b-instruct-q4_k_m");
+        assert_eq!(of("qwen3.5-4b-q4_k_m"), "");
+        let nine = of("qwen3.5-9b-q4_k_m");
         assert!(
-            seven.starts_with("It needs 4.4 GB and ")
-                && seven.ends_with(" has 2.0 GB free: make room there first."),
-            "{seven}"
+            nine.starts_with("It needs 6.1 GB and ")
+                && nine.ends_with(" has 4.9 GB free: make room there first."),
+            "{nine}"
         );
         // With room for everything, nothing is said.
         core.disk_free = Some((ahead, Some(500_000)));

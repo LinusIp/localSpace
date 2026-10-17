@@ -13,6 +13,41 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-18, Qwen2.5 retired; a tier without its own measurement takes the best measured model; the measured note on bigger cards
+
+- **Qwen2.5 is retired, not removed** (document 34; the owner, 2026-10-17).
+  - **In the catalog:** `"retired": true` on its five entries, kept for the
+    tests.
+  - **`Catalog::recommend`** never offers a retired entry first.
+  - **Core's list (`model_catalog`)** leaves a retired entry out unless a
+    checked copy is on the computer. A copy that is listed reads "Older
+    model, no longer offered. You can keep using it or delete it."
+    (`models::RETIRED_WORDS`, verdict `retired`). It stays loadable and
+    deletable, and is never deleted for the person.
+  - **A download of a retired entry is refused:** "… is an older model and is
+    no longer offered."
+  - **Full removal comes in 0.2.1.**
+- **A tier with no measurement of its own takes the best measured model that
+  fits there** (document 36 §4). Without this, 8 GB, 16 GB and no-card
+  computers would have been offered nothing first once Qwen2.5 was retired.
+  The typical-computers table now offers the Qwen3.5 9B to every computer
+  with a card of 4 GB or more, and the 4B where there is no card, the
+  processor's own graphics, or an unknown card with slow memory.
+- **On a bigger card, a model measured on a smaller tier that fits wholly on
+  the card** is shown "Runs well: at least about N words a second (measured
+  on a 4 GB laptop)". It is the kit's median writing speed there, in words a
+  second, as a lower bound, and never as if measured on the person's own
+  computer.
+  - **The record:** an exercise record's new `writing_tok_s`: the 9B's of
+    2026-10-15 (9.2) and the 4B's of 2026-10-08 (38.7), so 7 and 29 words a
+    second.
+  - **Elsewhere,** the estimate stays as before.
+- **Tests:** the rule tests keep their Qwen2.5 fixtures, un-retired in each
+  test's own catalog (`offered_again`). The tests about typical computers
+  take the new defaults. New tests cover an older model never offered first,
+  the measured note and where it is never shown, and the older model in
+  Core's list with its download refused.
+
 ## 2026-10-17, the NVIDIA edition approved for 0.2.1; "stopped" after the save; localSpace moves to D:
 
 - **The NVIDIA edition is approved for 0.2.1, on CUDA 12.4.** It meets the

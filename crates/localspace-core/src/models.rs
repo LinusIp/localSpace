@@ -69,6 +69,24 @@ pub fn tier_of(hardware: &Hardware) -> &'static str {
     }
 }
 
+/// What an older model's row says, as document 34 words it; the list adds
+/// the full stop.
+pub const RETIRED_WORDS: &str =
+    "Older model, no longer offered. You can keep using it or delete it";
+
+/// The tiers in order of the card they stand for: no card, then 4, 8, 16 and
+/// 24 GB. `None` for a name that is not a tier.
+pub fn tier_rank(tier: &str) -> Option<u8> {
+    match tier {
+        "no card" => Some(0),
+        "4 GB" => Some(1),
+        "8 GB" => Some(2),
+        "16 GB" => Some(3),
+        "24 GB" => Some(4),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogModel {
     pub id: String,
@@ -140,6 +158,13 @@ pub struct CatalogModel {
     /// keeps hidden entries, reaches it (docs/DECISIONS.md, 2026-10-08).
     #[serde(default)]
     pub hidden: bool,
+    /// No longer offered (document 34, Qwen2.5; docs/DECISIONS.md,
+    /// 2026-10-17): never recommended and never downloaded again. A copy
+    /// already on the computer stays listed as an older model, which the
+    /// person may keep using or delete; it is never deleted for them. Core
+    /// says so in the list; the catalog keeps the entry for its tests.
+    #[serde(default)]
+    pub retired: bool,
     /// The file among `files` that reads images for the model (llama.cpp's
     /// `--mmproj`), by name; empty for a model that reads text alone.
     #[serde(default)]
@@ -190,7 +215,7 @@ impl ModelSampling {
 }
 
 /// One pass of the message script a person read, on one tier of computer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Exercise {
     /// The tier as the app names it: "4 GB", "8 GB", "16 GB", "24 GB", "no card".
     pub tier: String,
@@ -202,6 +227,12 @@ pub struct Exercise {
     pub machine: String,
     /// The build the kit ran as.
     pub build: String,
+    /// The median writing speed over the script, tokens a second, as the
+    /// kit measured it: what a bigger computer is shown as the least it can
+    /// expect (docs/DECISIONS.md, 2026-10-17). `None` for a pass recorded
+    /// without it.
+    #[serde(default)]
+    pub writing_tok_s: Option<f32>,
 }
 
 /// How a model thinks before it answers.
@@ -373,6 +404,21 @@ impl CatalogModel {
         } else {
             self.exercised.iter().any(|e| e.tier == tier)
         }
+    }
+
+    /// The pass measured on the largest tier smaller than `tier` that says
+    /// how fast the model wrote there: what a bigger computer is shown as
+    /// the least it can expect (document 36 §4; docs/DECISIONS.md,
+    /// 2026-10-17). `None` on the tier it was measured on, or below it.
+    pub fn measured_below(&self, tier: &str) -> Option<&Exercise> {
+        let here = tier_rank(tier)?;
+        self.exercised
+            .iter()
+            .filter(|e| e.writing_tok_s.is_some())
+            .filter_map(|e| tier_rank(&e.tier).map(|rank| (rank, e)))
+            .filter(|(rank, _)| *rank < here)
+            .max_by_key(|(rank, _)| *rank)
+            .map(|(_, e)| e)
     }
 
     /// The name under which the repository publishes `file`: its own, unless
@@ -801,6 +847,31 @@ impl Catalog {
                 // A download that is running, or one that stopped part-way
                 // and will continue from there.
                 let download = downloads.get(&m.id).cloned().or_else(|| self.paused(m));
+                // Measured on a smaller tier and all of it on this card: the
+                // least it can expect, as measured there, never an estimate,
+                // and never as if measured on this computer (document 36 §4;
+                // docs/DECISIONS.md, 2026-10-17).
+                let measured = placed.as_ref().zip(fitted).and_then(|(p, hw)| {
+                    let below = m.measured_below(tier_of(hw))?;
+                    let words = fit::words_a_second(below.writing_tok_s?);
+                    let whole = p.gpu_layers >= p.layers_total && p.device.is_some();
+                    let what = if below.machine.contains("Laptop") {
+                        "laptop"
+                    } else {
+                        "computer"
+                    };
+                    (whole && fit::faster_than_reading(words)).then(|| {
+                        format!(
+                            "at least about {words} words a second (measured on a {} {what})",
+                            below.tier
+                        )
+                    })
+                });
+                let verdict = if measured.is_some() {
+                    verdict_id(fit::Verdict::RunsWell).to_string()
+                } else {
+                    verdict
+                };
                 proto::ModelCatalogEntry {
                     id: m.id.clone(),
                     title: m.title.clone(),
@@ -825,11 +896,17 @@ impl Catalog {
                     loaded: loaded == Some(m.id.as_str()),
                     download,
                     verdict,
-                    verdict_label: placed
-                        .as_ref()
-                        .map(|p| p.verdict.label().to_string())
-                        .unwrap_or_default(),
-                    speed: placed.as_ref().map(Fit::speed_in_words).unwrap_or_default(),
+                    verdict_label: if measured.is_some() {
+                        "Runs well".to_string()
+                    } else {
+                        placed
+                            .as_ref()
+                            .map(|p| p.verdict.label().to_string())
+                            .unwrap_or_default()
+                    },
+                    speed: measured.unwrap_or_else(|| {
+                        placed.as_ref().map(Fit::speed_in_words).unwrap_or_default()
+                    }),
                     placement: placed
                         .as_ref()
                         .map(|p| p.placement.clone())
@@ -896,11 +973,25 @@ impl Catalog {
                     .is_none_or(|free| m.bytes / (1024 * 1024) < free)
         };
         let tier = tier_of(hardware);
-        let placed: Vec<(&CatalogModel, Fit)> = self
-            .models
-            .iter()
-            .filter(|m| m.commercial_use)
-            .filter(|m| m.exercised_for(tier))
+        // An older model is never offered first (document 34). A tier with
+        // no measurement of its own takes the best measured model that fits
+        // there, as `fit` places it on this computer (document 36 §4;
+        // docs/DECISIONS.md, 2026-10-17).
+        let candidates = || {
+            self.models
+                .iter()
+                .filter(|m| !m.retired)
+                .filter(|m| m.commercial_use)
+        };
+        let measured_here = candidates().any(|m| m.exercised_for(tier));
+        let placed: Vec<(&CatalogModel, Fit)> = candidates()
+            .filter(|m| {
+                if measured_here {
+                    m.exercised_for(tier)
+                } else {
+                    !m.exercised_day().is_empty()
+                }
+            })
             .filter(|m| !m.repo.is_empty() || self.installed_path(&m.id).is_some())
             .filter(|m| room(m))
             .filter_map(|m| {
@@ -1022,6 +1113,7 @@ impl Catalog {
             path: Some(path.to_path_buf()),
             verify: HashMap::new(),
             hidden: false,
+            retired: false,
             vision_file: String::new(),
             published_as: HashMap::new(),
             exercised: Vec::new(),
@@ -1661,16 +1753,17 @@ mod tests {
             catalog.recommend(&four_gb).as_deref(),
             Some("qwen3.5-9b-q4_k_m")
         );
-        // An 8 GB card is another tier: the 9B is not exercised there, and
-        // the rule gives the 7B as before.
+        // An 8 GB card is another tier, with no measurement of its own since
+        // Qwen2.5 was retired: the best measured model that fits takes it,
+        // the 9B measured on the 4 GB laptop (document 36 §4).
         let eight_gb = laptop_with_32_gb();
         assert_eq!(tier_of(&eight_gb), "8 GB");
         assert_eq!(
             catalog.recommend(&eight_gb).as_deref(),
-            Some("qwen2.5-7b-instruct-q4_k_m")
+            Some("qwen3.5-9b-q4_k_m")
         );
         // Without its record for the 4 GB tier, the 9B is not offered first
-        // there either, decided default or not.
+        // there either, decided default or not: the 4B, measured there, is.
         for m in &mut catalog.models {
             if m.id == "qwen3.5-9b-q4_k_m" {
                 m.exercised.clear();
@@ -1678,7 +1771,7 @@ mod tests {
         }
         assert_eq!(
             catalog.recommend(&four_gb).as_deref(),
-            Some("qwen2.5-7b-instruct-q4_k_m")
+            Some("qwen3.5-4b-q4_k_m")
         );
         // The tiers, by the card localSpace would use.
         let mut no_card = found_laptop();
@@ -1691,6 +1784,71 @@ mod tests {
         assert_eq!(tier_of(&big), "16 GB");
         big.gpus[0].total_mib = 12_282;
         assert_eq!(tier_of(&big), "8 GB");
+    }
+
+    /// An older model is never offered first, wherever it would have been
+    /// the largest that runs well (document 34; docs/DECISIONS.md,
+    /// 2026-10-17).
+    #[test]
+    fn an_older_model_is_never_offered_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = Catalog::load(None, dir.path());
+        let retired: Vec<&str> = catalog
+            .models
+            .iter()
+            .filter(|m| m.retired)
+            .map(|m| m.id.as_str())
+            .collect();
+        assert_eq!(retired.len(), 5, "{retired:?}");
+        assert!(retired.iter().all(|id| id.starts_with("qwen2.5-")));
+        let mut no_card = found_laptop();
+        no_card.gpus.clear();
+        for hardware in [found_laptop(), laptop_with_32_gb(), no_card] {
+            let first = catalog.recommend(&hardware).unwrap();
+            assert!(!retired.contains(&first.as_str()), "{first}");
+        }
+    }
+
+    /// A bigger card is shown what a smaller one measured, as the least it
+    /// can expect, in words a second, and never as if measured on the
+    /// person's own computer (document 36 §4; docs/DECISIONS.md, 2026-10-17).
+    #[test]
+    fn a_bigger_card_is_shown_what_a_smaller_one_measured_and_never_as_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = Catalog::load(None, dir.path());
+        let entry = |hardware: &Hardware, id: &str| {
+            catalog
+                .entries(
+                    &laptop(),
+                    Some(hardware),
+                    &HashMap::new(),
+                    &HashMap::new(),
+                    None,
+                )
+                .into_iter()
+                .find(|e| e.id == id)
+                .unwrap()
+        };
+        let nine = entry(&laptop_with_32_gb(), "qwen3.5-9b-q4_k_m");
+        assert_eq!(nine.verdict, "runs_well");
+        assert_eq!(nine.verdict_label, "Runs well");
+        assert_eq!(
+            nine.speed,
+            "at least about 7 words a second (measured on a 4 GB laptop)"
+        );
+        let four = entry(&laptop_with_32_gb(), "qwen3.5-4b-q4_k_m");
+        assert_eq!(
+            four.speed,
+            "at least about 29 words a second (measured on a 4 GB laptop)"
+        );
+        // On the tier it was measured on, and with no card, nothing is said
+        // as measured: the estimate, as before.
+        let mut no_card = found_laptop();
+        no_card.gpus.clear();
+        for hardware in [found_laptop(), no_card] {
+            let said = entry(&hardware, "qwen3.5-9b-q4_k_m").speed;
+            assert!(!said.contains("measured"), "{said}");
+        }
     }
 
     #[test]
@@ -1876,7 +2034,8 @@ mod tests {
     #[test]
     fn on_an_ordinary_computer_every_entry_says_how_it_will_run_before_any_download() {
         let dir = tempfile::tempdir().unwrap();
-        let catalog = Catalog::load(None, dir.path());
+        let mut catalog = Catalog::load(None, dir.path());
+        offered_again(&mut catalog);
         let found = found_laptop();
         let entries = catalog.entries(
             &laptop(),
@@ -1967,6 +2126,7 @@ mod tests {
             "Free for research and evaluation only, not for commercial use."
         );
         let mut without = Catalog::load(None, dir.path());
+        offered_again(&mut without);
         without.models.retain(|m| m.params_b < 4.0);
         assert_eq!(
             without.recommend(&found).as_deref(),
@@ -1990,7 +2150,8 @@ mod tests {
     #[test]
     fn nobody_lands_on_the_smallest_model_while_a_larger_one_so_much_as_works() {
         let dir = tempfile::tempdir().unwrap();
-        let catalog = Catalog::load(None, dir.path());
+        let mut catalog = Catalog::load(None, dir.path());
+        offered_again(&mut catalog);
         // No card, and memory slow enough that the 0.5B runs well (16 tokens a
         // second) where the 1.5B only works (7): the 1.5B all the same, since
         // the 0.5B answers in words but cannot use a tool.
@@ -2041,6 +2202,9 @@ mod tests {
         // The 4 GB tier's default since 2026-10-16, by the 4 GB run: every
         // card under 7 GB (docs/DECISIONS.md).
         const NINE_B: &str = "qwen3.5-9b-q4_k_m";
+        // Where no tier has a measurement of its own and the 9B does not run
+        // well enough, the best measured model that does (document 36 §4).
+        const FOUR_B: &str = "qwen3.5-4b-q4_k_m";
         const IDS: [&str; 6] = [HALF_B, ONE_HALF_B, THREE_B, SEVEN_B, FOURTEEN_B, THIRTY_B];
 
         struct Shape {
@@ -2087,7 +2251,7 @@ mod tests {
                 card: Some("NVIDIA GeForce RTX 4060 Laptop GPU (8188 MiB, 7164 MiB free)"),
                 memory_mib: 16_000,
                 copy_gbps: 19.0,
-                default: SEVEN_B,
+                default: NINE_B,
                 verdicts: [WELL, WELL, WELL, WELL, WORKS, NO],
             },
             Shape {
@@ -2097,7 +2261,7 @@ mod tests {
                 card: Some("NVIDIA GeForce RTX 4060 Laptop GPU (8188 MiB, 7164 MiB free)"),
                 memory_mib: 32_400,
                 copy_gbps: 19.0,
-                default: SEVEN_B,
+                default: NINE_B,
                 verdicts: [WELL, WELL, WELL, WELL, WORKS, WELL],
             },
             Shape {
@@ -2105,7 +2269,7 @@ mod tests {
                 card: Some("NVIDIA GeForce RTX 4080 Laptop GPU (12282 MiB, 10900 MiB free)"),
                 memory_mib: 32_400,
                 copy_gbps: 19.0,
-                default: FOURTEEN_B,
+                default: NINE_B,
                 verdicts: [WELL, WELL, WELL, WELL, WELL, WELL],
             },
             Shape {
@@ -2113,7 +2277,7 @@ mod tests {
                 card: Some("NVIDIA GeForce RTX 4090 Laptop GPU (16376 MiB, 14600 MiB free)"),
                 memory_mib: 32_400,
                 copy_gbps: 19.0,
-                default: FOURTEEN_B,
+                default: NINE_B,
                 verdicts: [WELL, WELL, WELL, WELL, WELL, WELL],
             },
             Shape {
@@ -2123,7 +2287,7 @@ mod tests {
                 card: Some("AMD Radeon RX 7600S (8176 MiB, 7200 MiB free)"),
                 memory_mib: 16_000,
                 copy_gbps: 19.0,
-                default: SEVEN_B,
+                default: NINE_B,
                 verdicts: [WELL, WELL, WELL, WELL, WORKS, NO],
             },
             Shape {
@@ -2131,31 +2295,30 @@ mod tests {
                 card: Some("NVIDIA GeForce RTX 5070 Ti Laptop GPU (12227 MiB, 10900 MiB free)"),
                 memory_mib: 32_400,
                 copy_gbps: 19.0,
-                default: FOURTEEN_B,
+                default: NINE_B,
                 verdicts: [WELL, WELL, WELL, WELL, WELL, WELL],
             },
             Shape {
                 // A card the table does not know is used, and promised only
                 // what the processor would do. With faster memory that floor
-                // is "at least 6 words a second" for the 7B, which is faster
-                // than a person reads: the 7B.
+                // is faster than a person reads for the 9B: the 9B.
                 what: "16 GB of faster memory and an 8 GB card the table does not know",
                 card: Some("Glenfly Arise 8G (8192 MiB, 7300 MiB free)"),
                 memory_mib: 16_000,
                 copy_gbps: 19.0,
-                default: SEVEN_B,
+                default: NINE_B,
                 verdicts: [WELL, WELL, WELL, WELL, SLOW, NO],
             },
             Shape {
-                // With slower memory the floor is "at least 3 words a second",
-                // and the default stays the 1.5B although the card would
-                // carry the 7B. The remedy is the card's entry in the table
-                // (and, after the test, a floor by the card's memory class).
+                // With slower memory the floor is too slow for the 9B, and the
+                // default is the 4B although the card would carry the 9B. The
+                // remedy is the card's entry in the table (and, after the
+                // test, a floor by the card's memory class).
                 what: "16 GB of slower memory and an 8 GB card the table does not know",
                 card: Some("Glenfly Arise 8G (8192 MiB, 7300 MiB free)"),
                 memory_mib: 16_000,
                 copy_gbps: 12.0,
-                default: ONE_HALF_B,
+                default: FOUR_B,
                 verdicts: [WELL, WELL, WELL, SLOW, SLOW, NO],
             },
             Shape {
@@ -2163,7 +2326,7 @@ mod tests {
                 card: Some("AMD Radeon(TM) 780M Graphics (8192 MiB, 7000 MiB free)"),
                 memory_mib: 16_000,
                 copy_gbps: 19.0,
-                default: ONE_HALF_B,
+                default: FOUR_B,
                 verdicts: [WELL, WELL, WELL, WORKS, SLOW, NO],
             },
             Shape {
@@ -2171,7 +2334,7 @@ mod tests {
                 card: None,
                 memory_mib: 15_613,
                 copy_gbps: 19.3,
-                default: ONE_HALF_B,
+                default: FOUR_B,
                 verdicts: [WELL, WELL, WELL, WORKS, SLOW, NO],
             },
             Shape {
@@ -2179,7 +2342,7 @@ mod tests {
                 card: None,
                 memory_mib: 16_000,
                 copy_gbps: 12.0,
-                default: ONE_HALF_B,
+                default: FOUR_B,
                 verdicts: [WELL, WELL, WELL, SLOW, SLOW, NO],
             },
             Shape {
@@ -2187,7 +2350,7 @@ mod tests {
                 card: None,
                 memory_mib: 32_400,
                 copy_gbps: 19.0,
-                default: ONE_HALF_B,
+                default: FOUR_B,
                 verdicts: [WELL, WELL, WELL, WORKS, SLOW, WELL],
             },
             Shape {
@@ -2195,7 +2358,7 @@ mod tests {
                 card: None,
                 memory_mib: 7_900,
                 copy_gbps: 12.0,
-                default: ONE_HALF_B,
+                default: FOUR_B,
                 verdicts: [WELL, WELL, WELL, NO, NO, NO],
             },
         ];
@@ -2264,6 +2427,14 @@ mod tests {
 
     /// A gaming laptop with 32 GB of memory and an 8 GB card: the shape on
     /// which the rule was found to be missing.
+    /// The Qwen2.5 entries offered again, for a test of a rule they were the
+    /// examples of before they were retired (docs/DECISIONS.md, 2026-10-17).
+    fn offered_again(catalog: &mut Catalog) {
+        for m in &mut catalog.models {
+            m.retired = false;
+        }
+    }
+
     fn laptop_with_32_gb() -> Hardware {
         let mut found = found_laptop();
         found.gpus[0].name = "NVIDIA GeForce RTX 4060 Laptop GPU".into();
@@ -2281,6 +2452,7 @@ mod tests {
     fn a_model_nobody_has_run_is_never_the_default() {
         let dir = tempfile::tempdir().unwrap();
         let mut catalog = Catalog::load(None, dir.path());
+        offered_again(&mut catalog);
         let found = laptop_with_32_gb();
         // The 30B runs well here and is the largest that does, and it has
         // never been started through Core on any machine: listed, with its
@@ -2314,6 +2486,7 @@ mod tests {
         // And with no entry that says so, nothing is offered first.
         for m in &mut catalog.models {
             m.exercised_on.clear();
+            m.exercised.clear();
         }
         assert_eq!(catalog.recommend(&found), None);
     }
