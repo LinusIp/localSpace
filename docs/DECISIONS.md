@@ -13,6 +13,42 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-17, the NVIDIA edition approved for 0.2.1; "stopped" after the save; localSpace moves to D:
+
+- **The NVIDIA edition is approved for 0.2.1, on CUDA 12.4.** It meets the
+  reading clause on the RTX 3050 Ti (reading +55 to +58 %, writing +2 to
+  +5 %). Its minimum driver is 551.61, per NVIDIA's Table 4. The app suggests
+  it only when the card and the driver can both run it. CUDA work starts after
+  0.2 ships.
+- **The measurement it rests on, with its exact settings** (2026-10-16):
+
+  | What | Setting |
+  |---|---|
+  | The laptop | ASUS TUF Gaming A15, Ryzen 7 6800H, RTX 3050 Ti Laptop GPU (4 GB, compute capability 8.6), 16 GB of memory, on mains power |
+  | Driver | NVIDIA 566.07, unchanged throughout |
+  | Armoury Crate | the window: Performance; the registry: 2 |
+  | Engine | llama.cpp b10869 both ways |
+  | Vulkan files | `llama-b10869-bin-win-vulkan-x64.zip`, as packaged |
+  | CUDA files | `llama-b10869-bin-win-cuda-12.4-x64.zip` (254,079,631 bytes, SHA-256 `e5035058…f7bf`) and `cudart-llama-bin-win-cuda-12.4-x64.zip` (391,443,627 bytes, `8c79a9b2…e1d6`), unpacked together (1.1 GB) |
+  | Placement, chosen by Core | the 9B `-c 8192 -ngl 15`, on `Vulkan1` and on `CUDA0`; the 4B `-c 8192 -ngl 31` on `Vulkan1`, `-ngl 30` on `CUDA0` |
+  | Writing and the first word | the kit's whole speed script through Core, thinking off, temperature 0.3. Vulkan: package `e317f6d`, 2026-10-15. CUDA: package `96efd0e8` with `LOCALSPACE_LLAMA_SERVER` pointing at the CUDA engine, 2026-10-16 |
+  | Reading | a 3,000-token message cut by the engine's own tokenizer, `/completion` with `cache_prompt: false` and `n_predict: 1`; one warm-up, then the median of three, on each engine started with the placement Core chose for it |
+  | Between parts | three minutes' cooldown; no throttling (at most 92.9 °C, never under the base clock while busy) |
+
+  The scripts (`run-cuda.sh`, `read3k.mjs`) and the results are in the
+  internal repository's `docs/measure/2026-10-16/cuda/`.
+- **"Stopped" stays after the save in 0.2.1.** It is checked again in
+  document 37's capacity test, with many people and a busy disk.
+- **Everything of localSpace's moves to D:** (`D:\localSpace\` with
+  `models\`, `check\`, `repos\` and `build\`; Ubuntu to `D:\WSL\`). The
+  founder cleaned C: by hand; C: is for his other work. At least 15 GB stays
+  free on D: and 30 GB on C:. Nothing new of ours is written to C:. Moving
+  means copy, check the sizes (and the SHA-256 of model files), then remove
+  the C: copy; `cargo clean` on C: is allowed, since the build is rebuildable.
+- **0.2.1: the person chooses where models are kept** ("Keep models on: drive
+  D:"). Existing models are moved with a check, and each drive's free space is
+  shown.
+
 ## 2026-10-16, the language rule in the prompt; CUDA as an NVIDIA edition; document 37's design rulings
 
 - **Both system prompts now say "Answer in the language and alphabet the
