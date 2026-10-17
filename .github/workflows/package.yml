@@ -10,10 +10,11 @@
 # lets an unsigned build through, how the engine behaves on a real GPU, and
 # what a person sees. Those are the dry run's, on a real machine.
 #
-# Started by hand, for a check or for a release being prepared, and by a
-# version tag; never on a timer or per push (docs/DECISIONS.md, 2026-09-24).
-# The installers testers get are built here, not on a laptop: the repository
-# is public and the runner costs nothing (2026-10-06). What it builds is kept
+# Started by hand, before a merge to main, for a check or for a release being
+# prepared, and by a version tag; never on a timer or per push
+# (docs/DECISIONS.md, 2026-09-24 and 2026-10-15). The installers testers get
+# are built here, not on a laptop (2026-10-06); a Windows minute counts
+# twice against a private repository's plan, so it runs only then. What it builds is kept
 # one day, to be downloaded for the release check, and nothing here changes
 # what `ci` decides about a commit. A first run after a week without one
 # starts cold (81 minutes on 2026-09-18).
