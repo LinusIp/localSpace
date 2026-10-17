@@ -49,44 +49,67 @@ moved with them.
   D:"). Existing models are moved with a check, and each drive's free space is
   shown.
 
-- **A lesson: my shell's sandbox had its own layer over the app's data
-  folder.** Every action on the founder's real files is now taken outside the
-  sandbox, with a backup first (the owner's ruling, 2026-10-17).
-  - **What it was:** the coding agent's shell runs in a sandbox. In earlier
-    sessions the app had been started from it, and its writes to
-    `%LOCALAPPDATA%\localSpace` had gone into a private layer over the real
-    folder. That layer held a database of 13 September with three empty
-    chats, a log, installed harnesses and two unfinished Qwen2.5 downloads.
-    Where the layer had no file of its own, the real folder's showed through.
-  - **How it was found:** I copied the folder to `D:\localSpace\app-data`
-    and removed the original. The app then answered from a different
-    database: the founder's eleven October chats, where the copy had three
-    empty ones. Two logs that could not both be at one path confirmed it, and
-    a listing from outside the sandbox showed the real folder.
-  - **What it affected in the founder's real folder:**
-    - his Qwen3.5 4B (two files), removed as a duplicate after its SHA-256
-      matched the copy in `D:\localSpace\models`. The owner had ruled the
-      app's 4B removed, and an identical copy is on D:;
-    - his `engines` folder, which records a running engine's id; the app
-      writes it again;
-    - one start of the app at 11:09 from inside the sandbox, which rewrote his
-      token and added lines to his log.
+- **A lesson, corrected the same day: the "layer" is the Claude app's
+  packaged-app redirection of `AppData`, not the sandbox.**
+  - **What it is:** the Claude desktop app is a packaged Windows app. Windows
+    redirects its writes under `%LOCALAPPDATA%` and `%APPDATA%` into the
+    package's own folder,
+    `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\`.
+  - **Who it applies to:** everything the coding agent starts inherits it,
+    "outside the sandbox" included: the shell, PowerShell, cmd, `mklink`, and
+    the app itself. Those programs see the real folder merged with the
+    redirected one, and a write lands in the redirect.
+  - **Only the founder's own PowerShell**, started from the Start menu, sees
+    the real `AppData`. `%TEMP%` and `D:` are not redirected.
+  - **How it was found:** the backup folder showed at two paths, its real one
+    and one under the package's `LocalCache`. Then the founder looked from his
+    own PowerShell. On the real disk `%LOCALAPPDATA%\localSpace` was still a
+    plain folder of three files with no chats. The junction and the
+    rename-to-backup had happened only in the redirect.
+  - **Where his chats lived:** in the redirect, from the first start on
+    2026-09-19 to the last one this morning (06:20 UTC). The real folder's own
+    log begins today at 06:55 UTC, the founder's first start from outside
+    Claude, which found nothing ("first run").
+  - **What it affected:**
+    - his Qwen3.5 4B and his `engines` folder, removed, in the redirect, as
+      the first version of this entry recorded;
+    - one start at 11:09 that rewrote his token and added lines to his log;
+    - the junction and the backup, made only in the redirect.
 
-    His chats, settings and installed harnesses are intact.
-  - **What was done:** outside the sandbox the layer's copy was set aside
-    (`D:\localSpace\check\sandbox-app-data-2026-09`, kept). The founder's
-    real folder was copied to `D:\localSpace\app-data`, checked by its 16
-    files, 1,020,910 bytes and the database's SHA-256. It was renamed to
-    `%LOCALAPPDATA%\localSpace.backup-2026-10-17` (kept for him to delete),
-    and a junction now stands at the old path. The app gave the same 11 chats
-    and 76 messages and the same settings before and after, and a file
-    written through the old path lands on D:.
+    His chats were safe in the copy `D:\localSpace\app-data` (checked, 11
+    chats, 76 messages).
+  - **What the founder did, in his own PowerShell:** he copied that folder to
+    `D:\localSpace\app-data-try`. He made the real `%LOCALAPPDATA%\localSpace`
+    a junction to it, and his chats show in the app. Kept for now:
+    `D:\localSpace\app-data`, `D:\localSpace\app-data-founder` (the real C:
+    folder of three files) and the real
+    `%LOCALAPPDATA%\localSpace.backup-2026-10-17`.
+  - **The rule since (the owner, 2026-10-17):** for any change to the
+    founder's real files under `AppData`, the coding agent writes the exact
+    PowerShell commands and he runs them himself. The agent may read and
+    report, but changes nothing there. A junction is removed only with
+    `(Get-Item <path>).Delete()`, never with `Remove-Item`.
   - **No reported figure is affected:** the 30 measurement results name 60
-    model files, all with the official SHA-256, and every kit run used its
-    own fresh data folder.
-  - **Not a figure, but on the layer:** the 2026-10-10 check that a set-aside
-    whiteboard stays hidden ran, as far as can be told, on that layer's data
-    folder. As a check of the behaviour it holds.
+    model files, all with the official SHA-256. Every kit run used its own data
+    folder under `%TEMP%`, which is not redirected.
+  - **What the founder's earlier sessions were:** all 18 app starts from
+    2026-09-19 to 2026-10-17 06:20 ran inside the redirect. Among them were the
+    Test A dry run, his test of `aeb31fa` on 2026-10-10, and his sessions of
+    2026-10-15 and 16. They were launched from inside Claude: an installer or
+    the app opened from Claude, whose "start the app" then inherited the
+    redirect.
+    - **Unaffected:** what he saw and judged (answers, speeds, the screens),
+      since the program and the engine were the same.
+    - **Never exercised on his laptop until today:** the app with the real
+      `AppData`, that is a first start from the Start menu after an install
+      from Explorer, and the uninstaller's "delete the application data", which
+      removes the real folder and not the redirect.
+    - **The release check therefore installs and starts the app from Explorer
+      and the Start menu, never from a file opened in Claude.**
+  - **Windows PowerShell 5.1 skips paths over 260 characters without a
+    word.** Three Qwen2.5 14B files (8.4 GB) in a deep scratchpad folder
+    survived the founder's clean-up for that reason. Commands for him use
+    `-LiteralPath "\\?\C:\..."`.
 
 ## 2026-10-16, the language rule in the prompt; CUDA as an NVIDIA edition; document 37's design rulings
 
