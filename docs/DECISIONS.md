@@ -49,6 +49,45 @@ moved with them.
   D:"). Existing models are moved with a check, and each drive's free space is
   shown.
 
+- **A lesson: my shell's sandbox had its own layer over the app's data
+  folder.** Every action on the founder's real files is now taken outside the
+  sandbox, with a backup first (the owner's ruling, 2026-10-17).
+  - **What it was:** the coding agent's shell runs in a sandbox. In earlier
+    sessions the app had been started from it, and its writes to
+    `%LOCALAPPDATA%\localSpace` had gone into a private layer over the real
+    folder. That layer held a database of 13 September with three empty
+    chats, a log, installed harnesses and two unfinished Qwen2.5 downloads.
+    Where the layer had no file of its own, the real folder's showed through.
+  - **How it was found:** I copied the folder to `D:\localSpace\app-data`
+    and removed the original. The app then answered from a different
+    database: the founder's eleven October chats, where the copy had three
+    empty ones. Two logs that could not both be at one path confirmed it, and
+    a listing from outside the sandbox showed the real folder.
+  - **What it affected in the founder's real folder:**
+    - his Qwen3.5 4B (two files), removed as a duplicate after its SHA-256
+      matched the copy in `D:\localSpace\models`. The owner had ruled the
+      app's 4B removed, and an identical copy is on D:;
+    - his `engines` folder, which records a running engine's id; the app
+      writes it again;
+    - one start of the app at 11:09 from inside the sandbox, which rewrote his
+      token and added lines to his log.
+
+    His chats, settings and installed harnesses are intact.
+  - **What was done:** outside the sandbox the layer's copy was set aside
+    (`D:\localSpace\check\sandbox-app-data-2026-09`, kept). The founder's
+    real folder was copied to `D:\localSpace\app-data`, checked by its 16
+    files, 1,020,910 bytes and the database's SHA-256. It was renamed to
+    `%LOCALAPPDATA%\localSpace.backup-2026-10-17` (kept for him to delete),
+    and a junction now stands at the old path. The app gave the same 11 chats
+    and 76 messages and the same settings before and after, and a file
+    written through the old path lands on D:.
+  - **No reported figure is affected:** the 30 measurement results name 60
+    model files, all with the official SHA-256, and every kit run used its
+    own fresh data folder.
+  - **Not a figure, but on the layer:** the 2026-10-10 check that a set-aside
+    whiteboard stays hidden ran, as far as can be told, on that layer's data
+    folder. As a check of the behaviour it holds.
+
 ## 2026-10-16, the language rule in the prompt; CUDA as an NVIDIA edition; document 37's design rulings
 
 - **Both system prompts now say "Answer in the language and alphabet the
