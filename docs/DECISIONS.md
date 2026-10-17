@@ -111,6 +111,25 @@ moved with them.
     survived the founder's clean-up for that reason. Commands for him use
     `-LiteralPath "\\?\C:\..."`.
 
+- **The Qwen3.5 9B is confirmed as the 4 GB default for 0.2:** the
+  founder's 10-minute try of `96efd0e8` (started from the Start menu, the real
+  `AppData`) found its speed fine and its Uzbek and Russian answers good. No
+  veto.
+- **The move to D: is finished.**
+
+  | | Free | What of ours is there |
+  |---|---|---|
+  | C: | 174.7 GB of 389.7 | the repositories on the Desktop; this session's scratchpad under `%TEMP%\claude` |
+  | D: | 23.3 GB of 86.2 (the limit is 10) | `localSpace\models` 33.6 GB, `check` 3.5 GB, `build` 2.1 GB, `app-data-try` 6.2 GB (the founder's data and his 9B), `app-data` and `app-data-founder` (copies kept for now); `WSL\Ubuntu-22.04\ext4.vhdx` 17.5 GB |
+
+  - **Ubuntu:** compacted from 29.9 GB to 15.4 GB and moved by the founder
+    with `wsl --manage Ubuntu-22.04 --move D:\WSL\Ubuntu-22.04`. A
+    `cargo check --workspace` in `~/ls-build` then passed in 6 min 43 s.
+  - **The real `%LOCALAPPDATA%\localSpace`** is the founder's own junction to
+    `D:\localSpace\app-data-try`. The redirected junction is removed.
+  - **A full workspace build on D:** adds about 11 GB and still keeps D:
+    above 10 GB.
+
 ## 2026-10-16, the language rule in the prompt; CUDA as an NVIDIA edition; document 37's design rulings
 
 - **Both system prompts now say "Answer in the language and alphabet the
