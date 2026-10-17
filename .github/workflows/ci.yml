@@ -276,7 +276,7 @@ jobs:
             > "$RUNNER_TEMP/maths-serve.log" 2>&1 &
           MATHS=$!
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8447/healthz > /dev/null && break; sleep 1; done
-          (cd web && node e2e/maths.mjs http://127.0.0.1:8447 ci-token maths)
+          (cd web && node e2e/maths.mjs http://127.0.0.1:8447 ci-token maths) || { echo "--- the server's log"; tail -n 60 "$RUNNER_TEMP/maths-serve.log"; exit 1; }
           kill "$MATHS"; wait "$MATHS" || true
       - name: an organisation server; two people in two browsers; a viewer refused; the audit log verified
         run: |

@@ -38,12 +38,13 @@ for (const channel of ["msedge", "chrome"]) {
 }
 if (!browser) throw new Error("neither Edge nor Chrome could be launched");
 
+let page;
 try {
   step(`loading ${model}, the test engine that writes maths`);
   await request({ load_model: { id: model } });
   await until("the engine", async () => (await api("/environment")).environment.engine.running, 60000);
 
-  const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+  page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
   const fonts = [];
   page.on("request", (r) => {
     if (r.resourceType() === "font") fonts.push(new URL(r.url()).pathname);
@@ -82,6 +83,13 @@ try {
   if (other.length) throw new Error(`fonts other than woff2 were fetched: ${other.join(", ")}`);
   step(`fonts: ${fonts.length} fetched, all woff2`);
   console.log("maths walk: ok");
+} catch (error) {
+  // What the window showed when the walk gave up, for the log.
+  if (page) {
+    const shown = await page.evaluate(() => document.body.innerText).catch(() => "(the page could not be read)");
+    console.log(`  the page at ${page.url()} showed: ${JSON.stringify(shown.slice(0, 600))}`);
+  }
+  throw error;
 } finally {
   await browser.close();
 }
