@@ -5,7 +5,12 @@ import type { DownloadState } from "./DownloadState";
  * One model in the catalog (architecture v2 §4.4), with the planner's verdict
  * for this machine and what is on disk.
  */
-export type ModelCatalogEntry = { id: string, title: string, family: string, params_b: number, 
+export type ModelCatalogEntry = { id: string, title: string, family: string, 
+/**
+ * Who made the model, shown as a small label on its row: "Google",
+ * "Mistral", "Alibaba (Qwen)" (docs/DECISIONS.md, 2026-10-11).
+ */
+maker: string, params_b: number, 
 /**
  * Parameters active per token; equals `params_b` for a dense model.
  */

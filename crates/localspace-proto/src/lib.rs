@@ -312,6 +312,9 @@ pub struct ModelCatalogEntry {
     pub id: String,
     pub title: String,
     pub family: String,
+    /// Who made the model, shown as a small label on its row: "Google",
+    /// "Mistral", "Alibaba (Qwen)" (docs/DECISIONS.md, 2026-10-11).
+    pub maker: String,
     pub params_b: f32,
     /// Parameters active per token; equals `params_b` for a dense model.
     pub active_params_b: f32,

@@ -400,6 +400,8 @@ fn spawn(spec: &Spec) -> Result<Child> {
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(err))
         .spawn()
+        // It ends with Core's process, however that ends (Windows).
+        .inspect(crate::os::end_with_this_process)
         .map_err(|e| anyhow!("{e}"))
 }
 

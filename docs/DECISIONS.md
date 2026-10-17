@@ -13,6 +13,299 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-17, the NVIDIA edition approved for 0.2.1; "stopped" after the save; localSpace moves to D:
+
+- **The NVIDIA edition is approved for 0.2.1, on CUDA 12.4.** It meets the
+  reading clause on the RTX 3050 Ti (reading +55 to +58 %, writing +2 to
+  +5 %). Its minimum driver is 551.61, per NVIDIA's Table 4. The app suggests
+  it only when the card and the driver can both run it. CUDA work starts after
+  0.2 ships.
+- **The measurement it rests on, with its exact settings** (2026-10-16):
+
+  | What | Setting |
+  |---|---|
+  | The laptop | ASUS TUF Gaming A15, Ryzen 7 6800H, RTX 3050 Ti Laptop GPU (4 GB, compute capability 8.6), 16 GB of memory, on mains power |
+  | Driver | NVIDIA 566.07, unchanged throughout |
+  | Armoury Crate | the window: Performance; the registry: 2 |
+  | Engine | llama.cpp b10869 both ways |
+  | Vulkan files | `llama-b10869-bin-win-vulkan-x64.zip`, as packaged |
+  | CUDA files | `llama-b10869-bin-win-cuda-12.4-x64.zip` (254,079,631 bytes, SHA-256 `e5035058…f7bf`) and `cudart-llama-bin-win-cuda-12.4-x64.zip` (391,443,627 bytes, `8c79a9b2…e1d6`), unpacked together (1.1 GB) |
+  | Placement, chosen by Core | the 9B `-c 8192 -ngl 15`, on `Vulkan1` and on `CUDA0`; the 4B `-c 8192 -ngl 31` on `Vulkan1`, `-ngl 30` on `CUDA0` |
+  | Writing and the first word | the kit's whole speed script through Core, thinking off, temperature 0.3. Vulkan: package `e317f6d`, 2026-10-15. CUDA: package `96efd0e8` with `LOCALSPACE_LLAMA_SERVER` pointing at the CUDA engine, 2026-10-16 |
+  | Reading | a 3,000-token message cut by the engine's own tokenizer, `/completion` with `cache_prompt: false` and `n_predict: 1`; one warm-up, then the median of three, on each engine started with the placement Core chose for it |
+  | Between parts | three minutes' cooldown; no throttling (at most 92.9 °C, never under the base clock while busy) |
+
+  The scripts (`run-cuda.sh`, `read3k.mjs`) and the results are in the
+  internal repository's `docs/measure/2026-10-16/cuda/`.
+- **"Stopped" stays after the save in 0.2.1.** It is checked again in
+  document 37's capacity test, with many people and a busy disk.
+- **Everything of localSpace's moves to D:** (`D:\localSpace\` with
+  `models\`, `check\`, `repos\` and `build\`; Ubuntu to `D:\WSL\`). The
+  founder cleaned C: by hand; C: is for his other work. At least 15 GB stays
+  free on D: and 30 GB on C:. Nothing new of ours is written to C:. Moving
+  means copy, check the sizes (and the SHA-256 of model files), then remove
+  the C: copy; `cargo clean` on C: is allowed, since the build is rebuildable.
+- **0.2.1: the person chooses where models are kept** ("Keep models on: drive
+  D:"). Existing models are moved with a check, and each drive's free space is
+  shown.
+
+- **A lesson, corrected the same day: the "layer" is the Claude app's
+  packaged-app redirection of `AppData`, not the sandbox.**
+  - **What it is:** the Claude desktop app is a packaged Windows app. Windows
+    redirects its writes under `%LOCALAPPDATA%` and `%APPDATA%` into the
+    package's own folder,
+    `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\`.
+  - **Who it applies to:** everything the coding agent starts inherits it,
+    "outside the sandbox" included: the shell, PowerShell, cmd, `mklink`, and
+    the app itself. Those programs see the real folder merged with the
+    redirected one, and a write lands in the redirect.
+  - **Only the founder's own PowerShell**, started from the Start menu, sees
+    the real `AppData`. `%TEMP%` and `D:` are not redirected.
+  - **How it was found:** the backup folder showed at two paths, its real one
+    and one under the package's `LocalCache`. Then the founder looked from his
+    own PowerShell. On the real disk `%LOCALAPPDATA%\localSpace` was still a
+    plain folder of three files with no chats. The junction and the
+    rename-to-backup had happened only in the redirect.
+  - **Where his chats lived:** in the redirect, from the first start on
+    2026-09-19 to the last one this morning (06:20 UTC). The real folder's own
+    log begins today at 06:55 UTC, the founder's first start from outside
+    Claude, which found nothing ("first run").
+  - **What it affected:**
+    - his Qwen3.5 4B and his `engines` folder, removed, in the redirect, as
+      the first version of this entry recorded;
+    - one start at 11:09 that rewrote his token and added lines to his log;
+    - the junction and the backup, made only in the redirect.
+
+    His chats were safe in the copy `D:\localSpace\app-data` (checked, 11
+    chats, 76 messages).
+  - **What the founder did, in his own PowerShell:** he copied that folder to
+    `D:\localSpace\app-data-try`. He made the real `%LOCALAPPDATA%\localSpace`
+    a junction to it, and his chats show in the app. Kept for now:
+    `D:\localSpace\app-data`, `D:\localSpace\app-data-founder` (the real C:
+    folder of three files) and the real
+    `%LOCALAPPDATA%\localSpace.backup-2026-10-17`.
+  - **The rule since (the owner, 2026-10-17):** for any change to the
+    founder's real files under `AppData`, the coding agent writes the exact
+    PowerShell commands and he runs them himself. The agent may read and
+    report, but changes nothing there. A junction is removed only with
+    `(Get-Item <path>).Delete()`, never with `Remove-Item`.
+  - **No reported figure is affected:** the 30 measurement results name 60
+    model files, all with the official SHA-256. Every kit run used its own data
+    folder under `%TEMP%`, which is not redirected.
+  - **What the founder's earlier sessions were:** all 18 app starts from
+    2026-09-19 to 2026-10-17 06:20 ran inside the redirect. Among them were the
+    Test A dry run, his test of `aeb31fa` on 2026-10-10, and his sessions of
+    2026-10-15 and 16. They were launched from inside Claude: an installer or
+    the app opened from Claude, whose "start the app" then inherited the
+    redirect.
+    - **Unaffected:** what he saw and judged (answers, speeds, the screens),
+      since the program and the engine were the same.
+    - **Never exercised on his laptop until today:** the app with the real
+      `AppData`, that is a first start from the Start menu after an install
+      from Explorer, and the uninstaller's "delete the application data", which
+      removes the real folder and not the redirect.
+    - **The release check therefore installs and starts the app from Explorer
+      and the Start menu, never from a file opened in Claude.**
+  - **Windows PowerShell 5.1 skips paths over 260 characters without a
+    word.** Three Qwen2.5 14B files (8.4 GB) in a deep scratchpad folder
+    survived the founder's clean-up for that reason. Commands for him use
+    `-LiteralPath "\\?\C:\..."`.
+
+- **The Qwen3.5 9B is confirmed as the 4 GB default for 0.2:** the
+  founder's 10-minute try of `96efd0e8` (started from the Start menu, the real
+  `AppData`) found its speed fine and its Uzbek and Russian answers good. No
+  veto.
+- **The move to D: is finished.**
+
+  | | Free | What of ours is there |
+  |---|---|---|
+  | C: | 174.7 GB of 389.7 | the repositories on the Desktop; this session's scratchpad under `%TEMP%\claude` |
+  | D: | 23.3 GB of 86.2 (the limit is 10) | `localSpace\models` 33.6 GB, `check` 3.5 GB, `build` 2.1 GB, `app-data-try` 6.2 GB (the founder's data and his 9B), `app-data` and `app-data-founder` (copies kept for now); `WSL\Ubuntu-22.04\ext4.vhdx` 17.5 GB |
+
+  - **Ubuntu:** compacted from 29.9 GB to 15.4 GB and moved by the founder
+    with `wsl --manage Ubuntu-22.04 --move D:\WSL\Ubuntu-22.04`. A
+    `cargo check --workspace` in `~/ls-build` then passed in 6 min 43 s.
+  - **The real `%LOCALAPPDATA%\localSpace`** is the founder's own junction to
+    `D:\localSpace\app-data-try`. The redirected junction is removed.
+  - **A full workspace build on D:** adds about 11 GB and still keeps D:
+    above 10 GB.
+
+## 2026-10-16, the language rule in the prompt; CUDA as an NVIDIA edition; document 37's design rulings
+
+- **Both system prompts now say "Answer in the language and alphabet the
+  person writes in."** (`prompt::LANGUAGE`, in `SYSTEM` and `SYSTEM_PLAIN`,
+  with a test). It stays in the product whatever the retest shows. Measured on
+  2026-10-15: Gemma 4 E4B answered the Uzbek Moon question in English five
+  times of six and drifted from Cyrillic Uzbek into Latin; the Qwen3.5 4B wrote
+  one answer in Azerbaijani.
+- **"Mixing" for the 4 GB rule:** a single word with letters from the other
+  alphabet is a typo; an answer in, or drifting into, another language is
+  mixing. One retest, fixed in advance: the Russian and Uzbek language set
+  again for the Qwen3.5 9B, Gemma 4 E4B and Qwen3.5 4B with the instruction,
+  read by the same three readers. The decision itself is in the business log.
+- **Near-repeating loops** (lines that vary slightly, as the Ministral 3 8B's
+  did on 2026-10-15): the 2,048-token answer limit covers them in 0.2; a wider
+  loop guard comes in 0.2.1.
+- **CUDA, for 0.2.1, ships as a second installer, not a download inside the
+  app:** the standard edition (Vulkan) and an NVIDIA edition (llama.cpp's
+  b10869 CUDA 13.3 build and NVIDIA's runtime files inside, Vulkan beside it as
+  the fallback), both from `localSpace-releases`. NVIDIA's licence lets its
+  runtime files go out only inside an application (CUDA Toolkit EULA §1.1.1(3),
+  §1.1.2, Attachment A §2.6); its licence goes into `licences/`. When the app
+  finds a suitable NVIDIA card and driver it suggests the NVIDIA edition, which
+  the person downloads and installs like an update: **no download from inside
+  the app**, so the only outbound connection stays the model download the
+  person asks for. If the CUDA engine fails to start or crashes, Core starts
+  the Vulkan engine, unasked, and logs why.
+- **CUDA becomes the default on a card only where it is clearly faster:** at
+  least 15 % faster writing and not slower reading or to the first word, or at
+  least 30 % faster reading with writing no slower. Measured on the founder's
+  RTX 3050 Ti (the 4 GB default and the 9B; first word, writing, reading a
+  3,000-token message), and the RTX 5080 laptop when it is available.
+- **Document 37's design, ruled (built after 0.2):**
+  - **Roles: three.** Owner (one per installation), Admin (people, models,
+    tools) and Member. No role can read anyone's chats. The code's `Admin` and
+    `Member` keep their meaning; `Owner` is new; `Viewer` is to be mapped
+    (asked).
+  - **Built-in tools:** on the server edition the documents tool and the code
+    runner ship built in, switched off until an admin enables them. The desktop
+    base install stays as it is.
+  - **MCP servers** run as separate processes with only the access the admin
+    grants: named folders, and network only to named hosts. Until that sandbox
+    exists they are admin-installed only, off by default, and marked on screen
+    "runs with full access".
+  - **The code runner:** Python inside the existing WebAssembly sandbox
+    (WASI): no network, no files outside its folder, time and memory limits.
+    Its size is reported before it is added.
+  - **The action log:** for reads, the user, tool, time, outcome and how many
+    items were read, never their names; for actions that change something,
+    also the target (a file path or a record id). Never chat text, prompts or
+    document contents. People see on screen that actions are logged.
+  - **Web tools:** the ruling that hid them (`WEB_RESULTS_REACH_THE_MODEL`) is
+    lifted for the server edition only: off by default, switched on by an
+    admin, every use visible to the person.
+  - **Partners may build environments** later, signed and reviewed. This
+    supersedes the marketplace spec's "one author" principle (§1).
+- **`docs/STATUS.md` corrected:** the tool-call grammar is compiled but not
+  sent to the engine (H§9 is partial, not built).
+- **The Qwen3.5 9B is the 4 GB tier's default** (`defaults` in
+  `models/catalog.json`, no longer hidden, its 4 GB run of 2026-10-15
+  recorded under `exercised`). The rule fixed on 2026-10-11:
+  - at least 8 tokens a second and the first word within 5 seconds: all
+    four pass (the 9B: 9.2 tokens a second, 0.5 s);
+  - no loops: the Ministral 3 8B is out;
+  - no mixing, as read above: after the retest with the language
+    instruction, Gemma 4 E4B still answered an Uzbek question in English and
+    switched two Cyrillic answers to Latin, and the 9B mixed in none of 35 by
+    any of the three readers;
+  - among those left, the fewest wrong answers: the 9B, 8 to 11 of 35.
+
+  The tests that named the 4B as the default now name the 9B. Those that
+  need a hidden entry use Gemma 4 31B. On a 4 GB card the 9B is partly in
+  system memory; where it neither runs well nor works, the rule below the
+  default still applies.
+- **Later the same day, the roles in full:** `Viewer` maps to `Member`, with
+  read-only access given per document (the access levels already allow it).
+  The Owner is the first administrator, created at install; ownership passes
+  only by the Owner's own action; no Admin can disable, demote or remove the
+  Owner. A lost Owner account is recovered only from the server machine
+  itself, by a local command run by someone with administrator access to that
+  machine, and the recovery is written to the action log.
+- **The documents tool and the code runner are built once, for the server**
+  (document 37, step 3), switched off there until an admin enables them. On
+  the desktop they become optional first-party add-ons from the Store once it
+  reopens; nothing of them is in the desktop base install. There is no maths
+  checker: the agent checks calculations by running them in the code runner.
+- **The local API:** the server's OpenAI-compatible endpoint, with accounts,
+  in document 37's step 1; the desktop's after step 3. **The desktop's
+  listener amends deployment spec §8 ("the gateway is the only socket") when
+  it is built, on these conditions:** off by default and switched on by the
+  person; `127.0.0.1` only; every program that asks is shown and approved once;
+  and the screen says plainly that this approval is a courtesy, not
+  protection against software already on the computer.
+
+- **The NVIDIA edition takes CUDA 12.4, not 13.3** (ruled after the
+  measurement below).
+  - **Why:** 12.4 runs on far older drivers, and on the older cards (GTX 10
+    series, Pascal) that CUDA 13 drops.
+  - **When to move:** to 13.x only if a later measurement shows it clearly
+    faster on newer cards, by the same rule.
+  - **Minimum driver, from NVIDIA's own release notes:** CUDA 12.4 GA needs
+    **551.61 or newer on Windows** (550.54.14 on Linux; Table 4,
+    "Corresponding Driver Versions"). With minor version compatibility, any
+    12.x driver of 525 or newer (Table 3). CUDA 13.x needs 580 or newer
+    (Table 3).
+  - **Measured:** CUDA 13.3 does not start on the founder's driver, 566.07
+    (`failed to initialize CUDA`); 12.4 does.
+- **The NVIDIA edition is suggested only when the card and the driver can
+  both run it.** When the card can and the driver is too old, the app shows
+  one plain line, at most once, and the person can dismiss it: "A newer NVIDIA
+  driver would let you use the faster NVIDIA edition." No link is opened and
+  nothing is downloaded.
+- **Vulkan against CUDA 12.4 on the RTX 3050 Ti** (driver 566.07, llama.cpp
+  b10869 both ways; Core chose the placement).
+  - **Writing:** +5 % on the 9B (9.2 to 9.7 tokens a second), +2 % on the 4B
+    (38.6 to 39.2).
+  - **The first word:** the same or faster.
+  - **Reading a 3,000-token message:** +58 % on the 9B (6.85 s to 4.32 s), +55 %
+    on the 4B (3.08 s to 1.98 s).
+  - **The verdict:** under the rule (at least 15 % faster writing with
+    nothing slower, or at least 30 % faster reading with writing no slower),
+    **CUDA is clearly faster on this card, by the reading clause.**
+  - The figures and the method are in the internal repository's
+    `docs/measure/2026-10-16/cuda/`.
+
+- **A timed Linux build of `other-labs` (`acb8b1b`) in WSL**, Ubuntu 22.04,
+  `.wslconfig` 6 processors, 6 GB memory, 4 GB swap. Rust 1.99.0, Node
+  24.19.0. CI's settings (`CARGO_INCREMENTAL=0`, line tables only) and CI's
+  commands, `-j 4`, in a clone on Ubuntu's own disk.
+
+  | Step | Time |
+  |---|---|
+  | `cargo fetch` | 21 min, slowed by WSL's connection to crates.io |
+  | the web bundle and harness packages | 2.1 min |
+  | clippy, clean | 5.2 min |
+  | the tests, clean build and run | 11.1 min |
+  | the whole suite again, already built, `--no-fail-fast` | 2.0 min, all passing |
+  | after a one-line change in `localspace-core`, the tests rebuilt | 1.9 min |
+  | the desktop app (`localspace-shell`) | 4.3 min |
+
+  - **The connection:** WSL resolved `index.crates.io` to IPv6 first and its
+    NAT stalled on it, so index requests took 15 to 20 s or timed out against
+    2 to 4 s from Windows. `CARGO_HTTP_TIMEOUT=120`, `CARGO_NET_RETRY=10` and
+    `CARGO_HTTP_MULTIPLEXING=false` for that run got through; nothing in WSL
+    or Windows was changed.
+  - **Peak memory:** 3.6 GB used, with 0.2 GB of swap, under the 6 GB cap.
+  - **Disk:** `target` 14 GB, the crate cache 1.4 GB, `web/node_modules`
+    150 MB.
+  - **WSLg:** the app starts and opens its window ("the window is open", the
+    web client served). It finds no graphics card in WSL, so it recommends
+    the 1.5B.
+  - **Missing packages:** none.
+  - **One timing failure:** `a_stop_mid_answer_keeps_what_came_marked_as_stopped`
+    (`crates/localspace-core/tests/turns.rs`) took 8.7 s to reach "stopped"
+    against its 2-second limit, on the first run of the tests right after the
+    14 GB build, with C: 93 % full. (Not during compiling: `cargo test`
+    compiles everything before it runs a test.) **It did not happen again in
+    58 stops:**
+    - 5 ms idle;
+    - 5 to 15 ms with all six processors busy;
+    - 5 to 15 ms with 2 GB files written over and over;
+    - 5 ms with the whole file's 15 tests running together;
+    - 5 to 46 ms with 1.5 GB written and flushed to disk (`sync`) over and
+      over.
+
+    **The path:** a Stop shuts the engine's socket at once, so the words end
+    at once (`stream::Stop::stop`). The turn is announced "stopped" only
+    after Core's thread has saved the chat (`agent::keep` → redb commit,
+    which waits for the disk; no transaction sets a durability) and closed
+    the run (`agent::end`, `finish_run`, then `TurnChanged`). A disk that
+    stalls therefore delays the "stopped" state and every other request on
+    Core's one thread: measured, a forced flush took it from 5 ms to 46 ms.
+    The 8.7 s once is most likely the host's disk catching up after the
+    build, on a nearly full drive, but that is not proven. No change to the
+    product or the test is made; the 2-second limit stays.
+
 ## 2026-10-15, what CI runs when
 
 The owner's ruling, so that the repository can become private and stay inside
@@ -37,6 +330,138 @@ the free plan's 2,000 minutes a month:
 - **What does not change:** nothing reaches a tester until `ci` is green on
   that exact commit, the walk and the kit included (they run on the pull
   request and on `main`), and the release check has passed.
+
+## 2026-10-15, the laptop back from its service: its temperatures after it
+
+Document 36, section 2, steps 1 and 2. Measured as before (read-only,
+without administrator rights, sampled every 15 seconds), on mains power,
+Windows' power plan Performance, the engine at 8 threads.
+
+| | Before the service (2026-10-12) | After the service (2026-10-15) |
+|---|---|---|
+| Idle | not measured | **53.9 °C** a minute after the computer settled (74.9 °C at 10:00:26, 53.9 °C at 10:01:21) |
+| Writing, the model | Ministral 3 8B, an hour into the run | Qwen3.5 4B, five minutes answering (10:02–10:07) |
+| Temperature under load | 92.9 °C | **92.9 °C** from 45 seconds in, held to the end; mean 91.2 °C over the 19 samples |
+| Effective clock | 4.04 to 4.06 GHz (126 to 127 % of base) | **3.34 to 4.05 GHz** (104 to 127 %), mostly 3.5 to 3.7 GHz once hot |
+| Throttling by the run's rule | no | **no**: never 95 °C, never under the 3.2 GHz base clock while busy |
+| Armoury Crate's registry on mains | Silent (`ThrottleModeOnAC = 2`) | **Silent (`ThrottleModeOnAC = 2`)**, `OnDC = 1` |
+
+- **The service did not lower the temperature under load**: the processor
+  reaches the same 92.9 °C, and now holds a lower clock there, which is what
+  the processor does to stay under its limit. Idle it cools faster than it
+  did before (not measured then, so not compared).
+- **Every speed figure measured before today is Silent-mode history**, as the
+  owner ruled the same day (document 36, section 2, step 2): the Qwen3.5 4B's
+  and Gemma 4 E4B's of 2026-10-11 and the Ministral 3 8B's of 2026-10-12. They
+  are kept as records and count for nothing.
+- **The owner says Armoury Crate is on Performance; its registry still reads
+  Silent.** The run's speed parts wait until the founder confirms the mode in
+  Armoury Crate's own window; the mode is never changed from here. Whatever
+  he confirms is recorded with the run.
+
+## 2026-10-12, the 4 GB run paused for the laptop's service; its temperatures before it
+
+The founder's laptop (ASUS, AMD Ryzen 7 6800H, 8 cores and 16 threads,
+3.2 GHz base; RTX 3050 Ti with 4 GB; 16 GB of memory) ran at about 93 °C on
+the processor for an hour during the run, its fans at about 5,000 RPM. It is
+being cleaned and its thermal paste replaced; **the run is paused until the
+founder says it is back** (stopped at 20:19, nothing left running).
+
+- **Before the service, as measured** (read-only, without administrator
+  rights): at 20:17–20:18 the processor's thermal zone read **92.9 °C**, its
+  effective clock **4.04 to 4.06 GHz** (126 to 127 % of its base), its load
+  68 to 69 %, with the Ministral 3 8B writing; not under its base clock, so
+  not throttling by that measure, but 2 °C from its 95 °C limit. **Armoury
+  Crate's mode on mains power: Silent** (`ThrottleModeOnAC = 2` in its
+  registry, which ASUS's tools read as Silent). **Windows' power plan:
+  Performance.** **The engine's threads: 8**, the physical cores: llama.cpp's
+  default, as Core passes no thread count.
+- **After the service, the speed part runs again for all four models**, the
+  ones already finished included, so that all four are measured on the
+  serviced laptop: the Qwen3.5 4B's and Gemma 4 E4B's of 2026-10-11 and the
+  Ministral 3 8B's of this evening stand as before-service records and do not
+  count. Gently, as the owner ruled the same evening: three minutes'
+  cooldown between models and between the speed and accuracy parts; the
+  processor's temperature and clock sampled every 15 seconds through each
+  speed part, its first and last samples the start and end; a speed part
+  that ran while the processor throttled (95 °C or more, or under the base
+  clock while busy) is marked and run again after a cooldown, once;
+  Armoury Crate's mode left as it is and recorded.
+- **The accuracy results stand**, since the answers do not depend on the
+  temperature: the 4B's and the E4B's counting and language parts, and the
+  Ministral 8B's counting part. **Still to run:** the Ministral 8B's
+  language part (stopped partway), and the Qwen3.5 9B's counting and
+  language parts.
+
+## 2026-10-12, the kit stops cleanly and keeps the computer awake
+
+The owner's ruling, after a stopped run left an engine behind and its
+script went on to the next model.
+
+- **Every engine Core starts ends with Core's process** (Windows): it joins
+  a job object that ends everything in it when Core's process ends, however
+  it ends. So Ctrl+C on `localspace measure`, or one stop of it, ends its
+  engine too. The calls are declared in Core's own isolated module
+  (`os`), as `footprint` declares its own: no crate is added. **The test**
+  (Windows only, so it runs in the package workflow on the Windows runner)
+  holds that the first engine and one started again are both in that job.
+  Elsewhere nothing changes: the orphan-engine file of the 0.2 basics still
+  covers a power cut and other systems.
+- **`localspace measure` keeps the computer awake while it runs**, by
+  asking Windows as long as the run lasts (`SetThreadExecutionState`): no
+  sleep setting is changed, so there is none to restore, and the request
+  ends with the run, however it ends.
+
+## 2026-10-11, other labs in, Qwen2.5 out (document 34): the rulings, the entries, the revised 4 GB run
+
+The owner's rulings on the builder's reply (the reply and the dates are in
+the internal log).
+
+- **0.2 takes Gemma 4 and the Ministral 3 8B; Qwen2.5 leaves the catalog.**
+  Ministral 3 3B and 14B, Phi-4-mini and gpt-oss-20b (low effort by
+  default, the renamed file with its new SHA-256) go to 0.2.1; Ministral's
+  Instruct models only; Phi-4-reasoning-vision waits until ggml-org or
+  unsloth publishes it; Mistral Small 4 belongs with server mode. **The pin
+  stays at `b10869`**: it knows `gemma4`, `mistral3`, `phi3`, `gpt-oss` and
+  their image projectors.
+- **The Gemma 4 files are ggml-org's 4-bit ones built from Google's own
+  4-bit-trained weights** (Q4_0, with the Q8_0 vision file); ggml-org no
+  longer publishes Q4_K_M. The 12B is the June 2026 model (there was no
+  April 12B). Five entries, `hidden` until each has passed its checks; the
+  26B-A4B and the 31B need a borrowed machine. **Gemma's attention-cache
+  figure** counts its full-attention layers per token and its
+  sliding-window layers at their window (512 or 1,024 tokens), spread over
+  an 8,192-token context, and leaves out the layers that share another's
+  cache: a plain per-token figure would overstate it several times.
+- **The Ministral 3 8B Instruct** from unsloth (Q4_K_M and its F16 vision
+  file, kept under a name of its own), `hidden` until checked; its template
+  refuses a late system message, so the task notes go in the person's
+  message (shape 2), found at load as for every model.
+- **Temperature: 0.3 for every answer with thinking off, on every model;
+  with thinking on, the card's values.** A model whose short pass loops or
+  mixes languages at 0.3 takes its card's value instead, and its entry says
+  so.
+- **Every entry names its maker**, shown as a small label on its row. **The
+  list of models that can be added is always open and grouped by verdict**:
+  what runs well here first, then what works more slowly, what is too slow,
+  what is not yet sized; what will not fit is folded behind one button
+  (1.10 of the basics with document 34 §5).
+- **Every catalog file's download address is checked in CI**: one request
+  per file at the entry's pinned revision, comparing the size and SHA-256
+  Hugging Face reports with the entry's (`scripts/check-catalog-files.mjs`);
+  nothing is downloaded.
+- **The revised 4 GB run**, rules fixed in advance: four contestants, the
+  Qwen3.5 4B, Gemma 4 E4B, the Qwen3.5 9B and the Ministral 3 8B (the 9B
+  and the 8B partly off the card, with their vision files). **A model
+  qualifies** when, on this laptop (the founder's: RTX 3050 Ti with 4 GB, 16
+  GB of memory), the median writing speed over the whole message script is
+  at least 8 tokens a second and the first word of "Hi there!" comes within
+  5 seconds. **Among the qualifiers with no loop and no language mixing, the
+  fewest wrong answers on the 35 counting cases wins** (three independent
+  readers); a model that reads images beats one that does not on a tie.
+  **Before the winner becomes the default**, the founder uses a package with
+  it for ten minutes and may veto it on how it feels; then the next
+  qualifier wins.
 
 ## 2026-10-10, after the founder's test of `aeb31fa`: the whiteboard and the planner leave 0.2; loops, sampling, empty chats
 

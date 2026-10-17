@@ -75,6 +75,12 @@ jobs:
         run: |
           (cd web && npm ci && npm run build)
           cargo build --release -p localspace-cli
+      # Windows ends every engine with the Core that started it, through a job
+      # object; CI's tests run on Linux, so the one test of it runs here, on
+      # Windows, against the test engine (docs/DECISIONS.md, 2026-10-12).
+      - name: an engine ends with the Core that started it
+        shell: bash
+        run: cargo test --release -p localspace-core --test engine every_engine_core_starts_ends_with_cores_process
       - name: tauri-cli, pinned
         shell: bash
         run: cargo install tauri-cli --version 2.11.4 --locked

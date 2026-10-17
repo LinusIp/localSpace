@@ -176,6 +176,7 @@ function AssistantPane() {
                   <span style={{ flex: 1 }}>
                     <span className="opt-title">
                       {m.title}
+                      {m.maker && <span className="pill">{m.maker}</span>}
                       {on && <span className="pill green">In use</span>}
                       {starting && <span className="pill amber">Starting up…</span>}
                     </span>
@@ -234,21 +235,50 @@ function AssistantPane() {
 }
 
 /** The models that can be brought here, for whoever may bring them. */
+/** The groups of the models that can be added, in the order a person wants
+ *  them: what runs well here first, what will not fit last and folded away
+ *  (1.10 of the basics; document 34 §5, 2026-10-11). */
+const GROUPS: Array<{ title: string; holds: (verdict: string) => boolean }> = [
+  { title: "Runs well on this computer", holds: (v) => v === "runs_well" || v === "resident" },
+  { title: "Works, more slowly", holds: (v) => v === "works" || v === "hybrid" },
+  { title: "Too slow for everyday use", holds: (v) => v === "too_slow" || v === "streaming" },
+  { title: "Not sized for this computer yet", holds: (v) => v === "unknown" || v === "" },
+];
+
 function GetAModel({ entries, onDownload, onStop, onDelete }: { entries: ModelCatalogEntry[]; onDownload: (id: string) => void; onStop: (id: string) => void; onDelete: (m: ModelCatalogEntry) => void }) {
-  const [open, setOpen] = useState(false);
+  const [showUnfit, setShowUnfit] = useState(false);
   const environment = useSession((s) => s.environment);
   const personal = useSession((s) => s.me?.topology === "personal");
   if (entries.length === 0) return null;
   const offline = environment?.network === "airgapped";
+  const unfit = entries.filter(willNotFit);
+  const groups = GROUPS.map((g) => ({ ...g, models: entries.filter((m) => !willNotFit(m) && g.holds(m.verdict)) })).filter((g) => g.models.length > 0);
   return (
     <div style={{ marginTop: 26 }}>
-      <button type="button" className="link green" onClick={() => setOpen((v) => !v)} aria-expanded={open} style={{ fontSize: 14 }}>
-        {open ? "Hide the models that can be added" : "Get another model"}
-      </button>
-      {open && (
-        <div className="row-list" style={{ marginTop: 12 }}>
-          {offline && <div className="row-item ls-muted">{personal ? "Downloads need the network, and this computer is set to stay offline. Settings → Network changes that." : "Downloads need the network. This server is offline, so a model is brought in as a file by your administrator."}</div>}
-          {entries.map((m) => {
+      <div className="pane-section-title">Models that can be added</div>
+      {offline && <div className="row-item ls-muted" style={{ marginTop: 10 }}>{personal ? "Downloads need the network, and this computer is set to stay offline. Settings → Network changes that." : "Downloads need the network. This server is offline, so a model is brought in as a file by your administrator."}</div>}
+      {groups.map((g) => (
+        <ModelGroup key={g.title} title={g.title} models={g.models} offline={offline} onDownload={onDownload} onStop={onStop} onDelete={onDelete} />
+      ))}
+      {unfit.length > 0 &&
+        (showUnfit ? (
+          <ModelGroup title="Will not fit on this computer" models={unfit} offline={offline} onDownload={onDownload} onStop={onStop} onDelete={onDelete} />
+        ) : (
+          <button type="button" className="link green" onClick={() => setShowUnfit(true)} style={{ fontSize: 14, marginTop: 16 }}>
+            {unfit.length === 1 ? "Show the 1 model that will not fit" : `Show the ${unfit.length} models that will not fit`}
+          </button>
+        ))}
+    </div>
+  );
+}
+
+/** One group of the list: its heading, then a row per model with its maker. */
+function ModelGroup({ title, models, offline, onDownload, onStop, onDelete }: { title: string; models: ModelCatalogEntry[]; offline: boolean; onDownload: (id: string) => void; onStop: (id: string) => void; onDelete: (m: ModelCatalogEntry) => void }) {
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div className="sources-cap">{title}</div>
+        <div className="row-list">
+          {models.map((m) => {
             const downloading = m.download && m.download.stage.startsWith("downloading");
             const failed = m.download && m.download.stage.startsWith("failed");
             const paused = m.download && m.download.stage === "paused";
@@ -261,7 +291,9 @@ function GetAModel({ entries, onDownload, onStop, onDelete }: { entries: ModelCa
             return (
               <div key={m.id} className="row-item">
                 <div className="row-main">
-                  <div className="row-title">{m.title}</div>
+                  <div className="row-title">
+                    {m.title} {m.maker && <span className="pill">{m.maker}</span>}
+                  </div>
                   <div className="row-body">
                     {modelReason(m)}
                     {m.license_words ? ` ${m.license_words}` : ""} About {sizeInWords(m.bytes)} to download.
@@ -303,7 +335,6 @@ function GetAModel({ entries, onDownload, onStop, onDelete }: { entries: ModelCa
             );
           })}
         </div>
-      )}
     </div>
   );
 }
