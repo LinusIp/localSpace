@@ -73,6 +73,10 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      - name: a tag names the code's version, before anything is built
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        shell: bash
+        run: node scripts/check-version.mjs "${GITHUB_REF#refs/tags/}"
       - name: toolchain
         shell: bash
         run: |
@@ -291,6 +295,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.publish_tag }}
+      - name: the tag names the code's version
+        run: node scripts/check-version.mjs "${{ inputs.publish_tag }}"
       - name: the package that tag's run built, and the notes it carries
         env:
           GH_TOKEN: ${{ github.token }}

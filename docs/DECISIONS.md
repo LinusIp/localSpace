@@ -13,6 +13,29 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-18, the version is 0.2.0; a tag must name it
+
+- **The version is 0.2.0,** raised from 0.1.0 in the two places it is set:
+  - the workspace's `Cargo.toml`, which every crate inherits, and with it what
+    the app logs, what its API reports and the About screen;
+  - the shell's `tauri.conf.json`, which the installer's version
+    information and the package's file names come from.
+
+  The test release `v0.2.0-rc.1` showed the gap: its files were named
+  `localSpace-0.1.0-…`. Not raised: the harnesses' own versions, the internal
+  web packages', and the manifest test fixtures, none of which is the app's
+  version.
+- **`scripts/check-version.mjs`** says the two files agree and, given a tag,
+  that the tag names their version: `v0.2.0` for 0.2.0, or `v0.2.0-rc.N` for
+  one of its release candidates. It runs:
+  - in `ci`'s `check` job, on every push;
+  - in `package` before a tag's package is built;
+  - again before a tag is published.
+
+  Tried by hand: the tag `v0.2.0` against the code's 0.1.0, then `v0.1.0`
+  and `v0.2.0-beta` against 0.2.0, each refused; `v0.2.0` and `v0.2.0-rc.2`
+  against 0.2.0, each accepted.
+
 ## 2026-10-18, publishing to localSpace-releases, after the release check only
 
 - **`package.yml` publishes** (the owner, 2026-10-17). A `v*` tag builds the
