@@ -756,8 +756,10 @@ mod tests {
             picture_file_place(&partly, &a_16_gb_card(), PICTURE_FILE),
             PictureFilePlace::Card
         );
-        // No card of its own: never the card either.
-        let alone = without_a_card(laptop_3050ti());
+        // No card of its own: never the card either. The whole model is in
+        // system memory then, so it needs more of it free.
+        let mut alone = without_a_card(laptop_3050ti());
+        alone.ram_free_mib = 12_000;
         let on_the_processor = fit(&shape, &alone, ASK, None);
         assert_eq!(
             picture_file_place(&on_the_processor, &alone, PICTURE_FILE),
