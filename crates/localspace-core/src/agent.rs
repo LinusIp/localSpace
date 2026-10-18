@@ -61,6 +61,21 @@ pub fn send(
         );
     }
     let (user, workspace) = (core.active.user.clone(), core.workspace.clone());
+    // Pictures go only to a model that reads them here (docs/DECISIONS.md,
+    // 2026-10-18): the client says so before sending, and Core holds to it.
+    // With no model loaded nothing is answered at all, and the message is
+    // kept as any other.
+    let cannot_read_pictures = core
+        .router
+        .read()
+        .unwrap()
+        .info()
+        .is_some_and(|m| !m.supports_vision);
+    if !attachments.is_empty() && cannot_read_pictures {
+        return proto::Response::AttachmentRefused {
+            refusal: proto::AttachmentRefusal::CannotReadPictures,
+        };
+    }
     let attached = if attachments.is_empty() {
         Vec::new()
     } else {

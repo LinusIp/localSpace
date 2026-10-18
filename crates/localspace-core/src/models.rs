@@ -933,6 +933,7 @@ impl Catalog {
                         .unwrap_or_default(),
                     // Core says it, from a look at the drive: see `Core::model_catalog`.
                     no_room: String::new(),
+                    reads_pictures: !m.vision_file.is_empty(),
                     memory_tight: placed.as_ref().zip(fitted).is_some_and(|(p, hw)| {
                         p.verdict != fit::Verdict::WillNotFit && !fit::fits_with_room(p, hw)
                     }),

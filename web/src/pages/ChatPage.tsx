@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ClipIcon, CloseIcon, Dialog, SpinnerIcon, StopIcon } from "@localspace/ui";
 import type { Attachment, ChatMessage, ToolCallRecord } from "../api/generated";
 import { addAttachment, attachmentUrl } from "../api/client";
-import { MOST_PICTURES, PICTURE_TYPES, isPicture, refusalText } from "../lib/attachments";
+import { MOST_PICTURES, PICTURE_TYPES, isPicture, pictureModel, refusalText } from "../lib/attachments";
 import { useStrings } from "../useStrings";
 import { initialsOf, outcomeLine, useSession } from "../store";
 import type { LiveToolCall } from "../store";
@@ -395,13 +395,18 @@ interface Pending {
 }
 
 function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (text: string) => void; placeholder: string }) {
-  const { send, cancel, environment, catalogModels, goSettings } = useSession();
+  const { send, cancel, environment, catalogModels, goSettings, loadModel, downloadModel } = useSession();
   const strings = useStrings();
   const [pending, setPending] = useState<Pending[]>([]);
   const [said, setSaid] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const chooser = useRef<HTMLInputElement>(null);
   const uploading = pending.some((p) => p.attachment === null);
+  // Pictures with a model that cannot read them here: said at once, with the
+  // model to switch to (docs/DECISIONS.md, 2026-10-18; plan 38, P4).
+  const loaded = environment?.model ?? null;
+  const blind = pending.length > 0 && loaded !== null && !loaded.supports_vision;
+  const instead = blind ? pictureModel(catalogModels, loaded.id) : null;
 
   // Each picture goes to Core as soon as it is added: made ready and kept
   // there until the message goes. A refusal is said once, plainly.
@@ -461,7 +466,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
 
   const submit = () => {
     const trimmed = draft.trim();
-    if (!trimmed || busy || !model || uploading) return;
+    if (!trimmed || busy || !model || uploading || blind) return;
     const attachments = pending.flatMap((p) => (p.attachment ? [p.attachment] : []));
     const sent = pending;
     onDraft("");
@@ -472,7 +477,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
         // Not taken: the words and the pictures back where they were.
         onDraft(trimmed);
         setPending(sent);
-        setSaid(refusalText(strings, refusal));
+        setSaid(refusalText(strings, refusal, modelLabel(model?.id, catalogModels)));
       } else {
         for (const p of sent) URL.revokeObjectURL(p.preview);
       }
@@ -511,6 +516,16 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
       {said && (
         <div className="composer-said" role="status">
           {said}
+        </div>
+      )}
+      {blind && (
+        <div className="composer-said" role="status">
+          {strings.cannotReadPictures(modelLabel(loaded.id, catalogModels))}{" "}
+          {instead && (
+            <button type="button" className="link green" onClick={() => void (instead.installed ? loadModel(instead.id) : downloadModel(instead.id))}>
+              {instead.installed ? strings.switchForPictures(instead.title) : strings.downloadForPictures(instead.title)}
+            </button>
+          )}
         </div>
       )}
       <textarea
@@ -565,7 +580,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
               <StopIcon size={16} />
             </button>
           ) : (
-            <button type="button" className="send" onClick={submit} disabled={!draft.trim() || !model || uploading} aria-label="Send">
+            <button type="button" className="send" onClick={submit} disabled={!draft.trim() || !model || uploading || blind} aria-label="Send">
               <ArrowUpIcon size={17} />
             </button>
           )}

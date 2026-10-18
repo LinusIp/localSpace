@@ -601,7 +601,8 @@ fn supervise(
             let worker = OpenAiWorker::new(&base, &model)
                 .with_context_len(context_len)
                 .with_key(Some(spec.key.clone()))
-                .with_ledger(ledger);
+                .with_ledger(ledger)
+                .with_vision(spec.args.iter().any(|a| a == "--mmproj"));
             router.write().unwrap().chat = Some(Arc::new(worker));
         }
         *shared.status.lock().unwrap() = Status::Ready;
