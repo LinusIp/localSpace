@@ -379,6 +379,7 @@ mod tests {
             stopped: false,
             thinking: String::new(),
             cut_short: None,
+            attachments: Vec::new(),
         }
     }
 

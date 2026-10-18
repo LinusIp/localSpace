@@ -517,7 +517,7 @@ export const useSession = createStore<Session>((set, get) => {
         turns: { ...s.turns, [chat]: "writing" },
         transcript: [...s.transcript, { role: "user", content: text, tool_calls: [], stopped: false, thinking: "", cut_short: null }],
       }));
-      const transcript = await attempt(async () => pick(await call({ send_message: { text, conversation: chat } }), "transcript"));
+      const transcript = await attempt(async () => pick(await call({ send_message: { text, conversation: chat, attachments: [] } }), "transcript"));
       if (!transcript) {
         // Refused, or not reached: the chat as Core has it, and the words back
         // in the box, unless something new was typed there meanwhile.

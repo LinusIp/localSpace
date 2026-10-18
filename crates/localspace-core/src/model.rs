@@ -768,15 +768,17 @@ fn messages(req: &ChatRequest, ledger_place: LedgerPlace) -> J {
                     Turn::Person(text) => {
                         out.push(json!({"role": "user", "content": said(i, text)}));
                     }
-                    // A picture goes with its words, as the OpenAI-style API
-                    // takes one: the text and the image, parts of one message.
-                    Turn::Picture { text, png } => {
-                        out.push(json!({"role": "user", "content": [
-                            {"type": "text", "text": said(i, text)},
-                            {"type": "image_url", "image_url": {
-                                "url": format!("data:image/png;base64,{}", base64(png))
-                            }}
-                        ]}));
+                    // Pictures go with their words, as the OpenAI-style API
+                    // takes them: the text and each image, parts of one
+                    // message, each image under its own type.
+                    Turn::Picture { text, pictures } => {
+                        let mut parts = vec![json!({"type": "text", "text": said(i, text)})];
+                        parts.extend(pictures.iter().map(|p| {
+                            json!({"type": "image_url", "image_url": {
+                                "url": format!("data:{};base64,{}", p.mime, base64(&p.bytes))
+                            }})
+                        }));
+                        out.push(json!({"role": "user", "content": parts}));
                     }
                     Turn::Answer(text) => out.push(json!({"role": "assistant", "content": text})),
                     Turn::Call {
@@ -1722,7 +1724,10 @@ mod tests {
             Turn::Answer("Hello!".into()),
             Turn::Picture {
                 text: "what is this?".into(),
-                png: vec![0x89, b'P', b'N', b'G'],
+                pictures: vec![crate::prompt::Picture {
+                    mime: "image/png".into(),
+                    bytes: vec![0x89, b'P', b'N', b'G'],
+                }],
             },
         ]);
         let sent = messages(&req, LedgerPlace::InTheNewest);

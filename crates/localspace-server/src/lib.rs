@@ -367,6 +367,14 @@ pub fn router(server: Arc<Server>) -> Router {
                 &server.cfg,
             ))),
         )
+        // A picture up to 30 MB, and the request around it.
+        .route(
+            "/attachments",
+            post(api::add_attachment).layer(axum::extract::DefaultBodyLimit::max(
+                localspace_core::picture::MAX_BYTES + 1024 * 1024,
+            )),
+        )
+        .route("/attachments/{id}", get(api::attachment))
         .route("/surfaces", post(surfaces::open))
         .route_layer(axum::middleware::from_fn_with_state(
             server.clone(),
