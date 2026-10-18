@@ -5481,6 +5481,18 @@ mod tests {
             proto::Response::Error { .. } => {}
             other => panic!("expected a refusal, got {other:?}"),
         }
+        // Through the script on the 4 GB laptop: the two small Gemma models
+        // are shown; the two small Qwen3.5 stay hidden for 0.2
+        // (docs/DECISIONS.md, 2026-10-18).
+        for id in ["gemma-4-e2b-q4_0", "gemma-4-e4b-q4_0"] {
+            assert!(
+                shown.iter().any(|s| s == id),
+                "{id} is not shown: {shown:?}"
+            );
+        }
+        for id in ["qwen3.5-0.8b-q4_k_m", "qwen3.5-2b-q4_k_m"] {
+            assert!(!shown.iter().any(|s| s == id), "{id} is shown: {shown:?}");
+        }
         let mut cfg = Config::personal("anna");
         cfg.show_hidden_models = true;
         let mut measure = Core::new(cfg).unwrap();

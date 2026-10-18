@@ -316,9 +316,11 @@ fn script() -> Vec<Item> {
             "Quyoshning massasi qancha?",
             "about 1.989 × 10^30 kg",
         ),
+        // "Oy" alone is both the Moon and a month: the Earth beside it says
+        // which (docs/DECISIONS.md, 2026-10-18).
         fact_item(
             "a fact in Uzbek: the Moon's distance",
-            "Oy Yerdan qancha uzoqlikda joylashgan?",
+            "Yer bilan Oy orasidagi masofa qancha?",
             "about 384,400 km on average",
         ),
         // Maths in the answer, written as formulas: the case maths display is
