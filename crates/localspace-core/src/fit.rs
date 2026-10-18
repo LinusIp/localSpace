@@ -204,10 +204,40 @@ fn usable_gpu_mib(gpu: &crate::hardware::Gpu) -> u64 {
         .saturating_sub(margin)
 }
 
+/// What Windows is left: the larger of 4 GB and a quarter of the memory.
+fn ram_reserve_mib(hardware: &Hardware) -> u64 {
+    RAM_RESERVE_FLOOR_MIB.max((hardware.ram_total_mib as f64 * RAM_RESERVE_SHARE) as u64)
+}
+
 fn usable_ram_mib(hardware: &Hardware) -> u64 {
-    let reserve =
-        RAM_RESERVE_FLOOR_MIB.max((hardware.ram_total_mib as f64 * RAM_RESERVE_SHARE) as u64);
-    hardware.ram_total_mib.saturating_sub(reserve)
+    hardware
+        .ram_total_mib
+        .saturating_sub(ram_reserve_mib(hardware))
+}
+
+/// What a loaded model holds in system memory beyond the part the fit puts
+/// there, in a chat: the largest measured through Core on the 16 GB laptop
+/// (the 4B with its picture file, 2026-10-18).
+pub const IN_A_CHAT_MIB: u64 = 2458;
+/// Room for a browser and the person's other programs.
+pub const OTHER_PROGRAMS_MIB: u64 = 3 * 1024;
+/// Memory still free with all of that open.
+pub const STILL_FREE_MIB: u64 = 3 * 1024;
+
+/// Whether `placed` leaves room to spare on `hardware` (the owner's rule,
+/// docs/DECISIONS.md, 2026-10-18): the model's memory (what the fit puts in
+/// system memory, its picture file with it, and what a chat adds), Windows'
+/// reserve, room for other programs and 3 GB still free, all within the
+/// computer's memory. A model that does not is never offered first where
+/// one that does exists, and says that memory is tight.
+pub fn fits_with_room(placed: &Fit, hardware: &Hardware) -> bool {
+    placed.verdict != Verdict::WillNotFit
+        && placed.ram_mib
+            + IN_A_CHAT_MIB
+            + ram_reserve_mib(hardware)
+            + OTHER_PROGRAMS_MIB
+            + STILL_FREE_MIB
+            <= hardware.ram_total_mib
 }
 
 /// Place `shape` on `hardware`. `gpu_layer_cap` is the most layers the card
