@@ -358,6 +358,10 @@ pub struct ModelCatalogEntry {
     /// room, or nothing is left to fetch. Said before a download can be
     /// started, never at eighty per cent.
     pub no_room: String,
+    /// It has a picture file, so it can be asked about pictures where that
+    /// file is loaded (docs/DECISIONS.md, 2026-10-18).
+    #[serde(default)]
+    pub reads_pictures: bool,
     /// The model would load, but leaves no room to spare here once a chat is
     /// under way (the owner's rule, docs/DECISIONS.md, 2026-10-18): the app
     /// says to close other programs first. Never set where it will not fit.
@@ -584,6 +588,9 @@ pub enum AttachmentRefusal {
     TooMany { most: u32 },
     /// An attachment that is not this person's, or no longer there.
     NotFound,
+    /// The model in use cannot read pictures here: it has no picture file,
+    /// or none is loaded (docs/DECISIONS.md, 2026-10-18).
+    CannotReadPictures,
 }
 
 /// Why Core ended an answer before the model did.

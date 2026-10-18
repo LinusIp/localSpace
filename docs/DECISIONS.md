@@ -13,6 +13,15 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-18, pictures go only to a model that reads them (plan 38, P4)
+
+- **Core holds to it.** A message with pictures is refused with `CannotReadPictures` when the loaded model's engine was started without a picture file (`--mmproj`). Core never trusts the client on this. A message sent while no model is loaded is kept as before. A model that reads pictures says so in the catalog (`reads_pictures`: it has a picture file).
+- **The composer says it at once,** before sending: with pictures attached and a model that can't read them, it shows "{model} can't read pictures." and turns Send off. Beside that it offers a model that can, as a button: "Switch to {model} for pictures" when one is on this computer, or "Download {model} for pictures" when not.
+- **The model offered** (`lib/attachments.ts`, `pictureModel`) reads pictures, isn't the one in use, runs well or works here and isn't tight on memory. Of those, one already on this computer comes first, and then the largest. When none qualifies, there's no button.
+- **Tested:**
+  - Core: `tests/engine.rs`, a model with no picture file refuses a picture (the forbidden case beside P1's allowed one);
+  - client: `attachments.test.ts`, the model offered and the new refusal in all three languages.
+
 ## 2026-10-18, attaching pictures in the composer (plan 38, P3)
 
 - **Three ways in:**
