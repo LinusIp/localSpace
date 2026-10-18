@@ -20,6 +20,7 @@ moved with them.
   - Measured on the founder's 16 GB laptop with a 4 GB card, Chrome open, the engine alone with Core's settings:
     - the 4B with its picture file used 3.6 GB mapped and **1.6 GB read** (21.6 against 23.0 tok/s on one short answer, 8.6 against 7.6 s to load);
     - the 9B with its picture file used **4.0 GB read**, with 4.24 GB left free and 9.7 tok/s. Mapped, it couldn't load at all: free memory fell to 1.36 GB.
+- **Through Core, `--no-mmap` alone misled the check after loading.** Read, the engine keeps what stays on the processor in pinned memory the card can reach, such as the word table. Windows counts that as shared graphics memory, and `look_after_load` took it for a spill: it stepped the 4B down from 31 layers on the card to 0, and the model ran on the processor, with the processor reading at 89.9 °C. **The flags are therefore `--load-mode none --no-host`.** `--load-mode none` is the pinned engine's current name for not mapping (`--no-mmap` is deprecated there), and `--no-host` turns that pinned buffer off. The engine alone with these: the 4B uses 1.6 GB at 23.6 tok/s, the 9B with its picture file 4.2 GB at 8.7 tok/s.
 - **The planner's flags for the reference tiers keep the mapping.** Streaming experts from the disk depends on it.
 - **The owner's rulings on the default, from the same measurements:**
   - On 16 GB with a 4 GB card, **the 9B stays the default.** It meets the rule with room to spare, and it gave the fewest wrong answers.

@@ -121,12 +121,15 @@ fn candidates(
 /// graphics. With nothing on the card the engine is told to use no device
 /// at all: an unknown or shared card is started carefully.
 ///
-/// The model file is read, not mapped (`--no-mmap`): mapped, the whole file
-/// stays in system memory even with most of it on the card, which on the
-/// 16 GB laptop with a 4 GB card cost the 4B about 2 GB and kept the 9B with
-/// its picture file from loading at all (docs/DECISIONS.md, 2026-10-18).
-/// The planner's flags below keep the mapping: streaming experts from the
-/// disk relies on it.
+/// The model file is read, not mapped (`--load-mode none`): mapped, the
+/// whole file stays in system memory even with most of it on the card,
+/// which on the 16 GB laptop with a 4 GB card cost the 4B about 2 GB and
+/// kept the 9B with its picture file from loading at all. Read, the engine
+/// would put what stays on the processor in pinned memory the card can
+/// reach, which Windows counts as the process's shared graphics memory and
+/// `look_after_load` would take for a spill, so that buffer is off too
+/// (`--no-host`) (docs/DECISIONS.md, 2026-10-18). The planner's flags below
+/// keep the mapping: streaming experts from the disk relies on it.
 pub fn fitted_flags(placed: &crate::fit::Fit, context_len: u32) -> Vec<String> {
     let mut f: Vec<String> = vec![
         "-c".into(),
@@ -139,7 +142,7 @@ pub fn fitted_flags(placed: &crate::fit::Fit, context_len: u32) -> Vec<String> {
         Some(device) => device.clone(),
         None => "none".into(),
     });
-    f.push("--no-mmap".into());
+    f.extend(["--load-mode".into(), "none".into(), "--no-host".into()]);
     f
 }
 
@@ -796,7 +799,9 @@ mod tests {
                 "16",
                 "--device",
                 "Vulkan0",
-                "--no-mmap"
+                "--load-mode",
+                "none",
+                "--no-host"
             ]
         );
         // Nothing on the card: the engine is told to use no device at all.
@@ -807,7 +812,17 @@ mod tests {
         };
         assert_eq!(
             fitted_flags(&on_the_processor, 8192),
-            ["-c", "8192", "-ngl", "0", "--device", "none", "--no-mmap"]
+            [
+                "-c",
+                "8192",
+                "-ngl",
+                "0",
+                "--device",
+                "none",
+                "--load-mode",
+                "none",
+                "--no-host"
+            ]
         );
     }
 
