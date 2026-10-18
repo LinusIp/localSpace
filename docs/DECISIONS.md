@@ -25,6 +25,7 @@ moved with them.
   - Any other picture is written down as not asked, with why, and the run goes on.
   - What WebP needs in the app is a question for the plan for pictures and files.
 - **A model without a vision file is refused** before anything is asked.
+- **The results file is written after every answer, Continue and picture,** not only at the end. A run stopped from outside, such as a heat or memory stop by the laptop's watch, keeps what it had. Until the last write, the file says the run was still going (the owner, 2026-10-18, after a stopped picture run lost five answers).
 - **Tested** in CI's kit job against the test engine (`scripts/measure-fake.sh`): a PNG with two questions beside it (one in Russian), a PNG with none, and a WebP. The results must show all three, the WebP as not asked, and no script.
 
 ## 2026-10-18, maths in chat answers, rendered by KaTeX

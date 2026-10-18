@@ -760,6 +760,7 @@ fn run_pass(kit: &mut Kit, progress: &mut Progress, items: &[Item], plan: &PassP
             if let Some(pass) = progress.passes.last_mut() {
                 pass.items.push((item.name, turns));
             }
+            keep(progress);
         }
     }
     if plan.with_continue {
@@ -768,6 +769,7 @@ fn run_pass(kit: &mut Kit, progress: &mut Progress, items: &[Item], plan: &PassP
         if let Some(pass) = progress.passes.last_mut() {
             pass.carried = Some(carried);
         }
+        keep(progress);
     }
     Ok(())
 }
@@ -783,9 +785,9 @@ struct OwnPicture {
 /// The default question about a picture with no questions beside it.
 const OWN_PICTURE_QUESTION: &str = "What is in this picture?";
 
-/// Asks about each picture in `dir`, as `--pictures` says, into `out` as
-/// the answers come.
-fn own_pictures(kit: &mut Kit, dir: &Path, out: &mut Vec<OwnPicture>) -> Result<()> {
+/// Asks about each picture in `dir`, as `--pictures` says, into
+/// `progress` as the answers come.
+fn own_pictures(kit: &mut Kit, dir: &Path, progress: &mut Progress) -> Result<()> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .with_context(|| format!("reading {}", dir.display()))?
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -851,11 +853,12 @@ fn own_pictures(kit: &mut Kit, dir: &Path, out: &mut Vec<OwnPicture>) -> Result<
                     Ok(answered)
                 }
             };
-            out.push(OwnPicture {
+            progress.own_pictures.push(OwnPicture {
                 file: file.clone(),
                 question,
                 answered,
             });
+            keep(progress);
         }
     }
     Ok(())
@@ -933,6 +936,21 @@ struct Progress {
     read_time: Option<Result<ReadTime, String>>,
     /// Why the run ended before its last step, if it did.
     ended: Option<String>,
+    /// Where the results file is written after each answer, so that a run
+    /// stopped from outside (a heat or memory stop) keeps what it had
+    /// (docs/DECISIONS.md, 2026-10-18); none in a test.
+    saved_to: Option<PathBuf>,
+    /// The run is still going: the file says so until its last write.
+    going: bool,
+}
+
+/// Writes the results so far; a failed write is said and the run goes on.
+fn keep(progress: &Progress) {
+    if let Some(path) = &progress.saved_to
+        && let Err(e) = std::fs::write(path, report(progress))
+    {
+        err!("could not write {}: {e}", path.display());
+    }
 }
 
 pub fn run(args: MeasureArgs) -> Result<()> {
@@ -1028,6 +1046,7 @@ pub fn run(args: MeasureArgs) -> Result<()> {
         bail!("{engine_words}");
     }
 
+    let day_for_path = day.clone();
     let mut progress = Progress {
         id: id.clone(),
         day,
@@ -1043,6 +1062,8 @@ pub fn run(args: MeasureArgs) -> Result<()> {
         own_pictures: Vec::new(),
         read_time: None,
         ended: None,
+        saved_to: Some(out_path(args.out.as_deref(), &id, &day_for_path)),
+        going: true,
     };
     let outcome = steps(
         &mut kit,
@@ -1057,6 +1078,7 @@ pub fn run(args: MeasureArgs) -> Result<()> {
         err!("the run ended early: {e:#}");
     }
     let _ = kit.unload();
+    progress.going = false;
 
     err!("writing the results file");
     let text = report(&progress);
@@ -1116,7 +1138,7 @@ fn steps(
         if !vision {
             bail!("{id} has no vision file: it cannot be asked about pictures");
         }
-        return own_pictures(kit, dir, &mut progress.own_pictures);
+        return own_pictures(kit, dir, progress);
     }
 
     // The messages: the whole script, or the ones named for a counting run.
@@ -1191,9 +1213,11 @@ fn steps(
         kit.within_limit("the picture")?;
         let on_the_processor = picture_pass(kit, id, VisionPlace::Processor, false)?;
         progress.pictures.push(on_the_processor);
+        keep(progress);
         kit.within_limit("the picture on the card")?;
         let on_the_card = picture_pass(kit, id, VisionPlace::Card, true)?;
         progress.pictures.push(on_the_card);
+        keep(progress);
     }
     Ok(())
 }
@@ -1626,6 +1650,12 @@ fn report(run: &Progress) -> String {
         lines.push(format!(
             "**The run ended early: {why}.** What came before it is below."
         ));
+    } else if run.going {
+        lines.push(String::new());
+        lines.push(
+            "**The run was still going when this was written.** If nothing follows, it was stopped from outside; what came before is below."
+                .into(),
+        );
     }
     lines.push(String::new());
     lines.push(format!("- Computer: {}", run.machine));
@@ -1958,6 +1988,8 @@ mod tests {
             pictures: Vec::new(),
             own_pictures: Vec::new(),
             read_time: None,
+            saved_to: None,
+            going: false,
             ended: Some("the 8-minute limit for the whole run ran out during an answer".into()),
         };
         let text = report(&progress);
@@ -1968,6 +2000,13 @@ mod tests {
         assert!(text.contains("The model was not reached."));
         assert!(text.contains("Not reached."));
         assert_eq!(answered_count(&progress.passes), (1, 1));
+        // Written mid-run, the file says the run was still going.
+        let mid_run = Progress {
+            ended: None,
+            going: true,
+            ..progress
+        };
+        assert!(report(&mid_run).contains("**The run was still going when this was written.**"));
     }
     /// A counting run names its messages by the start of their names, in
     /// the script's order, and refuses a name that begins none.
