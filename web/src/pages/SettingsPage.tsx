@@ -291,6 +291,7 @@ function GetAModel({ entries, onDownload, onStop, onDelete }: { entries: ModelCa
 
 /** One group of the list: its heading, then a row per model with its maker. */
 function ModelGroup({ title, models, offline, onDownload, onStop, onDelete }: { title: string; models: ModelCatalogEntry[]; offline: boolean; onDownload: (id: string) => void; onStop: (id: string) => void; onDelete: (m: ModelCatalogEntry) => void }) {
+  const strings = useStrings();
   return (
     <div style={{ marginTop: 16 }}>
       <div className="sources-cap">{title}</div>
@@ -326,6 +327,8 @@ function ModelGroup({ title, models, offline, onDownload, onStop, onDelete }: { 
                   {queued && <div className="row-body" style={{ marginTop: 8 }}>Waiting for the download before it to finish: one at a time, so that each is as fast as your connection.</div>}
                   {failed && <div className="error">The download stopped. What came is kept: start it again and it continues from there.</div>}
                   {m.no_room && !downloading && !queued && !checking && <div className="error">{m.no_room}</div>}
+                  {/* It would load, but leaves no room to spare here (docs/DECISIONS.md, 2026-10-18). */}
+                  {m.memory_tight && <div className="row-body">{strings.memoryTight}</div>}
                 </div>
                 <div className="row-actions">
                   {downloading || queued ? (

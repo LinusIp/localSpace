@@ -28,6 +28,23 @@ moved with them.
   - `attachments.test.ts`: which files are pictures, the most per message, and every refusal in all three languages;
   - a browser walk in CI (`web/e2e/pictures.mjs`) attaches the kit's picture through the file chooser and sends it. It checks the engine got it as a picture with the words, the message shows it and it's served under its type with nosniff, and that deleting the chat leaves it neither served nor on the disk.
 
+## 2026-10-18, a model is offered first only where it leaves room to spare
+
+The owner's rule, from the runs on the founder's laptop (16 GB, 4 GB card, Silent mode, `--load-mode none --no-host`):
+- the 4B with its picture file used about 3.2 GB of system memory in a chat;
+- the 9B with its picture file about 5.1 GB.
+
+In Windows® mode with Chrome open, the 9B fell to 1.1 GB free while loading.
+
+- **The rule** (`fit::fits_with_room`): a model's memory, plus Windows' reserve, plus 3 GB for a browser and other programs, plus 3 GB still free, must fit within the computer's memory. A model's memory is the part the fit puts in system memory (its picture file included) plus 2.4 GB for what a chat adds; 2.4 GB is the largest measured, the 4B's. Windows' reserve is the larger of 4 GB and a quarter of the memory.
+- **`recommend` chooses among the models that leave room,** where any does. The 9B stays the 4 GB tier's decided default, and it is passed over wherever it doesn't leave room. Where no model leaves room (8 GB, or no card), the choice stands as it was.
+- **Each catalog entry says `memory_tight`** when the model would load but leaves no room to spare. The app then shows the approved note: "Needs most of this computer's memory: close other programs, such as your browser, before you use it." It's in English until the strings table (plan 38, B1) brings Russian and Uzbek.
+- **What it gives on the typical computers** (`what_typical_computers_are_told_and_offered`):
+  - **16 GB with a 4 GB card** (the founder's laptop, or a GTX 1650): **the 4B**. The 9B is listed with the note.
+  - 16 GB with a 6 GB or 8 GB card: the 9B, since most of it sits on the card. This row is to be checked on the RTX 5080.
+  - 24 GB and 32 GB: the 9B.
+  - 8 GB, and computers with no card: the 4B, as before, with the note where it is tight.
+
 ## 2026-10-18, pictures kept with the chat, and made ready for the model (plan 38, P1 and P2)
 
 The owner approved plan 38's picture work, its interfaces, and these values: 30 MB and 60 megapixels at most, 1,280 pixels on the longer side, only the shrunk copy kept, and at most 4 pictures in one message.
