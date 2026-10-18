@@ -186,6 +186,7 @@ mod tests {
                 proto::Request::SendMessage {
                     text: "hello".into(),
                     conversation: None,
+                    attachments: Vec::new(),
                 },
             )
             .await

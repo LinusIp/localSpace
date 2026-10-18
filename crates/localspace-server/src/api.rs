@@ -263,6 +263,82 @@ pub async fn document_content(
     }
 }
 
+#[derive(serde::Deserialize)]
+pub struct AttachmentQuery {
+    #[serde(default)]
+    pub name: String,
+}
+
+/// `POST /api/v1/attachments?name=`: the body is a file the person attaches
+/// to a message they are about to send, made ready and kept by Core
+/// (docs/DECISIONS.md, 2026-10-18). Answers as `POST /api/v1/request` would:
+/// `attached` with the attachment, or `attachment_refused` with why.
+pub async fn add_attachment(
+    State(server): State<Arc<Server>>,
+    Extension(caller): Extension<Caller>,
+    Query(q): Query<AttachmentQuery>,
+    body: axum::body::Bytes,
+) -> Response {
+    call(
+        &server,
+        &caller,
+        proto::Request::AddAttachment {
+            name: q.name,
+            bytes: body.to_vec(),
+        },
+    )
+    .await
+}
+
+/// `GET /api/v1/attachments/{id}`: one of the caller's own attachments, to
+/// show in the chat. Core made every one of them itself (a PNG or a JPEG it
+/// encoded), so it is shown in place, under its own type and never sniffed;
+/// anyone else's, or none, is the same 404.
+pub async fn attachment(
+    State(server): State<Arc<Server>>,
+    Extension(caller): Extension<Caller>,
+    Path(id): Path<String>,
+) -> Response {
+    let session = match server.core().await {
+        Ok(session) => session,
+        Err(e) => return failed(e),
+    };
+    match session
+        .call_as(&caller, proto::Request::GetAttachment { id })
+        .await
+    {
+        Ok(proto::Response::DocBlob { mime, bytes, .. })
+            if mime == "image/png" || mime == "image/jpeg" =>
+        {
+            let mut response = (StatusCode::OK, bytes).into_response();
+            let h = response.headers_mut();
+            h.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static(if mime == "image/png" {
+                    "image/png"
+                } else {
+                    "image/jpeg"
+                }),
+            );
+            h.insert(
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            );
+            h.insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, max-age=3600"),
+            );
+            response
+        }
+        Ok(_) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "no such attachment"})),
+        )
+            .into_response(),
+        Err(e) => failed(e),
+    }
+}
+
 /// `attachment; filename="…"` with an ASCII-safe name, and the exact name
 /// as `filename*` when it has characters outside ASCII (RFC 6266).
 fn content_disposition(name: &str) -> String {

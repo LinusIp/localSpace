@@ -18,6 +18,7 @@ use crate::{Core, MAX_AGENT_STEPS, Proposal, To, model, prompt};
 use localspace_proto as proto;
 use localspace_proto::{Json, TurnState};
 use serde_json::Value as J;
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -40,29 +41,15 @@ pub fn turn(core: &mut Core, text: &str) {
     core.run_inline = before;
 }
 
-/// A person's message in one of their chats: kept, and answered now, or when
-/// the answer before it is done.
-pub fn send(core: &mut Core, conversation: Option<String>, text: &str) -> proto::Response {
-    send_with(core, conversation, text, None)
-}
-
-/// A person's message with a picture (a PNG): the picture goes to the model
-/// with the message, and is kept for the chat while Core runs
-/// (docs/DECISIONS.md, 2026-10-08).
-pub fn send_picture(
+/// A person's message in one of their chats, with what they attached to it
+/// (ids from `AddAttachment`): kept, and answered now, or when the answer
+/// before it is done. The attachments move into the chat's keeping and go
+/// to the model with the message (docs/DECISIONS.md, 2026-10-18).
+pub fn send(
     core: &mut Core,
     conversation: Option<String>,
     text: &str,
-    png: Vec<u8>,
-) -> proto::Response {
-    send_with(core, conversation, text, Some(png))
-}
-
-fn send_with(
-    core: &mut Core,
-    conversation: Option<String>,
-    text: &str,
-    picture: Option<Vec<u8>>,
+    attachments: Vec<String>,
 ) -> proto::Response {
     let conversation = match chat_of_the_caller(core, conversation) {
         Ok(conversation) => conversation,
@@ -74,19 +61,18 @@ fn send_with(
         );
     }
     let (user, workspace) = (core.active.user.clone(), core.workspace.clone());
-    if let Some(png) = picture {
-        // Under the message's place among the person's messages of the chat.
-        let ordinal = messages(core, &user, &workspace, &conversation)
-            .iter()
-            .filter(|m| m.role == proto::Role::User)
-            .count();
-        core.pictures
-            .entry(conversation.clone())
-            .or_default()
-            .insert(ordinal, png);
-    }
+    let attached = if attachments.is_empty() {
+        Vec::new()
+    } else {
+        match core.attachments.take(&user, &conversation, &attachments) {
+            Ok(attached) => attached,
+            Err(refusal) => return proto::Response::AttachmentRefused { refusal },
+        }
+    };
     write(core, &user, &workspace, &conversation, |messages| {
-        messages.push(message(proto::Role::User, text));
+        let mut said = message(proto::Role::User, text);
+        said.attachments = attached;
+        messages.push(said);
     });
     queue(core, conversation, false);
     drain(core);
@@ -507,14 +493,36 @@ fn ask_the_model(core: &mut Core, id: u64) {
     let system = p.prefix();
     let after = p.after();
     let mut turns = p.turns;
-    // A picture the person sent with a message goes to the model with it
-    // (docs/DECISIONS.md, 2026-10-08).
-    if let Some(pictures) = core.pictures.get(&conversation) {
-        let persons = messages
+    // The pictures the person sent with their messages go to the model with
+    // them, read from the chat's keeping (docs/DECISIONS.md, 2026-10-08 and
+    // 2026-10-18).
+    let persons: Vec<&proto::ChatMessage> = messages
+        .iter()
+        .filter(|m| m.role == proto::Role::User)
+        .collect();
+    if persons.iter().any(|m| !m.attachments.is_empty()) {
+        let pictures: HashMap<usize, Vec<prompt::Picture>> = persons
             .iter()
-            .filter(|m| m.role == proto::Role::User)
-            .count();
-        turns = prompt::with_pictures(turns, pictures, persons);
+            .enumerate()
+            .filter(|(_, m)| !m.attachments.is_empty())
+            .map(|(ordinal, m)| {
+                let kept = m
+                    .attachments
+                    .iter()
+                    .filter(|a| a.kind == proto::AttachmentKind::Picture)
+                    .filter_map(|a| {
+                        core.attachments
+                            .bytes(&user, &conversation, a)
+                            .map(|bytes| prompt::Picture {
+                                mime: a.mime.clone(),
+                                bytes,
+                            })
+                    })
+                    .collect();
+                (ordinal, kept)
+            })
+            .collect();
+        turns = prompt::with_pictures(turns, &pictures, persons.len());
     }
     // A call the model wrote into its answer and had refused: it reads the
     // refusal on its one more try (see `attempted`).
@@ -1149,6 +1157,7 @@ fn record_call(core: &mut Core, id: u64, tool: &str, params: &J, outcome: proto:
             stopped: false,
             thinking: String::new(),
             cut_short: None,
+            attachments: Vec::new(),
         });
     });
 }
@@ -1229,6 +1238,7 @@ fn message(role: proto::Role, text: &str) -> proto::ChatMessage {
         stopped: false,
         thinking: String::new(),
         cut_short: None,
+        attachments: Vec::new(),
     }
 }
 
@@ -1737,6 +1747,7 @@ mod tests {
             core.handle(proto::Request::SendMessage {
                 text: "note two things".into(),
                 conversation: None,
+                attachments: Vec::new(),
             }),
             proto::Response::Transcript { .. }
         ));
@@ -1784,10 +1795,12 @@ mod tests {
         core.handle(proto::Request::SendMessage {
             text: "one".into(),
             conversation: None,
+            attachments: Vec::new(),
         });
         match core.handle(proto::Request::SendMessage {
             text: "again".into(),
             conversation: None,
+            attachments: Vec::new(),
         }) {
             proto::Response::Error { message } => {
                 assert!(message.contains("still being written"), "{message}");
@@ -1800,6 +1813,7 @@ mod tests {
         core.handle(proto::Request::SendMessage {
             text: "two".into(),
             conversation: None,
+            attachments: Vec::new(),
         });
         assert_eq!(
             states(&events),

@@ -40,6 +40,7 @@ fn a_message_lands_in_the_current_conversation_and_names_it() {
     core.handle(proto::Request::SendMessage {
         text: "What is on the board right now?".into(),
         conversation: None,
+        attachments: Vec::new(),
     });
     let (list, current_now) = conversations(&mut core);
     assert_eq!(current_now, current);
@@ -58,6 +59,7 @@ fn switching_conversations_switches_the_transcript_and_survives_a_restart() {
         core.handle(proto::Request::SendMessage {
             text: "first conversation".into(),
             conversation: None,
+            attachments: Vec::new(),
         });
         first = conversations(&mut core).1;
 
@@ -79,6 +81,7 @@ fn switching_conversations_switches_the_transcript_and_survives_a_restart() {
         core.handle(proto::Request::SendMessage {
             text: "second conversation".into(),
             conversation: None,
+            attachments: Vec::new(),
         });
         assert_eq!(transcript(&mut core)[0].content, "second conversation");
 
@@ -117,4 +120,80 @@ fn switching_conversations_switches_the_transcript_and_survives_a_restart() {
         proto::Response::Conversations { list, .. } => assert_eq!(list[0].title, "Renamed"),
         other => panic!("{other:?}"),
     }
+}
+
+/// A picture attached to a message is kept with its chat, survives a
+/// restart, can be fetched by its person, and is deleted with the chat
+/// (docs/DECISIONS.md, 2026-10-18).
+#[test]
+fn an_attached_picture_is_kept_with_its_chat_and_deleted_with_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let picture = include_bytes!("../../localspace-cli/assets/measure-picture.png").to_vec();
+    let (id, chat) = {
+        let mut core = core_in(dir.path());
+        let attachment = match core.handle(proto::Request::AddAttachment {
+            name: "circle.png".into(),
+            bytes: picture,
+        }) {
+            proto::Response::Attached { attachment } => attachment,
+            other => panic!("expected the picture taken, got {other:?}"),
+        };
+        assert_eq!(attachment.kind, proto::AttachmentKind::Picture);
+        assert_eq!(attachment.name, "circle.png");
+        core.handle(proto::Request::SendMessage {
+            text: "What is in this picture?".into(),
+            conversation: None,
+            attachments: vec![attachment.id.clone()],
+        });
+        let said = transcript(&mut core);
+        assert_eq!(said[0].attachments, vec![attachment.clone()]);
+        (attachment.id, conversations(&mut core).1)
+    };
+
+    // After a restart the message still carries it, and its bytes are there.
+    let mut core = core_in(dir.path());
+    assert_eq!(transcript(&mut core)[0].attachments[0].id, id);
+    match core.handle(proto::Request::GetAttachment { id: id.clone() }) {
+        proto::Response::DocBlob { mime, bytes, .. } => {
+            assert_eq!(mime, "image/png");
+            assert!(bytes.starts_with(b"\x89PNG"));
+        }
+        other => panic!("expected the picture, got {other:?}"),
+    }
+
+    // Deleting the chat deletes the picture.
+    core.handle(proto::Request::DeleteConversation { id: chat });
+    assert!(matches!(
+        core.handle(proto::Request::GetAttachment { id }),
+        proto::Response::AttachmentRefused {
+            refusal: proto::AttachmentRefusal::NotFound
+        }
+    ));
+}
+
+/// A file that is not a picture is refused, in parts the client can say in
+/// the person's language; an id that was never added cannot be sent.
+#[test]
+fn a_file_that_is_not_a_picture_and_an_unknown_id_are_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut core = core_in(dir.path());
+    assert!(matches!(
+        core.handle(proto::Request::AddAttachment {
+            name: "notes.txt".into(),
+            bytes: b"just some words".to_vec(),
+        }),
+        proto::Response::AttachmentRefused {
+            refusal: proto::AttachmentRefusal::NotAPicture
+        }
+    ));
+    assert!(matches!(
+        core.handle(proto::Request::SendMessage {
+            text: "and this?".into(),
+            conversation: None,
+            attachments: vec!["0123456789abcdef0123456789abcdef".into()],
+        }),
+        proto::Response::AttachmentRefused {
+            refusal: proto::AttachmentRefusal::NotFound
+        }
+    ));
 }
