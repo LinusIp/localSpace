@@ -6,8 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ClipIcon, CloseIcon, Dialog, SpinnerIcon, StopIcon } from "@localspace/ui";
 import type { Attachment, ChatMessage, ToolCallRecord } from "../api/generated";
 import { addAttachment, attachmentUrl } from "../api/client";
-import { MOST_PICTURES, PICTURE_TYPES, isPicture, pictureModel, refusalText } from "../lib/attachments";
-import { useStrings } from "../useStrings";
+import { MOST_PICTURES, PICTURE_TYPES, isPicture, leftOutText, pictureModel, refusalText } from "../lib/attachments";
+import { useLanguage, useStrings } from "../useStrings";
 import { initialsOf, outcomeLine, useSession } from "../store";
 import type { LiveToolCall } from "../store";
 import { Markdown } from "../components/Markdown";
@@ -397,6 +397,7 @@ interface Pending {
 function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (text: string) => void; placeholder: string }) {
   const { send, cancel, environment, catalogModels, goSettings, loadModel, downloadModel } = useSession();
   const strings = useStrings();
+  const language = useLanguage();
   const [pending, setPending] = useState<Pending[]>([]);
   const [said, setSaid] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -407,6 +408,8 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
   const loaded = environment?.model ?? null;
   const blind = pending.length > 0 && loaded !== null && !loaded.supports_vision;
   const instead = blind ? pictureModel(catalogModels, loaded.id) : null;
+  // Its picture file left out at this load, for want of free memory (plan 38, P5).
+  const leftOut = environment?.picture_file_left_out_mib ?? null;
 
   // Each picture goes to Core as soon as it is added: made ready and kept
   // there until the message goes. A refusal is said once, plainly.
@@ -477,7 +480,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
         // Not taken: the words and the pictures back where they were.
         onDraft(trimmed);
         setPending(sent);
-        setSaid(refusalText(strings, refusal, modelLabel(model?.id, catalogModels)));
+        setSaid(refusalText(strings, refusal, modelLabel(model?.id, catalogModels), instead?.title ?? null, language));
       } else {
         for (const p of sent) URL.revokeObjectURL(p.preview);
       }
@@ -520,7 +523,12 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
       )}
       {blind && (
         <div className="composer-said" role="status">
-          {strings.cannotReadPictures(modelLabel(loaded.id, catalogModels))}{" "}
+          {leftOut !== null ? leftOutText(strings, leftOut, language, instead?.title ?? null) : strings.cannotReadPictures(modelLabel(loaded.id, catalogModels))}{" "}
+          {leftOut !== null && (
+            <button type="button" className="link green" onClick={() => void loadModel(loaded.id)}>
+              {strings.tryAgain}
+            </button>
+          )}{" "}
           {instead && (
             <button type="button" className="link green" onClick={() => void (instead.installed ? loadModel(instead.id) : downloadModel(instead.id))}>
               {instead.installed ? strings.switchForPictures(instead.title) : strings.downloadForPictures(instead.title)}
