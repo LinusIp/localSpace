@@ -13,6 +13,8 @@ import { TopBar } from "../components/TopBar";
 import { modelLabel, modelReason, sizeInWords, willNotFit } from "../lib/models";
 import { clock } from "../lib/time";
 import type { Json, ToolOutcome } from "../api/generated";
+import { useStrings } from "../useStrings";
+import { LANGUAGE_NAMES, type Language, type LanguageChoice } from "../lib/strings";
 
 const PANES: Array<{ id: SettingsPane; label: string }> = [
   { id: "general", label: "General" },
@@ -88,7 +90,8 @@ function roleLabel(roles: string[] | undefined): string {
 }
 
 function GeneralPane() {
-  const { me, environment, workspaces, signOut } = useSession();
+  const { me, environment, workspaces, signOut, language, setLanguage } = useSession();
+  const strings = useStrings();
   const organisation = me?.topology === "organisation";
   const workspace = workspaces.find((w) => w.id === environment?.workspace_id);
   return (
@@ -122,6 +125,20 @@ function GeneralPane() {
                 : "Everything here stays on this computer."}
             </div>
           </div>
+        </div>
+        {/* The language of the app's new messages; Windows' own until one is chosen (docs/DECISIONS.md, 2026-10-18). */}
+        <div className="row-item">
+          <div className="row-main">
+            <div className="row-title">{strings.languageTitle}</div>
+          </div>
+          <select className="select" value={language} onChange={(e) => void setLanguage(e.target.value as LanguageChoice)} aria-label={strings.languageTitle}>
+            <option value="system">{strings.languageSystem}</option>
+            {(Object.keys(LANGUAGE_NAMES) as Language[]).map((l) => (
+              <option key={l} value={l}>
+                {LANGUAGE_NAMES[l]}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
     </>
