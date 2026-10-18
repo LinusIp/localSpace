@@ -37,7 +37,7 @@ type Delivery = Arc<dyn Fn(proto::Event) + Send + Sync>;
 /// returns, whatever runs Core: evals read the document right after it.
 pub fn turn(core: &mut Core, text: &str) {
     let before = std::mem::replace(&mut core.run_inline, true);
-    let _ = send(core, None, text);
+    let _ = send(core, None, text, Vec::new());
     core.run_inline = before;
 }
 
