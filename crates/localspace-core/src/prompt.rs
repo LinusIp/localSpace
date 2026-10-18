@@ -70,14 +70,26 @@ You cannot create images.";
 /// conversation it reads, so that "go on from there" can be answered.
 pub const STOPPED_HERE: &str = "[the answer stopped here]";
 
+/// A picture as the engine is sent it: the kept copy, and what it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Picture {
+    /// `image/png` or `image/jpeg`.
+    pub mime: String,
+    pub bytes: Vec<u8>,
+}
+
 /// One message of the conversation, as the engine is sent it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Turn {
     /// What the person wrote.
     Person(String),
-    /// What the person wrote, with a picture they sent with it (a PNG), for
-    /// a model that reads images (docs/DECISIONS.md, 2026-10-08).
-    Picture { text: String, png: Vec<u8> },
+    /// What the person wrote, with the pictures they sent with it, for a
+    /// model that reads images (docs/DECISIONS.md, 2026-10-08 and
+    /// 2026-10-18).
+    Picture {
+        text: String,
+        pictures: Vec<Picture>,
+    },
     /// What the model answered. One that ended before the model finished it
     /// ends with [`STOPPED_HERE`].
     Answer(String),
@@ -97,8 +109,12 @@ impl Turn {
     pub fn render(&self) -> String {
         match self {
             Turn::Person(text) => format!("user: {text}"),
-            Turn::Picture { text, png } => {
-                format!("user: {text}\n[a picture, {} bytes]", png.len())
+            Turn::Picture { text, pictures } => {
+                let bytes: usize = pictures.iter().map(|p| p.bytes.len()).sum();
+                match pictures.len() {
+                    1 => format!("user: {text}\n[a picture, {bytes} bytes]"),
+                    n => format!("user: {text}\n[{n} pictures, {bytes} bytes]"),
+                }
             }
             Turn::Answer(text) => format!("assistant: {text}"),
             Turn::Call {
@@ -274,7 +290,7 @@ pub fn turns(messages: &[proto::ChatMessage], working_set: usize) -> Vec<Turn> {
 /// turn among them is message `persons - kept`.
 pub fn with_pictures(
     turns: Vec<Turn>,
-    pictures: &HashMap<usize, Vec<u8>>,
+    pictures: &HashMap<usize, Vec<Picture>>,
     persons: usize,
 ) -> Vec<Turn> {
     let kept = turns
@@ -286,11 +302,11 @@ pub fn with_pictures(
         .into_iter()
         .map(|turn| match turn {
             Turn::Person(text) => {
-                let picture = pictures.get(&ordinal).cloned();
+                let sent = pictures.get(&ordinal).cloned();
                 ordinal += 1;
-                match picture {
-                    Some(png) => Turn::Picture { text, png },
-                    None => Turn::Person(text),
+                match sent {
+                    Some(pictures) if !pictures.is_empty() => Turn::Picture { text, pictures },
+                    _ => Turn::Person(text),
                 }
             }
             other => other,
@@ -394,6 +410,7 @@ mod tests {
             stopped: false,
             thinking: String::new(),
             cut_short: None,
+            attachments: Vec::new(),
         }
     }
 
@@ -679,7 +696,10 @@ mod tests {
     /// the newest turns alone.
     #[test]
     fn a_picture_sits_with_its_message_however_many_turns_are_kept() {
-        let png = vec![1u8, 2, 3];
+        let png = vec![Picture {
+            mime: "image/png".into(),
+            bytes: vec![1u8, 2, 3],
+        }];
         let pictures = HashMap::from([(1usize, png.clone())]);
         let whole = vec![
             Turn::Person("one".into()),
@@ -693,7 +713,7 @@ mod tests {
             placed[2],
             Turn::Picture {
                 text: "two".into(),
-                png: png.clone()
+                pictures: png.clone()
             }
         );
         assert_eq!(placed[0], Turn::Person("one".into()));
@@ -704,17 +724,32 @@ mod tests {
             cut[0],
             Turn::Picture {
                 text: "two".into(),
-                png
+                pictures: png
             }
         );
         assert_eq!(cut[2], Turn::Person("three".into()));
         assert!(
             Turn::Picture {
                 text: "look".into(),
-                png: vec![0; 4]
+                pictures: vec![Picture {
+                    mime: "image/png".into(),
+                    bytes: vec![0; 4]
+                }]
             }
             .render()
             .contains("[a picture, 4 bytes]")
+        );
+        let two = Picture {
+            mime: "image/jpeg".into(),
+            bytes: vec![0; 3],
+        };
+        assert!(
+            Turn::Picture {
+                text: "these".into(),
+                pictures: vec![two.clone(), two]
+            }
+            .render()
+            .contains("[2 pictures, 6 bytes]")
         );
     }
 

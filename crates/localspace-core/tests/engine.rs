@@ -152,6 +152,7 @@ fn loading_a_model_starts_the_sidecar_and_a_chat_turn_goes_through_it() {
     match core.handle(proto::Request::SendMessage {
         text: "hello".into(),
         conversation: None,
+        attachments: Vec::new(),
     }) {
         proto::Response::Transcript { messages } => {
             let reply = messages
@@ -323,6 +324,10 @@ fn on_an_ordinary_computer_the_engine_gets_a_number_of_layers_and_one_named_devi
     let log = std::fs::read_to_string(dir.path().join("engines").join("tiny.log")).unwrap();
     assert!(log.contains(r#""-ngl", "3""#), "{log}");
     assert!(log.contains(r#""--device", "Vulkan0""#), "{log}");
+    // The file is read, not mapped, and nothing kept in pinned memory
+    // (docs/DECISIONS.md, 2026-10-18).
+    assert!(log.contains(r#""--load-mode", "none""#), "{log}");
+    assert!(log.contains(r#""--no-host""#), "{log}");
     assert!(!log.contains("\"999\""), "{log}");
     // A model has been chosen now: no first run any more, and the next start
     // of the window begins with this one.
@@ -901,6 +906,7 @@ fn a_real_card_smaller_than_the_model_ends_with_a_plan_that_holds() {
     match core.handle(proto::Request::SendMessage {
         text: "Say hello in five words.".into(),
         conversation: None,
+        attachments: Vec::new(),
     }) {
         proto::Response::Transcript { messages } => {
             let reply = messages
@@ -1061,6 +1067,7 @@ fn a_model_with_a_vision_file_starts_with_it_and_its_steps_are_measured() {
     core.handle(proto::Request::SendMessage {
         text: "hello".into(),
         conversation: None,
+        attachments: Vec::new(),
     });
     let measure = core
         .answer_measure(&conversation)
@@ -1086,6 +1093,7 @@ fn a_model_with_a_vision_file_starts_with_it_and_its_steps_are_measured() {
     core.handle(proto::Request::SendMessage {
         text: "and again".into(),
         conversation: None,
+        attachments: Vec::new(),
     });
     // Two chat turns at least (the warm-up and the read-time requests are
     // asked of the engine too), none carrying earlier thinking.
@@ -1101,7 +1109,13 @@ fn a_model_with_a_vision_file_starts_with_it_and_its_steps_are_measured() {
     );
 
     // A picture with a message goes to the engine as parts of one message.
-    core.send_picture("what is this?", vec![0x89, b'P', b'N', b'G'], None);
+    // A real picture, since an attached one is read and made ready first:
+    // the kit's own, a blue circle on a red square.
+    core.send_picture(
+        "what is this?",
+        include_bytes!("../../localspace-cli/assets/measure-picture.png").to_vec(),
+        None,
+    );
     assert!(log().contains("text, image_url"), "{}", log());
 
     // Asked for the card, the next load leaves the offload flag out.

@@ -29,6 +29,128 @@ moved with them.
 - **The results file is written after every answer, Continue and picture,** not only at the end. A run stopped from outside, such as a heat or memory stop by the laptop's watch, keeps what it had. Until the last write, the file says the run was still going (the owner, 2026-10-18, after a stopped picture run lost five answers).
 - **Tested** in CI's kit job against the test engine (`scripts/measure-fake.sh`): a PNG with two questions beside it (one in Russian), a PNG with none, and a WebP. The results must show all three, the WebP as not asked, and no script.
 
+## 2026-10-18, attaching pictures in the composer (plan 38, P3)
+
+- **Three ways in:**
+  - the paperclip button opens the file chooser (PNG, JPEG, WebP, several at once);
+  - dragging pictures onto the composer, which says "Drop the picture here";
+  - pasting a screenshot (Ctrl+V) into the message box.
+
+  Anything else is refused with the strings table's words, and more than 4 pictures with "Up to 4 pictures can go with one message".
+- **Each picture goes to Core as soon as it is added** (`POST /api/v1/attachments`). The composer shows it as a small square from the file on the person's own computer, faded until Core has taken it, with a button to remove it. Send waits until every picture is taken. A refusal from Core is said in the person's language (`lib/attachments.ts`, `refusalText`).
+- **When the message goes,** its pictures go with it as ids. If Core refuses them, the words and pictures come back to the composer with the reason.
+- **In the sent message** the pictures show above the words, from their own address (`GET /api/v1/attachments/{id}`). A click opens one larger in the app's own dialog, never in another program.
+- **Tested:**
+  - `attachments.test.ts`: which files are pictures, the most per message, and every refusal in all three languages;
+  - a browser walk in CI (`web/e2e/pictures.mjs`) attaches the kit's picture through the file chooser and sends it. It checks the engine got it as a picture with the words, the message shows it and it's served under its type with nosniff, and that deleting the chat leaves it neither served nor on the disk.
+
+## 2026-10-18, a model is offered first only where it leaves room to spare
+
+The owner's rule, from the runs on the founder's laptop (16 GB, 4 GB card, Silent mode, `--load-mode none --no-host`):
+- the 4B with its picture file used about 3.2 GB of system memory in a chat;
+- the 9B with its picture file about 5.1 GB.
+
+In Windows® mode with Chrome open, the 9B fell to 1.1 GB free while loading.
+
+- **The rule** (`fit::fits_with_room`): a model's memory, plus Windows' reserve, plus 3 GB for a browser and other programs, plus 3 GB still free, must fit within the computer's memory. A model's memory is the part the fit puts in system memory (its picture file included) plus 2.4 GB for what a chat adds; 2.4 GB is the largest measured, the 4B's. Windows' reserve is the larger of 4 GB and a quarter of the memory.
+- **`recommend` chooses among the models that leave room,** where any does. The 9B stays the 4 GB tier's decided default, and it is passed over wherever it doesn't leave room. Where no model leaves room (8 GB, or no card), the choice stands as it was.
+- **Each catalog entry says `memory_tight`** when the model would load but leaves no room to spare. The app then shows the approved note: "Needs most of this computer's memory: close other programs, such as your browser, before you use it." It's in English until the strings table (plan 38, B1) brings Russian and Uzbek.
+- **What it gives on the typical computers** (`what_typical_computers_are_told_and_offered`):
+  - **16 GB with a 4 GB card** (the founder's laptop, or a GTX 1650): **the 4B**. The 9B is listed with the note.
+  - 16 GB with a 6 GB or 8 GB card: the 9B, since most of it sits on the card. This row is to be checked on the RTX 5080.
+  - 24 GB and 32 GB: the 9B.
+  - 8 GB, and computers with no card: the 4B, as before, with the note where it is tight.
+
+## 2026-10-18, pictures kept with the chat, and made ready for the model (plan 38, P1 and P2)
+
+The owner approved plan 38's picture work, its interfaces, and these values: 30 MB and 60 megapixels at most, 1,280 pixels on the longer side, only the shrunk copy kept, and at most 4 pictures in one message.
+
+- **Making a picture ready** (`crates/localspace-core/src/picture.rs`, using `image` 0.25 with only its PNG, JPEG and WebP readers; approved 2026-10-18):
+  - A file over 30 MB is refused before it is read. A picture over 60 megapixels is refused from its header, before it is decoded.
+  - A phone photo is turned the way its camera says.
+  - The longer side comes down to 1,280 pixels.
+  - A JPEG stays a JPEG (quality 85). Anything else becomes a PNG; that includes WebP, which the engine can't read.
+- **Keeping it with the chat** (`crates/localspace-core/src/attachments.rs`):
+  - Only the copy made ready is kept, named by its hash: under `attachments/<person>/pending/` until it is sent, then under `attachments/<person>/<chat>/`.
+  - **It is deleted with the chat.** What was added but never sent is cleared when Core next starts.
+  - A person reaches only their own folder. An id is only ever 32 lower-case hex digits, so a request can't reach outside it.
+  - The pictures Core held in memory, lost on restart and never deleted, are gone.
+- **The API:**
+  - `ChatMessage.attachments` records what was attached and is saved with the chat.
+  - `SendMessage` takes the attachments' ids.
+  - `AddAttachment` (the bytes) answers `Attached` or `AttachmentRefused`. `GetAttachment` (an id) answers the bytes.
+  - A refusal comes in parts (`AttachmentRefusal`: too large, too many pixels, not a picture, unreadable, too many, not found), so the client can say it in the person's language.
+- **The routes:**
+  - `POST /api/v1/attachments?name=` carries the raw body, up to 31 MB.
+  - `GET /api/v1/attachments/{id}` returns the picture in place, under the PNG or JPEG type Core gave it, never sniffed. Someone else's attachment, or none, gets the same 404.
+- **The prompt** reads the chat's pictures from storage, and sends each one under its own type (`data:image/jpeg` for a photo). It no longer labels everything `image/png`.
+- **Tested:**
+  - unit tests for every format, the limits, the turning and the shrinking;
+  - unit tests for keeping, sending, deleting, another person's id, an id that isn't one of Core's, clearing at start, and five pictures refused;
+  - prompt and engine-request tests with one picture and with two;
+  - Core tests: a picture survives a restart, is fetched by its person, and is deleted with the chat; a text file and an unknown id are refused.
+- **Built and tested by CI.** The laptop builds in Silent mode only. In Windows® mode a 2-job build reached the 90 °C stop in about 40 seconds.
+
+## 2026-10-18, messages in Uzbek, Russian and English (plan 38, B1)
+
+The owner's ruling: a language setting and a strings table for the new messages, with the rest of the app later. The language follows Windows' display language by default.
+
+- **`web/src/lib/strings.ts`** holds every new message in English, Russian and Uzbek (Latin, with ʻ in oʻ and gʻ). It's written by us, with no library, and the founder checks the Russian and Uzbek. The first strings:
+  - the approved memory note;
+  - the six reasons a picture isn't taken (too large and too many pixels both suggest a normal-size photo or a screenshot);
+  - "can't read pictures", with "Switch to …" and "Download …" for pictures;
+  - "pictures need about … GB more memory";
+  - the attach controls.
+- **The language shown:** the person's choice in Settings → General → Language (Same as Windows / English / Русский / Oʻzbekcha), kept as the `language` preference. Without a choice, it's Windows' display language as the webview reports it (`navigator.languages`): Uzbek or Russian when it's one of those, English otherwise. `useStrings()` gives the messages in that language.
+- **The rest of the app stays English in 0.2.0,** and moves into the table later.
+- **Tested** (`strings.test.ts`, in `npm test`):
+  - Windows' language is followed, and a choice wins over it;
+  - every message exists, non-empty, in all three languages;
+  - the numbers and the model's name reach the words;
+  - the memory note reads exactly as approved in all three.
+
+## 2026-10-18, the engine reads the model file instead of mapping it (`--no-mmap`)
+
+- **Core starts the engine with `--no-mmap`** on every computer below the reference tiers (`engine::fitted_flags`). The owner approved it for 0.2.0, before rc.2.
+  - Mapped, the whole model file stays in system memory even when most of it is on the card.
+  - Measured on the founder's 16 GB laptop with a 4 GB card, Chrome open, the engine alone with Core's settings:
+    - the 4B with its picture file used 3.6 GB mapped and **1.6 GB read** (21.6 against 23.0 tok/s on one short answer, 8.6 against 7.6 s to load);
+    - the 9B with its picture file used **4.0 GB read**, with 4.24 GB left free and 9.7 tok/s. Mapped, it couldn't load at all: free memory fell to 1.36 GB.
+- **Through Core, `--no-mmap` alone misled the check after loading.** Read, the engine keeps what stays on the processor in pinned memory the card can reach, such as the word table. Windows counts that as shared graphics memory, and `look_after_load` took it for a spill: it stepped the 4B down from 31 layers on the card to 0, and the model ran on the processor, with the processor reading at 89.9 °C. **The flags are therefore `--load-mode none --no-host`.** `--load-mode none` is the pinned engine's current name for not mapping (`--no-mmap` is deprecated there), and `--no-host` turns that pinned buffer off. The engine alone with these: the 4B uses 1.6 GB at 23.6 tok/s, the 9B with its picture file 4.2 GB at 8.7 tok/s.
+- **The planner's flags for the reference tiers keep the mapping.** Streaming experts from the disk depends on it.
+- **The owner's rulings on the default, from the same measurements:**
+  - On 16 GB with a 4 GB card, **the 9B stays the default.** It meets the rule with room to spare, and it gave the fewest wrong answers.
+  - "Switch to Qwen3.5 4B for pictures" is offered when a picture is attached and the 9B is slow with it. The threshold for "slow" will be proposed from the 9B's picture times once Core uses `--no-mmap`.
+  - On 8 GB, where no model meets the rule, the 4B is offered with the "close other programs" note.
+  - The note shows only where the rule says memory is tight.
+  - The rule itself, and the note in three languages, come in their own PR.
+- **Re-measured under the laptop rules** with Chrome open: a chat of ten or more messages on the 4B and on the 9B, the speed, and whether the laptop stays responsive (memory still free, nothing paged to disk).
+
+## 2026-10-18, Gemma 4 E2B and E4B shown; the small Qwen3.5 stay hidden; the Uzbek Moon question reworded
+
+The owner's rulings of 2026-10-17 on the six small hidden entries (the 0.2 plan, item 2), after their runs on the founder's 4 GB laptop (package `96efd0e8`, engine b10869 on Vulkan, Silent mode, NVIDIA driver 617.42; the results in the internal repository under `docs/measure/2026-10-17/`).
+
+- **Gemma 4 E2B and Gemma 4 E4B are shown** (`hidden` removed from their entries in `models/catalog.json`).
+  - They went through the whole script with no loops, no crashes and no answer in the wrong language.
+  - Every sum, and the picture, is right.
+  - E4B answered the Uzbek (Cyrillic) question in Latin script.
+  - Both misread the Uzbek Moon question (below).
+  - Speeds while writing: E2B 45 tok/s, E4B 20 tok/s.
+- **They have no exercise record, so they are never offered first.** `recommend` only offers a model that has been measured: one measured on the tier itself, or, where none has been, the best measured one. A shown entry without a record is listed with the verdict its fit gives it, and is chosen only by the person.
+- **Qwen3.5 0.8B and 2B stay hidden for 0.2.**
+  - The 0.8B loops in Uzbek (four answers, two with no answer at all), and loops until it is cut off when thinking.
+  - The 2B repeats a block in one Uzbek answer, gives the train's arrival as 11:15 instead of 12:15 with thinking off, and puts the Moon at 75,000 km.
+- **Ministral 3 8B is not yet decided.** Its run was stopped at the 3 GB memory rule while it loaded. It runs again with the founder's other programs closed. Gemma 4 12B waits for a 16 GB machine.
+- **The Uzbek Moon question is reworded** in the kit's script (`crates/localspace-cli/src/measure.rs`):
+  - It read "Oy Yerdan qancha uzoqlikda joylashgan?". "Oy" alone is both the Moon and a month, and both Gemma models took it as a question about a place they couldn't identify.
+  - It now reads "Yer bilan Oy orasidagi masofa qancha?" ("What is the distance between the Earth and the Moon?"). The Earth beside "Oy" says which one is meant.
+  - Its expected fact is unchanged (about 384,400 km).
+  - Results recorded before this date used the old wording.
+  - **Rerun of that question alone, on both models,** with thinking off (a development build of the kit, the same engine, Silent mode):
+    - **E4B now answers right:** "o'rtacha masofa taxminan 384 400 kilometr".
+    - **E2B still misreads it,** now as a question about itself ("Men siz bilan jismonan qandaydir masofada emasman"). For E2B the miss is the model's, not the wording's. It is shown all the same: one wrong fact, with no loop and no wrong language.
+- **Tested:** `an_entry_that_has_not_passed_its_checks_is_hidden_from_the_app_and_kept_for_measure` now also asserts that the two Gemma entries are in the app's list and the two small Qwen3.5 are not.
+
 ## 2026-10-18, maths in chat answers, rendered by KaTeX
 
 What the 2026-10-10 ruling ("Maths display (KaTeX) is in 0.2") is built as

@@ -11,6 +11,8 @@ import type {
   ApprovalKind,
   CapabilityHit,
   CatalogEntry,
+  Attachment,
+  AttachmentRefusal,
   ChatMessage,
   Commit,
   Computer,
@@ -35,6 +37,7 @@ import type {
   WorkspaceInfo,
 } from "./api/generated";
 import { bus } from "./surfaces/bus";
+import type { LanguageChoice } from "./lib/strings";
 
 /** An open view of a harness: the board page shows one at a time and keeps the rest mounted. */
 export type Panel = {
@@ -121,6 +124,8 @@ export type Session = {
   /** Writes from a frame that Core has not answered yet; zero means everything is saved. */
   pendingWrites: number;
   railCollapsed: boolean;
+  /** Settings → Language: Windows' own, or one the person chose (docs/DECISIONS.md, 2026-10-18). */
+  language: LanguageChoice;
   /** On the board the rail is icons unless opened for this visit. */
   boardRailOpen: boolean;
   users: UserInfo[];
@@ -148,6 +153,7 @@ export type Session = {
   reportZoom: (key: string, zoom: number) => void;
   setRail: (collapsed: boolean) => Promise<void>;
   loadPreferences: () => Promise<void>;
+  setLanguage: (choice: LanguageChoice) => Promise<void>;
   /** Tell Core which board this window shows, or that it left; the people on it hear. */
   announcePresence: (board: string | null) => Promise<void>;
 
@@ -156,7 +162,12 @@ export type Session = {
   /** What is typed in a chat, not sent yet. */
   setDraft: (chat: string, text: string) => void;
   /** A message in the chat on screen; its answer comes by events. */
-  send: (text: string) => Promise<void>;
+  /**
+   * Send a message in the chat on screen, with the pictures attached to it;
+   * a refusal of them comes back for the composer to say (docs/DECISIONS.md,
+   * 2026-10-18).
+   */
+  send: (text: string, attachments?: Attachment[]) => Promise<AttachmentRefusal | null>;
   /** Stop the answer in the chat on screen. */
   cancel: () => Promise<void>;
   /** Carry on the stopped answer in the chat on screen. */
@@ -303,6 +314,7 @@ export const useSession = createStore<Session>((set, get) => {
     adminPane: "people",
     live: false,
     railCollapsed: false,
+    language: "system",
     boardRailOpen: false,
     ...EMPTY,
 
@@ -388,8 +400,18 @@ export const useSession = createStore<Session>((set, get) => {
     loadPreferences: async () => {
       await attempt(async () => {
         const preferences = pick(await call("get_preferences"), "preferences");
-        if (preferences) set({ railCollapsed: preferences.values["rail_collapsed"] === "true" });
+        if (preferences) {
+          const chosen = preferences.values["language"];
+          set({
+            railCollapsed: preferences.values["rail_collapsed"] === "true",
+            language: chosen === "en" || chosen === "ru" || chosen === "uz" ? chosen : "system",
+          });
+        }
       });
+    },
+    setLanguage: async (choice) => {
+      set({ language: choice });
+      await attempt(() => call({ set_preference: { key: "language", value: choice } }));
     },
 
     onEvent: (event) => {
@@ -494,24 +516,33 @@ export const useSession = createStore<Session>((set, get) => {
       });
     },
     setDraft: (chat, text) => set((s) => ({ drafts: text ? { ...s.drafts, [chat]: text } : without(s.drafts, chat) })),
-    send: async (text) => {
+    send: async (text, attachments = []) => {
       const chat = get().currentConversation;
       // Being written until Core says where it stands, so that nothing is
       // sent twice meanwhile.
       set((s) => ({
         turns: { ...s.turns, [chat]: "writing" },
-        transcript: [...s.transcript, { role: "user", content: text, tool_calls: [], stopped: false, thinking: "", cut_short: null }],
+        transcript: [...s.transcript, { role: "user", content: text, tool_calls: [], stopped: false, thinking: "", cut_short: null, attachments }],
       }));
-      const transcript = await attempt(async () => pick(await call({ send_message: { text, conversation: chat } }), "transcript"));
+      const answer = await attempt(() => call({ send_message: { text, conversation: chat, attachments: attachments.map((a) => a.id) } }));
+      // The pictures were not taken: the chat as Core has it, and the message
+      // back with the composer, which says why.
+      if (answer && typeof answer !== "string" && "attachment_refused" in answer) {
+        set((s) => ({ turns: without(s.turns, chat) }));
+        void get().refreshTranscript();
+        return answer.attachment_refused.refusal;
+      }
+      const transcript = answer && typeof answer !== "string" && "transcript" in answer ? answer.transcript : undefined;
       if (!transcript) {
         // Refused, or not reached: the chat as Core has it, and the words back
         // in the box, unless something new was typed there meanwhile.
         set((s) => ({ turns: without(s.turns, chat), drafts: s.drafts[chat] ? s.drafts : { ...s.drafts, [chat]: text } }));
         void get().refreshTranscript();
-        return;
+        return null;
       }
       if (get().currentConversation === chat) set({ transcript: transcript.messages });
       void get().refreshConversations();
+      return null;
     },
     cancel: async () => {
       const chat = get().currentConversation;

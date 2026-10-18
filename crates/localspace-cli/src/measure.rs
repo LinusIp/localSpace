@@ -330,9 +330,11 @@ fn script() -> Vec<Item> {
             "Quyoshning massasi qancha?",
             "about 1.989 × 10^30 kg",
         ),
+        // "Oy" alone is both the Moon and a month: the Earth beside it says
+        // which (docs/DECISIONS.md, 2026-10-18).
         fact_item(
             "a fact in Uzbek: the Moon's distance",
-            "Oy Yerdan qancha uzoqlikda joylashgan?",
+            "Yer bilan Oy orasidagi masofa qancha?",
             "about 384,400 km on average",
         ),
         // Maths in the answer, written as formulas: the case maths display is
@@ -629,6 +631,7 @@ fn ask_in_words(kit: &mut Kit, conversation: &str, text: &str) -> Result<Answere
         kit.call(proto::Request::SendMessage {
             text: message,
             conversation: None,
+            attachments: Vec::new(),
         })
     })
 }
@@ -648,6 +651,7 @@ fn carry_on(kit: &mut Kit, stop_after: usize) -> Result<Carried> {
     kit.call(proto::Request::SendMessage {
         text: CONTINUE_TEXT.into(),
         conversation: None,
+        attachments: Vec::new(),
     })?;
     let asked = Instant::now();
     while asked.elapsed() < kit.answer {

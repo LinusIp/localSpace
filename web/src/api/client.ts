@@ -3,7 +3,7 @@
 // `generated/`, written by `cargo test -p localspace-proto`; nothing here is
 // typed by hand.
 
-import type { Artifact, DocumentInfo, Envelope, Event, Me, Request, Response } from "./generated";
+import type { Artifact, Attachment, AttachmentRefusal, DocumentInfo, Envelope, Event, Me, Request, Response } from "./generated";
 
 export type { Me };
 
@@ -68,6 +68,29 @@ export const setPassword = (body: { token: string; password: string; email?: str
  */
 export const openSurface = (harness: string, view: string) =>
   fetch("/api/v1/surfaces", json({ harness, view })).then((r) => parse<{ url: string; origin: string }>(r));
+
+/**
+ * A picture the person attaches, sent as it is: Core makes it ready (shrunk,
+ * a PNG or a JPEG) and keeps it until it goes with a message, or says why it
+ * did not take it (docs/DECISIONS.md, 2026-10-18).
+ */
+export async function addAttachment(file: Blob, name: string): Promise<{ attachment: Attachment } | { refusal: AttachmentRefusal }> {
+  const response = await fetch(`/api/v1/attachments?name=${encodeURIComponent(name)}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": file.type || "application/octet-stream" },
+    body: file,
+  }).then((r) => parse<Response>(r));
+  if (typeof response !== "string") {
+    if ("attached" in response) return { attachment: response.attached.attachment };
+    if ("attachment_refused" in response) return { refusal: response.attachment_refused.refusal };
+    if ("error" in response) throw new ApiError(400, response.error.message);
+  }
+  throw new ApiError(500, "an unexpected answer to an attachment");
+}
+
+/** Where one of the person's own attachments is shown from. */
+export const attachmentUrl = (id: string) => `/api/v1/attachments/${encodeURIComponent(id)}`;
 
 /**
  * Any request, its response. Core checks every one; the client is never

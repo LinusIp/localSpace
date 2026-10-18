@@ -933,6 +933,9 @@ impl Catalog {
                         .unwrap_or_default(),
                     // Core says it, from a look at the drive: see `Core::model_catalog`.
                     no_room: String::new(),
+                    memory_tight: placed.as_ref().zip(fitted).is_some_and(|(p, hw)| {
+                        p.verdict != fit::Verdict::WillNotFit && !fit::fits_with_room(p, hw)
+                    }),
                     quality_words: m.quality_words().to_string(),
                     estimated_tok_s: tok_s,
                     first_token_ms: first_ms,
@@ -1019,6 +1022,16 @@ impl Catalog {
                     .map(|shape| (m, fit::fit(&shape, hardware, m.ask(), None)))
             })
             .collect();
+        // Only a model that leaves room to spare is offered first, where one
+        // does; where none does (8 GB), the choice below stands, and the
+        // model chosen says that memory is tight (the owner's rule,
+        // docs/DECISIONS.md, 2026-10-18).
+        let roomy: Vec<(&CatalogModel, Fit)> = placed
+            .iter()
+            .filter(|(_, p)| fit::fits_with_room(p, hardware))
+            .cloned()
+            .collect();
+        let placed = if roomy.is_empty() { placed } else { roomy };
         // A default decided for this tier by measurement comes first, where
         // it is among the models above and runs well or works here.
         if let Some(decided) = self.defaults.get(tier)
@@ -1769,8 +1782,19 @@ mod tests {
         let mut catalog = Catalog::load(None, dir.path());
         let four_gb = found_laptop();
         assert_eq!(tier_of(&four_gb), "4 GB");
+        // On the 16 GB laptop the 9B leaves no room to spare, so the 4B is
+        // offered first (the owner's rule, docs/DECISIONS.md, 2026-10-18);
+        // with 32 GB beside the same card the tier's decided default holds.
         assert_eq!(
             catalog.recommend(&four_gb).as_deref(),
+            Some("qwen3.5-4b-q4_k_m")
+        );
+        let mut roomy_four_gb = found_laptop();
+        roomy_four_gb.ram_total_mib = 32_400;
+        roomy_four_gb.ram_free_mib = 16_000;
+        assert_eq!(tier_of(&roomy_four_gb), "4 GB");
+        assert_eq!(
+            catalog.recommend(&roomy_four_gb).as_deref(),
             Some("qwen3.5-9b-q4_k_m")
         );
         // An 8 GB card is another tier, with no measurement of its own since
@@ -1790,7 +1814,7 @@ mod tests {
             }
         }
         assert_eq!(
-            catalog.recommend(&four_gb).as_deref(),
+            catalog.recommend(&roomy_four_gb).as_deref(),
             Some("qwen3.5-4b-q4_k_m")
         );
         // The tiers, by the card localSpace would use.
@@ -2131,13 +2155,13 @@ mod tests {
             slower.placement
         );
 
-        // The model to start with on this laptop: the 4 GB tier's default
-        // decided by the 4 GB run (docs/DECISIONS.md, 2026-10-16), the Qwen3.5
-        // 9B; the rule below it would give the 7B, the largest that runs
-        // well here.
+        // The model to start with on this laptop: the 4 GB tier's default,
+        // the Qwen3.5 9B, leaves no room to spare here (the owner's rule,
+        // docs/DECISIONS.md, 2026-10-18), so the largest that runs well and
+        // does: with Qwen2.5 offered again for this test, the 7B.
         assert_eq!(
             catalog.recommend(&found).as_deref(),
-            Some("qwen3.5-9b-q4_k_m")
+            Some("qwen2.5-7b-instruct-q4_k_m")
         );
         // **Of those whose licence permits commercial use**: without the 4B, the 9B,
         // the 7B and the 14B, the 3B is the largest that runs well, and it is
@@ -2223,11 +2247,14 @@ mod tests {
         const SEVEN_B: &str = "qwen2.5-7b-instruct-q4_k_m";
         const FOURTEEN_B: &str = "qwen2.5-14b-instruct-q4_k_m";
         const THIRTY_B: &str = "qwen3-30b-a3b-q4_k_m";
-        // The 4 GB tier's default since 2026-10-16, by the 4 GB run: every
-        // card under 7 GB (docs/DECISIONS.md).
+        // The 4 GB tier's default since 2026-10-16, by the 4 GB run, where it
+        // leaves room to spare: 24 GB and more, or a card that takes most of
+        // it (the owner's rule, docs/DECISIONS.md, 2026-10-18).
         const NINE_B: &str = "qwen3.5-9b-q4_k_m";
         // Where no tier has a measurement of its own and the 9B does not run
-        // well enough, the best measured model that does (document 36 §4).
+        // well enough, the best measured model that does (document 36 §4);
+        // and where the 9B leaves no room to spare, as on 16 GB with a 4 GB
+        // card (docs/DECISIONS.md, 2026-10-18).
         const FOUR_B: &str = "qwen3.5-4b-q4_k_m";
         const IDS: [&str; 6] = [HALF_B, ONE_HALF_B, THREE_B, SEVEN_B, FOURTEEN_B, THIRTY_B];
 
@@ -2248,7 +2275,7 @@ mod tests {
                 card: Some("NVIDIA GeForce RTX 3050 Ti Laptop GPU (3962 MiB, 3367 MiB free)"),
                 memory_mib: 15_613,
                 copy_gbps: 19.3,
-                default: NINE_B,
+                default: FOUR_B,
                 verdicts: [WELL, WELL, WELL, WELL, SLOW, NO],
             },
             Shape {
@@ -2268,7 +2295,7 @@ mod tests {
                 card: Some("NVIDIA GeForce GTX 1650 (4096 MiB, 3500 MiB free)"),
                 memory_mib: 16_000,
                 copy_gbps: 12.0,
-                default: NINE_B,
+                default: FOUR_B,
                 verdicts: [WELL, WELL, WELL, WORKS, SLOW, NO],
             },
             Shape {
@@ -2441,6 +2468,40 @@ mod tests {
                 "{}",
                 shape.what
             );
+            // The rule of room to spare (docs/DECISIONS.md, 2026-10-18): the
+            // model offered first leaves room wherever any model does, and
+            // says memory is tight only where none does; on 16 GB with a
+            // 4 GB card the 9B is listed with the note, the 4B without it.
+            let tight = |id: &str| {
+                entries
+                    .iter()
+                    .find(|e| e.id == id)
+                    .is_some_and(|e| e.memory_tight)
+            };
+            // Of the models that can be offered first (the two measured).
+            let any_roomy = [FOUR_B, NINE_B].iter().any(|id| {
+                entries
+                    .iter()
+                    .any(|e| e.id == *id && e.verdict != NO && !e.memory_tight)
+            });
+            if any_roomy {
+                assert!(
+                    !tight(shape.default),
+                    "{}: the default says memory is tight",
+                    shape.what
+                );
+            }
+            if shape.memory_mib == 15_613 && shape.card.is_some() {
+                assert!(
+                    tight(NINE_B),
+                    "{}: the 9B should say memory is tight",
+                    shape.what
+                );
+                assert!(!tight(FOUR_B), "{}", shape.what);
+            }
+            if shape.memory_mib >= 32_000 && shape.card.is_some() {
+                assert!(!tight(NINE_B), "{}: the 9B has room here", shape.what);
+            }
             // Whatever is offered first has been through the message script
             // and may be used commercially; and nobody is ever offered the
             // 0.5B on a computer where a larger model so much as works.

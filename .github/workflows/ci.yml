@@ -278,6 +278,35 @@ jobs:
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8447/healthz > /dev/null && break; sleep 1; done
           (cd web && node e2e/maths.mjs http://127.0.0.1:8447 ci-token maths) || { echo "--- the server's log"; tail -n 60 "$RUNNER_TEMP/maths-serve.log"; exit 1; }
           kill "$MATHS"; wait "$MATHS" || true
+      - name: a picture attached in the composer, sent, shown, and deleted with its chat
+        run: |
+          mkdir -p "$RUNNER_TEMP/picturesdata/models" "$RUNNER_TEMP/picturescatalog"
+          printf 'sees pictures\n' > "$RUNNER_TEMP/picturesdata/models/seer.gguf"
+          printf 'not a real projector\n' > "$RUNNER_TEMP/picturesdata/models/seer-mmproj.gguf"
+          seer="$(wc -c < "$RUNNER_TEMP/picturesdata/models/seer.gguf" | tr -d ' ')"
+          proj="$(wc -c < "$RUNNER_TEMP/picturesdata/models/seer-mmproj.gguf" | tr -d ' ')"
+          cat > "$RUNNER_TEMP/picturescatalog/catalog.json" <<EOF
+          {"version": 1, "models": [
+            {"id": "seer", "title": "The test engine that sees", "params_b": 0.1, "bytes": $((seer + proj)), "context_len": 2048,
+             "repo": "example/seer", "files": ["seer.gguf", "seer-mmproj.gguf"], "vision_file": "seer-mmproj.gguf",
+             "tensor": {"core_bytes": 16, "routed_expert_bytes": 0, "layers": 2, "moe": null, "kv_bytes_per_token_fp16": 256}}
+          ]}
+          EOF
+          cat > "$RUNNER_TEMP/pictures.toml" <<EOF
+          [server]
+          bind = "127.0.0.1:8448"
+          [storage]
+          root = "$RUNNER_TEMP/picturesdata"
+          [models]
+          dir = "$RUNNER_TEMP/picturescatalog"
+          EOF
+          LOCALSPACE_LLAMA_SERVER="$PWD/target/release/fake_llama_server" ./target/release/localspace serve \
+            --config "$RUNNER_TEMP/pictures.toml" --personal --token ci-token --allow-below-floor \
+            > "$RUNNER_TEMP/pictures-serve.log" 2>&1 &
+          PICTURES=$!
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8448/healthz > /dev/null && break; sleep 1; done
+          (cd web && node e2e/pictures.mjs http://127.0.0.1:8448 ci-token seer "$RUNNER_TEMP/picturesdata" "$PWD/../crates/localspace-cli/assets/measure-picture.png") || { echo "--- the server's log"; tail -n 60 "$RUNNER_TEMP/pictures-serve.log"; exit 1; }
+          kill "$PICTURES"; wait "$PICTURES" || true
       - name: an organisation server; two people in two browsers; a viewer refused; the audit log verified
         run: |
           cat > "$RUNNER_TEMP/org.toml" <<EOF
@@ -309,6 +338,7 @@ jobs:
             ${{ runner.temp }}/serve.log
             ${{ runner.temp }}/org-serve.log
             ${{ runner.temp }}/maths-serve.log
+            ${{ runner.temp }}/pictures-serve.log
 
   measure:
     # The measurement kit, run against the test engine: it judges nothing

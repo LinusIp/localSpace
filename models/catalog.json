@@ -870,7 +870,6 @@
       "license_url": "https://ai.google.dev/gemma/docs/gemma_4_license",
       "license_words": "Free to use, also for commercial use.",
       "commercial_use": true,
-      "hidden": true,
       "thinking": {
         "default": "off",
         "budget": 1024
@@ -895,7 +894,7 @@
         }
       },
       "supports_tools": true,
-      "notes": "Google's Gemma 4, from Google's own 4-bit-trained weights as ggml-org publishes them. Reads images with its vision file. Thinks before answering only where its entry says so. Not yet through the message script: hidden until it is.",
+      "notes": "Google's Gemma 4, from Google's own 4-bit-trained weights as ggml-org publishes them. Reads images with its vision file. Thinks before answering only where its entry says so. Through the message script on the 4 GB laptop on 2026-10-17 with no loops or crashes; shown, never offered first, since it has no exercise record (docs/DECISIONS.md, 2026-10-18).",
       "tensor": {
         "core_bytes": 2825664652,
         "routed_expert_bytes": 0,
@@ -934,7 +933,6 @@
       "license_url": "https://ai.google.dev/gemma/docs/gemma_4_license",
       "license_words": "Free to use, also for commercial use.",
       "commercial_use": true,
-      "hidden": true,
       "thinking": {
         "default": "off",
         "budget": 1024
@@ -959,7 +957,7 @@
         }
       },
       "supports_tools": true,
-      "notes": "Google's Gemma 4, from Google's own 4-bit-trained weights as ggml-org publishes them. Reads images with its vision file. Thinks before answering only where its entry says so. Not yet through the message script: hidden until it is.",
+      "notes": "Google's Gemma 4, from Google's own 4-bit-trained weights as ggml-org publishes them. Reads images with its vision file. Thinks before answering only where its entry says so. Through the message script on the 4 GB laptop on 2026-10-17 with no loops or crashes; shown, never offered first, since it has no exercise record (docs/DECISIONS.md, 2026-10-18).",
       "tensor": {
         "core_bytes": 4574983336,
         "routed_expert_bytes": 0,

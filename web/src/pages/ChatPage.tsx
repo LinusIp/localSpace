@@ -3,8 +3,11 @@
 // in words; anything that needs the person's say-so appears as a card.
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpIcon, CheckIcon, ChevronDownIcon, CloseIcon, SpinnerIcon, StopIcon } from "@localspace/ui";
-import type { ChatMessage, ToolCallRecord } from "../api/generated";
+import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ClipIcon, CloseIcon, Dialog, SpinnerIcon, StopIcon } from "@localspace/ui";
+import type { Attachment, ChatMessage, ToolCallRecord } from "../api/generated";
+import { addAttachment, attachmentUrl } from "../api/client";
+import { MOST_PICTURES, PICTURE_TYPES, isPicture, refusalText } from "../lib/attachments";
+import { useStrings } from "../useStrings";
 import { initialsOf, outcomeLine, useSession } from "../store";
 import type { LiveToolCall } from "../store";
 import { Markdown } from "../components/Markdown";
@@ -267,7 +270,10 @@ function Message({ message, joined, mayContinue }: { message: ChatMessage; joine
     return (
       <div className="message">
         <PersonAvatar />
-        <div className="message-body user ls-pre">{message.content}</div>
+        <div className="message-body user ls-pre">
+          {message.attachments && message.attachments.length > 0 && <SentPictures pictures={message.attachments} />}
+          {message.content}
+        </div>
       </div>
     );
   }
@@ -357,8 +363,81 @@ function ApprovalCard({ id, kind, prompt }: { id: string; kind: string; prompt: 
   );
 }
 
+/**
+ * The pictures of a sent message, small, each opening larger in the app
+ * (docs/DECISIONS.md, 2026-10-18; plan 38, P3).
+ */
+function SentPictures({ pictures }: { pictures: Attachment[] }) {
+  const [open, setOpen] = useState<Attachment | null>(null);
+  return (
+    <>
+      <div className="message-pictures">
+        {pictures.map((p) => (
+          <button key={p.id} type="button" className="message-picture" onClick={() => setOpen(p)} title={p.name}>
+            <img src={attachmentUrl(p.id)} alt={p.name} loading="lazy" />
+          </button>
+        ))}
+      </div>
+      <Dialog open={open !== null} title={open?.name ?? ""} onClose={() => setOpen(null)}>
+        {open && <img className="picture-large" src={attachmentUrl(open.id)} alt={open.name} />}
+      </Dialog>
+    </>
+  );
+}
+
+/** A picture in the composer, before the message goes: on its way to Core, or taken. */
+interface Pending {
+  key: string;
+  name: string;
+  /** What the person sees meanwhile: the file itself, on this computer. */
+  preview: string;
+  attachment: Attachment | null;
+}
+
 function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (text: string) => void; placeholder: string }) {
   const { send, cancel, environment, catalogModels, goSettings } = useSession();
+  const strings = useStrings();
+  const [pending, setPending] = useState<Pending[]>([]);
+  const [said, setSaid] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const chooser = useRef<HTMLInputElement>(null);
+  const uploading = pending.some((p) => p.attachment === null);
+
+  // Each picture goes to Core as soon as it is added: made ready and kept
+  // there until the message goes. A refusal is said once, plainly.
+  const addFiles = (files: File[]) => {
+    const pictures = files.filter(isPicture);
+    if (pictures.length < files.length) setSaid(strings.notAPicture);
+    const room = MOST_PICTURES - pending.length;
+    if (pictures.length > room) setSaid(strings.tooManyPictures(MOST_PICTURES));
+    for (const file of pictures.slice(0, Math.max(0, room))) {
+      const key = `${file.name}-${file.size}-${Math.random()}`;
+      const preview = URL.createObjectURL(file);
+      setPending((all) => [...all, { key, name: file.name || "picture", preview, attachment: null }]);
+      void addAttachment(file, file.name || "picture")
+        .then((answer) => {
+          if ("attachment" in answer) {
+            setPending((all) => all.map((p) => (p.key === key ? { ...p, attachment: answer.attachment } : p)));
+          } else {
+            setSaid(refusalText(strings, answer.refusal));
+            setPending((all) => all.filter((p) => p.key !== key));
+            URL.revokeObjectURL(preview);
+          }
+        })
+        .catch(() => {
+          setSaid(strings.pictureUnreadable);
+          setPending((all) => all.filter((p) => p.key !== key));
+          URL.revokeObjectURL(preview);
+        });
+    }
+  };
+  const remove = (key: string) => {
+    setPending((all) => {
+      const gone = all.find((p) => p.key === key);
+      if (gone) URL.revokeObjectURL(gone.preview);
+      return all.filter((p) => p.key !== key);
+    });
+  };
   // This chat's answer is being written, or waits: Stop, for this chat only.
   const busy = useChatInProgress().turn !== null;
   const box = useRef<HTMLTextAreaElement>(null);
@@ -382,14 +461,71 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
 
   const submit = () => {
     const trimmed = draft.trim();
-    if (!trimmed || busy || !model) return;
+    if (!trimmed || busy || !model || uploading) return;
+    const attachments = pending.flatMap((p) => (p.attachment ? [p.attachment] : []));
+    const sent = pending;
     onDraft("");
-    void send(trimmed);
+    setPending([]);
+    setSaid(null);
+    void send(trimmed, attachments).then((refusal) => {
+      if (refusal) {
+        // Not taken: the words and the pictures back where they were.
+        onDraft(trimmed);
+        setPending(sent);
+        setSaid(refusalText(strings, refusal));
+      } else {
+        for (const p of sent) URL.revokeObjectURL(p.preview);
+      }
+    });
   };
 
   return (
-    <div className="composer-card">
+    <div
+      className={`composer-card${dragging ? " dropping" : ""}`}
+      onDragOver={(e) => {
+        if (Array.from(e.dataTransfer.types).includes("Files")) {
+          e.preventDefault();
+          setDragging(true);
+        }
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragging(false);
+        addFiles(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {dragging && <div className="composer-drop">{strings.dropPictureHere}</div>}
+      {pending.length > 0 && (
+        <div className="composer-pictures">
+          {pending.map((p) => (
+            <div key={p.key} className={`composer-picture${p.attachment ? "" : " uploading"}`}>
+              <img src={p.preview} alt={p.name} />
+              <button type="button" className="composer-picture-remove" onClick={() => remove(p.key)} aria-label={`${strings.removePicture}: ${p.name}`} title={strings.removePicture}>
+                <CloseIcon size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {said && (
+        <div className="composer-said" role="status">
+          {said}
+        </div>
+      )}
       <textarea
+        onPaste={(e) => {
+          const files = Array.from(e.clipboardData.items)
+            .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+            .flatMap((item) => {
+              const file = item.getAsFile();
+              return file ? [file] : [];
+            });
+          if (files.length > 0) {
+            e.preventDefault();
+            addFiles(files);
+          }
+        }}
         ref={box}
         rows={1}
         value={draft}
@@ -405,6 +541,20 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
         autoFocus
       />
       <div className="composer-row">
+        <input
+          ref={chooser}
+          type="file"
+          accept={PICTURE_TYPES.join(",")}
+          multiple
+          hidden
+          onChange={(e) => {
+            addFiles(Array.from(e.target.files ?? []));
+            e.target.value = "";
+          }}
+        />
+        <button type="button" className="composer-attach" onClick={() => chooser.current?.click()} disabled={pending.length >= MOST_PICTURES} aria-label={strings.attachPicture} title={strings.attachPicture}>
+          <ClipIcon size={17} />
+        </button>
         <div className="ls-row ls-gap-2">
           <button type="button" className="model-chip" onClick={() => goSettings("assistant")} title="Choose the assistant">
             {modelLabel(model?.id, catalogModels)}
@@ -415,7 +565,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
               <StopIcon size={16} />
             </button>
           ) : (
-            <button type="button" className="send" onClick={submit} disabled={!draft.trim() || !model} aria-label="Send">
+            <button type="button" className="send" onClick={submit} disabled={!draft.trim() || !model || uploading} aria-label="Send">
               <ArrowUpIcon size={17} />
             </button>
           )}

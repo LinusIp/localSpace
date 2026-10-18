@@ -98,6 +98,7 @@ fn each_user_has_their_own_conversation_ledger_focus_and_board_over_one_environm
         proto::Request::SendMessage {
             text: "Anna's question".into(),
             conversation: None,
+            attachments: Vec::new(),
         },
     );
     assert_eq!(
@@ -274,6 +275,7 @@ fn the_local_user_of_a_personal_core_is_its_admin_and_handle_is_theirs() {
     core.handle(proto::Request::SendMessage {
         text: "through handle".into(),
         conversation: None,
+        attachments: Vec::new(),
     });
     assert_eq!(transcript(&mut core, &local).len(), 2);
     let other = member("ben");

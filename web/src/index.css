@@ -104,6 +104,23 @@ button {
 .composer-card textarea { display: block; width: 100%; box-sizing: border-box; border: 0; outline: none; resize: none; font: inherit; font-size: 15.5px; line-height: 1.5; background: transparent; color: var(--ls-ink); padding: 0; max-height: 220px; }
 .composer-card textarea::placeholder { color: var(--ls-faint); }
 .composer-row { display: flex; align-items: center; justify-content: flex-end; margin-top: 18px; gap: 10px; }
+/* Pictures in the composer and in a sent message (docs/DECISIONS.md, 2026-10-18). */
+.composer-card { position: relative; }
+.composer-card.dropping { border-color: var(--ls-accent-line); }
+.composer-drop { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; border-radius: 14px; background: var(--ls-surface); color: var(--ls-muted); font-size: 14px; pointer-events: none; }
+.composer-pictures { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.composer-picture { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 1px solid var(--ls-line); background: var(--ls-rail); }
+.composer-picture img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.composer-picture.uploading img { opacity: 0.5; }
+.composer-picture-remove { position: absolute; top: 3px; right: 3px; display: inline-flex; padding: 3px; border: 0; border-radius: 999px; background: var(--ls-surface); color: var(--ls-ink); cursor: pointer; }
+.composer-said { margin-bottom: 8px; font-size: 13px; color: var(--ls-muted); }
+.composer-attach { margin-right: auto; display: inline-flex; padding: 6px; border: 0; border-radius: 8px; background: transparent; color: var(--ls-faint); cursor: pointer; }
+.composer-attach:hover:not(:disabled) { background: var(--ls-rail); color: var(--ls-ink); }
+.composer-attach:disabled { opacity: 0.4; cursor: default; }
+.message-pictures { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; white-space: normal; }
+.message-picture { padding: 0; border: 1px solid var(--ls-line); border-radius: 8px; overflow: hidden; background: var(--ls-rail); cursor: zoom-in; }
+.message-picture img { display: block; max-width: 220px; max-height: 160px; }
+.picture-large { display: block; max-width: min(80vw, 1280px); max-height: 75vh; }
 .model-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border: 1px solid var(--ls-line); border-radius: 999px; background: transparent; font: inherit; font-size: 13px; color: var(--ls-ink-soft); cursor: pointer; }
 .model-chip:hover { background: var(--ls-page); }
 .model-chip.static { cursor: default; }
