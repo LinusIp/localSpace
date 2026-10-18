@@ -13,6 +13,22 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-18, the engine reads the model file instead of mapping it (`--no-mmap`)
+
+- **Core starts the engine with `--no-mmap`** on every computer below the reference tiers (`engine::fitted_flags`). The owner approved it for 0.2.0, before rc.2.
+  - Mapped, the whole model file stays in system memory even when most of it is on the card.
+  - Measured on the founder's 16 GB laptop with a 4 GB card, Chrome open, the engine alone with Core's settings:
+    - the 4B with its picture file used 3.6 GB mapped and **1.6 GB read** (21.6 against 23.0 tok/s on one short answer, 8.6 against 7.6 s to load);
+    - the 9B with its picture file used **4.0 GB read**, with 4.24 GB left free and 9.7 tok/s. Mapped, it couldn't load at all: free memory fell to 1.36 GB.
+- **The planner's flags for the reference tiers keep the mapping.** Streaming experts from the disk depends on it.
+- **The owner's rulings on the default, from the same measurements:**
+  - On 16 GB with a 4 GB card, **the 9B stays the default.** It meets the rule with room to spare, and it gave the fewest wrong answers.
+  - "Switch to Qwen3.5 4B for pictures" is offered when a picture is attached and the 9B is slow with it. The threshold for "slow" will be proposed from the 9B's picture times once Core uses `--no-mmap`.
+  - On 8 GB, where no model meets the rule, the 4B is offered with the "close other programs" note.
+  - The note shows only where the rule says memory is tight.
+  - The rule itself, and the note in three languages, come in their own PR.
+- **Re-measured under the laptop rules** with Chrome open: a chat of ten or more messages on the 4B and on the 9B, the speed, and whether the laptop stays responsive (memory still free, nothing paged to disk).
+
 ## 2026-10-18, Gemma 4 E2B and E4B shown; the small Qwen3.5 stay hidden; the Uzbek Moon question reworded
 
 The owner's rulings of 2026-10-17 on the six small hidden entries (the 0.2 plan, item 2), after their runs on the founder's 4 GB laptop (package `96efd0e8`, engine b10869 on Vulkan, Silent mode, NVIDIA driver 617.42; the results in the internal repository under `docs/measure/2026-10-17/`).
