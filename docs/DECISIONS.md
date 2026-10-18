@@ -13,6 +13,24 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-18, messages in Uzbek, Russian and English (plan 38, B1)
+
+The owner's ruling: a language setting and a strings table for the new messages, with the rest of the app later. The language follows Windows' display language by default.
+
+- **`web/src/lib/strings.ts`** holds every new message in English, Russian and Uzbek (Latin, with ʻ in oʻ and gʻ). It's written by us, with no library, and the founder checks the Russian and Uzbek. The first strings:
+  - the approved memory note;
+  - the six reasons a picture isn't taken (too large and too many pixels both suggest a normal-size photo or a screenshot);
+  - "can't read pictures", with "Switch to …" and "Download …" for pictures;
+  - "pictures need about … GB more memory";
+  - the attach controls.
+- **The language shown:** the person's choice in Settings → General → Language (Same as Windows / English / Русский / Oʻzbekcha), kept as the `language` preference. Without a choice, it's Windows' display language as the webview reports it (`navigator.languages`): Uzbek or Russian when it's one of those, English otherwise. `useStrings()` gives the messages in that language.
+- **The rest of the app stays English in 0.2.0,** and moves into the table later.
+- **Tested** (`strings.test.ts`, in `npm test`):
+  - Windows' language is followed, and a choice wins over it;
+  - every message exists, non-empty, in all three languages;
+  - the numbers and the model's name reach the words;
+  - the memory note reads exactly as approved in all three.
+
 ## 2026-10-18, the engine reads the model file instead of mapping it (`--no-mmap`)
 
 - **Core starts the engine with `--no-mmap`** on every computer below the reference tiers (`engine::fitted_flags`). The owner approved it for 0.2.0, before rc.2.
