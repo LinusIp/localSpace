@@ -329,6 +329,25 @@ fn on_an_ordinary_computer_the_engine_gets_a_number_of_layers_and_one_named_devi
     assert!(log.contains(r#""--load-mode", "none""#), "{log}");
     assert!(log.contains(r#""--no-host""#), "{log}");
     assert!(!log.contains("\"999\""), "{log}");
+    // This model has no picture file: a picture is refused, in parts, and
+    // nothing is sent (docs/DECISIONS.md, 2026-10-18).
+    let picture = match core.handle(proto::Request::AddAttachment {
+        name: "circle.png".into(),
+        bytes: include_bytes!("../../localspace-cli/assets/measure-picture.png").to_vec(),
+    }) {
+        proto::Response::Attached { attachment } => attachment,
+        other => panic!("expected the picture taken, got {other:?}"),
+    };
+    assert!(matches!(
+        core.handle(proto::Request::SendMessage {
+            text: "What is in this picture?".into(),
+            conversation: None,
+            attachments: vec![picture.id],
+        }),
+        proto::Response::AttachmentRefused {
+            refusal: proto::AttachmentRefusal::CannotReadPictures
+        }
+    ));
     // A model has been chosen now: no first run any more, and the next start
     // of the window begins with this one.
     match core.handle(proto::Request::DescribeComputer) {

@@ -475,6 +475,13 @@ impl OpenAiWorker {
         self
     }
 
+    /// The engine was started with the model's picture file: it reads
+    /// pictures (docs/DECISIONS.md, 2026-10-18).
+    pub fn with_vision(mut self, reads_pictures: bool) -> Self {
+        self.supports_vision = reads_pictures;
+        self
+    }
+
     /// How long one request may take; three minutes unless said otherwise.
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
