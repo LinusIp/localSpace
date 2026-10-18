@@ -1782,8 +1782,19 @@ mod tests {
         let mut catalog = Catalog::load(None, dir.path());
         let four_gb = found_laptop();
         assert_eq!(tier_of(&four_gb), "4 GB");
+        // On the 16 GB laptop the 9B leaves no room to spare, so the 4B is
+        // offered first (the owner's rule, docs/DECISIONS.md, 2026-10-18);
+        // with 32 GB beside the same card the tier's decided default holds.
         assert_eq!(
             catalog.recommend(&four_gb).as_deref(),
+            Some("qwen3.5-4b-q4_k_m")
+        );
+        let mut roomy_four_gb = found_laptop();
+        roomy_four_gb.ram_total_mib = 32_400;
+        roomy_four_gb.ram_free_mib = 16_000;
+        assert_eq!(tier_of(&roomy_four_gb), "4 GB");
+        assert_eq!(
+            catalog.recommend(&roomy_four_gb).as_deref(),
             Some("qwen3.5-9b-q4_k_m")
         );
         // An 8 GB card is another tier, with no measurement of its own since
@@ -1803,7 +1814,7 @@ mod tests {
             }
         }
         assert_eq!(
-            catalog.recommend(&four_gb).as_deref(),
+            catalog.recommend(&roomy_four_gb).as_deref(),
             Some("qwen3.5-4b-q4_k_m")
         );
         // The tiers, by the card localSpace would use.
@@ -2144,13 +2155,13 @@ mod tests {
             slower.placement
         );
 
-        // The model to start with on this laptop: the 4 GB tier's default
-        // decided by the 4 GB run (docs/DECISIONS.md, 2026-10-16), the Qwen3.5
-        // 9B; the rule below it would give the 7B, the largest that runs
-        // well here.
+        // The model to start with on this laptop: the 4 GB tier's default,
+        // the Qwen3.5 9B, leaves no room to spare here (the owner's rule,
+        // docs/DECISIONS.md, 2026-10-18), so the largest that runs well and
+        // does: with Qwen2.5 offered again for this test, the 7B.
         assert_eq!(
             catalog.recommend(&found).as_deref(),
-            Some("qwen3.5-9b-q4_k_m")
+            Some("qwen2.5-7b-instruct-q4_k_m")
         );
         // **Of those whose licence permits commercial use**: without the 4B, the 9B,
         // the 7B and the 14B, the 3B is the largest that runs well, and it is
@@ -2467,9 +2478,12 @@ mod tests {
                     .find(|e| e.id == id)
                     .is_some_and(|e| e.memory_tight)
             };
-            let any_roomy = entries
-                .iter()
-                .any(|e| e.verdict != NO && !e.memory_tight && e.id != HALF_B);
+            // Of the models that can be offered first (the two measured).
+            let any_roomy = [FOUR_B, NINE_B].iter().any(|id| {
+                entries
+                    .iter()
+                    .any(|e| e.id == *id && e.verdict != NO && !e.memory_tight)
+            });
             if any_roomy {
                 assert!(
                     !tight(shape.default),
