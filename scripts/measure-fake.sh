@@ -136,6 +136,28 @@ else
     status=1
   fi
 fi
+# One chat (--chat): three messages, each in turn in the same chat
+# (docs/DECISIONS.md, 2026-10-18).
+printf "First message.
+Second message.
+
+Third message.
+" > "$work/chat.txt"
+LOCALSPACE_LLAMA_SERVER="$engine" "$localspace" measure --model tiny --catalog "$work/catalog"   --models "$work/models" --data "$work/data-chat" --out "$work/out-chat" --answer-seconds 60 --max-minutes 8   --chat "$work/chat.txt" > "$work/measure-chat.log" 2>&1 || status=$?
+tail -n 4 "$work/measure-chat.log"
+chat_md="$(ls "$work"/out-chat/localSpace-measure-tiny-*.md 2> /dev/null | head -n 1 || true)"
+if [ -z "$chat_md" ]; then
+  echo "the chat run's results file is missing in $work/out-chat" >&2
+  status=1
+else
+  must "$chat_md" "#### One chat, thinking off, message after message"
+  must "$chat_md" "| 1 | First message. |"
+  must "$chat_md" "| 3 | Third message. |"
+  if grep -q "#### Thinking off" "$chat_md"; then
+    echo "the chat run ran the script too" >&2
+    status=1
+  fi
+fi
 if [ "$status" -ne 0 ]; then
   echo "the kit's logs:" >&2
   tail -n 40 "$work"/measure-*.log >&2

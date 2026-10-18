@@ -81,6 +81,12 @@ pub struct MeasureArgs {
     /// (docs/DECISIONS.md, 2026-10-18).
     #[arg(long, value_name = "DIR")]
     pictures: Option<PathBuf>,
+    /// Hold one chat instead of running the script: each non-empty line of
+    /// this file is sent in turn, in the same chat, with thinking off, so
+    /// that memory and speed can be read over a long conversation
+    /// (docs/DECISIONS.md, 2026-10-18).
+    #[arg(long, value_name = "FILE")]
+    chat: Option<PathBuf>,
     /// Ask each message this many times, each in a fresh chat.
     #[arg(long, value_name = "TIMES", default_value_t = 1)]
     repeat: usize,
@@ -774,6 +780,41 @@ fn run_pass(kit: &mut Kit, progress: &mut Progress, items: &[Item], plan: &PassP
     Ok(())
 }
 
+/// Sends each line of `file` in turn in one chat (`--chat`), into
+/// `progress` as the answers come.
+fn one_chat(kit: &mut Kit, file: &Path, progress: &mut Progress) -> Result<()> {
+    let text =
+        std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
+    let lines: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect();
+    if lines.is_empty() {
+        bail!("{} holds no message", file.display());
+    }
+    kit.with(|core| core.set_thinking(Some(false)))?;
+    let chat = kit.new_conversation()?;
+    for (i, line) in lines.iter().enumerate() {
+        kit.within_limit("the chat")?;
+        let answered = ask_in_words(kit, &chat, line)?;
+        err!(
+            "message {} of {}: {:.1} s{}",
+            i + 1,
+            lines.len(),
+            answered.seconds,
+            match &answered.error {
+                Some(e) => format!(", {e}"),
+                None => String::new(),
+            }
+        );
+        progress.chat.push(answered);
+        keep(progress);
+    }
+    Ok(())
+}
+
 /// One question about one of the person's own pictures (`--pictures`).
 struct OwnPicture {
     file: String,
@@ -933,6 +974,8 @@ struct Progress {
     pictures: Vec<Pictured>,
     /// The person's own pictures, for a `--pictures` run.
     own_pictures: Vec<OwnPicture>,
+    /// The answers of a `--chat` run, in order, all in one chat.
+    chat: Vec<Answered>,
     read_time: Option<Result<ReadTime, String>>,
     /// Why the run ended before its last step, if it did.
     ended: Option<String>,
@@ -1060,6 +1103,7 @@ pub fn run(args: MeasureArgs) -> Result<()> {
         passes: Vec::new(),
         pictures: Vec::new(),
         own_pictures: Vec::new(),
+        chat: Vec::new(),
         read_time: None,
         ended: None,
         saved_to: Some(out_path(args.out.as_deref(), &id, &day_for_path)),
@@ -1134,6 +1178,9 @@ fn steps(
     err!("ready after {ready_after:.0} s");
 
     // The person's own pictures, alone (docs/DECISIONS.md, 2026-10-18).
+    if let Some(file) = &args.chat {
+        return one_chat(kit, file, progress);
+    }
     if let Some(dir) = &args.pictures {
         if !vision {
             bail!("{id} has no vision file: it cannot be asked about pictures");
@@ -1784,6 +1831,28 @@ fn report(run: &Progress) -> String {
         }
         lines.push(String::new());
     }
+    if !run.chat.is_empty() {
+        lines.push("#### One chat, thinking off, message after message".into());
+        lines.push(String::new());
+        lines.push("| # | Message | Time | First word | Read / wrote | What came back |".into());
+        lines.push("|---|---|---|---|---|---|".into());
+        for (i, a) in run.chat.iter().enumerate() {
+            let back = match (&a.error, a.reply.is_empty()) {
+                (Some(error), _) => format!("**{}**", cell(error)),
+                (None, true) => "**no reply**".to_string(),
+                (None, false) => cell(&a.reply),
+            };
+            lines.push(format!(
+                "| {} | {} | {:.1} s | {} | {} | {back} |",
+                i + 1,
+                cell(&a.text),
+                a.seconds,
+                seconds(a.measure.as_ref().and_then(|m| m.first_word)),
+                figures_cell(a.measure.as_ref())
+            ));
+        }
+        lines.push(String::new());
+    }
     if !run.own_pictures.is_empty() {
         lines.push("#### The pictures asked about, thinking off".into());
         lines.push(String::new());
@@ -1987,6 +2056,7 @@ mod tests {
             }],
             pictures: Vec::new(),
             own_pictures: Vec::new(),
+            chat: Vec::new(),
             read_time: None,
             saved_to: None,
             going: false,
