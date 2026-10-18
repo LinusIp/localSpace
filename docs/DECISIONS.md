@@ -35,6 +35,22 @@ The owner's answers of 2026-10-18, as built (`fit::picture_file_place`; `Core::p
   - `tests/engine.rs`: on a laptop with a full card and 4 GB free, the model starts without the file, the environment and the refusal both say what's needed, and asking again loads it again. On W32 the file goes on the card, and the kit can still put it on the processor;
   - `attachments.test.ts`: the message with and without a model to switch to, in all three languages, and the gigabytes figures.
 
+## 2026-10-18, the kit asks about a person's own pictures (`--pictures`)
+
+- **`localspace measure --pictures <folder>`** (the owner, 2026-10-18, option (a); test tooling ahead of the plan for pictures and files). It loads the model, then asks about each picture in the folder instead of running the script:
+  - each question goes in a fresh chat, with thinking off, through Core's own picture path (`send_picture`), so the app's language instruction applies;
+  - the questions are in a text file beside each picture, with the picture's full name and `.txt` added (`page.jpg.txt`), one per line;
+  - a picture with no questions beside it is asked "What is in this picture?";
+  - the results file gets a section, "The pictures asked about", with the time, the time to the first word, the reading and writing figures and the answer, for each question.
+- **Only PNG and JPEG are sent.**
+  - Core labels every picture `image/png`, and the engine's image reader decodes PNG and JPEG by their bytes. It cannot read WebP.
+  - Any other picture is written down as not asked, with why, and the run goes on.
+  - What WebP needs in the app is a question for the plan for pictures and files.
+- **A model without a vision file is refused** before anything is asked.
+- **`--chat <file>`** holds one chat instead of running the script. Each non-empty line is sent in turn, in the same chat, with thinking off. It reads memory and speed over a long conversation, for the `--no-mmap` re-measure the owner asked for (10 or more messages). The results file gets "One chat, message after message".
+- **The results file is written after every answer, Continue and picture,** not only at the end. A run stopped from outside, such as a heat or memory stop by the laptop's watch, keeps what it had. Until the last write, the file says the run was still going (the owner, 2026-10-18, after a stopped picture run lost five answers).
+- **Tested** in CI's kit job against the test engine (`scripts/measure-fake.sh`): a PNG with two questions beside it (one in Russian), a PNG with none, and a WebP. The results must show all three, the WebP as not asked, and no script.
+
 ## 2026-10-18, pictures go only to a model that reads them (plan 38, P4)
 
 - **Core holds to it.** A message with pictures is refused with `CannotReadPictures` when the loaded model's engine was started without a picture file (`--mmproj`). Core never trusts the client on this. A message sent while no model is loaded is kept as before. A model that reads pictures says so in the catalog (`reads_pictures`: it has a picture file).
