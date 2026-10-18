@@ -301,7 +301,13 @@ pub async fn attachment(
 ) -> Response {
     let session = match server.core().await {
         Ok(session) => session,
-        Err(e) => return failed(e),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Core could not start: {e:#}")})),
+            )
+                .into_response();
+        }
     };
     match session
         .call_as(&caller, proto::Request::GetAttachment { id })
