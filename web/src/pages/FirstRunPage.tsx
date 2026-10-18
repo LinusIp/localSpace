@@ -6,8 +6,10 @@
 import { useEffect, useRef, useState } from "react";
 import { sizeInWords } from "../lib/models";
 import { useSession } from "../store";
+import { useStrings } from "../useStrings";
 
 export function FirstRunPage() {
+  const strings = useStrings();
   const { computer, catalogModels, environment, downloadModel, stopDownload, loadModel, leaveFirstRun, go, goSettings } = useSession();
   const started = useRef(false);
   // The one deliberate click: nothing starts, downloaded or already here,
@@ -80,6 +82,8 @@ export function FirstRunPage() {
                 )
               )}
               {model.no_room && !downloading && !checking && <div className="error">{model.no_room}</div>}
+              {/* Offered first though it leaves no room to spare: nothing here does (docs/DECISIONS.md, 2026-10-18). */}
+              {model.memory_tight && <div className="auth-sub">{strings.memoryTight}</div>}
               {(downloading || paused || checking || starting || (accepted && model.installed)) && (
                 <div style={{ marginTop: 18 }}>
                   <div className="progress">
