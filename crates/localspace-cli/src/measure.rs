@@ -1956,6 +1956,7 @@ mod tests {
                 carried: None,
             }],
             pictures: Vec::new(),
+            own_pictures: Vec::new(),
             read_time: None,
             ended: Some("the 8-minute limit for the whole run ran out during an answer".into()),
         };
