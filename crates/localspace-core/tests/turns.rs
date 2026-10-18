@@ -210,6 +210,7 @@ impl Bench {
             proto::Request::SendMessage {
                 text: text.into(),
                 conversation: Some(chat.clone()),
+                attachments: Vec::new(),
             },
         ) {
             proto::Response::Transcript { .. } => chat,
@@ -556,6 +557,7 @@ fn one_person_cannot_stop_another_persons_answer() {
             proto::Request::SendMessage {
                 text: "mine now".into(),
                 conversation: Some(annas.clone()),
+                attachments: Vec::new(),
             }
         ),
         proto::Response::Error { .. }

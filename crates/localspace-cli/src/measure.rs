@@ -617,6 +617,7 @@ fn ask_in_words(kit: &mut Kit, conversation: &str, text: &str) -> Result<Answere
         kit.call(proto::Request::SendMessage {
             text: message,
             conversation: None,
+            attachments: Vec::new(),
         })
     })
 }
@@ -636,6 +637,7 @@ fn carry_on(kit: &mut Kit, stop_after: usize) -> Result<Carried> {
     kit.call(proto::Request::SendMessage {
         text: CONTINUE_TEXT.into(),
         conversation: None,
+        attachments: Vec::new(),
     })?;
     let asked = Instant::now();
     while asked.elapsed() < kit.answer {

@@ -1701,6 +1701,7 @@ fn an_agent_turn_puts_three_red_stickies_on_the_board() {
     core.handle(proto::Request::SendMessage {
         text: "Put the three risks on the board as red stickies.".into(),
         conversation: None,
+        attachments: Vec::new(),
     });
 
     let listed = board(&mut core);
@@ -1750,6 +1751,7 @@ fn a_tool_outside_the_active_set_is_refused_to_the_agent() {
     core.handle(proto::Request::SendMessage {
         text: "add a sticky".into(),
         conversation: None,
+        attachments: Vec::new(),
     });
 
     assert_eq!(
@@ -1779,6 +1781,7 @@ fn a_stop_while_an_approval_is_waited_on_withdraws_it_and_changes_nothing() {
     core.handle(proto::Request::SendMessage {
         text: "Remove the sticky.".into(),
         conversation: None,
+        attachments: Vec::new(),
     });
     let asked = events
         .lock()
@@ -1853,6 +1856,7 @@ fn declining_an_approval_ends_the_answer_and_the_model_reads_it_declined() {
     core.handle(proto::Request::SendMessage {
         text: "Remove the sticky.".into(),
         conversation: None,
+        attachments: Vec::new(),
     });
     let asked = events
         .lock()

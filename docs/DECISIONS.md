@@ -30,6 +30,36 @@ In Windows® mode with Chrome open, the 9B fell to 1.1 GB free while loading.
   - 24 GB and 32 GB: the 9B.
   - 8 GB, and computers with no card: the 4B, as before, with the note where it is tight.
 
+## 2026-10-18, pictures kept with the chat, and made ready for the model (plan 38, P1 and P2)
+
+The owner approved plan 38's picture work, its interfaces, and these values: 30 MB and 60 megapixels at most, 1,280 pixels on the longer side, only the shrunk copy kept, and at most 4 pictures in one message.
+
+- **Making a picture ready** (`crates/localspace-core/src/picture.rs`, using `image` 0.25 with only its PNG, JPEG and WebP readers; approved 2026-10-18):
+  - A file over 30 MB is refused before it is read. A picture over 60 megapixels is refused from its header, before it is decoded.
+  - A phone photo is turned the way its camera says.
+  - The longer side comes down to 1,280 pixels.
+  - A JPEG stays a JPEG (quality 85). Anything else becomes a PNG; that includes WebP, which the engine can't read.
+- **Keeping it with the chat** (`crates/localspace-core/src/attachments.rs`):
+  - Only the copy made ready is kept, named by its hash: under `attachments/<person>/pending/` until it is sent, then under `attachments/<person>/<chat>/`.
+  - **It is deleted with the chat.** What was added but never sent is cleared when Core next starts.
+  - A person reaches only their own folder. An id is only ever 32 lower-case hex digits, so a request can't reach outside it.
+  - The pictures Core held in memory, lost on restart and never deleted, are gone.
+- **The API:**
+  - `ChatMessage.attachments` records what was attached and is saved with the chat.
+  - `SendMessage` takes the attachments' ids.
+  - `AddAttachment` (the bytes) answers `Attached` or `AttachmentRefused`. `GetAttachment` (an id) answers the bytes.
+  - A refusal comes in parts (`AttachmentRefusal`: too large, too many pixels, not a picture, unreadable, too many, not found), so the client can say it in the person's language.
+- **The routes:**
+  - `POST /api/v1/attachments?name=` carries the raw body, up to 31 MB.
+  - `GET /api/v1/attachments/{id}` returns the picture in place, under the PNG or JPEG type Core gave it, never sniffed. Someone else's attachment, or none, gets the same 404.
+- **The prompt** reads the chat's pictures from storage, and sends each one under its own type (`data:image/jpeg` for a photo). It no longer labels everything `image/png`.
+- **Tested:**
+  - unit tests for every format, the limits, the turning and the shrinking;
+  - unit tests for keeping, sending, deleting, another person's id, an id that isn't one of Core's, clearing at start, and five pictures refused;
+  - prompt and engine-request tests with one picture and with two;
+  - Core tests: a picture survives a restart, is fetched by its person, and is deleted with the chat; a text file and an unknown id are refused.
+- **Built and tested by CI.** The laptop builds in Silent mode only. In Windows® mode a 2-job build reached the 90 °C stop in about 40 seconds.
+
 ## 2026-10-18, messages in Uzbek, Russian and English (plan 38, B1)
 
 The owner's ruling: a language setting and a strings table for the new messages, with the rest of the app later. The language follows Windows' display language by default.

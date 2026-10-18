@@ -7,6 +7,7 @@
 
 pub mod acl;
 pub mod agent;
+pub mod attachments;
 pub mod audit;
 pub mod catalog;
 pub mod child;
@@ -35,6 +36,7 @@ pub mod model;
 pub mod models;
 #[allow(unsafe_code)]
 pub mod os;
+pub mod picture;
 pub mod planner;
 pub mod presence;
 pub mod profile;
@@ -493,9 +495,9 @@ pub struct Core {
     pub(crate) sampling: Option<models::ModelSampling>,
     /// Where a model's vision file goes at the next load.
     vision_place: VisionPlace,
-    /// The pictures sent with messages, by chat and by the message's place
-    /// among the person's messages of it; kept while Core runs.
-    pictures: HashMap<String, HashMap<usize, Vec<u8>>>,
+    /// What people attach to their messages, kept with the chat and deleted
+    /// with it (docs/DECISIONS.md, 2026-10-18).
+    pub(crate) attachments: attachments::Attachments,
     /// The measure of the last model step in each chat (`answer_measure`).
     answer_measures: HashMap<String, turns::AnswerMeasure>,
 }
@@ -644,7 +646,17 @@ impl Core {
             thinking_budget: 0,
             sampling: None,
             vision_place: VisionPlace::default(),
-            pictures: HashMap::new(),
+            attachments: attachments::Attachments::new(
+                cfg.data_dir
+                    .as_ref()
+                    .map(|d| d.join("attachments"))
+                    // No data folder (a test): a folder of this Core's own.
+                    .unwrap_or_else(|| {
+                        std::env::temp_dir()
+                            .join("localspace")
+                            .join(format!("attachments-{}", uuid::Uuid::new_v4()))
+                    }),
+            ),
             answer_measures: HashMap::new(),
             cfg,
         };
@@ -716,17 +728,22 @@ impl Core {
         self.answer_measures.get(conversation).cloned()
     }
 
-    /// A message with a picture (a PNG) from the local user, in the chat on
-    /// screen or the one named: see `agent::send_picture`.
+    /// A message with a picture from the local user, in the chat on screen
+    /// or the one named: the picture is attached as a person's would be, and
+    /// sent with the message (the kit's way in; see `agent::send`).
     pub fn send_picture(
         &mut self,
         text: &str,
-        png: Vec<u8>,
+        picture: Vec<u8>,
         conversation: Option<String>,
     ) -> proto::Response {
         let caller = Caller::local(&self.cfg.user);
         self.activate(&caller);
-        agent::send_picture(self, conversation, text, png)
+        let user = self.active.user.clone();
+        match self.attachments.add(&user, "picture", &picture) {
+            Ok(attachment) => agent::send(self, conversation, text, vec![attachment.id]),
+            Err(refusal) => proto::Response::AttachmentRefused { refusal },
+        }
     }
 
     /// How long the engine takes to read a few new tokens on top of the
@@ -4014,7 +4031,28 @@ impl Core {
                 proto::Response::Ok
             }
 
-            R::SendMessage { text, conversation } => agent::send(self, conversation, &text),
+            R::SendMessage {
+                text,
+                conversation,
+                attachments,
+            } => agent::send(self, conversation, &text, attachments),
+            R::AddAttachment { name, bytes } => {
+                let user = self.active.user.clone();
+                match self.attachments.add(&user, &name, &bytes) {
+                    Ok(attachment) => proto::Response::Attached { attachment },
+                    Err(refusal) => proto::Response::AttachmentRefused { refusal },
+                }
+            }
+            R::GetAttachment { id } => match self.attachments.find(&self.active.user, &id) {
+                Some((attachment, bytes)) => proto::Response::DocBlob {
+                    name: attachment.name,
+                    mime: attachment.mime,
+                    bytes,
+                },
+                None => proto::Response::AttachmentRefused {
+                    refusal: proto::AttachmentRefusal::NotFound,
+                },
+            },
             R::CancelTurn { conversation } => agent::cancel(self, conversation),
             R::ListTurns => agent::list(self),
             R::ContinueAnswer { conversation } => agent::continue_answer(self, conversation),
@@ -4078,6 +4116,9 @@ impl Core {
                         message: format!("no conversation `{id}`"),
                     };
                 }
+                // What was attached in it goes with it.
+                let user = self.active.user.clone();
+                self.attachments.forget(&user, &id);
                 self.transcript = self
                     .conversations
                     .current()
