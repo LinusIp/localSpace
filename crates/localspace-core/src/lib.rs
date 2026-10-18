@@ -35,6 +35,7 @@ pub mod model;
 pub mod models;
 #[allow(unsafe_code)]
 pub mod os;
+pub mod picture;
 pub mod planner;
 pub mod presence;
 pub mod profile;
