@@ -493,8 +493,9 @@ pub struct Core {
     /// The loaded model's sampling, from its catalog entry
     /// (docs/DECISIONS.md, 2026-10-10); the plain temperature without one.
     pub(crate) sampling: Option<models::ModelSampling>,
-    /// Where a model's vision file goes at the next load.
-    vision_place: VisionPlace,
+    /// Where a model's vision file goes at the next load, when the kit says;
+    /// otherwise the fit decides (plan 38, P5).
+    vision_place: Option<VisionPlace>,
     /// What people attach to their messages, kept with the chat and deleted
     /// with it (docs/DECISIONS.md, 2026-10-18).
     pub(crate) attachments: attachments::Attachments,
@@ -502,13 +503,11 @@ pub struct Core {
     answer_measures: HashMap<String, turns::AnswerMeasure>,
 }
 
-/// Where a model's vision file, its image reader, runs: on the processor
-/// unless asked otherwise, since the one card measured so far (4 GB) cannot
-/// hold it beside the model, and the rule for larger cards comes from the
-/// kit's runs on them (docs/DECISIONS.md, 2026-10-08).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Where the kit puts a model's vision file, its image reader, to measure
+/// it there (docs/DECISIONS.md, 2026-10-08). Without the kit's word the fit
+/// decides at each load (`fit::picture_file_place`; plan 38, P5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VisionPlace {
-    #[default]
     Processor,
     Card,
 }
@@ -645,7 +644,7 @@ impl Core {
             thinking: None,
             thinking_budget: 0,
             sampling: None,
-            vision_place: VisionPlace::default(),
+            vision_place: None,
             attachments: attachments::Attachments::new(
                 cfg.data_dir
                     .as_ref()
@@ -711,9 +710,10 @@ impl Core {
         self.thinking = thinking;
     }
 
-    /// Where a model's vision file goes at the next load.
+    /// Where a model's vision file goes at the next load, whatever the fit
+    /// would decide: the kit's on-card and on-processor passes.
     pub fn set_vision_place(&mut self, place: VisionPlace) {
-        self.vision_place = place;
+        self.vision_place = Some(place);
     }
 
     /// The measure of the last model step in `conversation`: the figures,
@@ -1822,11 +1822,15 @@ impl Core {
     /// Asking again for the model that is starting or running starts
     /// nothing: the start under way goes on. On 2026-09-21 a tester's clicks
     /// on a model that took half a minute to start began six engines in 45
-    /// seconds, each one ending the one before.
+    /// seconds, each one ending the one before. The one exception is a model
+    /// that runs without its picture file: asked for again ("Try again"), it
+    /// is loaded again, and keeps the file if enough memory is free now
+    /// (plan 38, P5).
     fn load_model(&mut self, id: &str) -> Result<()> {
         if let Some(engine) = &self.engine
             && engine.model_id == id
             && engine.starting_or_running()
+            && !(engine.state().running && engine.picture_file_left_out_mib.is_some())
         {
             let now = if engine.state().running {
                 "it runs"
@@ -1872,6 +1876,15 @@ impl Core {
         } else {
             None
         };
+        // Where the picture file goes, and the plan counting it there.
+        let picture_file = self.picture_file_place(id, fitted.as_ref());
+        let fitted = fitted.map(|(placed, hardware)| match picture_file {
+            Some(place) => {
+                let bytes = self.models.get(id).map_or(0, |m| m.vision_bytes());
+                (placed.with_picture_file(place, bytes), hardware)
+            }
+            None => (placed, hardware),
+        });
         // Loading is not evidence of fitting: the look at the engine once a
         // start is over, which may have it started again with fewer layers.
         let after_load = fitted
@@ -1930,9 +1943,9 @@ impl Core {
             }
         }
         self.sampling = self.models.get(id).and_then(|m| m.sampling);
-        let mut fixed = self.vision_flags(id);
+        let mut fixed = self.vision_flags(id, picture_file);
         fixed.extend(self.thinking_flags(id));
-        let engine = engine::Engine::start(
+        let mut engine = engine::Engine::start(
             &binary,
             id,
             &path,
@@ -1963,6 +1976,10 @@ impl Core {
             serde_json::json!({"model": id, "flags": flags}),
             "started",
         );
+        engine.picture_file_left_out_mib = match picture_file {
+            Some(fit::PictureFilePlace::LeftOut { needs_mib }) => Some(needs_mib),
+            _ => None,
+        };
         self.engine = Some(engine);
         // Remembered for the computer, not for a person: the next start
         // begins with the model that was in use.
@@ -2044,12 +2061,51 @@ impl Core {
         request
     }
 
+    /// Where `id`'s picture file goes at this load (plan 38, P5;
+    /// docs/DECISIONS.md, 2026-10-18), from `fitted`, the plan below the
+    /// reference tiers with the computer as found just now. `None` for a
+    /// model without one. The kit's word comes first; the reference tiers,
+    /// with 32 GB of graphics memory and more, put it on the card; below
+    /// them a model whose numbers are not known keeps it in system memory.
+    fn picture_file_place(
+        &mut self,
+        id: &str,
+        fitted: Option<&(fit::Fit, hardware::Hardware)>,
+    ) -> Option<fit::PictureFilePlace> {
+        let m = self.models.get(id).filter(|m| !m.vision_file.is_empty())?;
+        let place = match (self.vision_place, fitted) {
+            (Some(VisionPlace::Card), _) => fit::PictureFilePlace::Card,
+            (Some(VisionPlace::Processor), _) => fit::PictureFilePlace::Processor,
+            (None, Some((placed, hardware))) => {
+                fit::picture_file_place(placed, hardware, m.vision_bytes())
+            }
+            (None, None) if self.cfg.machine.tier() != profile::HardwareTier::BelowFloor => {
+                fit::PictureFilePlace::Card
+            }
+            (None, None) => fit::PictureFilePlace::Processor,
+        };
+        self.trace(match place {
+            fit::PictureFilePlace::Card => format!("pictures: the picture file of {id} goes on the card"),
+            fit::PictureFilePlace::Processor => {
+                format!("pictures: the picture file of {id} goes in system memory")
+            }
+            fit::PictureFilePlace::LeftOut { needs_mib } => format!(
+                "pictures: the picture file of {id} is left out; {needs_mib} MiB more free memory would keep it"
+            ),
+        });
+        Some(place)
+    }
+
     /// The flags that hold at every start of a model's engine, a re-start
-    /// with fewer layers included: its vision file, where it has one, on the
-    /// processor unless `set_vision_place` said the card.
-    fn vision_flags(&self, id: &str) -> Vec<String> {
+    /// with fewer layers included: its vision file where `place` puts it,
+    /// and nothing when it is left out.
+    fn vision_flags(&self, id: &str, place: Option<fit::PictureFilePlace>) -> Vec<String> {
         let Some(m) = self.models.get(id).filter(|m| !m.vision_file.is_empty()) else {
             return Vec::new();
+        };
+        let place = match place {
+            Some(fit::PictureFilePlace::LeftOut { .. }) | None => return Vec::new(),
+            Some(place) => place,
         };
         let mut flags = vec![
             "--mmproj".to_string(),
@@ -2059,7 +2115,7 @@ impl Core {
                 .to_string_lossy()
                 .into_owned(),
         ];
-        if self.vision_place == VisionPlace::Processor {
+        if place == fit::PictureFilePlace::Processor {
             flags.push("--no-mmproj-offload".into());
         }
         flags
@@ -2180,6 +2236,10 @@ impl Core {
             machine: self.cfg.machine.describe(),
             profile: self.cfg.profile.name.clone(),
             engine,
+            picture_file_left_out_mib: self
+                .engine
+                .as_ref()
+                .and_then(|e| e.picture_file_left_out_mib),
         }
     }
 

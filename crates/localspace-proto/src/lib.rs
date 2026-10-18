@@ -176,6 +176,11 @@ pub struct EnvironmentState {
     pub profile: String,
     /// Whether a local inference engine is resident, and what it is.
     pub engine: EngineState,
+    /// The engine started without the model's picture file, for want of
+    /// this much free memory: the composer says so before anything is sent,
+    /// and "Try again" loads the model again (plan 38, P5).
+    #[serde(default)]
+    pub picture_file_left_out_mib: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
@@ -591,6 +596,11 @@ pub enum AttachmentRefusal {
     /// The model in use cannot read pictures here: it has no picture file,
     /// or none is loaded (docs/DECISIONS.md, 2026-10-18).
     CannotReadPictures,
+    /// The model has a picture file, and it was left out at this load: what
+    /// was free then held the model, a chat and the file only with less
+    /// than 3 GB still free. `needs_mib` more free memory would keep it
+    /// (plan 38, P5; docs/DECISIONS.md, 2026-10-18).
+    PictureFileLeftOut { needs_mib: u64 },
 }
 
 /// Why Core ended an answer before the model did.

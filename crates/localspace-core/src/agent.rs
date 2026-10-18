@@ -72,9 +72,16 @@ pub fn send(
         .info()
         .is_some_and(|m| !m.supports_vision);
     if !attachments.is_empty() && cannot_read_pictures {
-        return proto::Response::AttachmentRefused {
-            refusal: proto::AttachmentRefusal::CannotReadPictures,
+        // A picture file left out at this load is said with what it needs.
+        let refusal = match core
+            .engine
+            .as_ref()
+            .and_then(|e| e.picture_file_left_out_mib)
+        {
+            Some(needs_mib) => proto::AttachmentRefusal::PictureFileLeftOut { needs_mib },
+            None => proto::AttachmentRefusal::CannotReadPictures,
         };
+        return proto::Response::AttachmentRefused { refusal };
     }
     let attached = if attachments.is_empty() {
         Vec::new()

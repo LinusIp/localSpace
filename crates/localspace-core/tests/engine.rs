@@ -1023,8 +1023,9 @@ fn an_airgapped_environment_refuses_to_download_and_points_at_import() {
     }
 }
 
-/// A model with a vision file starts with it, on the processor unless
-/// asked otherwise; a step's measure is kept per chat, with whether
+/// A model with a vision file starts with it, on the card of a reference
+/// machine unless the kit asks for the processor (plan 38, P5); a step's
+/// measure is kept per chat, with whether
 /// thinking was asked and what the engine said of it; and a picture sent
 /// with a message reaches the engine as parts of one message
 /// (docs/DECISIONS.md, 2026-10-08).
@@ -1064,9 +1065,10 @@ fn a_model_with_a_vision_file_starts_with_it_and_its_steps_are_measured() {
     assert!(started.contains("--mmproj"), "{started}");
     assert!(started.contains("seer-mmproj.gguf"), "{started}");
     assert!(
-        started.contains("--no-mmproj-offload"),
-        "on the processor unless asked otherwise: {started}"
+        !started.contains("--no-mmproj-offload"),
+        "on the card of a reference machine: {started}"
     );
+    assert!(core.environment().picture_file_left_out_mib.is_none());
     // The entry's thinking budget goes to the engine, with the words it
     // writes when the budget is spent (docs/DECISIONS.md, 2026-10-08).
     assert!(
@@ -1137,8 +1139,8 @@ fn a_model_with_a_vision_file_starts_with_it_and_its_steps_are_measured() {
     );
     assert!(log().contains("text, image_url"), "{}", log());
 
-    // Asked for the card, the next load leaves the offload flag out.
-    core.set_vision_place(localspace_core::VisionPlace::Card);
+    // The kit asks for the processor: the next load keeps the file off the card.
+    core.set_vision_place(localspace_core::VisionPlace::Processor);
     let _ = core.handle(proto::Request::UnloadModel);
     assert!(matches!(
         core.handle(proto::Request::LoadModel { id: "seer".into() }),
@@ -1147,9 +1149,89 @@ fn a_model_with_a_vision_file_starts_with_it_and_its_steps_are_measured() {
     wait_until(&core, "the sidecar to answer again", |s| s.running);
     let again = log();
     assert!(
-        again.contains("--mmproj") && !again.contains("--no-mmproj-offload"),
+        again.contains("--mmproj") && again.contains("--no-mmproj-offload"),
         "{again}"
     );
+}
+
+/// Below the reference tiers the fit decides where the picture file goes
+/// (plan 38, P5; docs/DECISIONS.md, 2026-10-18). On a laptop whose card has
+/// no room and whose free memory would leave less than 3 GB, the model
+/// loads without it; a picture is refused with what it needs, the
+/// environment says so before anything is sent, and asking for the model
+/// again loads it again.
+#[test]
+fn a_picture_file_that_free_memory_cannot_hold_is_left_out_and_said() {
+    let dir = tempfile::tempdir().unwrap();
+    let models = dir.path().join("models");
+    std::fs::create_dir_all(&models).unwrap();
+    std::fs::write(models.join("seer.gguf"), b"reads pictures").unwrap();
+    std::fs::write(models.join("seer-mmproj.gguf"), b"not a real projector").unwrap();
+    let catalog = dir.path().join("catalog");
+    std::fs::create_dir_all(&catalog).unwrap();
+    std::fs::write(
+        catalog.join("catalog.json"),
+        r#"{"version":1,"models":[{"id":"seer","title":"Seer","params_b":0.1,"bytes":32,"context_len":2048,
+            "repo":"example/seer","files":["seer.gguf","seer-mmproj.gguf"],"vision_file":"seer-mmproj.gguf",
+            "tensor":{"core_bytes":16,"routed_expert_bytes":0,"layers":2,"moe":null,"kv_bytes_per_token_fp16":256}}]}"#,
+    )
+    .unwrap();
+    let (machine, mut hardware) = an_ordinary_laptop();
+    // The card is all but full, so nothing goes there; 4 GB is free.
+    hardware.gpus[0].free_mib = 400;
+    hardware.ram_free_mib = 4_000;
+    let mut cfg = Config::personal("tester");
+    cfg.machine = machine;
+    cfg.hardware = Some(hardware);
+    cfg.data_dir = Some(dir.path().to_path_buf());
+    cfg.models_dir = Some(catalog);
+    cfg.llama_server = Some(PathBuf::from(FAKE));
+    let mut core = Core::new(cfg).expect("creating Core");
+    let log =
+        || std::fs::read_to_string(dir.path().join("engines").join("seer.log")).unwrap_or_default();
+
+    assert!(matches!(
+        core.handle(proto::Request::LoadModel { id: "seer".into() }),
+        proto::Response::Ok
+    ));
+    wait_until(&core, "the sidecar to answer", |s| s.running);
+    assert!(!log().contains("--mmproj"), "{}", log());
+    let needs_mib = core
+        .environment()
+        .picture_file_left_out_mib
+        .expect("the environment says the picture file was left out");
+    // What the model, a chat and 3 GB still free need, less the 4 GB free.
+    assert!(needs_mib >= 2458 + 3072 - 4_000, "{needs_mib}");
+
+    let picture = match core.handle(proto::Request::AddAttachment {
+        name: "circle.png".into(),
+        bytes: include_bytes!("../../localspace-cli/assets/measure-picture.png").to_vec(),
+    }) {
+        proto::Response::Attached { attachment } => attachment,
+        other => panic!("expected the picture taken, got {other:?}"),
+    };
+    match core.handle(proto::Request::SendMessage {
+        text: "What is in this picture?".into(),
+        conversation: None,
+        attachments: vec![picture.id],
+    }) {
+        proto::Response::AttachmentRefused {
+            refusal: proto::AttachmentRefusal::PictureFileLeftOut { needs_mib: said },
+        } => assert_eq!(said, needs_mib),
+        other => panic!("expected the picture refused with what it needs, got {other:?}"),
+    }
+
+    // "Try again": the same model asked for while it runs without its file
+    // is loaded again, where any other model asked for again is not.
+    let first = core.engine_pid().expect("an engine");
+    assert!(matches!(
+        core.handle(proto::Request::LoadModel { id: "seer".into() }),
+        proto::Response::Ok
+    ));
+    wait_until(&core, "the sidecar to answer again", |s| s.running);
+    let second = core.engine_pid().expect("an engine");
+    assert_ne!(first, second, "loaded again");
+    assert!(core.environment().picture_file_left_out_mib.is_some());
 }
 
 /// An engine Core starts ends with Core's process, however that ends: it is
