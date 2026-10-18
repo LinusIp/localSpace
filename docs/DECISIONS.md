@@ -13,6 +13,21 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-18, attaching pictures in the composer (plan 38, P3)
+
+- **Three ways in:**
+  - the paperclip button opens the file chooser (PNG, JPEG, WebP, several at once);
+  - dragging pictures onto the composer, which says "Drop the picture here";
+  - pasting a screenshot (Ctrl+V) into the message box.
+
+  Anything else is refused with the strings table's words, and more than 4 pictures with "Up to 4 pictures can go with one message".
+- **Each picture goes to Core as soon as it is added** (`POST /api/v1/attachments`). The composer shows it as a small square from the file on the person's own computer, faded until Core has taken it, with a button to remove it. Send waits until every picture is taken. A refusal from Core is said in the person's language (`lib/attachments.ts`, `refusalText`).
+- **When the message goes,** its pictures go with it as ids. If Core refuses them, the words and pictures come back to the composer with the reason.
+- **In the sent message** the pictures show above the words, from their own address (`GET /api/v1/attachments/{id}`). A click opens one larger in the app's own dialog, never in another program.
+- **Tested:**
+  - `attachments.test.ts`: which files are pictures, the most per message, and every refusal in all three languages;
+  - a browser walk in CI (`web/e2e/pictures.mjs`) attaches the kit's picture through the file chooser and sends it. It checks the engine got it as a picture with the words, the message shows it and it's served under its type with nosniff, and that deleting the chat leaves it neither served nor on the disk.
+
 ## 2026-10-18, a model is offered first only where it leaves room to spare
 
 The owner's rule, from the runs on the founder's laptop (16 GB, 4 GB card, Silent mode, `--load-mode none --no-host`):
