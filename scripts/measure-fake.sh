@@ -108,6 +108,34 @@ else
     status=1
   fi
 fi
+# The person's own pictures (--pictures): a PNG with two questions beside
+# it, one picture with none (the default question), and a WebP, which the
+# engine cannot read, written down as not asked (docs/DECISIONS.md, 2026-10-18).
+mkdir -p "$work/pictures"
+cp crates/localspace-cli/assets/measure-picture.png "$work/pictures/a.png"
+printf "What is in this picture?
+Что на картинке?
+" > "$work/pictures/a.png.txt"
+cp crates/localspace-cli/assets/measure-picture.png "$work/pictures/b.png"
+printf "not a real webp
+" > "$work/pictures/c.webp"
+LOCALSPACE_LLAMA_SERVER="$engine" "$localspace" measure --model seer --catalog "$work/catalog"   --models "$work/models" --data "$work/data-pictures" --out "$work/out-pictures" --answer-seconds 60 --max-minutes 8   --pictures "$work/pictures" > "$work/measure-pictures.log" 2>&1 || status=$?
+tail -n 4 "$work/measure-pictures.log"
+pictures_md="$(ls "$work"/out-pictures/localSpace-measure-seer-*.md 2> /dev/null | head -n 1 || true)"
+if [ -z "$pictures_md" ]; then
+  echo "the pictures run's results file is missing in $work/out-pictures" >&2
+  status=1
+else
+  must "$pictures_md" "#### The pictures asked about, thinking off"
+  must "$pictures_md" "| a.png | What is in this picture? |"
+  must "$pictures_md" "| a.png | Что на картинке? |"
+  must "$pictures_md" "| b.png | What is in this picture? |"
+  must "$pictures_md" "| c.webp | What is in this picture? | - | - | - | **not asked: not a PNG or JPEG"
+  if grep -q "#### Thinking off" "$pictures_md"; then
+    echo "the pictures run ran the script too" >&2
+    status=1
+  fi
+fi
 if [ "$status" -ne 0 ]; then
   echo "the kit's logs:" >&2
   tail -n 40 "$work"/measure-*.log >&2

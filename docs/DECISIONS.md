@@ -13,6 +13,20 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-18, the kit asks about a person's own pictures (`--pictures`)
+
+- **`localspace measure --pictures <folder>`** (the owner, 2026-10-18, option (a); test tooling ahead of the plan for pictures and files). It loads the model, then asks about each picture in the folder instead of running the script:
+  - each question goes in a fresh chat, with thinking off, through Core's own picture path (`send_picture`), so the app's language instruction applies;
+  - the questions are in a text file beside each picture, with the picture's full name and `.txt` added (`page.jpg.txt`), one per line;
+  - a picture with no questions beside it is asked "What is in this picture?";
+  - the results file gets a section, "The pictures asked about", with the time, the time to the first word, the reading and writing figures and the answer, for each question.
+- **Only PNG and JPEG are sent.**
+  - Core labels every picture `image/png`, and the engine's image reader decodes PNG and JPEG by their bytes. It cannot read WebP.
+  - Any other picture is written down as not asked, with why, and the run goes on.
+  - What WebP needs in the app is a question for the plan for pictures and files.
+- **A model without a vision file is refused** before anything is asked.
+- **Tested** in CI's kit job against the test engine (`scripts/measure-fake.sh`): a PNG with two questions beside it (one in Russian), a PNG with none, and a WebP. The results must show all three, the WebP as not asked, and no script.
+
 ## 2026-10-18, maths in chat answers, rendered by KaTeX
 
 What the 2026-10-10 ruling ("Maths display (KaTeX) is in 0.2") is built as

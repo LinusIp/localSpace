@@ -73,6 +73,14 @@ pub struct MeasureArgs {
     /// reading and the picture.
     #[arg(long, value_name = "NAMES")]
     only: Option<String>,
+    /// Ask about the pictures in this folder instead of the script: each PNG
+    /// or JPEG, with the questions in the text file beside it of the same
+    /// name and `.txt` added (`page.jpg.txt`), one per line, each in a fresh
+    /// chat with thinking off; without one, "What is in this picture?". A
+    /// picture in another format is written down as not asked, with why
+    /// (docs/DECISIONS.md, 2026-10-18).
+    #[arg(long, value_name = "DIR")]
+    pictures: Option<PathBuf>,
     /// Ask each message this many times, each in a fresh chat.
     #[arg(long, value_name = "TIMES", default_value_t = 1)]
     repeat: usize,
@@ -764,6 +772,95 @@ fn run_pass(kit: &mut Kit, progress: &mut Progress, items: &[Item], plan: &PassP
     Ok(())
 }
 
+/// One question about one of the person's own pictures (`--pictures`).
+struct OwnPicture {
+    file: String,
+    question: String,
+    /// The answer, or why the picture was not asked about.
+    answered: Result<Answered, String>,
+}
+
+/// The default question about a picture with no questions beside it.
+const OWN_PICTURE_QUESTION: &str = "What is in this picture?";
+
+/// Asks about each picture in `dir`, as `--pictures` says, into `out` as
+/// the answers come.
+fn own_pictures(kit: &mut Kit, dir: &Path, out: &mut Vec<OwnPicture>) -> Result<()> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .with_context(|| format!("reading {}", dir.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_file())
+        .filter(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| !e.eq_ignore_ascii_case("txt"))
+        })
+        .collect();
+    files.sort();
+    if files.is_empty() {
+        bail!("no pictures in {}", dir.display());
+    }
+    for path in files {
+        let file = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let beside = PathBuf::from(format!("{}.txt", path.display()));
+        let questions: Vec<String> = match std::fs::read_to_string(&beside) {
+            Ok(text) => text
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(String::from)
+                .collect(),
+            Err(_) => vec![OWN_PICTURE_QUESTION.to_string()],
+        };
+        let readable = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+            ["png", "jpg", "jpeg"]
+                .iter()
+                .any(|k| e.eq_ignore_ascii_case(k))
+        });
+        let bytes = if readable {
+            std::fs::read(&path).map_err(|e| format!("could not be read: {e}"))
+        } else {
+            Err("not a PNG or JPEG: the engine reads only those".to_string())
+        };
+        for question in questions {
+            kit.within_limit("the pictures")?;
+            err!("{file}: {question}");
+            let answered = match &bytes {
+                Err(why) => {
+                    err!("  not asked: {why}");
+                    Err(why.clone())
+                }
+                Ok(bytes) => {
+                    kit.with(|core| core.set_thinking(Some(false)))?;
+                    let chat = kit.new_conversation()?;
+                    let (text, picture) = (question.clone(), bytes.clone());
+                    let answered = ask(kit, &chat, &question, move |kit| {
+                        kit.with(move |core| core.send_picture(&text, picture, None))
+                    })?;
+                    err!(
+                        "  {:.1} s{}",
+                        answered.seconds,
+                        match &answered.error {
+                            Some(e) => format!(", {e}"),
+                            None => String::new(),
+                        }
+                    );
+                    Ok(answered)
+                }
+            };
+            out.push(OwnPicture {
+                file: file.clone(),
+                question,
+                answered,
+            });
+        }
+    }
+    Ok(())
+}
+
 /// The picture, with the vision file where `place` says.
 struct Pictured {
     place: &'static str,
@@ -831,6 +928,8 @@ struct Progress {
     ready_after: Option<f32>,
     passes: Vec<Pass>,
     pictures: Vec<Pictured>,
+    /// The person's own pictures, for a `--pictures` run.
+    own_pictures: Vec<OwnPicture>,
     read_time: Option<Result<ReadTime, String>>,
     /// Why the run ended before its last step, if it did.
     ended: Option<String>,
@@ -941,6 +1040,7 @@ pub fn run(args: MeasureArgs) -> Result<()> {
         ready_after: None,
         passes: Vec::new(),
         pictures: Vec::new(),
+        own_pictures: Vec::new(),
         read_time: None,
         ended: None,
     };
@@ -1010,6 +1110,14 @@ fn steps(
     let ready_after = kit.load(id)?;
     progress.ready_after = Some(ready_after);
     err!("ready after {ready_after:.0} s");
+
+    // The person's own pictures, alone (docs/DECISIONS.md, 2026-10-18).
+    if let Some(dir) = &args.pictures {
+        if !vision {
+            bail!("{id} has no vision file: it cannot be asked about pictures");
+        }
+        return own_pictures(kit, dir, &mut progress.own_pictures);
+    }
 
     // The messages: the whole script, or the ones named for a counting run.
     let counting = args.only.is_some();
@@ -1642,6 +1750,40 @@ fn report(run: &Progress) -> String {
             lines.push(format!(
                 "| {} | {came_up} | {time} | {first} | {figures} | {back} |",
                 p.place
+            ));
+        }
+        lines.push(String::new());
+    }
+    if !run.own_pictures.is_empty() {
+        lines.push("#### The pictures asked about, thinking off".into());
+        lines.push(String::new());
+        lines.push(
+            "| Picture | Question | Time | First word | Read / wrote | What came back |".into(),
+        );
+        lines.push("|---|---|---|---|---|---|".into());
+        for p in &run.own_pictures {
+            let (time, first, figures, back) = match &p.answered {
+                Err(why) => (
+                    "-".to_string(),
+                    "-".to_string(),
+                    "-".to_string(),
+                    format!("**not asked: {}**", cell(why)),
+                ),
+                Ok(a) => (
+                    format!("{:.1} s", a.seconds),
+                    seconds(a.measure.as_ref().and_then(|m| m.first_word)),
+                    figures_cell(a.measure.as_ref()),
+                    match (&a.error, a.reply.is_empty()) {
+                        (Some(error), _) => format!("**{}**", cell(error)),
+                        (None, true) => "**no reply**".to_string(),
+                        (None, false) => cell(&a.reply),
+                    },
+                ),
+            };
+            lines.push(format!(
+                "| {} | {} | {time} | {first} | {figures} | {back} |",
+                cell(&p.file),
+                cell(&p.question)
             ));
         }
         lines.push(String::new());
