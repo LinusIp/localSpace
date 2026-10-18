@@ -234,6 +234,9 @@ pub struct Engine {
     pub model_id: String,
     pub port: u16,
     pub log_path: PathBuf,
+    /// Started without the model's picture file, for want of this much
+    /// free memory (plan 38, P5).
+    pub picture_file_left_out_mib: Option<u64>,
     spec: Arc<Spec>,
     shared: Arc<Shared>,
     router: Arc<RwLock<Router>>,
@@ -289,6 +292,7 @@ impl Engine {
             model_id: model_id.to_string(),
             port,
             log_path,
+            picture_file_left_out_mib: None,
             spec: spec.clone(),
             shared: shared.clone(),
             router: router.clone(),

@@ -13,6 +13,28 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-18, where the picture file goes, by the fit (plan 38, P5)
+
+The owner's answers of 2026-10-18, as built (`fit::picture_file_place`; `Core::picture_file_place`):
+
+- **On the card** only when every layer of the model is on the card and the file plus 256 MiB of working room (`PICTURE_FILE_WORK_MIB`) fits there too, within the card's usable memory. A picture never costs a layer.
+- **In system memory** otherwise, when the memory free at this load holds the model's system-memory part (the file with it), a chat's 2.4 GB (`IN_A_CHAT_MIB`) and 3 GB still free (`STILL_FREE_MIB`). Free memory is looked at just before the load, with our own engine stopped. Total memory isn't used here, so closing programs really helps.
+- **Left out** when neither holds. The engine starts without `--mmproj`, so the model reads no pictures. Core keeps how much more free memory would have kept the file, `needs_mib`: what the three above add up to, less what is free.
+- **The reference tiers** (W32 and up, planned by the planner, with a card of 32 GB and more) always put it on the card. Below them, a model whose numbers aren't known keeps it in system memory, as before.
+- **The kit's word comes first:** `set_vision_place` still puts it on the card or the processor for the kit's two passes.
+- **The fit counts the file where it goes** (`Fit::with_picture_file`): on the card it moves out of system memory onto the card, with its working room; left out, it leaves system memory.
+- **Said, never a silent slowdown:**
+  - the environment carries `picture_file_left_out_mib`, so the composer says it as soon as a picture is attached;
+  - a message sent with pictures anyway is refused with `PictureFileLeftOut { needs_mib }`;
+  - the message is the approved "Pictures need about {gb} GB more memory than is free now. Close other programs, or switch to {model} for pictures.";
+  - where no other model here reads pictures, "Pictures need about {gb} GB more memory than is free now. Close other programs, then try again." is shown instead (new; its Russian and Uzbek await the founder's check);
+  - {gb} is rounded up to one decimal, in the language's own figures.
+- **"Try again"** (new string, in all three languages) asks for the model in use again. A model that runs without its picture file is the one exception to "asking again for the running model starts nothing": it is loaded again, with free memory looked at anew.
+- **Tested:**
+  - `fit.rs`: the card on a 16 GB card, system memory on the 4 GB laptop, never the card for a model partly on it or with no card, left out with the exact `needs_mib`, and the file counted where it goes;
+  - `tests/engine.rs`: on a laptop with a full card and 4 GB free, the model starts without the file, the environment and the refusal both say what's needed, and asking again loads it again. On W32 the file goes on the card, and the kit can still put it on the processor;
+  - `attachments.test.ts`: the message with and without a model to switch to, in all three languages, and the gigabytes figures.
+
 ## 2026-10-18, the kit asks about a person's own pictures (`--pictures`)
 
 - **`localspace measure --pictures <folder>`** (the owner, 2026-10-18, option (a); test tooling ahead of the plan for pictures and files). It loads the model, then asks about each picture in the folder instead of running the script:

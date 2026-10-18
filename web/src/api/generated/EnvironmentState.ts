@@ -30,4 +30,10 @@ profile: string,
 /**
  * Whether a local inference engine is resident, and what it is.
  */
-engine: EngineState, };
+engine: EngineState, 
+/**
+ * The engine started without the model's picture file, for want of
+ * this much free memory: the composer says so before anything is sent,
+ * and "Try again" loads the model again (plan 38, P5).
+ */
+picture_file_left_out_mib: number | null, };

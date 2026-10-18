@@ -56,6 +56,10 @@ export interface Strings {
   /** A model that cannot read pictures here, and what to do. */
   cannotReadPictures: (model: string) => string;
   pictureFileLeftOut: (gigabytes: string, model: string) => string;
+  /** The same, where no other model here reads pictures. */
+  pictureFileLeftOutAlone: (gigabytes: string) => string;
+  /** Loads the model again, to keep its picture file if memory is free now. */
+  tryAgain: string;
   switchForPictures: (model: string) => string;
   downloadForPictures: (model: string) => string;
 }
@@ -77,6 +81,8 @@ const en: Strings = {
   cannotReadPictures: (model) => `${model} can't read pictures.`,
   pictureFileLeftOut: (gb, model) =>
     `Pictures need about ${gb} GB more memory than is free now. Close other programs, or switch to ${model} for pictures.`,
+  pictureFileLeftOutAlone: (gb) => `Pictures need about ${gb} GB more memory than is free now. Close other programs, then try again.`,
+  tryAgain: "Try again",
   switchForPictures: (model) => `Switch to ${model} for pictures`,
   downloadForPictures: (model) => `Download ${model} for pictures`,
 };
@@ -99,6 +105,9 @@ const ru: Strings = {
   cannotReadPictures: (model) => `${model} не умеет читать изображения.`,
   pictureFileLeftOut: (gb, model) =>
     `Для изображений нужно ещё примерно ${gb} ГБ свободной памяти. Закройте другие программы или переключитесь на ${model} для изображений.`,
+  pictureFileLeftOutAlone: (gb) =>
+    `Для изображений нужно ещё примерно ${gb} ГБ свободной памяти. Закройте другие программы и попробуйте снова.`,
+  tryAgain: "Попробовать снова",
   switchForPictures: (model) => `Переключиться на ${model} для изображений`,
   downloadForPictures: (model) => `Скачать ${model} для изображений`,
 };
@@ -121,6 +130,9 @@ const uz: Strings = {
   cannotReadPictures: (model) => `${model} rasmlarni oʻqiy olmaydi.`,
   pictureFileLeftOut: (gb, model) =>
     `Rasmlar uchun yana taxminan ${gb} GB boʻsh xotira kerak. Boshqa dasturlarni yoping yoki rasmlar uchun ${model} ga oʻting.`,
+  pictureFileLeftOutAlone: (gb) =>
+    `Rasmlar uchun yana taxminan ${gb} GB boʻsh xotira kerak. Boshqa dasturlarni yoping va qayta urinib koʻring.`,
+  tryAgain: "Qayta urinib koʻrish",
   switchForPictures: (model) => `Rasmlar uchun ${model} ga oʻtish`,
   downloadForPictures: (model) => `Rasmlar uchun ${model} ni yuklab olish`,
 };

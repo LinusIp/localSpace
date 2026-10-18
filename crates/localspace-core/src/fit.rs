@@ -240,6 +240,69 @@ pub fn fits_with_room(placed: &Fit, hardware: &Hardware) -> bool {
             <= hardware.ram_total_mib
 }
 
+/// What a picture file needs on the card beside itself, for its work on a
+/// picture (docs/DECISIONS.md, 2026-10-18).
+pub const PICTURE_FILE_WORK_MIB: u64 = 256;
+
+/// Where a model's picture file goes at a load (plan 38, P5; the owner's
+/// rule, docs/DECISIONS.md, 2026-10-18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PictureFilePlace {
+    /// Beside a model wholly on the card, with room there for the file and
+    /// its work: a picture never costs a layer.
+    Card,
+    /// In system memory, where what is free now holds the model, a chat and
+    /// the file with 3 GB still free.
+    Processor,
+    /// Neither: the model loads without it, and `needs_mib` more free
+    /// memory would keep it.
+    LeftOut { needs_mib: u64 },
+}
+
+/// Where the picture file of `file_bytes` goes beside `placed` on
+/// `hardware`, as found just before the load. `placed` counts the file in
+/// system memory, as `Shape::ram_only_bytes` puts it.
+pub fn picture_file_place(placed: &Fit, hardware: &Hardware, file_bytes: u64) -> PictureFilePlace {
+    let file_mib = file_bytes.div_ceil(MIB);
+    let room_on_the_card = hardware
+        .gpu()
+        .filter(|gpu| !gpu.integrated)
+        .is_some_and(|gpu| {
+            placed.gpu_layers == placed.layers_total
+                && placed.gpu_mib + file_mib + PICTURE_FILE_WORK_MIB <= usable_gpu_mib(gpu)
+        });
+    if room_on_the_card {
+        return PictureFilePlace::Card;
+    }
+    let needed = placed.ram_mib + IN_A_CHAT_MIB + STILL_FREE_MIB;
+    if needed <= hardware.ram_free_mib {
+        PictureFilePlace::Processor
+    } else {
+        PictureFilePlace::LeftOut {
+            needs_mib: needed - hardware.ram_free_mib,
+        }
+    }
+}
+
+impl Fit {
+    /// The plan with the picture file counted where it goes: moved to the
+    /// card, kept in system memory, or taken out of it.
+    pub fn with_picture_file(mut self, place: PictureFilePlace, file_bytes: u64) -> Fit {
+        let file_mib = file_bytes.div_ceil(MIB);
+        match place {
+            PictureFilePlace::Card => {
+                self.ram_mib = self.ram_mib.saturating_sub(file_mib);
+                self.gpu_mib += file_mib + PICTURE_FILE_WORK_MIB;
+            }
+            PictureFilePlace::Processor => {}
+            PictureFilePlace::LeftOut { .. } => {
+                self.ram_mib = self.ram_mib.saturating_sub(file_mib);
+            }
+        }
+        self
+    }
+}
+
 /// Place `shape` on `hardware`. `gpu_layer_cap` is the most layers the card
 /// may be given: `None` at first, fewer after a load that did not hold.
 pub fn fit(shape: &Shape, hardware: &Hardware, ask: Ask, gpu_layer_cap: Option<u32>) -> Fit {
@@ -629,6 +692,106 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The picture file of the 9B, as checked in the catalog.
+    const PICTURE_FILE: u64 = 876 * MIB;
+
+    fn with_the_picture_file(mut shape: Shape) -> Shape {
+        shape.ram_only_bytes = PICTURE_FILE;
+        shape
+    }
+
+    fn a_16_gb_card() -> Hardware {
+        let mut hardware = laptop_3050ti();
+        let gpu = &mut hardware.gpus[0];
+        gpu.name = "NVIDIA GeForce RTX 5080".into();
+        gpu.total_mib = 16_303;
+        gpu.free_mib = 15_200;
+        gpu.bandwidth_gbps = Some(960.0);
+        hardware.ram_total_mib = 32_000;
+        hardware.ram_free_mib = 20_000;
+        hardware
+    }
+
+    #[test]
+    fn the_picture_file_goes_on_a_card_that_holds_the_whole_model_and_it() {
+        let shape = with_the_picture_file(qwen_7b());
+        let placed = fit(&shape, &a_16_gb_card(), ASK, None);
+        assert_eq!(placed.gpu_layers, placed.layers_total);
+        assert_eq!(
+            picture_file_place(&placed, &a_16_gb_card(), PICTURE_FILE),
+            PictureFilePlace::Card
+        );
+        // Counted where it goes: out of system memory, onto the card with its work.
+        let counted = placed
+            .clone()
+            .with_picture_file(PictureFilePlace::Card, PICTURE_FILE);
+        assert_eq!(counted.ram_mib, placed.ram_mib - 876);
+        assert_eq!(
+            counted.gpu_mib,
+            placed.gpu_mib + 876 + PICTURE_FILE_WORK_MIB
+        );
+    }
+
+    #[test]
+    fn the_picture_file_never_costs_a_layer_and_stays_in_system_memory_when_that_holds_it() {
+        // The 3B is wholly on the 4 GB card, which has no room for the file
+        // beside it: the file goes to system memory, which holds it.
+        let shape = with_the_picture_file(qwen_3b());
+        let placed = fit(&shape, &laptop_3050ti(), ASK, None);
+        assert_eq!(placed.gpu_layers, placed.layers_total);
+        assert_eq!(
+            picture_file_place(&placed, &laptop_3050ti(), PICTURE_FILE),
+            PictureFilePlace::Processor
+        );
+        // The 7B is partly on the card: never the card for the file.
+        let partly = fit(
+            &with_the_picture_file(qwen_7b()),
+            &a_16_gb_card(),
+            ASK,
+            Some(10),
+        );
+        assert_ne!(
+            picture_file_place(&partly, &a_16_gb_card(), PICTURE_FILE),
+            PictureFilePlace::Card
+        );
+        // No card of its own: never the card either. The whole model is in
+        // system memory then, so it needs more of it free.
+        let mut alone = without_a_card(laptop_3050ti());
+        alone.ram_free_mib = 12_000;
+        let on_the_processor = fit(&shape, &alone, ASK, None);
+        assert_eq!(
+            picture_file_place(&on_the_processor, &alone, PICTURE_FILE),
+            PictureFilePlace::Processor
+        );
+    }
+
+    #[test]
+    fn the_picture_file_is_left_out_when_what_is_free_would_leave_less_than_3_gb() {
+        let shape = with_the_picture_file(qwen_3b());
+        let mut hardware = laptop_3050ti();
+        hardware.ram_free_mib = 5_000;
+        let placed = fit(&shape, &hardware, ASK, None);
+        let needed = placed.ram_mib + IN_A_CHAT_MIB + STILL_FREE_MIB;
+        assert_eq!(
+            picture_file_place(&placed, &hardware, PICTURE_FILE),
+            PictureFilePlace::LeftOut {
+                needs_mib: needed - 5_000
+            }
+        );
+        // Exactly enough free keeps it.
+        hardware.ram_free_mib = needed;
+        assert_eq!(
+            picture_file_place(&placed, &hardware, PICTURE_FILE),
+            PictureFilePlace::Processor
+        );
+        // Left out, it is not counted in system memory.
+        let counted = placed
+            .clone()
+            .with_picture_file(PictureFilePlace::LeftOut { needs_mib: 1 }, PICTURE_FILE);
+        assert_eq!(counted.ram_mib, placed.ram_mib - 876);
+        assert_eq!(counted.gpu_mib, placed.gpu_mib);
     }
 
     #[test]
