@@ -323,6 +323,10 @@ fn on_an_ordinary_computer_the_engine_gets_a_number_of_layers_and_one_named_devi
     let log = std::fs::read_to_string(dir.path().join("engines").join("tiny.log")).unwrap();
     assert!(log.contains(r#""-ngl", "3""#), "{log}");
     assert!(log.contains(r#""--device", "Vulkan0""#), "{log}");
+    // The file is read, not mapped, and nothing kept in pinned memory
+    // (docs/DECISIONS.md, 2026-10-18).
+    assert!(log.contains(r#""--load-mode", "none""#), "{log}");
+    assert!(log.contains(r#""--no-host""#), "{log}");
     assert!(!log.contains("\"999\""), "{log}");
     // A model has been chosen now: no first run any more, and the next start
     // of the window begins with this one.
