@@ -2138,6 +2138,32 @@ mod tests {
         m.path = Some(file);
     }
 
+    /// The owner's case after the test build of 2026-10-19: on the founder's
+    /// laptop (16 GB, a 4 GB card) with Chrome and the Claude app open, about
+    /// 5.8 GB was free when the 4B loaded, and the earlier rule left its
+    /// picture file out, 0.5 GB short. Counting the chat once, with what
+    /// reading pictures adds and 1.5 GB still free, it keeps it.
+    #[test]
+    fn the_4b_keeps_its_picture_file_on_a_16_gb_laptop_with_a_browser_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = Catalog::load(None, dir.path());
+        let four = catalog.get("qwen3.5-4b-q4_k_m").unwrap();
+        let mut laptop = found_laptop();
+        laptop.ram_free_mib = 5_825;
+        let placed = fit::fit(&four.shape().unwrap(), &laptop, four.ask(), None);
+        assert_eq!(
+            fit::picture_file_place(&placed, &laptop, four.vision_bytes()),
+            fit::PictureFilePlace::Processor,
+            "{placed:?}"
+        );
+        // With much less free, it is still left out, and says what it needs.
+        laptop.ram_free_mib = 4_000;
+        assert!(matches!(
+            fit::picture_file_place(&placed, &laptop, four.vision_bytes()),
+            fit::PictureFilePlace::LeftOut { needs_mib } if needs_mib > 0
+        ));
+    }
+
     #[test]
     fn the_model_suggested_for_pictures_is_never_larger_and_keeps_its_picture_file_here() {
         const NINE_B: &str = "qwen3.5-9b-q4_k_m";
