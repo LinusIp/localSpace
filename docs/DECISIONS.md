@@ -13,6 +13,14 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-19, at most 4 context checkpoints for one person
+
+The owner's answer (a) of 2026-10-19. After `-np 1 --cache-ram 256` the engine still grew by about 150 MB a message. The likeliest cause is its context checkpoints: 32 per slot by default, the saved states a model like Qwen3.5 resumes a prompt from.
+
+- **For one person** (`engine::slot_flags`): `--ctx-checkpoints 4`. An organisation's server keeps the engine's default.
+- **Measured before merging,** with Chrome closed so that the run gets through both switches. It's a **24-message chat**, then a second chat, then back to the first and back to the second, before (`f4b5beb`) and after. The question is whether memory levels off or keeps growing, and the wait for the first word on going back. If it still grows, what's growing is found before anything else changes. The figures follow once taken.
+- **Tested:** `engine.rs`, the flags; `tests/engine.rs`, the engine starts with them.
+
 ## 2026-10-19, the engine's slots and caches, and the database's
 
 The owner's answers of 2026-10-19, after the test build freed about 0.3 GB on a restart with the same programs open. The engine had been started with its own defaults (its logs said `n_slots = 4`), with a prompt cache in system memory of up to 8 GiB, into which idle slots are saved.

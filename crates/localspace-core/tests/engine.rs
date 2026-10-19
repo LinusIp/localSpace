@@ -333,6 +333,7 @@ fn on_an_ordinary_computer_the_engine_gets_a_number_of_layers_and_one_named_devi
     // system memory (docs/DECISIONS.md, 2026-10-19).
     assert!(log.contains(r#""-np", "1""#), "{log}");
     assert!(log.contains(r#""--cache-ram", "256""#), "{log}");
+    assert!(log.contains(r#""--ctx-checkpoints", "4""#), "{log}");
     // This model has no picture file: a picture is refused, in parts, and
     // nothing is sent (docs/DECISIONS.md, 2026-10-18).
     let picture = match core.handle(proto::Request::AddAttachment {

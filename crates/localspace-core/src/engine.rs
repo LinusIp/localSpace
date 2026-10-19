@@ -754,15 +754,17 @@ fn last_log_line(path: &Path) -> String {
         .unwrap_or_else(|| "no log output".into())
 }
 
-/// The engine's slots and its prompt cache in system memory (docs/DECISIONS.md,
-/// 2026-10-19). For one person (the desktop app, `serve --personal`, the kit):
-/// one slot, since one answer is written at a time, and at most 256 MiB of
-/// earlier prompts kept in system memory beside it, where the engine's own
-/// defaults are four slots and 8 GiB. An organisation's server keeps the
-/// engine's defaults, for people asking at once, until the planner sizes them.
+/// The engine's slots and what it keeps in system memory to reuse prompts
+/// (docs/DECISIONS.md, 2026-10-19). For one person (the desktop app,
+/// `serve --personal`, the kit): one slot, since one answer is written at a
+/// time; at most 256 MiB of earlier prompts kept beside it; and at most 4
+/// context checkpoints, the saved states a model like Qwen3.5 resumes a
+/// prompt from. The engine's own defaults are four slots, 8 GiB and 32
+/// checkpoints a slot. An organisation's server keeps the engine's
+/// defaults, for people asking at once, until the planner sizes them.
 pub fn slot_flags(topology: proto::Topology) -> Vec<String> {
     match topology {
-        proto::Topology::Personal => ["-np", "1", "--cache-ram", "256"]
+        proto::Topology::Personal => ["-np", "1", "--cache-ram", "256", "--ctx-checkpoints", "4"]
             .map(String::from)
             .to_vec(),
         proto::Topology::Organisation => Vec::new(),
@@ -773,16 +775,16 @@ pub fn slot_flags(topology: proto::Topology) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::planner::{PlanRequest, plan, reference_moe_100b_q4};
+    use crate::profile::Machine;
 
     #[test]
-    fn one_person_gets_one_slot_and_a_small_prompt_cache_and_an_organisation_the_engines_own() {
+    fn one_person_gets_one_slot_a_small_prompt_cache_and_few_checkpoints() {
         assert_eq!(
             slot_flags(proto::Topology::Personal),
-            ["-np", "1", "--cache-ram", "256"]
+            ["-np", "1", "--cache-ram", "256", "--ctx-checkpoints", "4"]
         );
         assert!(slot_flags(proto::Topology::Organisation).is_empty());
     }
-    use crate::profile::Machine;
 
     #[test]
     fn an_engine_placed_by_hand_comes_before_the_packaged_one_and_that_before_path() {
