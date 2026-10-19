@@ -243,6 +243,13 @@ pub fn fits_with_room(placed: &Fit, hardware: &Hardware) -> bool {
 /// What a picture file needs on the card beside itself, for its work on a
 /// picture (docs/DECISIONS.md, 2026-10-18).
 pub const PICTURE_FILE_WORK_MIB: u64 = 256;
+/// What reading pictures adds in system memory beside the picture file: the
+/// largest rise measured while the 4B read three pictures on the 16 GB laptop
+/// on 2026-10-18 (554 MiB), rounded up (docs/DECISIONS.md, 2026-10-19).
+pub const PICTURE_READING_MIB: u64 = 600;
+/// Memory still free while pictures are read, with the model, a chat and the
+/// picture file in memory (the owner, 2026-10-19).
+pub const PICTURES_STILL_FREE_MIB: u64 = 1536;
 
 /// Where a model's picture file goes at a load (plan 38, P5; the owner's
 /// rule, docs/DECISIONS.md, 2026-10-18).
@@ -251,8 +258,8 @@ pub enum PictureFilePlace {
     /// Beside a model wholly on the card, with room there for the file and
     /// its work: a picture never costs a layer.
     Card,
-    /// In system memory, where what is free now holds the model, a chat and
-    /// the file with 3 GB still free.
+    /// In system memory, where what is free now holds the model with the
+    /// file, a chat once, what reading pictures adds, and 1.5 GB still free.
     Processor,
     /// Neither: the model loads without it, and `needs_mib` more free
     /// memory would keep it.
@@ -274,7 +281,7 @@ pub fn picture_file_place(placed: &Fit, hardware: &Hardware, file_bytes: u64) ->
     if room_on_the_card {
         return PictureFilePlace::Card;
     }
-    let needed = placed.ram_mib + IN_A_CHAT_MIB + STILL_FREE_MIB;
+    let needed = placed.ram_mib + IN_A_CHAT_MIB + PICTURE_READING_MIB + PICTURES_STILL_FREE_MIB;
     if needed <= hardware.ram_free_mib {
         PictureFilePlace::Processor
     } else {
@@ -768,12 +775,12 @@ mod tests {
     }
 
     #[test]
-    fn the_picture_file_is_left_out_when_what_is_free_would_leave_less_than_3_gb() {
+    fn the_picture_file_is_left_out_when_what_is_free_would_leave_less_than_1_5_gb_while_reading() {
         let shape = with_the_picture_file(qwen_3b());
         let mut hardware = laptop_3050ti();
         hardware.ram_free_mib = 5_000;
         let placed = fit(&shape, &hardware, ASK, None);
-        let needed = placed.ram_mib + IN_A_CHAT_MIB + STILL_FREE_MIB;
+        let needed = placed.ram_mib + IN_A_CHAT_MIB + PICTURE_READING_MIB + PICTURES_STILL_FREE_MIB;
         assert_eq!(
             picture_file_place(&placed, &hardware, PICTURE_FILE),
             PictureFilePlace::LeftOut {

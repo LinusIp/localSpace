@@ -20,6 +20,11 @@ pub const V1_FILE: &str = "dag.redb";
 /// and ids; 3 moved conversations and the ledger in, per user and workspace.
 pub const SCHEMA_VERSION: u32 = 3;
 
+/// The most of the file the database keeps in memory: 64 MiB, where redb's
+/// own default is 1 GiB (docs/DECISIONS.md, 2026-10-19). A person's file is
+/// well under a megabyte; an organisation's grows.
+const CACHE_BYTES: usize = 64 * 1024 * 1024;
+
 /// Small key/value slots about the database itself.
 const SETTINGS: TableDefinition<&str, &[u8]> = TableDefinition::new("settings");
 /// Document id -> `DocumentRecord`: every document Core knows by name — a
@@ -171,7 +176,10 @@ impl Store {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
-        let db = Database::create(path).with_context(|| format!("opening {}", path.display()))?;
+        let db = Database::builder()
+            .set_cache_size(CACHE_BYTES)
+            .create(path)
+            .with_context(|| format!("opening {}", path.display()))?;
         let store = Store {
             db: Arc::new(db),
             path: Some(path.to_path_buf()),

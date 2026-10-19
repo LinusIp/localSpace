@@ -2,7 +2,7 @@
 // plan 38, P3): which files are taken, how many, and what a refusal from
 // Core says in the person's language.
 
-import type { AttachmentRefusal, ModelCatalogEntry } from "../api/generated";
+import type { AttachmentRefusal } from "../api/generated";
 import type { Language, Strings } from "./strings";
 
 /** The picture types offered by the file chooser and taken by drag and paste. */
@@ -50,19 +50,4 @@ export function refusalText(
   if ("too_many_pixels" in refusal) return strings.pictureTooManyPixels(refusal.too_many_pixels.width, refusal.too_many_pixels.height);
   if ("picture_file_left_out" in refusal) return leftOutText(strings, refusal.picture_file_left_out.needs_mib, language, instead);
   return strings.tooManyPictures(refusal.too_many.most);
-}
-
-/**
- * The model to suggest when the one in use cannot read pictures
- * (docs/DECISIONS.md, 2026-10-18; plan 38, P4): one with a picture file that
- * runs here with room to spare, already on this computer if one is, and of
- * those the largest. None when nothing fits.
- */
-export function pictureModel(entries: ModelCatalogEntry[], current: string | null): ModelCatalogEntry | null {
-  const fits = entries.filter(
-    (e) => e.reads_pictures && e.id !== current && (e.verdict === "runs_well" || e.verdict === "works") && !e.memory_tight,
-  );
-  const largest = (list: ModelCatalogEntry[]) =>
-    list.reduce<ModelCatalogEntry | null>((best, e) => (best === null || e.params_b > best.params_b ? e : best), null);
-  return largest(fits.filter((e) => e.installed)) ?? largest(fits);
 }
