@@ -4186,9 +4186,10 @@ impl Core {
                         message: format!("no conversation `{id}`"),
                     };
                 }
-                // What was attached in it goes with it.
+                // What was attached in it goes with it, and its step's measure.
                 let user = self.active.user.clone();
                 self.attachments.forget(&user, &id);
+                self.answer_measures.remove(&id);
                 self.transcript = self
                     .conversations
                     .current()

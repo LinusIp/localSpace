@@ -462,6 +462,19 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
     }
   }, [draft]);
 
+  // Pictures still in the box when it goes (another chat, another page):
+  // their previews are let go, each up to 30 MB held by the webview.
+  const previews = useRef<Pending[]>([]);
+  useEffect(() => {
+    previews.current = pending;
+  }, [pending]);
+  useEffect(
+    () => () => {
+      for (const p of previews.current) URL.revokeObjectURL(p.preview);
+    },
+    [],
+  );
+
   // The box grows with the text, to a limit the stylesheet sets.
   useEffect(() => {
     const el = box.current;
