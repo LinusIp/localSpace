@@ -20,7 +20,14 @@ The owner's answers of 2026-10-19, after the test build freed about 0.3 GB on a 
 - **For one person** (the desktop app, `serve --personal`, the kit; `engine::slot_flags`): `-np 1 --cache-ram 256`. That's one slot, since one answer is written at a time, and at most 256 MiB of earlier prompts kept in system memory. Checkpoints stay at the engine's default until measured.
 - **An organisation's server keeps the engine's defaults** for now, for people asking at once. **Open:** the planner should size its slots and cache from the machine.
 - **The database keeps at most 64 MiB of its file in memory** (`store::CACHE_BYTES`); redb's default is 1 GiB. A person's file is under a megabyte.
-- **Measured before merging,** on the founder's laptop under the laptop rules: the 4B, a 12-message chat and two switches, before and after. The figures are below once taken.
+- **Measured before merging,** 2026-10-19, on the founder's laptop under the laptop rules (Silent; Chrome, Telegram and the Claude app open), through a real `localspace serve --personal`. The script and the readings are in `D:\localSpace\check\np-run\out`; the internal log has them.
+  - **Before** (build `bd25567`): `n_slots = 4, n_ctx_slot = 8192`. The engine grew by about 100 MB with every message and never gave it back: working set 1,683 → 3,137 MB over 12 messages. The 3 GB rule stopped the run in the second chat.
+  - **After** (`9bc5aea`): `n_slots = 1, n_ctx_slot = 8192`, so **each chat still gets 8,192 tokens**.
+    - About 0.5 GB less right after the load (4,326 MB private, against 5,484 MB less the 641 MB picture file the "after" load left out).
+    - The engine now skips a prompt state over 256 MiB rather than keeping it.
+    - The same speed: 14–20 words a second, and the first word after 0.3–1.2 s.
+  - **Still growing**, about 150 MB a message. It's most likely the engine's context checkpoints, 32 a slot by default, which aren't limited yet. The next step is to measure `--ctx-checkpoints`.
+  - **Not measured:** the wait for the first word on going back to an older chat. Both runs were stopped by the 3 GB rule before the switches, because too little memory was free on that laptop with those programs open.
 - **Tested:** `engine.rs`, the flags for each topology; `tests/engine.rs`, the engine on the ordinary laptop starts with them.
 
 ## 2026-10-19, what the picture-file check leaves free: the chat counted once, 1.5 GB while pictures are read
