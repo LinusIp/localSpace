@@ -975,6 +975,56 @@ impl Catalog {
         Ok(Some(placed))
     }
 
+    /// The model to suggest for pictures when `current` reads none here
+    /// (plan 38, P4 and P5; the owner's rule, docs/DECISIONS.md, 2026-10-19):
+    /// one with a picture file, **never larger than `current`**, that keeps
+    /// its picture file on `hardware` as found at the load, by the same rule
+    /// (`fit::picture_file_place`). One already on this computer comes
+    /// first; failing that, one the disk has room for. Of those, the largest.
+    /// `None` when none qualifies: the app then says only to close other
+    /// programs and try again.
+    pub fn picture_model(&self, current: &str, hardware: &Hardware) -> Option<String> {
+        let size = self.get(current)?.params_b;
+        let keeps_its_picture_file = |m: &CatalogModel| {
+            let Some(shape) = m.shape() else {
+                return false;
+            };
+            let placed = fit::fit(&shape, hardware, m.ask(), None);
+            placed.verdict != fit::Verdict::WillNotFit
+                && !matches!(
+                    fit::picture_file_place(&placed, hardware, m.vision_bytes()),
+                    fit::PictureFilePlace::LeftOut { .. }
+                )
+        };
+        let fits: Vec<&CatalogModel> = self
+            .models
+            .iter()
+            .filter(|m| m.id != current && !m.retired && !m.hidden)
+            .filter(|m| !m.vision_file.is_empty() && m.params_b <= size)
+            .filter(|m| keeps_its_picture_file(m))
+            .collect();
+        let largest = |list: Vec<&CatalogModel>| {
+            list.into_iter()
+                .max_by(|a, b| a.params_b.total_cmp(&b.params_b))
+                .map(|m| m.id.clone())
+        };
+        let (here, elsewhere): (Vec<&CatalogModel>, Vec<&CatalogModel>) = fits
+            .into_iter()
+            .partition(|m| self.installed_path(&m.id).is_some());
+        largest(here).or_else(|| {
+            largest(
+                elsewhere
+                    .into_iter()
+                    .filter(|m| {
+                        hardware
+                            .disk_free_mib
+                            .is_none_or(|free| m.bytes / (1024 * 1024) < free)
+                    })
+                    .collect(),
+            )
+        })
+    }
+
     /// The model to start with on this computer: the largest that runs well,
     /// or failing that the largest that works, or failing that the smallest
     /// that fits at all. Only what can be fetched or is already here, and
@@ -2078,6 +2128,56 @@ mod tests {
             cpu: None,
             cpu_features: Vec::new(),
         }
+    }
+
+    /// The entry `id` taken as on this computer: a file of its own, there.
+    fn installed(catalog: &mut Catalog, dir: &Path, id: &str) {
+        let file = dir.join(format!("{id}.gguf"));
+        std::fs::write(&file, b"here").unwrap();
+        let m = catalog.models.iter_mut().find(|m| m.id == id).unwrap();
+        m.path = Some(file);
+    }
+
+    #[test]
+    fn the_model_suggested_for_pictures_is_never_larger_and_keeps_its_picture_file_here() {
+        const NINE_B: &str = "qwen3.5-9b-q4_k_m";
+        const FOUR_B: &str = "qwen3.5-4b-q4_k_m";
+        const GEMMA_E2B: &str = "gemma-4-e2b-q4_0";
+        let dir = tempfile::tempdir().unwrap();
+        let mut catalog = Catalog::load(None, dir.path());
+        catalog.drop_hidden();
+        let mut laptop = found_laptop();
+        // Enough free for any of the small ones to keep its picture file.
+        laptop.ram_free_mib = 12_000;
+        // The 4B left out: nothing in the app is smaller with a picture file
+        // (Gemma 4 E2B and E4B have more parameters), so nothing is suggested.
+        assert_eq!(catalog.picture_model(FOUR_B, &laptop), None);
+        // The 9B left out, nothing here: the largest smaller one that keeps
+        // its picture file, to download.
+        let offered = catalog
+            .picture_model(NINE_B, &laptop)
+            .expect("one to download");
+        let entry = catalog.get(&offered).unwrap();
+        assert!(
+            entry.params_b <= catalog.get(NINE_B).unwrap().params_b,
+            "{offered}"
+        );
+        assert!(!entry.vision_file.is_empty(), "{offered}");
+        // One already here comes first, though another is larger.
+        installed(&mut catalog, dir.path(), GEMMA_E2B);
+        assert_eq!(
+            catalog.picture_model(NINE_B, &laptop).as_deref(),
+            Some(GEMMA_E2B)
+        );
+        installed(&mut catalog, dir.path(), FOUR_B);
+        assert_eq!(
+            catalog.picture_model(NINE_B, &laptop).as_deref(),
+            Some(GEMMA_E2B)
+        );
+        // With too little free for any of them to keep its picture file:
+        // none, here or to download.
+        laptop.ram_free_mib = 2_000;
+        assert_eq!(catalog.picture_model(NINE_B, &laptop), None);
     }
 
     #[test]

@@ -13,6 +13,19 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-19, the model suggested for pictures: never larger, and one that keeps its picture file here
+
+The owner, after the test build: the app had offered Gemma 4 E4B, which is larger than the 4B, to download.
+
+- **Core chooses it now, at the load** (`Catalog::picture_model`), from the computer as found then, and the environment carries it (`picture_model`). The client no longer chooses one.
+- **The rule:**
+  - a model shown in the app, with a picture file;
+  - **never larger than the one in use** (by parameters);
+  - one that would keep its picture file here by the same rule as the one in use (`fit::picture_file_place`).
+- **Which one:** one already on this computer comes first. Failing that, one the disk has room for, offered as a download. Of those, the largest.
+- **None qualifies:** the app shows only "Close other programs" and "Try again". The 4B has no smaller model with a picture file in the app (Gemma 4 E2B and E4B have more parameters), so it never gets a suggestion.
+- **Tested:** `models.rs`, `the_model_suggested_for_pictures_is_never_larger_and_keeps_its_picture_file_here`; `tests/engine.rs`, no suggestion where no other model reads pictures.
+
 ## 2026-10-18, where the picture file goes, by the fit (plan 38, P5)
 
 The owner's answers of 2026-10-18, as built (`fit::picture_file_place`; `Core::picture_file_place`):

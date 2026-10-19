@@ -237,6 +237,8 @@ pub struct Engine {
     /// Started without the model's picture file, for want of this much
     /// free memory (plan 38, P5).
     pub picture_file_left_out_mib: Option<u64>,
+    /// The model to suggest for pictures meanwhile, found at the load.
+    pub picture_model: Option<String>,
     spec: Arc<Spec>,
     shared: Arc<Shared>,
     router: Arc<RwLock<Router>>,
@@ -293,6 +295,7 @@ impl Engine {
             port,
             log_path,
             picture_file_left_out_mib: None,
+            picture_model: None,
             spec: spec.clone(),
             shared: shared.clone(),
             router: router.clone(),

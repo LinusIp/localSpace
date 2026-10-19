@@ -1885,6 +1885,14 @@ impl Core {
             }
             None => (placed, hardware),
         });
+        // A model that reads no pictures at this load: the one to suggest,
+        // from the computer as found just now.
+        let picture_model = match (&fitted, picture_file) {
+            (Some((_, hardware)), None | Some(fit::PictureFilePlace::LeftOut { .. })) => {
+                self.models.picture_model(id, hardware)
+            }
+            _ => None,
+        };
         // Loading is not evidence of fitting: the look at the engine once a
         // start is over, which may have it started again with fewer layers.
         let after_load = fitted
@@ -1980,6 +1988,7 @@ impl Core {
             Some(fit::PictureFilePlace::LeftOut { needs_mib }) => Some(needs_mib),
             _ => None,
         };
+        engine.picture_model = picture_model;
         self.engine = Some(engine);
         // Remembered for the computer, not for a person: the next start
         // begins with the model that was in use.
@@ -2240,6 +2249,7 @@ impl Core {
                 .engine
                 .as_ref()
                 .and_then(|e| e.picture_file_left_out_mib),
+            picture_model: self.engine.as_ref().and_then(|e| e.picture_model.clone()),
         }
     }
 

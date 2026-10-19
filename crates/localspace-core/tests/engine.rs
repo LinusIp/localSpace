@@ -1200,6 +1200,9 @@ fn a_picture_file_that_free_memory_cannot_hold_is_left_out_and_said() {
         .environment()
         .picture_file_left_out_mib
         .expect("the environment says the picture file was left out");
+    // No other model here reads pictures: none is suggested, so the app
+    // says only to close other programs and try again.
+    assert_eq!(core.environment().picture_model, None);
     // What the model, a chat and 3 GB still free need, less the 4 GB free.
     assert!(needs_mib >= 2458 + 3072 - 4_000, "{needs_mib}");
 

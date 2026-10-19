@@ -181,6 +181,11 @@ pub struct EnvironmentState {
     /// and "Try again" loads the model again (plan 38, P5).
     #[serde(default)]
     pub picture_file_left_out_mib: Option<u64>,
+    /// When the model in use reads no pictures here: the catalog id of one
+    /// that would, never larger, found at the load (plan 38, P5;
+    /// docs/DECISIONS.md, 2026-10-19). None when none would.
+    #[serde(default)]
+    pub picture_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
