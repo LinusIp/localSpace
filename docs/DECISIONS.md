@@ -13,6 +13,29 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-19, the engine's slots and caches, and the database's
+
+The owner's answers of 2026-10-19, after the test build freed about 0.3 GB on a restart with the same programs open. The engine had been started with its own defaults (its logs said `n_slots = 4`), with a prompt cache in system memory of up to 8 GiB, into which idle slots are saved.
+
+- **For one person** (the desktop app, `serve --personal`, the kit; `engine::slot_flags`): `-np 1 --cache-ram 256`. That's one slot, since one answer is written at a time, and at most 256 MiB of earlier prompts kept in system memory. Checkpoints stay at the engine's default until measured.
+- **An organisation's server keeps the engine's defaults** for now, for people asking at once. **Open:** the planner should size its slots and cache from the machine.
+- **The database keeps at most 64 MiB of its file in memory** (`store::CACHE_BYTES`); redb's default is 1 GiB. A person's file is under a megabyte.
+- **Measured before merging,** on the founder's laptop under the laptop rules: the 4B, a 12-message chat and two switches, before and after. The figures are below once taken.
+- **Tested:** `engine.rs`, the flags for each topology; `tests/engine.rs`, the engine on the ordinary laptop starts with them.
+
+## 2026-10-19, what the picture-file check leaves free: the chat counted once, 1.5 GB while pictures are read
+
+The owner's answer (b) of 2026-10-19. The test build had left the 4B's picture file out on the founder's laptop with Chrome and the Claude app open, 0.5 GB short. The 2.4 GB chat allowance isn't counted twice in that rule: it was measured on top of the fit's part, picture file included. But the measurements say no rule that keeps 3 GB free keeps the file on that laptop with a browser open.
+
+- **The rule** (`fit::picture_file_place`): the file stays in system memory when what is free at the load holds:
+  - the fit's system-memory part, picture file included;
+  - a chat's 2.4 GB, once;
+  - what reading pictures adds, 600 MiB (`PICTURE_READING_MIB`; the largest rise measured while the 4B read three pictures on 2026-10-18, 554 MiB, rounded up);
+  - **1.5 GB still free** (`PICTURES_STILL_FREE_MIB`).
+- **On the founder's laptop** with Chrome open (about 5.8 GB free at the load) the 4B now keeps its file. While it reads pictures, about 1.7 GB stays free.
+- **The card's rule and the message are unchanged;** `needs_mib` is the shortfall against this sum.
+- **Tested:** `models.rs`, `the_4b_keeps_its_picture_file_on_a_16_gb_laptop_with_a_browser_open` (16 GB, a 4 GB card, 5,825 MiB free); `fit.rs`, left out below the line with the exact `needs_mib`.
+
 ## 2026-10-19, the model suggested for pictures: never larger, and one that keeps its picture file here
 
 The owner, after the test build: the app had offered Gemma 4 E4B, which is larger than the 4B, to download.

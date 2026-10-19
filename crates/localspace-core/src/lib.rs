@@ -1953,6 +1953,7 @@ impl Core {
         self.sampling = self.models.get(id).and_then(|m| m.sampling);
         let mut fixed = self.vision_flags(id, picture_file);
         fixed.extend(self.thinking_flags(id));
+        fixed.extend(engine::slot_flags(self.cfg.topology));
         let mut engine = engine::Engine::start(
             &binary,
             id,

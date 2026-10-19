@@ -329,6 +329,10 @@ fn on_an_ordinary_computer_the_engine_gets_a_number_of_layers_and_one_named_devi
     assert!(log.contains(r#""--load-mode", "none""#), "{log}");
     assert!(log.contains(r#""--no-host""#), "{log}");
     assert!(!log.contains("\"999\""), "{log}");
+    // One person: one slot, and at most 256 MiB of earlier prompts kept in
+    // system memory (docs/DECISIONS.md, 2026-10-19).
+    assert!(log.contains(r#""-np", "1""#), "{log}");
+    assert!(log.contains(r#""--cache-ram", "256""#), "{log}");
     // This model has no picture file: a picture is refused, in parts, and
     // nothing is sent (docs/DECISIONS.md, 2026-10-18).
     let picture = match core.handle(proto::Request::AddAttachment {
@@ -1203,8 +1207,13 @@ fn a_picture_file_that_free_memory_cannot_hold_is_left_out_and_said() {
     // No other model here reads pictures: none is suggested, so the app
     // says only to close other programs and try again.
     assert_eq!(core.environment().picture_model, None);
-    // What the model, a chat and 3 GB still free need, less the 4 GB free.
-    assert!(needs_mib >= 2458 + 3072 - 4_000, "{needs_mib}");
+    // What the model, a chat, reading pictures and 1.5 GB still free need,
+    // less the 4 GB free.
+    use localspace_core::fit::{IN_A_CHAT_MIB, PICTURE_READING_MIB, PICTURES_STILL_FREE_MIB};
+    assert!(
+        needs_mib >= IN_A_CHAT_MIB + PICTURE_READING_MIB + PICTURES_STILL_FREE_MIB - 4_000,
+        "{needs_mib}"
+    );
 
     let picture = match core.handle(proto::Request::AddAttachment {
         name: "circle.png".into(),

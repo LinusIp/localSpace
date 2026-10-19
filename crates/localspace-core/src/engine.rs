@@ -754,10 +754,34 @@ fn last_log_line(path: &Path) -> String {
         .unwrap_or_else(|| "no log output".into())
 }
 
+/// The engine's slots and its prompt cache in system memory (docs/DECISIONS.md,
+/// 2026-10-19). For one person (the desktop app, `serve --personal`, the kit):
+/// one slot, since one answer is written at a time, and at most 256 MiB of
+/// earlier prompts kept in system memory beside it, where the engine's own
+/// defaults are four slots and 8 GiB. An organisation's server keeps the
+/// engine's defaults, for people asking at once, until the planner sizes them.
+pub fn slot_flags(topology: proto::Topology) -> Vec<String> {
+    match topology {
+        proto::Topology::Personal => ["-np", "1", "--cache-ram", "256"]
+            .map(String::from)
+            .to_vec(),
+        proto::Topology::Organisation => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::planner::{PlanRequest, plan, reference_moe_100b_q4};
+
+    #[test]
+    fn one_person_gets_one_slot_and_a_small_prompt_cache_and_an_organisation_the_engines_own() {
+        assert_eq!(
+            slot_flags(proto::Topology::Personal),
+            ["-np", "1", "--cache-ram", "256"]
+        );
+        assert!(slot_flags(proto::Topology::Organisation).is_empty());
+    }
     use crate::profile::Machine;
 
     #[test]
