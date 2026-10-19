@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ClipIcon, CloseIcon, Dialog, SpinnerIcon, StopIcon } from "@localspace/ui";
 import type { Attachment, ChatMessage, ToolCallRecord } from "../api/generated";
 import { addAttachment, attachmentUrl } from "../api/client";
-import { MOST_PICTURES, PICTURE_TYPES, isPicture, leftOutText, pictureModel, refusalText } from "../lib/attachments";
+import { MOST_PICTURES, PICTURE_TYPES, isPicture, leftOutText, refusalText } from "../lib/attachments";
 import { useLanguage, useStrings } from "../useStrings";
 import { initialsOf, outcomeLine, useSession } from "../store";
 import type { LiveToolCall } from "../store";
@@ -407,7 +407,10 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
   // model to switch to (docs/DECISIONS.md, 2026-10-18; plan 38, P4).
   const loaded = environment?.model ?? null;
   const blind = pending.length > 0 && loaded !== null && !loaded.supports_vision;
-  const instead = blind ? pictureModel(catalogModels, loaded.id) : null;
+  // The model Core found at the load that would read them here, never a
+  // larger one (docs/DECISIONS.md, 2026-10-19); none, and only "Try again".
+  const suggested = environment?.picture_model ?? null;
+  const instead = blind && suggested !== null ? (catalogModels.find((e) => e.id === suggested) ?? null) : null;
   // Its picture file left out at this load, for want of free memory (plan 38, P5).
   const leftOut = environment?.picture_file_left_out_mib ?? null;
 
