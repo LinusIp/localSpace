@@ -13,6 +13,19 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-19, at most 4 context checkpoints for one person
+
+The owner's answer (a) of 2026-10-19. After `-np 1 --cache-ram 256` the engine still grew by about 150 MB a message. The likeliest cause is its context checkpoints: 32 per slot by default, the saved states a model like Qwen3.5 resumes a prompt from.
+
+- **For one person** (`engine::slot_flags`): `--ctx-checkpoints 4`. An organisation's server keeps the engine's default.
+- **Measured before merging,** 2026-10-20, on the founder's laptop under the laptop rules (Silent, Chrome closed), through `localspace serve --personal`. It was a 24-message chat in three languages, a second chat, then back to the first and back to the second. The readings are in `D:\localSpace\check\np-run\out-cp`.
+  - **Before** (`f4b5beb`): the engine's working set grew about 100 MB a message, to 3,366 MB at message 16, then stayed flat.
+  - **After:** it **levels off at message 2, at 2,010 MB**, and stays there to message 24. That's 1.35 GB less at most.
+  - **Speed:** the first word came after 0.3–1.2 s and the answers ran at 7–21 words a second, the same as before.
+  - **At the context limit** (8,192 tokens, reached at message 22): one wait of 11.7 s while the start of the chat is trimmed, then 0.7 s again. Before, every message from then on waited about 12.4 s.
+  - **Going back to the older chat:** 12.3 s for the first word (12.6 s before). With one slot the engine reads the long chat again; its saved state is over 256 MiB, too large for the cache. Going back to a short chat: 0.7 s.
+- **Tested:** `engine.rs`, the flags; `tests/engine.rs`, the engine starts with them.
+
 ## 2026-10-19, the engine's slots and caches, and the database's
 
 The owner's answers of 2026-10-19, after the test build freed about 0.3 GB on a restart with the same programs open. The engine had been started with its own defaults (its logs said `n_slots = 4`), with a prompt cache in system memory of up to 8 GiB, into which idle slots are saved.
