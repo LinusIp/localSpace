@@ -25,7 +25,13 @@ import type { UserInfo } from "./UserInfo";
 import type { Widget } from "./Widget";
 import type { WorkspaceInfo } from "./WorkspaceInfo";
 
-export type Response = "ok" | { "environment": EnvironmentState } | { "transcript": { messages: Array<ChatMessage>, } } | { "turns": { list: Array<TurnInfo>, } } | { "tool_result": ToolOutcome } | { "surface_module": { bytes: Array<number>, shape_schema: number, 
+export type Response = "ok" | { "environment": EnvironmentState } | { "transcript": { messages: Array<ChatMessage>, 
+/**
+ * The first message the model still reads; the ones before it stay
+ * in the chat for the person, and the client says so with a divider
+ * (docs/DECISIONS.md, 2026-10-21). 0 while the whole chat is read.
+ */
+read_from: number, } } | { "turns": { list: Array<TurnInfo>, } } | { "tool_result": ToolOutcome } | { "surface_module": { bytes: Array<number>, shape_schema: number, 
 /**
  * The heap limit the Client must enforce on this surface.
  */
