@@ -3835,7 +3835,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "localspace-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3853,7 +3853,7 @@ dependencies = [
 
 [[package]]
 name = "localspace-client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3874,7 +3874,7 @@ dependencies = [
 
 [[package]]
 name = "localspace-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -3902,7 +3902,7 @@ dependencies = [
 
 [[package]]
 name = "localspace-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3920,7 +3920,7 @@ dependencies = [
 
 [[package]]
 name = "localspace-harness-sdk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3928,7 +3928,7 @@ dependencies = [
 
 [[package]]
 name = "localspace-proto"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "postcard",
  "schemars 1.2.2",
@@ -3940,7 +3940,7 @@ dependencies = [
 
 [[package]]
 name = "localspace-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3965,7 +3965,7 @@ dependencies = [
 
 [[package]]
 name = "localspace-shell"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "localspace-core",
@@ -3981,7 +3981,7 @@ dependencies = [
 
 [[package]]
 name = "localspace-surface-sdk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "egui",
  "epaint",

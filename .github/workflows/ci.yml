@@ -72,6 +72,8 @@ jobs:
       # (docs/DECISIONS.md, 2026-10-11).
       - name: the catalog's download addresses
         run: node scripts/check-catalog-files.mjs
+      - name: one version, in Cargo.toml and in the shell's tauri.conf.json
+        run: node scripts/check-version.mjs
       - name: rustfmt, the workspace and the harness crates
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt

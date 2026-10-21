@@ -13,6 +13,14 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-21, public previews: `v0.2.0-preview.N`
+
+The owner's ruling of 2026-10-21: `0.2.0-preview.1` goes out publicly before the release check of 11–12 November.
+
+- **A third kind of tag,** beside a release (`v0.2.0`, after the release check) and a release candidate (`v0.2.0-rc.N`, a test of the path, deleted after the check): **a preview, `v0.2.0-preview.N`.** It's meant for people to try, and kept until 0.2.0 replaces it.
+- **The code's version stays 0.2.0.** `scripts/check-version.mjs` accepts the preview's tag for it, as it does an rc's. So the files are named `localSpace-0.2.0-<build>-windows-x64-setup.exe` and `…-portable.zip`, with `<build>` the commit's first eight characters.
+- **`package.yml` publishes a preview as a pre-release,** never with the release check's box. Its notes, `docs/release-notes/v0.2.0-preview.N.md`, must have a line beginning `**Preview.**`, or nothing is published.
+
 ## 2026-10-21, the repository tidied before it is opened (internal plan 42 §4)
 
 The owner's rulings of 2026-10-21.
@@ -122,6 +130,29 @@ The owner, after the test build: the app had offered Gemma 4 E4B, which is large
 - **Which one:** one already on this computer comes first. Failing that, one the disk has room for, offered as a download. Of those, the largest.
 - **None qualifies:** the app shows only "Close other programs" and "Try again". The 4B has no smaller model with a picture file in the app (Gemma 4 E2B and E4B have more parameters), so it never gets a suggestion.
 - **Tested:** `models.rs`, `the_model_suggested_for_pictures_is_never_larger_and_keeps_its_picture_file_here`; `tests/engine.rs`, no suggestion where no other model reads pictures.
+
+## 2026-10-18, the version is 0.2.0; a tag must name it
+
+- **The version is 0.2.0,** raised from 0.1.0 in the two places it is set:
+  - the workspace's `Cargo.toml`, which every crate inherits, and with it what
+    the app logs, what its API reports and the About screen;
+  - the shell's `tauri.conf.json`, which the installer's version
+    information and the package's file names come from.
+
+  The test release `v0.2.0-rc.1` showed the gap: its files were named
+  `localSpace-0.1.0-…`. Not raised: the harnesses' own versions, the internal
+  web packages', and the manifest test fixtures, none of which is the app's
+  version.
+- **`scripts/check-version.mjs`** says the two files agree and, given a tag,
+  that the tag names their version: `v0.2.0` for 0.2.0, or `v0.2.0-rc.N` for
+  one of its release candidates. It runs:
+  - in `ci`'s `check` job, on every push;
+  - in `package` before a tag's package is built;
+  - again before a tag is published.
+
+  Tried by hand: the tag `v0.2.0` against the code's 0.1.0, then `v0.1.0`
+  and `v0.2.0-beta` against 0.2.0, each refused; `v0.2.0` and `v0.2.0-rc.2`
+  against 0.2.0, each accepted.
 
 ## 2026-10-18, where the picture file goes, by the fit (plan 38, P5)
 
