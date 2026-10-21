@@ -81,6 +81,8 @@ export type Session = {
   live: boolean;
   notices: Notice[];
   transcript: ChatMessage[];
+  /** The first message of the transcript the model still reads (big-step trimming, docs/DECISIONS.md, 2026-10-21). */
+  readFrom: number;
   /** Each chat's answer in progress, from `assistant_delta` events. */
   streaming: Record<string, string>;
   /** The chats whose answers are being written, or wait, and where they
@@ -244,6 +246,7 @@ const EMPTY = {
   environment: null,
   notices: [] as Notice[],
   transcript: [] as ChatMessage[],
+  readFrom: 0,
   streaming: {} as Record<string, string>,
   turns: {} as Record<string, TurnState>,
   liveCalls: {} as Record<string, LiveToolCall[]>,
@@ -512,7 +515,7 @@ export const useSession = createStore<Session>((set, get) => {
     refreshTranscript: async () => {
       await attempt(async () => {
         const transcript = pick(await call("get_transcript"), "transcript");
-        if (transcript) set({ transcript: transcript.messages });
+        if (transcript) set({ transcript: transcript.messages, readFrom: transcript.read_from });
       });
     },
     setDraft: (chat, text) => set((s) => ({ drafts: text ? { ...s.drafts, [chat]: text } : without(s.drafts, chat) })),
@@ -540,7 +543,7 @@ export const useSession = createStore<Session>((set, get) => {
         void get().refreshTranscript();
         return null;
       }
-      if (get().currentConversation === chat) set({ transcript: transcript.messages });
+      if (get().currentConversation === chat) set({ transcript: transcript.messages, readFrom: transcript.read_from });
       void get().refreshConversations();
       return null;
     },
@@ -603,7 +606,7 @@ export const useSession = createStore<Session>((set, get) => {
     newConversation: async () => {
       await attempt(async () => {
         const c = pick(await call("new_conversation"), "conversations");
-        if (c) set({ conversations: c.list, currentConversation: c.current, transcript: [], task: null, page: "chat" });
+        if (c) set({ conversations: c.list, currentConversation: c.current, transcript: [], readFrom: 0, task: null, page: "chat" });
       });
     },
     selectConversation: async (id) => {
@@ -786,7 +789,7 @@ export const useSession = createStore<Session>((set, get) => {
         return true;
       });
       if (ok) {
-        set({ transcript: [], panels: [], board: null, page: "chat" });
+        set({ transcript: [], readFrom: 0, panels: [], board: null, page: "chat" });
         await get().refreshConversations();
         await get().refreshTranscript();
         await get().refreshWorkspaces();

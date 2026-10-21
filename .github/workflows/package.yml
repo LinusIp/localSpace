@@ -139,7 +139,7 @@ jobs:
           $dir = Join-Path $env:LOCALAPPDATA 'Programs\localSpace'
           Get-ChildItem $dir | Format-Table Name, Length
           $expected = 'localspace-app.exe', 'localspace.exe', 'uninstall.exe', 'README.txt', 'web\index.html',
-            'engine\llama-server.exe', 'engine\ggml-vulkan.dll', 'licences\llama.cpp.txt', 'registry'
+            'engine\llama-server.exe', 'engine\ggml-vulkan.dll', 'licences\llama.cpp.txt', 'licences\THIRD-PARTY-NOTICES.txt', 'registry'
           foreach ($item in $expected) {
             if (-not (Test-Path (Join-Path $dir $item))) { throw "not installed: $item" }
           }

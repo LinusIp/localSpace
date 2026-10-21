@@ -220,7 +220,7 @@ impl Bench {
 
     fn transcript(&self, who: &Caller) -> Vec<proto::ChatMessage> {
         match self.ask(who, proto::Request::GetTranscript) {
-            proto::Response::Transcript { messages } => messages,
+            proto::Response::Transcript { messages, .. } => messages,
             other => panic!("{other:?}"),
         }
     }

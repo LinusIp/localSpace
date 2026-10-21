@@ -629,11 +629,11 @@ sink = ["local"]
     #[test]
     fn the_organisation_s_name_is_taken_trimmed_and_an_empty_one_is_refused() {
         let cfg = parse(
-            "[organisation]\nname = \" Meridian Bank \"\n",
+            "[organisation]\nname = \" Example Bank \"\n",
             Path::new("t.toml"),
         )
         .unwrap();
-        assert_eq!(cfg.organisation.as_deref(), Some("Meridian Bank"));
+        assert_eq!(cfg.organisation.as_deref(), Some("Example Bank"));
         assert_eq!(parse("", Path::new("t.toml")).unwrap().organisation, None);
         assert!(refused("[organisation]\nname = \"  \"\n").contains("leave the key out"));
         assert!(

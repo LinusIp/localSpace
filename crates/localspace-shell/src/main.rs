@@ -112,6 +112,18 @@ fn open_main_window(app: &tauri::App, url: &str) -> anyhow::Result<()> {
         .title("localSpace")
         .inner_size(1440.0, 900.0)
         .min_inner_size(900.0, 600.0)
+        // A link the person clicks that would open a new window (Help → Send
+        // feedback, a link in an answer) goes to their own browser, and only
+        // an https one; the app itself fetches nothing (docs/DECISIONS.md,
+        // 2026-10-21).
+        .on_new_window(|url, _| {
+            if url.scheme() == "https" {
+                let _ = localspace_core::child::command("explorer")
+                    .arg(url.as_str())
+                    .spawn();
+            }
+            tauri::webview::NewWindowResponse::Deny
+        })
         .build()?;
     Ok(())
 }

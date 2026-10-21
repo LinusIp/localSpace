@@ -2,7 +2,7 @@
 // first message, then the conversation. Tool calls appear as what they did,
 // in words; anything that needs the person's say-so appears as a card.
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ClipIcon, CloseIcon, Dialog, SpinnerIcon, StopIcon } from "@localspace/ui";
 import type { Attachment, ChatMessage, ToolCallRecord } from "../api/generated";
 import { addAttachment, attachmentUrl } from "../api/client";
@@ -77,7 +77,10 @@ export function ChatPage() {
 
 /** The conversation itself: the page's body, and the board's drawer. */
 export function Conversation({ compact }: { compact?: boolean }) {
-  const { transcript, approvals } = useSession();
+  const { transcript, approvals, readFrom } = useSession();
+  const strings = useStrings();
+  // The first message the model still reads, once a long chat has been trimmed.
+  const firstRead = readFrom > 0 ? transcript[readFrom] : undefined;
   const { streaming, turn, liveCalls, continuing, thinkingSince } = useChatInProgress();
   const shown = shownOf(transcript);
   const bottom = useRef<HTMLDivElement>(null);
@@ -115,12 +118,14 @@ export function Conversation({ compact }: { compact?: boolean }) {
           {shown.map((m, i) => {
             const isLast = i === shown.length - 1;
             return (
-              <Message
-                key={i}
-                message={m}
-                joined={isLast && joining ? streaming : null}
-                mayContinue={isLast && !turn}
-              />
+              <Fragment key={i}>
+                {m === firstRead && (
+                  <div className="chat-divider" role="note">
+                    {strings.olderMessagesLeftOut}
+                  </div>
+                )}
+                <Message message={m} joined={isLast && joining ? streaming : null} mayContinue={isLast && !turn} />
+              </Fragment>
             );
           })}
           {turn && !joining && (

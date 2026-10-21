@@ -113,7 +113,10 @@ const shipped = Object.entries(JSON.parse(readFileSync(join(root, "scripts/harne
   .map(([id]) => id);
 run(process.execPath, [join(root, "scripts/hpack.mjs"), ...shipped, "--out", join(stage, "registry"), ...(args.includes("--no-harness-build") ? ["--no-build"] : [])], root);
 const packages = readdirSync(join(stage, "registry"));
-cpSync(join(root, "packaging/licences"), join(stage, "licences"), { recursive: true });
+mkdirSync(join(stage, "licences"), { recursive: true });
+cpSync(join(root, "packaging/licences/llama.cpp.txt"), join(stage, "licences/llama.cpp.txt"));
+// Every notice of what the package holds that is not ours (internal plan 42 §3).
+run(process.execPath, [join(root, "scripts/third-party-notices.mjs"), "--out", join(stage, "licences/THIRD-PARTY-NOTICES.txt")], root);
 cpSync(join(root, "packaging/windows/README.txt"), join(stage, "README.txt"));
 // The measurement kit: one command a tester runs, and the words for it
 // (docs/DECISIONS.md, 2026-10-08).
