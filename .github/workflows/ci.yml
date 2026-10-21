@@ -313,7 +313,7 @@ jobs:
         run: |
           cat > "$RUNNER_TEMP/org.toml" <<EOF
           [organisation]
-          name = "Meridian Bank"
+          name = "Example Bank"
           [server]
           bind = "127.0.0.1:8446"
           public_url = "http://127.0.0.1:8446"

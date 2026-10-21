@@ -20,7 +20,7 @@ const dataAt = args.indexOf("--data");
 const data = dataAt >= 0 ? args[dataAt + 1] : null;
 if (!data) throw new Error("--data <dir> is required: the first administrator's link and the audit log are read from it");
 
-const ORGANISATION = "Meridian Bank";
+const ORGANISATION = "Example Bank";
 const WHITEBOARD = "io.localspace.whiteboard";
 const people = {
   anna: { name: "Anna Karimova", email: "anna.karimova@example.test", password: "a long first password for anna" },

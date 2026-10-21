@@ -13,6 +13,15 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-21, the repository tidied before it is opened (internal plan 42 §4)
+
+The owner's rulings of 2026-10-21.
+
+- **`.mailmap`:** the commits made as `Khafizullo <locallabs.io@gmail.com>` were written by Abdulloh Shavkatjonov under a friend's account saved on the build machine. They show under the author's own name. **No history is rewritten.**
+- **"Meridian Bank" became "Example Bank"** in the organisation walk, the CI and local checks, and the settings test, so no real bank's name is used as a test organisation. Older entries of this log keep the old name, as they were written.
+- **`docs/test-a/MESSAGE-SCRIPT.md` moved to the internal repository.** It's the laptop test's record of what each model answered to the fixed messages, with a person's reading of it, and is internal material. The test that compared it with the catalog now checks the catalog alone: every model said to have been through the script names the day, as a date.
+- **The empty `docs/measure/2026-10-10/FOUNDER-READ-4B-RU-UZ.md` is deleted;** the real one is in the internal repository.
+
 ## 2026-10-21, a full chat is trimmed in big steps (plan 41 §2)
 
 The owner's yes of 2026-10-21, with the plan's recommendations. The context stays at 8,192 tokens in 0.2, and the compacter is for 0.2.1.
