@@ -1456,6 +1456,11 @@ pub enum Response {
     Environment(EnvironmentState),
     Transcript {
         messages: Vec<ChatMessage>,
+        /// The first message the model still reads; the ones before it stay
+        /// in the chat for the person, and the client says so with a divider
+        /// (docs/DECISIONS.md, 2026-10-21). 0 while the whole chat is read.
+        #[serde(default)]
+        read_from: usize,
     },
     Turns {
         list: Vec<TurnInfo>,

@@ -260,7 +260,7 @@ fn a_real_v1_database_migrates_with_its_board_its_history_and_its_exports_intact
         other => panic!("{other:?}"),
     }
     match core.handle(proto::Request::GetTranscript) {
-        proto::Response::Transcript { messages } => {
+        proto::Response::Transcript { messages, .. } => {
             assert_eq!(messages[0].content, "What is on the board?");
             assert_eq!(messages.len(), 2);
         }

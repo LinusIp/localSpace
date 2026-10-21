@@ -58,6 +58,8 @@ export interface Strings {
   pictureFileLeftOut: (gigabytes: string, model: string) => string;
   /** The same, where no other model here reads pictures. */
   pictureFileLeftOutAlone: (gigabytes: string) => string;
+  /** The divider before the first message the model still reads in a long chat. */
+  olderMessagesLeftOut: string;
   /** Loads the model again, to keep its picture file if memory is free now. */
   tryAgain: string;
   switchForPictures: (model: string) => string;
@@ -82,6 +84,7 @@ const en: Strings = {
   pictureFileLeftOut: (gb, model) =>
     `Pictures need about ${gb} GB more memory than is free now. Close other programs, or switch to ${model} for pictures.`,
   pictureFileLeftOutAlone: (gb) => `Pictures need about ${gb} GB more memory than is free now. Close other programs, then try again.`,
+  olderMessagesLeftOut: "Earlier messages are no longer read by the model. They stay here for you.",
   tryAgain: "Try again",
   switchForPictures: (model) => `Switch to ${model} for pictures`,
   downloadForPictures: (model) => `Download ${model} for pictures`,
@@ -107,6 +110,7 @@ const ru: Strings = {
     `Для изображений нужно ещё примерно ${gb} ГБ свободной памяти. Закройте другие программы или переключитесь на ${model} для изображений.`,
   pictureFileLeftOutAlone: (gb) =>
     `Для изображений нужно ещё примерно ${gb} ГБ свободной памяти. Закройте другие программы и попробуйте снова.`,
+  olderMessagesLeftOut: "Более ранние сообщения модель больше не читает. Они остаются здесь для вас.",
   tryAgain: "Попробовать снова",
   switchForPictures: (model) => `Переключиться на ${model} для изображений`,
   downloadForPictures: (model) => `Скачать ${model} для изображений`,
@@ -132,6 +136,7 @@ const uz: Strings = {
     `Rasmlar uchun yana taxminan ${gb} GB boʻsh xotira kerak. Boshqa dasturlarni yoping yoki rasmlar uchun ${model} ga oʻting.`,
   pictureFileLeftOutAlone: (gb) =>
     `Rasmlar uchun yana taxminan ${gb} GB boʻsh xotira kerak. Boshqa dasturlarni yoping va qayta urinib koʻring.`,
+  olderMessagesLeftOut: "Oldingi xabarlarni model endi oʻqimaydi. Ular siz uchun shu yerda qoladi.",
   tryAgain: "Qayta urinib koʻrish",
   switchForPictures: (model) => `Rasmlar uchun ${model} ga oʻtish`,
   downloadForPictures: (model) => `Rasmlar uchun ${model} ni yuklab olish`,

@@ -273,7 +273,7 @@ fn the_legacy_conversations_file_is_imported_once_and_the_ledger_survives_a_rest
         "both came in, and no placeholder beside them"
     );
     match core.handle(proto::Request::GetTranscript) {
-        proto::Response::Transcript { messages } => {
+        proto::Response::Transcript { messages, .. } => {
             assert_eq!(messages[0].content, "Plan the launch")
         }
         other => panic!("{other:?}"),

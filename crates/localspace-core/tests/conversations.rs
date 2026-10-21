@@ -20,7 +20,7 @@ fn conversations(core: &mut Core) -> (Vec<proto::ConversationSummary>, String) {
 
 fn transcript(core: &mut Core) -> Vec<proto::ChatMessage> {
     match core.handle(proto::Request::GetTranscript) {
-        proto::Response::Transcript { messages } => messages,
+        proto::Response::Transcript { messages, .. } => messages,
         other => panic!("expected the transcript, got {other:?}"),
     }
 }

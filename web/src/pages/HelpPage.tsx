@@ -3,6 +3,9 @@
 import { useSession } from "../store";
 import { TopBar } from "../components/TopBar";
 
+/** localSpace's discussion group, opened in the person's browser; nothing is sent from the app. */
+const FEEDBACK = "https://t.me/localSpace_discussion";
+
 export function HelpPage() {
   const { me, environment } = useSession();
   const organisation = me?.topology === "organisation";
@@ -38,6 +41,17 @@ export function HelpPage() {
             <div className="row-main">
               <div className="row-title">If something is wrong</div>
               <div className="row-body">{organisation ? "Ask your IT team. They can see the server, add people, and send you a new sign-in link." : "Settings → Advanced shows what the app knows about itself."}</div>
+            </div>
+          </div>
+          <div className="row-item">
+            <div className="row-main">
+              <div className="row-title">Send feedback</div>
+              <div className="row-body">
+                Tell us what works and what doesn't in localSpace's Telegram group. The link opens in your browser; nothing is sent from the app.{" "}
+                <a className="link green" href={FEEDBACK} target="_blank" rel="noreferrer">
+                  Open the Telegram group
+                </a>
+              </div>
             </div>
           </div>
         </div>

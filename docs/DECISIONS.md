@@ -22,6 +22,51 @@ The owner's rulings of 2026-10-21.
 - **`docs/test-a/MESSAGE-SCRIPT.md` moved to the internal repository.** It's the laptop test's record of what each model answered to the fixed messages, with a person's reading of it, and is internal material. The test that compared it with the catalog now checks the catalog alone: every model said to have been through the script names the day, as a date.
 - **The empty `docs/measure/2026-10-10/FOUNDER-READ-4B-RU-UZ.md` is deleted;** the real one is in the internal repository.
 
+## 2026-10-21, a full chat is trimmed in big steps (plan 41 §2)
+
+The owner's yes of 2026-10-21, with the plan's recommendations. The context stays at 8,192 tokens in 0.2, and the compacter is for 0.2.1.
+
+**Before:** Core gave the model "the newest turns that fit" (`prompt::turns`). Once a chat was full, nearly every message pushed the oldest turn out and changed the prompt's start, so the engine read the whole chat again on every message: about 12 s before the first word on the founder's laptop (the 24-message runs of 2026-10-20).
+
+- **`prompt::read_from`:** while what is read fits the profile's working set, the start stays where it is and the engine reuses what it read. When it no longer fits, the start jumps **in one step** to the first message of the person's after which **at most half** the working set is left. The engine reads that once and is fast again for the next several messages.
+- **It begins with the person's message** (some templates refuse one that begins with an answer). **The newest message of the person's is always read**, however long.
+- **Nothing is stored.** The rule is replayed over the chat as it grew, so the same messages always give the same start. Every caller of `prompt::build` reads from it: the agent, the stable part and the context preview. Old chats and the old app are unaffected.
+- **A picture counts as 400 tokens** (`PICTURE_TOKENS`; the engine counted 383 for a question with one picture, its system part included).
+- **Counting** stays bytes / 4. Cyrillic is two bytes a letter, so a Russian chat trims early, never late. The engine's own count comes with text files (plan 38 F4).
+- **`Response::Transcript` carries `read_from`.** The client shows a divider before that message: "Earlier messages are no longer read by the model. They stay here for you." It has Russian and Uzbek versions, which the founder is to check. Every message stays in the chat and in the record.
+- **Tested:** `prompt.rs`:
+  - a chat that fits is read from its start;
+  - a full one moves in one step to at most half and then stays for ten more pairs;
+  - the newest is always read;
+  - pictures count;
+  - `build` reads from the step.
+
+## 2026-10-21, Help → Send feedback; links open in the person's browser
+
+The owner's ruling of 2026-10-21.
+
+- **Help has a "Send feedback" row.** Its link opens localSpace's Telegram group, `https://t.me/localSpace_discussion`, **in the person's browser.** Nothing is sent from the app: no report, no log, no address. The preview's release notes carry the same link.
+- **The desktop window hands any link the person clicks that would open a new window to their own browser.** That covers this one and links in answers. It does so **only for `https`**; anything else is refused (`on_new_window` in `localspace-shell`). The app itself fetches nothing, and the "no outbound connection" rule holds, since it's the browser that connects, at the person's click. Before this, such a click opened a bare WebView2 window inside the app.
+
+## 2026-10-21, the third-party notices travel with the package
+
+An audit on 2026-10-21 found the Windows package shipping only llama.cpp's licence and libomp's. The MIT, BSD, ISC, Unicode, OFL, MPL and CDLA notices of what it links and bundles were missing. They are owed whatever localSpace's own licence is. The owner asked for them in the public preview.
+
+- **`scripts/third-party-notices.mjs`**, written in-house (no new tool), writes `licences/THIRD-PARTY-NOTICES.txt` into the package at packaging time. It covers:
+  - every Rust crate linked into `localspace-app.exe` and `localspace.exe`: `cargo metadata` for Windows, normal edges only, never through a proc-macro. That's 417 crates;
+  - the JavaScript the web client ships, the production closure of `web/` and its packages: 74 packages;
+  - **the KaTeX fonts, under SIL OFL 1.1** (not the package's MIT), with their copyright lines and Reserved Font Names;
+  - components listed by hand in `packaging/licences/notices.json`, ten of them:
+    - the engine (llama.cpp b10869);
+    - the libraries built into its DLLs, fetched from llama.cpp's sources at its commit `30b6a75` with the owner's yes of 2026-10-21: cpp-httplib, nlohmann/json, stb_image (MIT chosen), miniaudio (public domain or MIT-0), sheredom's `subprocess.h` (Unlicense), BoringSSL 0.20260903.0 (Apache-2.0);
+    - **the engine's built-in web UI with the 360 libraries its lockfile bundles,** each with its own licence file, fetched from unpkg at the locked version. Four MIT packages ship no file and get the MIT text with their authors; DOMPurify's Apache-2.0 option is taken. The Node-only `@napi-rs/canvas` binaries are left out, since they never reach a web page. localSpace doesn't use this UI, but it is inside `llama-server-impl.dll`;
+    - **Microsoft's WebView2 loader**, linked into `localspace-app.exe`: the BSD-style licence and Microsoft's own notices from the SDK it comes from (`Microsoft.Web.WebView2` 1.0.3650.58, the NuGet package).
+- **Each licence text is written once,** with every component it covers: 299 distinct texts.
+- **A crate that ships no licence file** gets the standard text of the licence it declares, with its authors as the holders. Of an "OR", the permissive choice is taken: MIT, then Apache-2.0, then BSD-3-Clause, then MPL-2.0. That covers 21 crates, among them `ittapi` (BSD-3-Clause, not GPL-2.0), `automerge`, `ts-rs` and parts of wasmtime. The standard texts are kept in `packaging/licences/texts/`, copied from crates that carry them.
+- **MPL-2.0 crates** (through Tauri) are listed with where their source is, as that licence asks of a binary.
+- **CI** (`check`) runs `--check`: a shipped dependency with no licence text fails the build. The package step lists the notices file among what it must contain.
+- **When the engine is upgraded,** its vendored libraries and its web UI's list must be fetched again for the new commit. The engine's entry in `scripts/engine.json` and the `engine/` texts change together.
+
 ## 2026-10-19, at most 4 context checkpoints for one person
 
 The owner's answer (a) of 2026-10-19. After `-np 1 --cache-ram 256` the engine still grew by about 150 MB a message. The likeliest cause is its context checkpoints: 32 per slot by default, the saved states a model like Qwen3.5 resumes a prompt from.

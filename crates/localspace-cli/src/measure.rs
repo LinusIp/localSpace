@@ -484,7 +484,7 @@ impl Kit {
 
     fn transcript(&mut self) -> Result<Vec<proto::ChatMessage>> {
         match self.call(proto::Request::GetTranscript)? {
-            proto::Response::Transcript { messages } => Ok(messages),
+            proto::Response::Transcript { messages, .. } => Ok(messages),
             other => bail!("unexpected answer to the transcript: {other:?}"),
         }
     }
