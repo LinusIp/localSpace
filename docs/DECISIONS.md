@@ -13,6 +13,13 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-21, Help → Send feedback; links open in the person's browser
+
+The owner's ruling of 2026-10-21.
+
+- **Help has a "Send feedback" row.** Its link opens localSpace's Telegram group, `https://t.me/localSpace_discussion`, **in the person's browser.** Nothing is sent from the app: no report, no log, no address. The preview's release notes carry the same link.
+- **The desktop window hands any link the person clicks that would open a new window to their own browser.** That covers this one and links in answers. It does so **only for `https`**; anything else is refused (`on_new_window` in `localspace-shell`). The app itself fetches nothing, and the "no outbound connection" rule holds, since it's the browser that connects, at the person's click. Before this, such a click opened a bare WebView2 window inside the app.
+
 ## 2026-10-19, at most 4 context checkpoints for one person
 
 The owner's answer (a) of 2026-10-19. After `-np 1 --cache-ram 256` the engine still grew by about 150 MB a message. The likeliest cause is its context checkpoints: 32 per slot by default, the saved states a model like Qwen3.5 resumes a prompt from.
