@@ -499,9 +499,10 @@ mod tests {
 
     #[test]
     fn a_full_chat_moves_its_start_in_one_big_step_and_then_stays() {
-        // About 63 tokens a message (250 characters / 4): 8,000 hold about 63 messages.
+        // About 63 tokens a message (250 characters / 4): 140 messages are
+        // about 8,800 tokens, over the 8,000.
         let budget = 8000;
-        let full = chat(40, 50);
+        let full = chat(70, 50);
         let start = read_from(&full, budget);
         assert!(start > 0, "the chat no longer fits");
         assert_eq!(full[start].role, Role::User, "it begins with the person");
@@ -521,7 +522,7 @@ mod tests {
             );
         }
         // Only when it is full again does it move, once more.
-        let later = chat(80, 50);
+        let later = chat(140, 50);
         assert!(read_from(&later, budget) > start);
     }
 
@@ -553,7 +554,7 @@ mod tests {
 
     #[test]
     fn the_prompt_reads_from_the_big_step() {
-        let full = chat(40, 50);
+        let full = chat(70, 50);
         let p = build(&ModelProfile::small(), &active(&[]), &[], None, &full);
         let start = read_from(&full, ModelProfile::small().working_set_tokens);
         assert_eq!(p.turns.len(), full.len() - start);
