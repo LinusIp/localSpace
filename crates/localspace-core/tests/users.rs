@@ -44,7 +44,7 @@ fn member(name: &str) -> Caller {
 
 fn transcript(core: &mut Core, who: &Caller) -> Vec<proto::ChatMessage> {
     match core.handle_as(who, proto::Request::GetTranscript) {
-        proto::Response::Transcript { messages } => messages,
+        proto::Response::Transcript { messages, .. } => messages,
         other => panic!("GetTranscript failed: {other:?}"),
     }
 }
@@ -281,7 +281,7 @@ fn the_local_user_of_a_personal_core_is_its_admin_and_handle_is_theirs() {
     let other = member("ben");
     assert!(transcript(&mut core, &other).is_empty());
     match core.handle(proto::Request::GetTranscript) {
-        proto::Response::Transcript { messages } => {
+        proto::Response::Transcript { messages, .. } => {
             assert_eq!(messages.len(), 2, "back to the local user")
         }
         other => panic!("{other:?}"),

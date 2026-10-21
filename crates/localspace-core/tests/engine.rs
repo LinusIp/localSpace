@@ -154,7 +154,7 @@ fn loading_a_model_starts_the_sidecar_and_a_chat_turn_goes_through_it() {
         conversation: None,
         attachments: Vec::new(),
     }) {
-        proto::Response::Transcript { messages } => {
+        proto::Response::Transcript { messages, .. } => {
             let reply = messages
                 .iter()
                 .rev()
@@ -932,7 +932,7 @@ fn a_real_card_smaller_than_the_model_ends_with_a_plan_that_holds() {
         conversation: None,
         attachments: Vec::new(),
     }) {
-        proto::Response::Transcript { messages } => {
+        proto::Response::Transcript { messages, .. } => {
             let reply = messages
                 .iter()
                 .rev()
@@ -1112,7 +1112,7 @@ fn a_model_with_a_vision_file_starts_with_it_and_its_steps_are_measured() {
     // carries nothing of it (docs/DECISIONS.md, 2026-10-10): the engine
     // says of every request whether earlier thinking came with it.
     let transcript = |core: &mut Core| match core.handle(proto::Request::GetTranscript) {
-        proto::Response::Transcript { messages } => messages,
+        proto::Response::Transcript { messages, .. } => messages,
         other => panic!("expected the transcript, got {other:?}"),
     };
     assert_eq!(transcript(&mut core)[1].thinking, "Let me think about it. ");

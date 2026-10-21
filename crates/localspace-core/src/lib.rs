@@ -4130,6 +4130,7 @@ impl Core {
 
             R::GetTranscript => proto::Response::Transcript {
                 messages: self.transcript.clone(),
+                read_from: prompt::read_from(&self.transcript, self.cfg.profile.working_set_tokens),
             },
 
             R::ListConversations => self.conversations_response(),

@@ -1243,6 +1243,7 @@ fn delivery(core: &Core, user: &str) -> Delivery {
 fn transcript(core: &Core) -> proto::Response {
     proto::Response::Transcript {
         messages: core.transcript.clone(),
+        read_from: crate::prompt::read_from(&core.transcript, core.cfg.profile.working_set_tokens),
     }
 }
 
