@@ -13,6 +13,13 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-21, the preview's notes after the owner's check
+
+The owner checked `v0.2.0-preview.1` (build `920b7123`) and approved it. Two known issues were added to its notes, on the release page and in `docs/release-notes/v0.2.0-preview.1.md`:
+
+- **The app is mostly in English for now;** only the newest messages are in Russian and Uzbek. The full translation is planned for 0.2.1.
+- **Pictures may ask to close other programs when there is enough memory.** On the owner's laptop, a second signed-in Windows user (with Chrome open) made the 4B's picture check refuse once; **Try again** then worked, and kept working with Chrome reopened. The check (`fit::picture_file_place`, internal plan 38) is to be loosened for 0.2.0, by counting another user's memory sensibly or by a smaller margin. How is a question for the owner before it's built.
+
 ## 2026-10-21, public previews: `v0.2.0-preview.N`
 
 The owner's ruling of 2026-10-21: `0.2.0-preview.1` goes out publicly before the release check of 11–12 November.
