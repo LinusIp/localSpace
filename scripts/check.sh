@@ -140,7 +140,7 @@ step "serve, then install the whiteboard from the catalog and walk the gate" \
 stop
 cat > "$temp/org.toml" << EOF
 [organisation]
-name = "Meridian Bank"
+name = "Example Bank"
 [server]
 bind = "127.0.0.1:8446"
 public_url = "http://127.0.0.1:8446"

@@ -13,6 +13,15 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-21, the repository tidied before it is opened (internal plan 42 §4)
+
+The owner's rulings of 2026-10-21.
+
+- **`.mailmap`:** the commits made as `Khafizullo <locallabs.io@gmail.com>` were written by Abdulloh Shavkatjonov under a friend's account saved on the build machine. They show under the author's own name. **No history is rewritten.**
+- **"Meridian Bank" became "Example Bank"** in the organisation walk, the CI and local checks, and the settings test, so no real bank's name is used as a test organisation. Older entries of this log keep the old name, as they were written.
+- **`docs/test-a/MESSAGE-SCRIPT.md` moved to the internal repository.** It's the laptop test's record of what each model answered to the fixed messages, with a person's reading of it, and is internal material. The test that compared it with the catalog now checks the catalog alone: every model said to have been through the script names the day, as a date.
+- **The empty `docs/measure/2026-10-10/FOUNDER-READ-4B-RU-UZ.md` is deleted;** the real one is in the internal repository.
+
 ## 2026-10-19, at most 4 context checkpoints for one person
 
 The owner's answer (a) of 2026-10-19. After `-np 1 --cache-ram 256` the engine still grew by about 150 MB a message. The likeliest cause is its context checkpoints: 32 per slot by default, the saved states a model like Qwen3.5 resumes a prompt from.
