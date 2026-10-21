@@ -21,16 +21,16 @@ An audit on 2026-10-21 found the Windows package shipping only llama.cpp's licen
   - every Rust crate linked into `localspace-app.exe` and `localspace.exe`: `cargo metadata` for Windows, normal edges only, never through a proc-macro. That's 417 crates;
   - the JavaScript the web client ships, the production closure of `web/` and its packages: 74 packages;
   - **the KaTeX fonts, under SIL OFL 1.1** (not the package's MIT), with their copyright lines and Reserved Font Names;
-  - components listed by hand in `packaging/licences/notices.json`: today the engine.
-- **Each licence text is written once,** with every component it covers: 291 distinct texts.
+  - components listed by hand in `packaging/licences/notices.json`, ten of them:
+    - the engine (llama.cpp b10869);
+    - the libraries built into its DLLs, fetched from llama.cpp's sources at its commit `30b6a75` with the owner's yes of 2026-10-21: cpp-httplib, nlohmann/json, stb_image (MIT chosen), miniaudio (public domain or MIT-0), sheredom's `subprocess.h` (Unlicense), BoringSSL 0.20260903.0 (Apache-2.0);
+    - **the engine's built-in web UI with the 360 libraries its lockfile bundles,** each with its own licence file, fetched from unpkg at the locked version. Four MIT packages ship no file and get the MIT text with their authors; DOMPurify's Apache-2.0 option is taken. The Node-only `@napi-rs/canvas` binaries are left out, since they never reach a web page. localSpace doesn't use this UI, but it is inside `llama-server-impl.dll`;
+    - **Microsoft's WebView2 loader**, linked into `localspace-app.exe`: the BSD-style licence and Microsoft's own notices from the SDK it comes from (`Microsoft.Web.WebView2` 1.0.3650.58, the NuGet package).
+- **Each licence text is written once,** with every component it covers: 299 distinct texts.
 - **A crate that ships no licence file** gets the standard text of the licence it declares, with its authors as the holders. Of an "OR", the permissive choice is taken: MIT, then Apache-2.0, then BSD-3-Clause, then MPL-2.0. That covers 21 crates, among them `ittapi` (BSD-3-Clause, not GPL-2.0), `automerge`, `ts-rs` and parts of wasmtime. The standard texts are kept in `packaging/licences/texts/`, copied from crates that carry them.
 - **MPL-2.0 crates** (through Tauri) are listed with where their source is, as that licence asks of a binary.
 - **CI** (`check`) runs `--check`: a shipped dependency with no licence text fails the build. The package step lists the notices file among what it must contain.
-- **Not yet in it**, pending the owner's yes to fetch the texts:
-  - the libraries built into the engine's DLLs (cpp-httplib, nlohmann/json, BoringSSL, stb_image, and its web UI's libraries);
-  - Microsoft's WebView2 loader licence.
-
-  Each goes into `notices.json` with its text as it arrives.
+- **When the engine is upgraded,** its vendored libraries and its web UI's list must be fetched again for the new commit. The engine's entry in `scripts/engine.json` and the `engine/` texts change together.
 
 ## 2026-10-19, at most 4 context checkpoints for one person
 

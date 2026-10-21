@@ -1,6 +1,59 @@
 {
   "comment": "Components the package ships that are not in the Rust or JavaScript dependency graphs, each with its licence text in this folder (scripts/third-party-notices.mjs; internal plan 42 §3).",
   "components": [
-    { "name": "llama.cpp b10869 (the engine)", "licence": "MIT", "where": "engine\\", "text": "llama.cpp.txt" }
+    {
+      "name": "llama.cpp b10869 (the engine)",
+      "licence": "MIT",
+      "where": "engine\\",
+      "text": "llama.cpp.txt"
+    },
+    {
+      "name": "cpp-httplib, built into the engine",
+      "licence": "MIT",
+      "where": "engine\\llama-common.dll, engine\\llama-server-impl.dll",
+      "text": "engine/cpp-httplib.txt"
+    },
+    {
+      "name": "nlohmann/json, built into the engine",
+      "licence": "MIT",
+      "where": "engine\\llama-common.dll",
+      "text": "engine/nlohmann-json.txt"
+    },
+    {
+      "name": "stb_image, built into the engine",
+      "licence": "MIT or public domain (MIT chosen)",
+      "where": "engine\\mtmd.dll",
+      "text": "engine/stb_image.txt"
+    },
+    {
+      "name": "miniaudio, built into the engine",
+      "licence": "public domain or MIT-0",
+      "where": "engine\\llama-common.dll, engine\\mtmd.dll",
+      "text": "engine/miniaudio.txt"
+    },
+    {
+      "name": "subprocess.h (sheredom), built into the engine",
+      "licence": "Unlicense (public domain)",
+      "where": "engine\\llama-common.dll",
+      "text": "engine/subprocess.txt"
+    },
+    {
+      "name": "BoringSSL 0.20260903.0, built into the engine",
+      "licence": "Apache-2.0",
+      "where": "engine\\llama-common.dll, engine\\llama-server-impl.dll",
+      "text": "engine/boringssl.txt"
+    },
+    {
+      "name": "the engine's built-in web UI and the libraries it bundles",
+      "licence": "each its own (mostly MIT)",
+      "where": "engine\\llama-server-impl.dll",
+      "text": "engine/webui.txt"
+    },
+    {
+      "name": "Microsoft WebView2 loader, SDK 1.0.3650.58",
+      "licence": "BSD-3-Clause (Microsoft), with its own notices",
+      "where": "localspace-app.exe",
+      "text": "webview2.txt"
+    }
   ]
 }
