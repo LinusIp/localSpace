@@ -96,6 +96,8 @@ jobs:
       - name: types, the whiteboard surface
         run: npm run typecheck:whiteboard
         working-directory: web
+      - name: every shipped dependency has its licence text (third-party notices)
+        run: node scripts/third-party-notices.mjs --check
 
   web:
     name: web (tests, build, sizes, frame times)
