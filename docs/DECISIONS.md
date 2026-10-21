@@ -26,6 +26,7 @@ The owner's ruling of 2026-10-21: `0.2.0-preview.1` goes out publicly before the
 The owner's rulings of 2026-10-21.
 
 - **`.mailmap`:** the commits made as `Khafizullo <locallabs.io@gmail.com>` were written by Abdulloh Shavkatjonov under a friend's account saved on the build machine. They show under the author's own name. **No history is rewritten.**
+- **LinusIp is the owner's own GitHub account,** so its commits (pull-request merges and edits made on GitHub) are mapped to the same name. From 2026-10-21 new commits are made as `Abdulloh Shavkatjonov <locallabs.io@gmail.com>` (the clones' local git config).
 - **"Meridian Bank" became "Example Bank"** in the organisation walk, the CI and local checks, and the settings test, so no real bank's name is used as a test organisation. Older entries of this log keep the old name, as they were written.
 - **`docs/test-a/MESSAGE-SCRIPT.md` moved to the internal repository.** It's the laptop test's record of what each model answered to the fixed messages, with a person's reading of it, and is internal material. The test that compared it with the catalog now checks the catalog alone: every model said to have been through the script names the day, as a date.
 - **The empty `docs/measure/2026-10-10/FOUNDER-READ-4B-RU-UZ.md` is deleted;** the real one is in the internal repository.
