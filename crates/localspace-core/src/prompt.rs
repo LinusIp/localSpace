@@ -507,7 +507,16 @@ mod tests {
         assert!(start > 0, "the chat no longer fits");
         assert_eq!(full[start].role, Role::User, "it begins with the person");
         let read: usize = full[start..].iter().map(cost).sum();
-        assert!(read <= budget / 2, "one step down to half: {read}");
+        assert!(read <= budget, "never more than the working set: {read}");
+        // At the moment of the step, what is left is at most half.
+        let step = (1..=full.len())
+            .find(|&n| read_from(&full[..n], budget) > 0)
+            .expect("a step");
+        let at_step: usize = full[read_from(&full[..step], budget)..step]
+            .iter()
+            .map(cost)
+            .sum();
+        assert!(at_step <= budget / 2, "one step down to half: {at_step}");
         // The next several messages leave the start where it was, so the
         // engine reuses what it read.
         let mut grown = full.clone();
