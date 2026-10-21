@@ -13,6 +13,25 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-21, the third-party notices travel with the package
+
+An audit on 2026-10-21 found the Windows package shipping only llama.cpp's licence and libomp's. The MIT, BSD, ISC, Unicode, OFL, MPL and CDLA notices of what it links and bundles were missing. They are owed whatever localSpace's own licence is. The owner asked for them in the public preview.
+
+- **`scripts/third-party-notices.mjs`**, written in-house (no new tool), writes `licences/THIRD-PARTY-NOTICES.txt` into the package at packaging time. It covers:
+  - every Rust crate linked into `localspace-app.exe` and `localspace.exe`: `cargo metadata` for Windows, normal edges only, never through a proc-macro. That's 417 crates;
+  - the JavaScript the web client ships, the production closure of `web/` and its packages: 74 packages;
+  - **the KaTeX fonts, under SIL OFL 1.1** (not the package's MIT), with their copyright lines and Reserved Font Names;
+  - components listed by hand in `packaging/licences/notices.json`: today the engine.
+- **Each licence text is written once,** with every component it covers: 291 distinct texts.
+- **A crate that ships no licence file** gets the standard text of the licence it declares, with its authors as the holders. Of an "OR", the permissive choice is taken: MIT, then Apache-2.0, then BSD-3-Clause, then MPL-2.0. That covers 21 crates, among them `ittapi` (BSD-3-Clause, not GPL-2.0), `automerge`, `ts-rs` and parts of wasmtime. The standard texts are kept in `packaging/licences/texts/`, copied from crates that carry them.
+- **MPL-2.0 crates** (through Tauri) are listed with where their source is, as that licence asks of a binary.
+- **CI** (`check`) runs `--check`: a shipped dependency with no licence text fails the build. The package step lists the notices file among what it must contain.
+- **Not yet in it**, pending the owner's yes to fetch the texts:
+  - the libraries built into the engine's DLLs (cpp-httplib, nlohmann/json, BoringSSL, stb_image, and its web UI's libraries);
+  - Microsoft's WebView2 loader licence.
+
+  Each goes into `notices.json` with its text as it arrives.
+
 ## 2026-10-19, at most 4 context checkpoints for one person
 
 The owner's answer (a) of 2026-10-19. After `-np 1 --cache-ram 256` the engine still grew by about 150 MB a message. The likeliest cause is its context checkpoints: 32 per slot by default, the saved states a model like Qwen3.5 resumes a prompt from.
