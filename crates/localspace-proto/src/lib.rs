@@ -176,6 +176,16 @@ pub struct EnvironmentState {
     pub profile: String,
     /// Whether a local inference engine is resident, and what it is.
     pub engine: EngineState,
+    /// The engine started without the model's picture file, for want of
+    /// this much free memory: the composer says so before anything is sent,
+    /// and "Try again" loads the model again (plan 38, P5).
+    #[serde(default)]
+    pub picture_file_left_out_mib: Option<u64>,
+    /// When the model in use reads no pictures here: the catalog id of one
+    /// that would, never larger, found at the load (plan 38, P5;
+    /// docs/DECISIONS.md, 2026-10-19). None when none would.
+    #[serde(default)]
+    pub picture_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
@@ -358,6 +368,15 @@ pub struct ModelCatalogEntry {
     /// room, or nothing is left to fetch. Said before a download can be
     /// started, never at eighty per cent.
     pub no_room: String,
+    /// It has a picture file, so it can be asked about pictures where that
+    /// file is loaded (docs/DECISIONS.md, 2026-10-18).
+    #[serde(default)]
+    pub reads_pictures: bool,
+    /// The model would load, but leaves no room to spare here once a chat is
+    /// under way (the owner's rule, docs/DECISIONS.md, 2026-10-18): the app
+    /// says to close other programs first. Never set where it will not fit.
+    #[serde(default)]
+    pub memory_tight: bool,
     /// One sentence on what to expect of the answers, where the model's size
     /// calls for one: "Small models answer quickly but get things wrong more
     /// often." Empty otherwise. The verdict is about speed alone; this is
@@ -529,6 +548,64 @@ pub struct ChatMessage {
     /// it (docs/DECISIONS.md, 2026-10-10).
     #[serde(default)]
     pub cut_short: Option<CutShort>,
+    /// What the person attached to this message: its pictures, kept on this
+    /// computer with the chat and deleted with it (docs/DECISIONS.md,
+    /// 2026-10-18).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
+}
+
+/// A file a person attached to a message, as Core keeps it: for a picture,
+/// the copy made ready for the model, the only one kept.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct Attachment {
+    /// The hash of the kept file, which names it.
+    pub id: String,
+    pub kind: AttachmentKind,
+    /// The name it had on the person's computer.
+    pub name: String,
+    /// `image/png` or `image/jpeg` for a picture.
+    pub mime: String,
+    /// The kept file's size.
+    pub bytes: u64,
+    /// A picture's size in pixels, once made ready.
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentKind {
+    Picture,
+}
+
+/// Why an attachment was not taken: in parts, so that the client says it
+/// in the person's language.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentRefusal {
+    /// Over 30 MB.
+    TooLarge { megabytes: u64 },
+    /// Over 60 megapixels.
+    TooManyPixels { width: u32, height: u32 },
+    /// Not a PNG, JPEG or WebP picture.
+    NotAPicture,
+    /// A picture that could not be read.
+    Unreadable,
+    /// More pictures with one message than are taken.
+    TooMany { most: u32 },
+    /// An attachment that is not this person's, or no longer there.
+    NotFound,
+    /// The model in use cannot read pictures here: it has no picture file,
+    /// or none is loaded (docs/DECISIONS.md, 2026-10-18).
+    CannotReadPictures,
+    /// The model has a picture file, and it was left out at this load: what
+    /// was free then held the model, a chat and the file only with less
+    /// than 3 GB still free. `needs_mib` more free memory would keep it
+    /// (plan 38, P5; docs/DECISIONS.md, 2026-10-18).
+    PictureFileLeftOut { needs_mib: u64 },
 }
 
 /// Why Core ended an answer before the model did.
@@ -1035,6 +1112,20 @@ pub enum Request {
         text: String,
         #[serde(default)]
         conversation: Option<String>,
+        /// The ids of what the person attached, from `AddAttachment`.
+        #[serde(default)]
+        attachments: Vec<String>,
+    },
+    /// A file the person attaches before sending: made ready and kept until
+    /// it goes with a message, for `POST /api/v1/attachments`.
+    AddAttachment {
+        name: String,
+        bytes: Vec<u8>,
+    },
+    /// The bytes of one of the person's own attachments, for
+    /// `GET /api/v1/attachments/{id}`.
+    GetAttachment {
+        id: String,
     },
     /// Stop the answer being written, or waiting, in one of the caller's
     /// chats (the one on screen when none is named). Nothing to stop is not
@@ -1403,6 +1494,14 @@ pub enum Response {
         mime: String,
         bytes: Vec<u8>,
     },
+    /// An attachment taken, ready to go with a message.
+    Attached {
+        attachment: Attachment,
+    },
+    /// An attachment not taken, and why.
+    AttachmentRefused {
+        refusal: AttachmentRefusal,
+    },
     History {
         commits: Vec<Commit>,
     },
@@ -1725,6 +1824,7 @@ mod tests {
             body: Body::Request(Request::SendMessage {
                 text: "hello".into(),
                 conversation: None,
+                attachments: Vec::new(),
             }),
         };
         let bytes = encode(&env).unwrap();

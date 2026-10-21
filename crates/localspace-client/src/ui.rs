@@ -888,6 +888,7 @@ impl App {
                             self.send(proto::Request::SendMessage {
                                 text,
                                 conversation: None,
+                                attachments: Vec::new(),
                             });
                         }
                     });

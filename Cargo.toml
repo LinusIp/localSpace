@@ -62,6 +62,11 @@ wasmtime-wasi = "48"
 axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["fs", "cors"] }
 
+# --- pictures ---
+# Approved on 2026-10-18 (plan 38, P2): reading, shrinking and re-encoding the
+# pictures a person attaches; PNG, JPEG and WebP only.
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
+
 # --- misc ---
 uuid = { version = "1", features = ["v4", "serde"] }
 # The one binary's command line (Phase A, answer 1: the derive API).

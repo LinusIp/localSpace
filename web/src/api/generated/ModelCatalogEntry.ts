@@ -66,6 +66,17 @@ placement: string,
  */
 no_room: string, 
 /**
+ * It has a picture file, so it can be asked about pictures where that
+ * file is loaded (docs/DECISIONS.md, 2026-10-18).
+ */
+reads_pictures: boolean, 
+/**
+ * The model would load, but leaves no room to spare here once a chat is
+ * under way (the owner's rule, docs/DECISIONS.md, 2026-10-18): the app
+ * says to close other programs first. Never set where it will not fit.
+ */
+memory_tight: boolean, 
+/**
  * One sentence on what to expect of the answers, where the model's size
  * calls for one: "Small models answer quickly but get things wrong more
  * often." Empty otherwise. The verdict is about speed alone; this is

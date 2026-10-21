@@ -43,11 +43,11 @@ on:
         options: [none, rehearsal]
         default: none
       publish_tag:
-        description: "After the release check passed: the v* tag whose package is published to localSpace-releases (v0.2.0; v0.2.0-rc.1 goes out as a pre-release). Empty builds a package as usual."
+        description: "The v* tag whose package is published to localSpace-releases: v0.2.0 after the release check passed; v0.2.0-rc.1 and v0.2.0-preview.1 go out as pre-releases. Empty builds a package as usual."
         type: string
         default: ""
       release_check_passed:
-        description: "The release check passed on that tag's package. Required for a release (v0.2.0); refused for a release candidate (v0.2.0-rc.1), which goes out only as a pre-release."
+        description: "The release check passed on that tag's package. Required for a release (v0.2.0); refused for a release candidate (v0.2.0-rc.1) or a preview (v0.2.0-preview.1), which go out only as pre-releases."
         type: boolean
         default: false
   push:
@@ -289,8 +289,13 @@ jobs:
           elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
             [ "$PASSED" != true ] || { echo "::error::a release candidate goes out only as a pre-release, never as a release: untick release_check_passed"; exit 1; }
             echo "KIND=pre-release" >> "$GITHUB_ENV"
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-preview\.[0-9]+$ ]]; then
+            # A public preview, for people to try before the release check:
+            # a pre-release too, its notes marked as a preview (2026-10-21).
+            [ "$PASSED" != true ] || { echo "::error::a preview goes out only as a pre-release, never as a release: untick release_check_passed"; exit 1; }
+            echo "KIND=preview" >> "$GITHUB_ENV"
           else
-            echo "::error::$TAG is not a release tag (v0.2.0) or a release candidate's (v0.2.0-rc.1)"; exit 1
+            echo "::error::$TAG is not a release tag (v0.2.0), a release candidate's (v0.2.0-rc.1) or a preview's (v0.2.0-preview.1)"; exit 1
           fi
       - uses: actions/checkout@v4
         with:
@@ -314,6 +319,9 @@ jobs:
           if [ "$KIND" = pre-release ] && ! grep -qF "Test release: not for use, deleted after the check." "$notes"; then
             echo "::error::a release candidate's notes must say: Test release: not for use, deleted after the check."; exit 1
           fi
+          if [ "$KIND" = preview ] && ! grep -qE '^\*\*Preview\.\*\*' "$notes"; then
+            echo "::error::a preview's notes must begin a line with **Preview.**"; exit 1
+          fi
           echo "NOTES=$notes" >> "$GITHUB_ENV"
       - name: published to localSpace-releases
         env:
@@ -322,7 +330,7 @@ jobs:
         run: |
           [ -n "$GH_TOKEN" ] || { echo "::error::the RELEASES_TOKEN secret is not set"; exit 1; }
           case "$KIND" in
-            pre-release) pre=(--prerelease) ;;
+            pre-release | preview) pre=(--prerelease) ;;
             release) pre=(--latest) ;;
             *) echo "::error::no kind of release decided"; exit 1 ;;
           esac

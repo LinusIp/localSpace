@@ -1,9 +1,10 @@
 // The version, set in two places, must say one thing: the workspace's
 // Cargo.toml (what the app and its API report, the About screen included) and
 // the shell's tauri.conf.json (what the installer and the package's file names
-// carry). Given a tag, the tag must name that version: v0.2.0 for 0.2.0, or
+// carry). Given a tag, the tag must name that version: v0.2.0 for 0.2.0,
 // v0.2.0-rc.N for one of its release candidates (docs/DECISIONS.md,
-// 2026-10-18). Run by `ci` on every push, and by `package` before a tag's
+// 2026-10-18), or v0.2.0-preview.N for one of its public previews
+// (2026-10-21). Run by `ci` on every push, and by `package` before a tag's
 // package is built and again before it is published.
 //
 //   node scripts/check-version.mjs            # the two files agree
@@ -27,8 +28,8 @@ if (fromTauri !== fromCargo) {
 
 const tag = process.argv[2];
 if (tag !== undefined) {
-  const named = tag.match(/^v(\d+\.\d+\.\d+)(?:-rc\.\d+)?$/)?.[1];
-  if (!named) fail(`${tag} is not a release tag (v0.2.0) or a release candidate's (v0.2.0-rc.1)`);
+  const named = tag.match(/^v(\d+\.\d+\.\d+)(?:-(?:rc|preview)\.\d+)?$/)?.[1];
+  if (!named) fail(`${tag} is not a release tag (v0.2.0), a release candidate's (v0.2.0-rc.1) or a preview's (v0.2.0-preview.1)`);
   if (named !== fromCargo) fail(`the tag ${tag} names ${named}, and the code's version is ${fromCargo}`);
 }
 

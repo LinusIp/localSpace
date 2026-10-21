@@ -120,6 +120,16 @@ fn candidates(
 /// so that a hybrid laptop never puts the model on the processor's own
 /// graphics. With nothing on the card the engine is told to use no device
 /// at all: an unknown or shared card is started carefully.
+///
+/// The model file is read, not mapped (`--load-mode none`): mapped, the
+/// whole file stays in system memory even with most of it on the card,
+/// which on the 16 GB laptop with a 4 GB card cost the 4B about 2 GB and
+/// kept the 9B with its picture file from loading at all. Read, the engine
+/// would put what stays on the processor in pinned memory the card can
+/// reach, which Windows counts as the process's shared graphics memory and
+/// `look_after_load` would take for a spill, so that buffer is off too
+/// (`--no-host`) (docs/DECISIONS.md, 2026-10-18). The planner's flags below
+/// keep the mapping: streaming experts from the disk relies on it.
 pub fn fitted_flags(placed: &crate::fit::Fit, context_len: u32) -> Vec<String> {
     let mut f: Vec<String> = vec![
         "-c".into(),
@@ -132,6 +142,7 @@ pub fn fitted_flags(placed: &crate::fit::Fit, context_len: u32) -> Vec<String> {
         Some(device) => device.clone(),
         None => "none".into(),
     });
+    f.extend(["--load-mode".into(), "none".into(), "--no-host".into()]);
     f
 }
 
@@ -223,6 +234,11 @@ pub struct Engine {
     pub model_id: String,
     pub port: u16,
     pub log_path: PathBuf,
+    /// Started without the model's picture file, for want of this much
+    /// free memory (plan 38, P5).
+    pub picture_file_left_out_mib: Option<u64>,
+    /// The model to suggest for pictures meanwhile, found at the load.
+    pub picture_model: Option<String>,
     spec: Arc<Spec>,
     shared: Arc<Shared>,
     router: Arc<RwLock<Router>>,
@@ -278,6 +294,8 @@ impl Engine {
             model_id: model_id.to_string(),
             port,
             log_path,
+            picture_file_left_out_mib: None,
+            picture_model: None,
             spec: spec.clone(),
             shared: shared.clone(),
             router: router.clone(),
@@ -590,7 +608,8 @@ fn supervise(
             let worker = OpenAiWorker::new(&base, &model)
                 .with_context_len(context_len)
                 .with_key(Some(spec.key.clone()))
-                .with_ledger(ledger);
+                .with_ledger(ledger)
+                .with_vision(spec.args.iter().any(|a| a == "--mmproj"));
             router.write().unwrap().chat = Some(Arc::new(worker));
         }
         *shared.status.lock().unwrap() = Status::Ready;
@@ -735,11 +754,37 @@ fn last_log_line(path: &Path) -> String {
         .unwrap_or_else(|| "no log output".into())
 }
 
+/// The engine's slots and what it keeps in system memory to reuse prompts
+/// (docs/DECISIONS.md, 2026-10-19). For one person (the desktop app,
+/// `serve --personal`, the kit): one slot, since one answer is written at a
+/// time; at most 256 MiB of earlier prompts kept beside it; and at most 4
+/// context checkpoints, the saved states a model like Qwen3.5 resumes a
+/// prompt from. The engine's own defaults are four slots, 8 GiB and 32
+/// checkpoints a slot. An organisation's server keeps the engine's
+/// defaults, for people asking at once, until the planner sizes them.
+pub fn slot_flags(topology: proto::Topology) -> Vec<String> {
+    match topology {
+        proto::Topology::Personal => ["-np", "1", "--cache-ram", "256", "--ctx-checkpoints", "4"]
+            .map(String::from)
+            .to_vec(),
+        proto::Topology::Organisation => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::planner::{PlanRequest, plan, reference_moe_100b_q4};
     use crate::profile::Machine;
+
+    #[test]
+    fn one_person_gets_one_slot_a_small_prompt_cache_and_few_checkpoints() {
+        assert_eq!(
+            slot_flags(proto::Topology::Personal),
+            ["-np", "1", "--cache-ram", "256", "--ctx-checkpoints", "4"]
+        );
+        assert!(slot_flags(proto::Topology::Organisation).is_empty());
+    }
 
     #[test]
     fn an_engine_placed_by_hand_comes_before_the_packaged_one_and_that_before_path() {
@@ -781,7 +826,17 @@ mod tests {
         };
         assert_eq!(
             fitted_flags(&placed, 8192),
-            ["-c", "8192", "-ngl", "16", "--device", "Vulkan0"]
+            [
+                "-c",
+                "8192",
+                "-ngl",
+                "16",
+                "--device",
+                "Vulkan0",
+                "--load-mode",
+                "none",
+                "--no-host"
+            ]
         );
         // Nothing on the card: the engine is told to use no device at all.
         let on_the_processor = crate::fit::Fit {
@@ -791,7 +846,17 @@ mod tests {
         };
         assert_eq!(
             fitted_flags(&on_the_processor, 8192),
-            ["-c", "8192", "-ngl", "0", "--device", "none"]
+            [
+                "-c",
+                "8192",
+                "-ngl",
+                "0",
+                "--device",
+                "none",
+                "--load-mode",
+                "none",
+                "--no-host"
+            ]
         );
     }
 

@@ -108,6 +108,56 @@ else
     status=1
   fi
 fi
+# The person's own pictures (--pictures): a PNG with two questions beside
+# it, one picture with none (the default question), and a WebP, which the
+# engine cannot read, written down as not asked (docs/DECISIONS.md, 2026-10-18).
+mkdir -p "$work/pictures"
+cp crates/localspace-cli/assets/measure-picture.png "$work/pictures/a.png"
+printf "What is in this picture?
+Что на картинке?
+" > "$work/pictures/a.png.txt"
+cp crates/localspace-cli/assets/measure-picture.png "$work/pictures/b.png"
+printf "not a real webp
+" > "$work/pictures/c.webp"
+LOCALSPACE_LLAMA_SERVER="$engine" "$localspace" measure --model seer --catalog "$work/catalog"   --models "$work/models" --data "$work/data-pictures" --out "$work/out-pictures" --answer-seconds 60 --max-minutes 8   --pictures "$work/pictures" > "$work/measure-pictures.log" 2>&1 || status=$?
+tail -n 4 "$work/measure-pictures.log"
+pictures_md="$(ls "$work"/out-pictures/localSpace-measure-seer-*.md 2> /dev/null | head -n 1 || true)"
+if [ -z "$pictures_md" ]; then
+  echo "the pictures run's results file is missing in $work/out-pictures" >&2
+  status=1
+else
+  must "$pictures_md" "#### The pictures asked about, thinking off"
+  must "$pictures_md" "| a.png | What is in this picture? |"
+  must "$pictures_md" "| a.png | Что на картинке? |"
+  must "$pictures_md" "| b.png | What is in this picture? |"
+  must "$pictures_md" "| c.webp | What is in this picture? | - | - | - | **not asked: not a PNG or JPEG"
+  if grep -q "#### Thinking off" "$pictures_md"; then
+    echo "the pictures run ran the script too" >&2
+    status=1
+  fi
+fi
+# One chat (--chat): three messages, each in turn in the same chat
+# (docs/DECISIONS.md, 2026-10-18).
+printf "First message.
+Second message.
+
+Third message.
+" > "$work/chat.txt"
+LOCALSPACE_LLAMA_SERVER="$engine" "$localspace" measure --model tiny --catalog "$work/catalog"   --models "$work/models" --data "$work/data-chat" --out "$work/out-chat" --answer-seconds 60 --max-minutes 8   --chat "$work/chat.txt" > "$work/measure-chat.log" 2>&1 || status=$?
+tail -n 4 "$work/measure-chat.log"
+chat_md="$(ls "$work"/out-chat/localSpace-measure-tiny-*.md 2> /dev/null | head -n 1 || true)"
+if [ -z "$chat_md" ]; then
+  echo "the chat run's results file is missing in $work/out-chat" >&2
+  status=1
+else
+  must "$chat_md" "#### One chat, thinking off, message after message"
+  must "$chat_md" "| 1 | First message. |"
+  must "$chat_md" "| 3 | Third message. |"
+  if grep -q "#### Thinking off" "$chat_md"; then
+    echo "the chat run ran the script too" >&2
+    status=1
+  fi
+fi
 if [ "$status" -ne 0 ]; then
   echo "the kit's logs:" >&2
   tail -n 40 "$work"/measure-*.log >&2

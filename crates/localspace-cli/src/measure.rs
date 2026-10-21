@@ -73,6 +73,20 @@ pub struct MeasureArgs {
     /// reading and the picture.
     #[arg(long, value_name = "NAMES")]
     only: Option<String>,
+    /// Ask about the pictures in this folder instead of the script: each PNG
+    /// or JPEG, with the questions in the text file beside it of the same
+    /// name and `.txt` added (`page.jpg.txt`), one per line, each in a fresh
+    /// chat with thinking off; without one, "What is in this picture?". A
+    /// picture in another format is written down as not asked, with why
+    /// (docs/DECISIONS.md, 2026-10-18).
+    #[arg(long, value_name = "DIR")]
+    pictures: Option<PathBuf>,
+    /// Hold one chat instead of running the script: each non-empty line of
+    /// this file is sent in turn, in the same chat, with thinking off, so
+    /// that memory and speed can be read over a long conversation
+    /// (docs/DECISIONS.md, 2026-10-18).
+    #[arg(long, value_name = "FILE")]
+    chat: Option<PathBuf>,
     /// Ask each message this many times, each in a fresh chat.
     #[arg(long, value_name = "TIMES", default_value_t = 1)]
     repeat: usize,
@@ -316,9 +330,11 @@ fn script() -> Vec<Item> {
             "Quyoshning massasi qancha?",
             "about 1.989 × 10^30 kg",
         ),
+        // "Oy" alone is both the Moon and a month: the Earth beside it says
+        // which (docs/DECISIONS.md, 2026-10-18).
         fact_item(
             "a fact in Uzbek: the Moon's distance",
-            "Oy Yerdan qancha uzoqlikda joylashgan?",
+            "Yer bilan Oy orasidagi masofa qancha?",
             "about 384,400 km on average",
         ),
         // Maths in the answer, written as formulas: the case maths display is
@@ -615,6 +631,7 @@ fn ask_in_words(kit: &mut Kit, conversation: &str, text: &str) -> Result<Answere
         kit.call(proto::Request::SendMessage {
             text: message,
             conversation: None,
+            attachments: Vec::new(),
         })
     })
 }
@@ -634,6 +651,7 @@ fn carry_on(kit: &mut Kit, stop_after: usize) -> Result<Carried> {
     kit.call(proto::Request::SendMessage {
         text: CONTINUE_TEXT.into(),
         conversation: None,
+        attachments: Vec::new(),
     })?;
     let asked = Instant::now();
     while asked.elapsed() < kit.answer {
@@ -752,6 +770,7 @@ fn run_pass(kit: &mut Kit, progress: &mut Progress, items: &[Item], plan: &PassP
             if let Some(pass) = progress.passes.last_mut() {
                 pass.items.push((item.name, turns));
             }
+            keep(progress);
         }
     }
     if plan.with_continue {
@@ -759,6 +778,132 @@ fn run_pass(kit: &mut Kit, progress: &mut Progress, items: &[Item], plan: &PassP
         let carried = carry_on(kit, plan.stop_after)?;
         if let Some(pass) = progress.passes.last_mut() {
             pass.carried = Some(carried);
+        }
+        keep(progress);
+    }
+    Ok(())
+}
+
+/// Sends each line of `file` in turn in one chat (`--chat`), into
+/// `progress` as the answers come.
+fn one_chat(kit: &mut Kit, file: &Path, progress: &mut Progress) -> Result<()> {
+    let text =
+        std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
+    let lines: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect();
+    if lines.is_empty() {
+        bail!("{} holds no message", file.display());
+    }
+    kit.with(|core| core.set_thinking(Some(false)))?;
+    let chat = kit.new_conversation()?;
+    for (i, line) in lines.iter().enumerate() {
+        kit.within_limit("the chat")?;
+        let answered = ask_in_words(kit, &chat, line)?;
+        err!(
+            "message {} of {}: {:.1} s{}",
+            i + 1,
+            lines.len(),
+            answered.seconds,
+            match &answered.error {
+                Some(e) => format!(", {e}"),
+                None => String::new(),
+            }
+        );
+        progress.chat.push(answered);
+        keep(progress);
+    }
+    Ok(())
+}
+
+/// One question about one of the person's own pictures (`--pictures`).
+struct OwnPicture {
+    file: String,
+    question: String,
+    /// The answer, or why the picture was not asked about.
+    answered: Result<Answered, String>,
+}
+
+/// The default question about a picture with no questions beside it.
+const OWN_PICTURE_QUESTION: &str = "What is in this picture?";
+
+/// Asks about each picture in `dir`, as `--pictures` says, into
+/// `progress` as the answers come.
+fn own_pictures(kit: &mut Kit, dir: &Path, progress: &mut Progress) -> Result<()> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .with_context(|| format!("reading {}", dir.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_file())
+        .filter(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| !e.eq_ignore_ascii_case("txt"))
+        })
+        .collect();
+    files.sort();
+    if files.is_empty() {
+        bail!("no pictures in {}", dir.display());
+    }
+    for path in files {
+        let file = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let beside = PathBuf::from(format!("{}.txt", path.display()));
+        let questions: Vec<String> = match std::fs::read_to_string(&beside) {
+            Ok(text) => text
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(String::from)
+                .collect(),
+            Err(_) => vec![OWN_PICTURE_QUESTION.to_string()],
+        };
+        let readable = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+            ["png", "jpg", "jpeg"]
+                .iter()
+                .any(|k| e.eq_ignore_ascii_case(k))
+        });
+        let bytes = if readable {
+            std::fs::read(&path).map_err(|e| format!("could not be read: {e}"))
+        } else {
+            Err("not a PNG or JPEG: the engine reads only those".to_string())
+        };
+        for question in questions {
+            kit.within_limit("the pictures")?;
+            err!("{file}: {question}");
+            let answered = match &bytes {
+                Err(why) => {
+                    err!("  not asked: {why}");
+                    Err(why.clone())
+                }
+                Ok(bytes) => {
+                    kit.with(|core| core.set_thinking(Some(false)))?;
+                    let chat = kit.new_conversation()?;
+                    let (text, picture) = (question.clone(), bytes.clone());
+                    let answered = ask(kit, &chat, &question, move |kit| {
+                        kit.with(move |core| core.send_picture(&text, picture, None))
+                    })?;
+                    err!(
+                        "  {:.1} s{}",
+                        answered.seconds,
+                        match &answered.error {
+                            Some(e) => format!(", {e}"),
+                            None => String::new(),
+                        }
+                    );
+                    Ok(answered)
+                }
+            };
+            progress.own_pictures.push(OwnPicture {
+                file: file.clone(),
+                question,
+                answered,
+            });
+            keep(progress);
         }
     }
     Ok(())
@@ -831,9 +976,28 @@ struct Progress {
     ready_after: Option<f32>,
     passes: Vec<Pass>,
     pictures: Vec<Pictured>,
+    /// The person's own pictures, for a `--pictures` run.
+    own_pictures: Vec<OwnPicture>,
+    /// The answers of a `--chat` run, in order, all in one chat.
+    chat: Vec<Answered>,
     read_time: Option<Result<ReadTime, String>>,
     /// Why the run ended before its last step, if it did.
     ended: Option<String>,
+    /// Where the results file is written after each answer, so that a run
+    /// stopped from outside (a heat or memory stop) keeps what it had
+    /// (docs/DECISIONS.md, 2026-10-18); none in a test.
+    saved_to: Option<PathBuf>,
+    /// The run is still going: the file says so until its last write.
+    going: bool,
+}
+
+/// Writes the results so far; a failed write is said and the run goes on.
+fn keep(progress: &Progress) {
+    if let Some(path) = &progress.saved_to
+        && let Err(e) = std::fs::write(path, report(progress))
+    {
+        err!("could not write {}: {e}", path.display());
+    }
 }
 
 pub fn run(args: MeasureArgs) -> Result<()> {
@@ -929,6 +1093,7 @@ pub fn run(args: MeasureArgs) -> Result<()> {
         bail!("{engine_words}");
     }
 
+    let day_for_path = day.clone();
     let mut progress = Progress {
         id: id.clone(),
         day,
@@ -941,8 +1106,12 @@ pub fn run(args: MeasureArgs) -> Result<()> {
         ready_after: None,
         passes: Vec::new(),
         pictures: Vec::new(),
+        own_pictures: Vec::new(),
+        chat: Vec::new(),
         read_time: None,
         ended: None,
+        saved_to: Some(out_path(args.out.as_deref(), &id, &day_for_path)),
+        going: true,
     };
     let outcome = steps(
         &mut kit,
@@ -957,6 +1126,7 @@ pub fn run(args: MeasureArgs) -> Result<()> {
         err!("the run ended early: {e:#}");
     }
     let _ = kit.unload();
+    progress.going = false;
 
     err!("writing the results file");
     let text = report(&progress);
@@ -1010,6 +1180,17 @@ fn steps(
     let ready_after = kit.load(id)?;
     progress.ready_after = Some(ready_after);
     err!("ready after {ready_after:.0} s");
+
+    // The person's own pictures, alone (docs/DECISIONS.md, 2026-10-18).
+    if let Some(file) = &args.chat {
+        return one_chat(kit, file, progress);
+    }
+    if let Some(dir) = &args.pictures {
+        if !vision {
+            bail!("{id} has no vision file: it cannot be asked about pictures");
+        }
+        return own_pictures(kit, dir, progress);
+    }
 
     // The messages: the whole script, or the ones named for a counting run.
     let counting = args.only.is_some();
@@ -1083,9 +1264,11 @@ fn steps(
         kit.within_limit("the picture")?;
         let on_the_processor = picture_pass(kit, id, VisionPlace::Processor, false)?;
         progress.pictures.push(on_the_processor);
+        keep(progress);
         kit.within_limit("the picture on the card")?;
         let on_the_card = picture_pass(kit, id, VisionPlace::Card, true)?;
         progress.pictures.push(on_the_card);
+        keep(progress);
     }
     Ok(())
 }
@@ -1518,6 +1701,12 @@ fn report(run: &Progress) -> String {
         lines.push(format!(
             "**The run ended early: {why}.** What came before it is below."
         ));
+    } else if run.going {
+        lines.push(String::new());
+        lines.push(
+            "**The run was still going when this was written.** If nothing follows, it was stopped from outside; what came before is below."
+                .into(),
+        );
     }
     lines.push(String::new());
     lines.push(format!("- Computer: {}", run.machine));
@@ -1642,6 +1831,62 @@ fn report(run: &Progress) -> String {
             lines.push(format!(
                 "| {} | {came_up} | {time} | {first} | {figures} | {back} |",
                 p.place
+            ));
+        }
+        lines.push(String::new());
+    }
+    if !run.chat.is_empty() {
+        lines.push("#### One chat, thinking off, message after message".into());
+        lines.push(String::new());
+        lines.push("| # | Message | Time | First word | Read / wrote | What came back |".into());
+        lines.push("|---|---|---|---|---|---|".into());
+        for (i, a) in run.chat.iter().enumerate() {
+            let back = match (&a.error, a.reply.is_empty()) {
+                (Some(error), _) => format!("**{}**", cell(error)),
+                (None, true) => "**no reply**".to_string(),
+                (None, false) => cell(&a.reply),
+            };
+            lines.push(format!(
+                "| {} | {} | {:.1} s | {} | {} | {back} |",
+                i + 1,
+                cell(&a.text),
+                a.seconds,
+                seconds(a.measure.as_ref().and_then(|m| m.first_word)),
+                figures_cell(a.measure.as_ref())
+            ));
+        }
+        lines.push(String::new());
+    }
+    if !run.own_pictures.is_empty() {
+        lines.push("#### The pictures asked about, thinking off".into());
+        lines.push(String::new());
+        lines.push(
+            "| Picture | Question | Time | First word | Read / wrote | What came back |".into(),
+        );
+        lines.push("|---|---|---|---|---|---|".into());
+        for p in &run.own_pictures {
+            let (time, first, figures, back) = match &p.answered {
+                Err(why) => (
+                    "-".to_string(),
+                    "-".to_string(),
+                    "-".to_string(),
+                    format!("**not asked: {}**", cell(why)),
+                ),
+                Ok(a) => (
+                    format!("{:.1} s", a.seconds),
+                    seconds(a.measure.as_ref().and_then(|m| m.first_word)),
+                    figures_cell(a.measure.as_ref()),
+                    match (&a.error, a.reply.is_empty()) {
+                        (Some(error), _) => format!("**{}**", cell(error)),
+                        (None, true) => "**no reply**".to_string(),
+                        (None, false) => cell(&a.reply),
+                    },
+                ),
+            };
+            lines.push(format!(
+                "| {} | {} | {time} | {first} | {figures} | {back} |",
+                cell(&p.file),
+                cell(&p.question)
             ));
         }
         lines.push(String::new());
@@ -1814,7 +2059,11 @@ mod tests {
                 carried: None,
             }],
             pictures: Vec::new(),
+            own_pictures: Vec::new(),
+            chat: Vec::new(),
             read_time: None,
+            saved_to: None,
+            going: false,
             ended: Some("the 8-minute limit for the whole run ran out during an answer".into()),
         };
         let text = report(&progress);
@@ -1825,6 +2074,13 @@ mod tests {
         assert!(text.contains("The model was not reached."));
         assert!(text.contains("Not reached."));
         assert_eq!(answered_count(&progress.passes), (1, 1));
+        // Written mid-run, the file says the run was still going.
+        let mid_run = Progress {
+            ended: None,
+            going: true,
+            ..progress
+        };
+        assert!(report(&mid_run).contains("**The run was still going when this was written.**"));
     }
     /// A counting run names its messages by the start of their names, in
     /// the script's order, and refuses a name that begins none.
