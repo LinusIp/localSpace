@@ -230,7 +230,7 @@ impl App {
             }
             // Answering a message, it comes at once, before the answer: that
             // `busy` follows is in the turn's own events.
-            R::Transcript { messages } => {
+            R::Transcript { messages, .. } => {
                 self.transcript = messages;
             }
             R::History { commits } => self.history = commits,

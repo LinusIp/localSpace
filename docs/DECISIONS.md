@@ -13,6 +13,25 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-21, a full chat is trimmed in big steps (plan 41 §2)
+
+The owner's yes of 2026-10-21, with the plan's recommendations. The context stays at 8,192 tokens in 0.2, and the compacter is for 0.2.1.
+
+**Before:** Core gave the model "the newest turns that fit" (`prompt::turns`). Once a chat was full, nearly every message pushed the oldest turn out and changed the prompt's start, so the engine read the whole chat again on every message: about 12 s before the first word on the founder's laptop (the 24-message runs of 2026-10-20).
+
+- **`prompt::read_from`:** while what is read fits the profile's working set, the start stays where it is and the engine reuses what it read. When it no longer fits, the start jumps **in one step** to the first message of the person's after which **at most half** the working set is left. The engine reads that once and is fast again for the next several messages.
+- **It begins with the person's message** (some templates refuse one that begins with an answer). **The newest message of the person's is always read**, however long.
+- **Nothing is stored.** The rule is replayed over the chat as it grew, so the same messages always give the same start. Every caller of `prompt::build` reads from it: the agent, the stable part and the context preview. Old chats and the old app are unaffected.
+- **A picture counts as 400 tokens** (`PICTURE_TOKENS`; the engine counted 383 for a question with one picture, its system part included).
+- **Counting** stays bytes / 4. Cyrillic is two bytes a letter, so a Russian chat trims early, never late. The engine's own count comes with text files (plan 38 F4).
+- **`Response::Transcript` carries `read_from`.** The client shows a divider before that message: "Earlier messages are no longer read by the model. They stay here for you." It has Russian and Uzbek versions, which the founder is to check. Every message stays in the chat and in the record.
+- **Tested:** `prompt.rs`:
+  - a chat that fits is read from its start;
+  - a full one moves in one step to at most half and then stays for ten more pairs;
+  - the newest is always read;
+  - pictures count;
+  - `build` reads from the step.
+
 ## 2026-10-21, Help → Send feedback; links open in the person's browser
 
 The owner's ruling of 2026-10-21.

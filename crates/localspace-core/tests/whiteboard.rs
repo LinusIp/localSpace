@@ -1892,7 +1892,7 @@ fn declining_an_approval_ends_the_answer_and_the_model_reads_it_declined() {
         "nothing was deleted"
     );
     let messages = match core.handle(proto::Request::GetTranscript) {
-        proto::Response::Transcript { messages } => messages,
+        proto::Response::Transcript { messages, .. } => messages,
         other => panic!("{other:?}"),
     };
     let outcomes: Vec<&proto::ToolOutcome> = messages

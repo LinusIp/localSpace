@@ -254,8 +254,72 @@ pub fn build(
         tools,
         context,
         ledger,
-        turns: turns(messages, profile.working_set_tokens),
+        turns: turns(
+            &messages[read_from(messages, profile.working_set_tokens)..],
+            profile.working_set_tokens,
+        ),
     }
+}
+
+/// What a picture costs in what the model reads, about: the engine counted
+/// 383 tokens for a question with one picture, its system part included
+/// (docs/DECISIONS.md, 2026-10-21).
+pub const PICTURE_TOKENS: usize = 400;
+
+fn cost(m: &proto::ChatMessage) -> usize {
+    turns_of(m)
+        .iter()
+        .map(|t| proto::estimate_tokens(&t.render()))
+        .sum::<usize>()
+        + m.attachments.len() * PICTURE_TOKENS
+}
+
+/// Where the model's reading of a chat begins, in big steps rather than a
+/// sliding window (plan 41 §2; docs/DECISIONS.md, 2026-10-21). The rule is
+/// replayed over the chat as it grew: while what is read fits the working
+/// set, its start stays where it is, so the engine reuses what it read;
+/// when it no longer fits, the start jumps in one step to the first message
+/// of the person's after which at most half the working set is left, and
+/// the engine reads that once. The same messages always give the same
+/// start, so nothing is stored. The newest message of the person's is always
+/// read.
+pub fn read_from(messages: &[proto::ChatMessage], working_set: usize) -> usize {
+    let costs: Vec<usize> = messages.iter().map(cost).collect();
+    let half = working_set / 2;
+    let mut start = 0;
+    let mut used = 0;
+    for end in 0..messages.len() {
+        used += costs[end];
+        if used <= working_set {
+            continue;
+        }
+        // From the newest back, while it stays within half.
+        let mut from = end + 1;
+        let mut kept = 0;
+        while from > start && kept + costs[from - 1] <= half {
+            from -= 1;
+            kept += costs[from];
+        }
+        // Beginning with something the person said: some templates refuse a
+        // conversation that begins with an answer.
+        while from <= end && messages[from].role != proto::Role::User {
+            kept -= costs[from];
+            from += 1;
+        }
+        if from > end {
+            // Even the newest turn is over half: read from the person's newest.
+            from = (start..=end)
+                .rev()
+                .find(|&i| messages[i].role == proto::Role::User)
+                .unwrap_or(end);
+            kept = costs[from..=end].iter().sum();
+        }
+        if from > start {
+            start = from;
+            used = kept;
+        }
+    }
+    start
 }
 
 /// The conversation as turns, bounded by the profile's working set: the
@@ -412,6 +476,97 @@ mod tests {
             cut_short: None,
             attachments: Vec::new(),
         }
+    }
+
+    /// A chat of `pairs` exchanges, each question and answer about `words` words.
+    fn chat(pairs: usize, words: usize) -> Vec<ChatMessage> {
+        let text = "word ".repeat(words);
+        (0..pairs)
+            .flat_map(|i| {
+                [
+                    msg(Role::User, &format!("{i} {text}")),
+                    msg(Role::Assistant, &text),
+                ]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_chat_that_fits_is_read_from_its_start() {
+        assert_eq!(read_from(&chat(5, 50), 8000), 0);
+        assert_eq!(read_from(&[], 8000), 0);
+    }
+
+    #[test]
+    fn a_full_chat_moves_its_start_in_one_big_step_and_then_stays() {
+        // About 63 tokens a message (250 characters / 4): 140 messages are
+        // about 8,800 tokens, over the 8,000.
+        let budget = 8000;
+        let full = chat(70, 50);
+        let start = read_from(&full, budget);
+        assert!(start > 0, "the chat no longer fits");
+        assert_eq!(full[start].role, Role::User, "it begins with the person");
+        let read: usize = full[start..].iter().map(cost).sum();
+        assert!(read <= budget, "never more than the working set: {read}");
+        // At the moment of the step, what is left is at most half.
+        let step = (1..=full.len())
+            .find(|&n| read_from(&full[..n], budget) > 0)
+            .expect("a step");
+        let at_step: usize = full[read_from(&full[..step], budget)..step]
+            .iter()
+            .map(cost)
+            .sum();
+        assert!(at_step <= budget / 2, "one step down to half: {at_step}");
+        // The next several messages leave the start where it was, so the
+        // engine reuses what it read.
+        let mut grown = full.clone();
+        for i in 0..10 {
+            grown.push(msg(Role::User, &format!("more {i}")));
+            grown.push(msg(Role::Assistant, &"word ".repeat(50)));
+            assert_eq!(
+                read_from(&grown, budget),
+                start,
+                "moved after {} more",
+                i + 1
+            );
+        }
+        // Only when it is full again does it move, once more.
+        let later = chat(140, 50);
+        assert!(read_from(&later, budget) > start);
+    }
+
+    #[test]
+    fn the_newest_message_is_always_read_and_pictures_count() {
+        let mut huge = chat(2, 10);
+        huge.push(msg(Role::User, &"word ".repeat(20_000)));
+        let start = read_from(&huge, 8000);
+        assert_eq!(start, huge.len() - 1, "the person's newest, however long");
+        // A picture weighs PICTURE_TOKENS: forty pictures fill the 8,000.
+        let mut pictured = chat(20, 5);
+        for m in pictured.iter_mut().filter(|m| m.role == Role::User) {
+            m.attachments = vec![
+                proto::Attachment {
+                    id: "a".into(),
+                    kind: proto::AttachmentKind::Picture,
+                    name: "p.png".into(),
+                    mime: "image/png".into(),
+                    bytes: 1,
+                    width: 1,
+                    height: 1,
+                };
+                2
+            ];
+        }
+        assert!(read_from(&pictured, 8000) > 0, "pictures are counted");
+        assert_eq!(read_from(&chat(20, 5), 8000), 0, "without them it fits");
+    }
+
+    #[test]
+    fn the_prompt_reads_from_the_big_step() {
+        let full = chat(70, 50);
+        let p = build(&ModelProfile::small(), &active(&[]), &[], None, &full);
+        let start = read_from(&full, ModelProfile::small().working_set_tokens);
+        assert_eq!(p.turns.len(), full.len() - start);
     }
 
     fn a_task_with_a_note() -> proto::Task {
