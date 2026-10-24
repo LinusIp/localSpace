@@ -2094,15 +2094,32 @@ impl Core {
             }
             (None, None) => fit::PictureFilePlace::Processor,
         };
-        self.trace(match place {
-            fit::PictureFilePlace::Card => format!("pictures: the picture file of {id} goes on the card"),
+        let said = match place {
+            fit::PictureFilePlace::Card => {
+                format!("pictures: the picture file of {id} goes on the card")
+            }
             fit::PictureFilePlace::Processor => {
                 format!("pictures: the picture file of {id} goes in system memory")
             }
             fit::PictureFilePlace::LeftOut { needs_mib } => format!(
                 "pictures: the picture file of {id} is left out; {needs_mib} MiB more free memory would keep it"
             ),
-        });
+        };
+        // For the log a person may be asked to send: the memory the check
+        // saw, and what other signed-in users' programs held of it, which
+        // Windows counts as taken (the founder's check, docs/DECISIONS.md,
+        // 2026-10-24).
+        if let Some((_, hardware)) = fitted {
+            tracing::info!(
+                "{said}; {} MiB free, other signed-in users' programs hold {}",
+                hardware.ram_free_mib,
+                hardware
+                    .ram_other_users_mib
+                    .map(|mib| format!("{mib} MiB"))
+                    .unwrap_or_else(|| "an unknown amount".into())
+            );
+        }
+        self.trace(said);
         Some(place)
     }
 
