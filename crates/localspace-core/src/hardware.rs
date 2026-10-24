@@ -88,6 +88,12 @@ pub struct Hardware {
     pub gpu_listing: GpuListing,
     pub ram_total_mib: u64,
     pub ram_free_mib: u64,
+    /// What the programs of other people signed in to this computer hold of
+    /// its memory, in MiB, for the log. Windows counts it as taken, though it
+    /// could move much of it out of the way (docs/DECISIONS.md, 2026-10-24).
+    /// `None` where it could not be asked.
+    #[serde(default)]
+    pub ram_other_users_mib: Option<u64>,
     /// Measured by copying memory on several threads for a moment, GB/s.
     pub ram_bandwidth_gbps: f32,
     /// Free where the models are kept; `None` when it could not be asked.
@@ -130,7 +136,7 @@ impl Hardware {
             })
             .collect();
         format!(
-            "{}; memory {} MiB ({} free), copied at {:.1} GB/s; {}, {} cores; disk {}",
+            "{}; memory {} MiB ({} free{}), copied at {:.1} GB/s; {}, {} cores; disk {}",
             if cards.is_empty() {
                 "no graphics card".to_string()
             } else {
@@ -138,6 +144,9 @@ impl Hardware {
             },
             self.ram_total_mib,
             self.ram_free_mib,
+            self.ram_other_users_mib
+                .map(|mib| format!("; {mib} MiB held by other signed-in users' programs"))
+                .unwrap_or_default(),
             self.ram_bandwidth_gbps,
             self.cpu
                 .as_deref()
@@ -476,6 +485,7 @@ pub fn detect(engine: Option<&Path>, storage: Option<&Path>, ours: &[u32]) -> Ha
         gpu_listing,
         ram_total_mib: system.ram_total_mib,
         ram_free_mib: system.ram_free_mib,
+        ram_other_users_mib: system.ram_other_users_mib,
         ram_bandwidth_gbps: copy_gbps,
         disk_free_mib: system.disk_free_mib,
         cores: std::thread::available_parallelism()
@@ -562,6 +572,8 @@ fn system_facts_for_disk(_path: &Path) -> Option<u64> {
 struct SystemFacts {
     ram_total_mib: u64,
     ram_free_mib: u64,
+    /// Windows only: what the programs of the other signed-in users hold.
+    ram_other_users_mib: Option<u64>,
     disk_free_mib: Option<u64>,
     cpu: Option<String>,
     /// Each graphics adapter by the name its driver gives it, with what of
@@ -671,6 +683,9 @@ fn system_facts(storage: Option<&Path>, ours: &[u32]) -> SystemFacts {
          $os = Get-CimInstance Win32_OperatingSystem; \
          $cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name; \
          $free = ([System.IO.DriveInfo]::new('{drive}:\\')).AvailableFreeSpace; \
+         $me = (Get-Process -Id $PID).SessionId; \
+         $others = [double](Get-Process | Where-Object {{ $_.SessionId -ne $me -and $_.SessionId -ne 0 }} \
+         | Measure-Object -Property WorkingSet64 -Sum).Sum; \
          $used = @{{}}; \
          Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory \
          -ErrorAction SilentlyContinue | ForEach-Object {{ $used[$_.Name.ToLower()] = $_.DedicatedUsage }}; \
@@ -682,7 +697,7 @@ fn system_facts(storage: Option<&Path>, ours: &[u32]) -> SystemFacts {
          if ($p.Description -and $p.AdapterLuid) {{ \
          $key = ('luid_0x{{0:x8}}_0x{{1:x8}}_phys_0' -f (($p.AdapterLuid -shr 32) -band 0xffffffff), ($p.AdapterLuid -band 0xffffffff)); \
          if ($used.ContainsKey($key)) {{ $adapters += @{{ name = $p.Description; used = $used[$key]; ours = [double]$ours[$key] }} }} }} }}; \
-         @{{ total_kb = $os.TotalVisibleMemorySize; free_kb = $os.FreePhysicalMemory; \
+         @{{ total_kb = $os.TotalVisibleMemorySize; free_kb = $os.FreePhysicalMemory; others = $others; \
          os = ($os.Caption + ' ' + $os.Version); \
          cpu = $cpu; disk_free = $free; adapters = @($adapters) }} | ConvertTo-Json -Compress -Depth 4"
     );
@@ -706,6 +721,11 @@ fn system_facts(storage: Option<&Path>, ours: &[u32]) -> SystemFacts {
     SystemFacts {
         ram_total_mib: json["total_kb"].as_u64().unwrap_or(0) / 1024,
         ram_free_mib: json["free_kb"].as_u64().unwrap_or(0) / 1024,
+        // The working set of every program in a session that is neither this
+        // one nor the services' (0): another person signed in to Windows.
+        ram_other_users_mib: json["others"]
+            .as_f64()
+            .map(|bytes| bytes as u64 / 1024 / 1024),
         disk_free_mib: json["disk_free"].as_u64().map(|b| b / 1024 / 1024),
         cpu: json["cpu"].as_str().map(|s| s.trim().to_string()),
         adapters: json["adapters"]
@@ -752,6 +772,7 @@ fn system_facts(storage: Option<&Path>, _ours: &[u32]) -> SystemFacts {
     SystemFacts {
         ram_total_mib: kb("MemTotal:") / 1024,
         ram_free_mib: kb("MemAvailable:") / 1024,
+        ram_other_users_mib: None,
         disk_free_mib,
         cpu,
         adapters: Vec::new(),
@@ -1038,6 +1059,23 @@ mod tests {
     }
 
     #[test]
+    fn the_log_says_what_other_signed_in_users_programs_hold() {
+        // The founder's check of the preview (2026-10-24): a second person
+        // signed in to Windows held 3,457 MiB that the picture check counted
+        // as taken.
+        let mut hardware = with(Vec::new(), GpuListing::Listed, 15_613);
+        assert!(!hardware.facts().contains("signed-in users"));
+        hardware.ram_other_users_mib = Some(3_457);
+        assert!(
+            hardware
+                .facts()
+                .contains("(7806 free; 3457 MiB held by other signed-in users' programs)"),
+            "{}",
+            hardware.facts()
+        );
+    }
+
+    #[test]
     fn an_unknown_card_is_kept_and_said_to_be_unknown() {
         let gpus = parse_devices(&written("Moore Threads MTT S80", 16384, 16000));
         assert_eq!(gpus[0].vendor, Vendor::Other);
@@ -1047,6 +1085,7 @@ mod tests {
             gpu_listing: GpuListing::Listed,
             ram_total_mib: 32_000,
             ram_free_mib: 20_000,
+            ram_other_users_mib: None,
             ram_bandwidth_gbps: 40.0,
             disk_free_mib: Some(100_000),
             cores: 8,
@@ -1100,6 +1139,7 @@ mod tests {
             gpu_listing: listing,
             ram_total_mib,
             ram_free_mib: ram_total_mib / 2,
+            ram_other_users_mib: None,
             ram_bandwidth_gbps: 40.0,
             disk_free_mib: None,
             cores: 8,

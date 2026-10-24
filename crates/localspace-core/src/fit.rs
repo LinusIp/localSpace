@@ -495,6 +495,7 @@ mod tests {
             gpu_listing: GpuListing::Listed,
             ram_total_mib: 15_613,
             ram_free_mib: 7_184,
+            ram_other_users_mib: None,
             ram_bandwidth_gbps: 19.3,
             disk_free_mib: Some(140_000),
             cores: 16,

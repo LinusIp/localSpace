@@ -13,6 +13,18 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-24, the picture check logs other signed-in users' memory
+
+The founder's ruling of 2026-10-24, after the preview check:
+
+- **In 0.2.0, only the log line.** `Hardware` gains `ram_other_users_mib`: on Windows, the working set of every program in a session that is neither ours nor the services' (0), so another person signed in to the same computer.
+  - The hardware facts in the log say it: "memory 15613 MiB (7806 free; 3457 MiB held by other signed-in users' programs)".
+  - The picture check writes one `app.log` line with the free memory it saw, and that figure.
+  - Elsewhere it's `None`, and the line says "an unknown amount".
+- **Why:** on the owner's laptop, a second signed-in user with Chrome open held about 3.4 GB. Windows counts that as taken, so the 4B's picture file was left out once; **Try again** then worked.
+- **The full fix is designed and ready if testers need it.** It counts what Windows can free for another signed-in user's idle programs as available, on a desktop Windows, capped by the page file's free space, with the 1,536 MB margin unchanged. Its tests are written in the plan of 2026-10-21.
+- **Tested:** `hardware::tests::the_log_says_what_other_signed_in_users_programs_hold`.
+
 ## 2026-10-21, the preview's notes after the owner's check
 
 The owner checked `v0.2.0-preview.1` (build `920b7123`) and approved it. Two known issues were added to its notes, on the release page and in `docs/release-notes/v0.2.0-preview.1.md`:
