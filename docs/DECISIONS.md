@@ -13,6 +13,13 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-25, the plugin manifest is `plugin.toml`; plugins are `.lspkg` files
+
+The owner's ruling of 25 October.
+- **`plugin.toml`, not `localspace.toml`,** which is already the Server's settings file.
+- **Packed plugins are `.lspkg` files,** to match `.lsassistant` (internal plan 48), in place of the spec's `.hpack`. The harness-plugin spec's §12 is amended when the plugin kit lands.
+- `sdk/README.md` says so now.
+
 ## 2026-10-25, the plugin SDK's folder is Apache 2.0 now; the rest waits for the separation
 
 The owner's ruling of 25 October.

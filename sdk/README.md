@@ -3,7 +3,7 @@
 **This folder is licensed under the Apache License, Version 2.0** (`LICENSE`, `NOTICE`). The rest of this repository is not yet. Its licence is in the root `LICENSE`.
 
 Here is what developers need to build plugins for localSpace (internal plan 47):
-- the plugin manifest, `localspace.toml`, and its schema;
+- the plugin manifest, `plugin.toml`, and its schema; plugins are packed as `.lspkg` files;
 - the tool contract: a name, a description, an input schema and permissions;
 - the `dev` commands' templates;
 - the two example plugins: a unit converter (WebAssembly) and a CSV/spreadsheet reader (read-only);
