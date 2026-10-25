@@ -13,6 +13,18 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-26, CLAUDE.md: the architecture, the working rules and the engineering practice
+
+The founder's ruling of 26 October.
+
+- **CLAUDE.md is rewritten** as three parts: the product architecture, the working rules, and the engineering practice kept from the previous file (coding standards, tests and gates, commits and PRs, decision logs, build, test and release).
+- **The rest of the founder's brief is kept privately,** and it wins where the two differ.
+- **Dropped from the old file:**
+  - the asking rule on every small thing, replaced by a list of what needs the founder's yes;
+  - the MVP definition of done and the build order;
+  - the kickoff message.
+- **Kept as budgets:** the 2 MB bundle (checked in CI), Core at idle ≤ 50 MB, and the shell's JS heap ≤ 80 MB.
+
 ## 2026-10-25, the plugin manifest is `plugin.toml`; plugins are `.lspkg` files
 
 The owner's ruling of 25 October.
