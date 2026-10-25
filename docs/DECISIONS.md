@@ -81,6 +81,15 @@ The founder's ruling of 25 October: fix it on `release/0.2`, with a test, before
   - the choice is kept across a restart;
   - malformed values are refused, and nothing is stored.
 
+## 2026-10-26, no open-source licence: the `sdk/` Apache exception is withdrawn
+
+The founder's ruling of 26 October. It replaces the 25 October entries on the `sdk/` folder.
+
+- **Nothing in this repository is open source.** It's visible on GitHub, all rights reserved. The root `LICENSE` says so again, without the exception.
+- **`sdk/` is removed,** with its `LICENSE`, `NOTICE` and README, and so is `scripts/check-sdk-boundary.mjs` with its CI step, which only guarded the Apache folder.
+- **The plugin system, the developer kit, multi-user serving and the company server are closed.** The developer kit comes later under our own developer licence, when the founder releases it. Closed work doesn't go into this repository.
+- **What was published:** from 25 to 26 October, the `sdk/` folder held only a README, the Apache licence text and a notice, and no code. Copies taken then keep the licence they came with.
+
 
 ## 2026-10-25, the plugin manifest is `plugin.toml`; plugins are `.lspkg` files
 
