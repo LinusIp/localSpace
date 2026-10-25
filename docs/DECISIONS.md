@@ -13,6 +13,29 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-25, 0.2.1: three themes, one set of tokens, the translation system, two tracks
+
+The owner's rulings of 24–25 October. The technical brief is `docs/design/0.2.1-THEMES-AND-TRANSLATION.md`.
+
+- **Three themes,** each in light and dark, plus "Same as Windows":
+  - **indigo and amber** (the default);
+  - violet and magenta;
+  - teal.
+- **The tokens** are one `--ls-*` set:
+  - `data-palette` picks the colours, and `data-theme` or `prefers-color-scheme` the mode;
+  - every theme passes WCAG AA, checked in CI;
+  - the choice is stored as a preference;
+  - text and buttons use separate accent roles: `--ls-accent` for text, `--ls-accent-fill` with `--ls-on-accent` for buttons.
+- **The typeface is Onest,** for its Cyrillic. Its Uzbek oʻ and gʻ (U+02BB) are checked before it ships.
+- **The translation system:**
+  - every visible string goes through it, with one file per language and a test for missing keys;
+  - Core sends codes with parameters, not English sentences;
+  - `lang` follows the language shown.
+  - No language comes first; we start with English, Russian and Uzbek because we can check them.
+- **Work runs in two tracks.** Track A (0.2.0 on `release/0.2`, then Core and the agent on `main`) and track B (translation, design, plugin kit) work in parallel.
+  - Every new feature sits behind a switch that's off by default (`themes`, `translation`, …).
+  - CI and the browser walk run with the switches on and off.
+
 ## 2026-10-24, the picture check logs other signed-in users' memory
 
 The founder's ruling of 2026-10-24, after the preview check:
