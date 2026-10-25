@@ -98,6 +98,8 @@ jobs:
       - name: types, the whiteboard surface
         run: npm run typecheck:whiteboard
         working-directory: web
+      - name: the plugin SDK folder takes nothing from outside it (it is Apache 2.0; the rest is not yet)
+        run: node scripts/check-sdk-boundary.mjs
       - name: every shipped dependency has its licence text (third-party notices)
         run: node scripts/third-party-notices.mjs --check
 

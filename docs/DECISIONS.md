@@ -13,6 +13,16 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-25, the plugin SDK's folder is Apache 2.0 now; the rest waits for the separation
+
+The owner's ruling of 25 October.
+
+- **Internal plan 42's order stands.** The personal app goes Apache 2.0 after the organisation code is separated, as part of the Server work. Until then the repository stays "All rights reserved", and nothing calls it open source.
+- **The exception: `sdk/`,** the plugin SDK of internal plan 47, has its own Apache 2.0 `LICENSE` and `NOTICE` now, so developers can build plugins. Its contents arrive with the plugin kit's PRs.
+- **The root `LICENSE`** names the holder, Abdulloh Shavkatjonov, in place of "localSpace", and the `sdk/` exception.
+- **Nothing in `sdk/` may come from outside it.** No path leaves the folder, and no dependency on the app's crates (`localspace-proto` included, since it still carries organisation types) or its web packages. `scripts/check-sdk-boundary.mjs` checks this in CI; tried against a tree that breaks both rules, it fails on each.
+- **Code signing of the Windows installer is postponed until after funding.** The plugin key of the marketplace (internal plan 48) is separate from it.
+
 ## 2026-10-25, 0.2.1: three themes, one set of tokens, the translation system, two tracks
 
 The owner's rulings of 24–25 October. The technical brief is `docs/design/0.2.1-THEMES-AND-TRANSLATION.md`.
