@@ -214,20 +214,29 @@ pub fn budget(context: usize, answer: usize, system: usize, working_set: usize) 
 /// turns with their frames, what comes after them, the template's own frame,
 /// and the pictures at [`PICTURE_TOKENS`]. For the log, beside the engine's
 /// own figure.
-pub fn counted(p: &Prompt) -> usize {
+pub fn counted(system: &str, turns: &[Turn], after: &str) -> usize {
     TEMPLATE_TOKENS
-        + tokens_of(&p.prefix())
-        + tokens_of(&p.after())
-        + p.turns
+        + tokens_of(system)
+        + tokens_of(after)
+        + turns
             .iter()
             .map(|t| {
                 let pictures = match t {
                     Turn::Picture { pictures, .. } => pictures.len() * PICTURE_TOKENS,
                     _ => 0,
                 };
-                tokens_of(&t.render()) + FRAME_TOKENS + pictures
+                tokens_of(&t.render()) + frames(t) + pictures
             })
             .sum::<usize>()
+}
+
+/// The template's frames around a turn: a call goes to the engine as two
+/// messages, the model's call and the tool's reply.
+fn frames(t: &Turn) -> usize {
+    match t {
+        Turn::Call { .. } => 2 * FRAME_TOKENS,
+        _ => FRAME_TOKENS,
+    }
 }
 
 pub fn build(
@@ -436,7 +445,7 @@ impl Counted {
 fn cost(m: &proto::ChatMessage) -> usize {
     turns_of(m)
         .iter()
-        .map(|t| tokens_of(&t.render()) + FRAME_TOKENS)
+        .map(|t| tokens_of(&t.render()) + frames(t))
         .sum::<usize>()
         + m.attachments
             .iter()
@@ -510,7 +519,7 @@ pub fn turns(messages: &[proto::ChatMessage], working_set: usize) -> Vec<Turn> {
     let mut start = all.len();
     let mut used = 0usize;
     while start > 0 {
-        let cost = tokens_of(&all[start - 1].render()) + FRAME_TOKENS;
+        let cost = tokens_of(&all[start - 1].render()) + frames(&all[start - 1]);
         if used + cost > working_set && start < all.len() {
             break;
         }
@@ -531,11 +540,11 @@ pub fn turns(messages: &[proto::ChatMessage], working_set: usize) -> Vec<Turn> {
     else {
         return all[start..].to_vec();
     };
-    let room = working_set.saturating_sub(tokens_of(&all[person].render()) + FRAME_TOKENS);
+    let room = working_set.saturating_sub(tokens_of(&all[person].render()) + frames(&all[person]));
     let mut from = all.len();
     let mut used = 0usize;
     while from > person + 1 {
-        let cost = tokens_of(&all[from - 1].render()) + FRAME_TOKENS;
+        let cost = tokens_of(&all[from - 1].render()) + frames(&all[from - 1]);
         if used + cost > room {
             break;
         }

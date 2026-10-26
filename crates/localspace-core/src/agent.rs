@@ -651,7 +651,6 @@ fn ask_the_model(core: &mut Core, id: u64) {
     // The prompt as a system message and turns, the ledger after the newest
     // message (docs/DECISIONS.md, 2026-09-24 and 2026-10-06).
     let prompt_estimate = p.total_tokens();
-    let counted = prompt::counted(&p) + carried;
     let system = p.prefix();
     let after = p.after();
     let mut turns = p.turns;
@@ -689,6 +688,11 @@ fn ask_the_model(core: &mut Core, id: u64) {
     // A call the model wrote into its answer and had refused: it reads the
     // refusal on its one more try (see `attempted`).
     turns.extend(refused);
+    // Our count of what is sent, for the log beside the engine's figure:
+    // the pictures, the refused call, the tools' declarations and the words
+    // carried on included.
+    let counted =
+        prompt::counted(&system, &turns, &after) + model::declared_tokens(&tools) + carried;
     let mut request = model::ChatRequest::with_turns(system, turns, after);
     request.tools = tools;
     request.grammar = grammar;
@@ -1436,17 +1440,20 @@ pub(crate) fn chat_budget(core: &Core) -> usize {
     let profile = &core.cfg.profile;
     let active = core.active_set();
     let system = prompt::build(profile, &active, &[], None, &[]).prefix();
-    // What comes after the messages when tools are on offer: up to what is
-    // open and the ledger, at their own limits.
-    let after = if active.tools.is_empty() {
+    // When tools are on offer: their declarations, which the engine's
+    // template writes out again beside our own text of them, and what comes
+    // after the messages, up to what is open and the ledger at their limits.
+    let tools = if active.tools.is_empty() {
         0
     } else {
-        profile.context_budget_tokens + profile.ledger_tokens
+        model::declared_tokens(&active.tools)
+            + profile.context_budget_tokens
+            + profile.ledger_tokens
     };
     prompt::budget(
         context,
         answer_room(core) as usize,
-        prompt::tokens_of(&system) + after + prompt::TEMPLATE_TOKENS,
+        prompt::tokens_of(&system) + tools + prompt::TEMPLATE_TOKENS,
         profile.working_set_tokens,
     )
 }
@@ -1983,6 +1990,21 @@ mod tests {
         assert_eq!(
             chat_budget(&core),
             (8192 - 3072 - plain).min(core.cfg.profile.working_set_tokens)
+        );
+        // With tools on offer, their declarations come off too: the engine's
+        // template writes them out beside our own text of them.
+        let core = core_with_something_installed(Script::new(Vec::new()));
+        let active = core.active_set();
+        let profile = &core.cfg.profile;
+        let system = prompt::tokens_of(&prompt::build(profile, &active, &[], None, &[]).prefix())
+            + model::declared_tokens(&active.tools)
+            + profile.context_budget_tokens
+            + profile.ledger_tokens
+            + prompt::TEMPLATE_TOKENS;
+        assert!(model::declared_tokens(&active.tools) > 0);
+        assert_eq!(
+            chat_budget(&core),
+            (8192 - 2048 - system).min(profile.working_set_tokens)
         );
     }
 

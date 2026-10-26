@@ -693,6 +693,14 @@ fn tool_schema(t: &proto::ExposedTool) -> J {
     })
 }
 
+/// What the tools' declarations cost in what the model reads, by our
+/// count: the engine's template writes each one out, a line of its own.
+/// The template's own words around them are not counted here.
+pub fn declared_tokens(tools: &[proto::ExposedTool]) -> usize {
+    let lines: Vec<String> = tools.iter().map(|t| tool_schema(t).to_string()).collect();
+    crate::prompt::tokens_of(&lines.join("\n"))
+}
+
 pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {
     if let Some(err) = res.get("error") {
         bail!(
