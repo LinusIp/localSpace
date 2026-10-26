@@ -191,6 +191,9 @@ fn exchange(
         let _ = Body::new(reader, head.framing)
             .take(REFUSAL_BYTES)
             .read_to_end(&mut refusal);
+        if let Some(no_room) = no_room(&refusal) {
+            return Err(anyhow::Error::new(no_room));
+        }
         bail!(
             "the model answered {}: {}",
             head.status,
@@ -480,6 +483,32 @@ impl<R: BufRead> Read for Body<R> {
     }
 }
 
+/// The engine refused a request for want of room: the prompt alone fills
+/// its context (llama-server's `exceed_context_size_error`). Told apart from
+/// other refusals, so the person is told the chat is full, never the raw
+/// error (docs/DECISIONS.md, 2026-10-26).
+#[derive(Debug, thiserror::Error)]
+#[error("the model answered: {message}")]
+pub struct NoRoom {
+    pub message: String,
+    /// The engine's own count of the prompt, and its context, when it says.
+    pub prompt_tokens: Option<u64>,
+    pub context: Option<u64>,
+}
+
+fn no_room(body: &[u8]) -> Option<NoRoom> {
+    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let error = &json["error"];
+    let message = error["message"].as_str().unwrap_or_default();
+    let full = error["type"] == "exceed_context_size_error"
+        || message.contains("exceeds the available context size");
+    full.then(|| NoRoom {
+        message: message.to_string(),
+        prompt_tokens: error["n_prompt_tokens"].as_u64(),
+        context: error["n_ctx"].as_u64(),
+    })
+}
+
 /// A refusal's message, from the JSON body the engine sends with one.
 fn refusal_message(body: &[u8]) -> String {
     let text = String::from_utf8_lossy(body);
@@ -498,6 +527,21 @@ fn refusal_message(body: &[u8]) -> String {
 mod tests {
     use super::*;
     use std::net::TcpListener;
+
+    /// The engine's refusal for want of room is told apart from any other,
+    /// with its own count of the prompt and its context.
+    #[test]
+    fn a_refusal_for_want_of_room_is_told_apart() {
+        let full = br#"{"error":{"code":400,"message":"request (9000 tokens) exceeds the available context size (8192 tokens), try increasing it","type":"exceed_context_size_error","n_prompt_tokens":9000,"n_ctx":8192}}"#;
+        let refused = no_room(full).expect("told apart");
+        assert_eq!(
+            (refused.prompt_tokens, refused.context),
+            (Some(9000), Some(8192))
+        );
+        let other = br#"{"error":{"code":500,"message":"on purpose","type":"server_error"}}"#;
+        assert!(no_room(other).is_none());
+        assert!(no_room(b"not json").is_none());
+    }
 
     /// A server for one request: reads it, then writes `parts` with a short
     /// pause between them, so that each arrives in a read of its own, and

@@ -653,6 +653,13 @@ pub enum CutShort {
     Repeated,
     /// It reached the longest answer allowed; Continue carries it on.
     Length,
+    /// The chat had no more room: the engine's context ran out while the
+    /// answer was written, or before it could begin. A new chat goes on
+    /// (docs/DECISIONS.md, 2026-10-26).
+    ChatFull,
+    /// The model could not answer: an error, kept in the log, never shown
+    /// raw. Trying again asks once more.
+    Failed,
 }
 
 /// Where the answer to a chat's last message is.

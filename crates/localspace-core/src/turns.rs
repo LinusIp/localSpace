@@ -86,6 +86,12 @@ pub struct StepEnd {
     /// The prompt's length as estimated before it was sent: the engine says
     /// the true one only at the end, which an answer cut short never reaches.
     pub prompt_estimate: usize,
+    /// The prompt by our own count (`prompt::counted`), for the log beside
+    /// the engine's figure (docs/DECISIONS.md, 2026-10-26).
+    pub counted: usize,
+    /// The longest the answer could be, as asked: an answer at the limit
+    /// with fewer tokens than this ran out of context instead.
+    pub max_tokens: u32,
     /// Whether the step asked the model to think (`Some`), or left it to the
     /// model's own default (`None`).
     pub thinking: Option<bool>,

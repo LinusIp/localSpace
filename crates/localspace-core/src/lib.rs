@@ -4947,12 +4947,13 @@ impl Core {
                 // As the model reads the chat: its text files in its words.
                 let (user, chat) = (&self.active.user, &self.conversations.current);
                 let messages = agent::with_text_files(self, user, chat, self.transcript.clone());
-                let p = prompt::build(
+                let p = prompt::build_within(
                     &self.cfg.profile,
                     &active,
                     &blocks,
                     Some(&self.task),
                     &messages,
+                    agent::chat_budget(self),
                 );
                 proto::Response::Context {
                     blocks,

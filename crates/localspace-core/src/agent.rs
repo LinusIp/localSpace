@@ -135,8 +135,7 @@ fn read_text_files(
             prompt::tokens_of(&file_head(&a.name, LONGEST_NOTE)) + prompt::tokens_of(FILE_END)
         })
         .sum();
-    let budget =
-        (core.cfg.profile.working_set_tokens / 2).saturating_sub(prompt::tokens_of(words) + frames);
+    let budget = (chat_budget(core) / 2).saturating_sub(prompt::tokens_of(words) + frames);
     let needs: Vec<usize> = texts
         .iter()
         .map(|text| text.as_deref().map_or(0, prompt::tokens_of))
@@ -615,12 +614,18 @@ fn ask_the_model(core: &mut Core, id: u64) {
         None
     };
     let messages = with_text_files(core, &user, &conversation, messages);
-    let p = prompt::build(
+    // The words carried on are part of what the engine reads: the chat's
+    // messages have that much less room (docs/DECISIONS.md, 2026-10-26).
+    let carried = begun.as_deref().map_or(0, |words| {
+        prompt::tokens_of(&format!("assistant: {words}")) + prompt::FRAME_TOKENS
+    });
+    let p = prompt::build_within(
         &core.cfg.profile,
         &active,
         &blocks,
         Some(&core.task),
         &messages,
+        chat_budget(core).saturating_sub(carried),
     );
     if p.total_tokens() > core.cfg.profile.prompt_tokens_per_step {
         core.trace(format!(
@@ -646,6 +651,7 @@ fn ask_the_model(core: &mut Core, id: u64) {
     // The prompt as a system message and turns, the ledger after the newest
     // message (docs/DECISIONS.md, 2026-09-24 and 2026-10-06).
     let prompt_estimate = p.total_tokens();
+    let counted = prompt::counted(&p) + carried;
     let system = p.prefix();
     let after = p.after();
     let mut turns = p.turns;
@@ -690,15 +696,12 @@ fn ask_the_model(core: &mut Core, id: u64) {
     request.thinking = core.thinking;
     request.sampling = core.sampling.map(|s| s.for_thinking(request.thinking));
     // An answer may be as long as [`ANSWER_TOKENS`]: about a minute of
-    // writing on a 4 GB card (docs/DECISIONS.md, 2026-10-10).
-    request.max_tokens = ANSWER_TOKENS;
-    // With thinking on, the answer's limit grows by the thinking budget, so
-    // that the answer keeps its room when the thinking takes all of its own
-    // (docs/DECISIONS.md, 2026-10-08).
-    if request.thinking == Some(true) {
-        request.max_tokens += core.thinking_budget;
-    }
+    // writing on a 4 GB card (docs/DECISIONS.md, 2026-10-10). With thinking
+    // on, the limit grows by the thinking budget, so that the answer keeps
+    // its room when the thinking takes all of its own (2026-10-08).
+    request.max_tokens = answer_room(core);
     let thinking = request.thinking;
+    let max_tokens = request.max_tokens;
     // Taken out of the router, so that nothing holds it while the answer is
     // written: a model changed meanwhile would otherwise wait for the answer.
     let streamer = core.router.read().unwrap().for_a_turn();
@@ -718,6 +721,7 @@ fn ask_the_model(core: &mut Core, id: u64) {
                         &deliver,
                         &conversation,
                         prompt_estimate,
+                        counted,
                     );
                     inbox(Internal::Replied {
                         turn: id,
@@ -735,6 +739,8 @@ fn ask_the_model(core: &mut Core, id: u64) {
                     first_piece: None,
                     took: Duration::ZERO,
                     prompt_estimate,
+                    counted,
+                    max_tokens,
                     thinking,
                 };
                 post(
@@ -755,6 +761,7 @@ fn ask_the_model(core: &mut Core, id: u64) {
                 &deliver,
                 &conversation,
                 prompt_estimate,
+                counted,
             );
             post(
                 core,
@@ -778,6 +785,7 @@ fn read_the_model(
     deliver: &Delivery,
     conversation: &str,
     prompt_estimate: usize,
+    counted: usize,
 ) -> StepEnd {
     let asked = Instant::now();
     let mut first_piece: Option<Duration> = None;
@@ -853,6 +861,8 @@ fn read_the_model(
         first_piece,
         took: asked.elapsed(),
         prompt_estimate,
+        counted,
+        max_tokens: request.max_tokens,
         thinking: request.thinking,
     }
 }
@@ -880,7 +890,7 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
         Ok(r) => {
             let tools: Vec<&str> = r.calls.iter().map(|c| c.tool.as_str()).collect();
             tracing::info!(
-                "answer: step {steps}, {}, prompt of {} tokens, tools asked for: {}",
+                "answer: step {steps}, {}, prompt of {} tokens (we counted {}), {} of {} tokens written, tools asked for: {}",
                 measure_of_an_answer(&StepSpeed {
                     first_word: step.first_piece.map(|d| d.as_secs_f32()),
                     took: step.took.as_secs_f32(),
@@ -891,6 +901,9 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
                         .map(|(began, ended)| (began.as_secs_f32(), ended.as_secs_f32())),
                 }),
                 r.prompt_tokens,
+                step.counted,
+                r.completion_tokens,
+                step.max_tokens,
                 if tools.is_empty() {
                     "none".to_string()
                 } else {
@@ -899,7 +912,16 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
             );
         }
         Err(e) => {
-            if let Some(cut) = e.downcast_ref::<Cut>() {
+            if let Some(no_room) = e.downcast_ref::<crate::stream::NoRoom>() {
+                tracing::info!(
+                    "answer: step {steps}, refused for want of room: the engine counted {} of its {}-token context, we counted {}",
+                    no_room
+                        .prompt_tokens
+                        .map_or("?".to_string(), |n| n.to_string()),
+                    no_room.context.map_or("?".to_string(), |n| n.to_string()),
+                    step.counted
+                );
+            } else if let Some(cut) = e.downcast_ref::<Cut>() {
                 core.trace(format!(
                     "answer: step {steps}, cut: {cut}, after {:.1} s and {} words shown, prompt of about {} tokens",
                     step.took.as_secs_f32(),
@@ -946,18 +968,26 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
                     };
                     end(core, id, how);
                 }
-                None => {
-                    let said = format!("{e:#}");
-                    core.notice(proto::NoticeLevel::Error, said.clone());
+                // No room for the request at all: the chat is full, said as
+                // such in the person's language, never the raw refusal
+                // (docs/DECISIONS.md, 2026-10-26).
+                None if e.downcast_ref::<crate::stream::NoRoom>().is_some() => {
                     keep(
                         core,
                         id,
-                        &format!("I could not reach a model: {said}"),
                         "",
-                        false,
-                        false,
-                        None,
+                        "",
+                        true,
+                        true,
+                        Some(proto::CutShort::ChatFull),
                     );
+                    end(core, id, TurnState::Done);
+                }
+                // Any other error: the chat says the model could not answer,
+                // and the error itself goes to the log.
+                None => {
+                    tracing::warn!("answer: step {steps}, the model could not answer: {e:#}");
+                    keep(core, id, "", "", true, true, Some(proto::CutShort::Failed));
                     end(core, id, TurnState::Done);
                 }
             }
@@ -1007,7 +1037,11 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
         }
         // An answer that reached the longest allowed is kept as stopped,
         // so that Continue carries it on, and the chat says why it ended.
+        // One that stopped at the limit with fewer tokens than it was
+        // allowed ran out of context: the chat is full (docs/DECISIONS.md,
+        // 2026-10-26). An engine that says no figure is taken at its word.
         if reply.at_limit {
+            let full = reply.completion_tokens > 0 && reply.completion_tokens < step.max_tokens;
             keep(
                 core,
                 id,
@@ -1015,7 +1049,11 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
                 &step.thought,
                 true,
                 true,
-                Some(proto::CutShort::Length),
+                Some(if full {
+                    proto::CutShort::ChatFull
+                } else {
+                    proto::CutShort::Length
+                }),
             );
         } else {
             keep(core, id, &reply.text, &step.thought, false, true, None);
@@ -1362,6 +1400,46 @@ fn write(
     crate::conversations::update_elsewhere(&core.store, user, workspace, conversation, now, change);
 }
 
+/// The room an answer is given: [`ANSWER_TOKENS`], and the thinking budget
+/// when thinking is on (docs/DECISIONS.md, 2026-10-08).
+pub(crate) fn answer_room(core: &Core) -> u32 {
+    if core.thinking == Some(true) {
+        ANSWER_TOKENS + core.thinking_budget
+    } else {
+        ANSWER_TOKENS
+    }
+}
+
+/// How much of the engine's context a chat's messages may take here: the
+/// context, less the answer's room and the system part (docs/DECISIONS.md,
+/// 2026-10-26, rule A). One figure for the step, the divider, the text-file
+/// share and Settings' "This turn". With no model loaded, a laptop's
+/// context is assumed.
+pub(crate) fn chat_budget(core: &Core) -> usize {
+    let context = core
+        .router
+        .read()
+        .unwrap()
+        .info()
+        .map_or(crate::models::FITTED_CONTEXT, |m| m.context_len) as usize;
+    let profile = &core.cfg.profile;
+    let active = core.active_set();
+    let system = prompt::build(profile, &active, &[], None, &[]).prefix();
+    // What comes after the messages when tools are on offer: up to what is
+    // open and the ledger, at their own limits.
+    let after = if active.tools.is_empty() {
+        0
+    } else {
+        profile.context_budget_tokens + profile.ledger_tokens
+    };
+    prompt::budget(
+        context,
+        answer_room(core) as usize,
+        prompt::tokens_of(&system) + after + prompt::TEMPLATE_TOKENS,
+        profile.working_set_tokens,
+    )
+}
+
 /// Where the events of an answer go from the thread that reads the model:
 /// to its person.
 fn delivery(core: &Core, user: &str) -> Delivery {
@@ -1382,7 +1460,7 @@ pub(crate) fn transcript(core: &Core) -> proto::Response {
     let read = with_text_files(core, user, chat, core.transcript.clone());
     proto::Response::Transcript {
         messages: core.transcript.clone(),
-        read_from: prompt::read_from(&read, core.cfg.profile.working_set_tokens),
+        read_from: prompt::read_from(&read, chat_budget(core)),
     }
 }
 
@@ -1713,7 +1791,7 @@ mod tests {
         }
         let (user, chat) = (core.active.user.clone(), core.conversations.current.clone());
         let read = with_text_files(&core, &user, &chat, core.transcript.clone());
-        let half = core.cfg.profile.working_set_tokens / 2;
+        let half = chat_budget(&core) / 2;
         assert!(
             prompt::tokens_of(&read[0].content) <= half,
             "{} tokens over half the working set, {half}",
@@ -1731,10 +1809,7 @@ mod tests {
         match transcript(&core) {
             proto::Response::Transcript { read_from, .. } => {
                 assert!(read_from > 0, "three long files outgrow the working set");
-                assert_eq!(
-                    read_from,
-                    prompt::read_from(&read, core.cfg.profile.working_set_tokens)
-                );
+                assert_eq!(read_from, prompt::read_from(&read, chat_budget(&core)));
             }
             other => panic!("expected the transcript, got {other:?}"),
         }
@@ -1754,7 +1829,7 @@ mod tests {
     fn the_divider_counts_the_files_heads() {
         let mut core = core_with(Script::new(Vec::new()));
         core.run_inline = true;
-        let ws = core.cfg.profile.working_set_tokens;
+        let ws = chat_budget(&core);
         let named = "a-report-with-a-long-name-".repeat(7);
         let mut read_from = 0;
         for n in 0..1000 {
@@ -1839,16 +1914,64 @@ mod tests {
         assert!(calls <= MAX_AGENT_STEPS, "ran {calls} tool calls");
     }
 
+    /// A model that cannot answer is said plainly: the answer is marked,
+    /// so the chat says so in the person's language and offers to try again,
+    /// and no raw error is kept as its words (docs/DECISIONS.md, 2026-10-26).
     #[test]
-    fn a_model_that_cannot_be_reached_is_reported_not_hidden() {
+    fn a_model_that_cannot_answer_is_said_plainly_not_hidden() {
         let mut core = Core::ephemeral("anna").unwrap(); // no worker at all
         turn(&mut core, "hello");
         let last = core.transcript.last().unwrap();
         assert_eq!(last.role, proto::Role::Assistant);
-        assert!(
-            last.content.contains("could not reach a model"),
-            "{}",
-            last.content
+        assert_eq!(last.cut_short, Some(proto::CutShort::Failed));
+        assert!(last.stopped, "so that trying again asks once more");
+        assert!(last.content.is_empty(), "{}", last.content);
+    }
+
+    /// An answer stopped at the limit with fewer tokens than it was allowed
+    /// ran out of context: the chat is full, not the answer too long
+    /// (docs/DECISIONS.md, 2026-10-26).
+    #[test]
+    fn an_answer_cut_by_a_full_context_says_the_chat_is_full() {
+        let script = Script::new(vec![ChatReply {
+            text: "The first part of".into(),
+            at_limit: true,
+            completion_tokens: 40,
+            ..Default::default()
+        }]);
+        let mut core = core_with(script);
+        turn(&mut core, "Write a lot.");
+        let answer = core.transcript.last().unwrap().clone();
+        assert_eq!(answer.content, "The first part of");
+        assert_eq!(answer.cut_short, Some(proto::CutShort::ChatFull));
+        // At the full limit, the answer's own length.
+        let script = Script::new(vec![ChatReply {
+            text: "A very long answer that".into(),
+            at_limit: true,
+            completion_tokens: ANSWER_TOKENS,
+            ..Default::default()
+        }]);
+        let mut core = core_with(script);
+        turn(&mut core, "Write a lot.");
+        let answer = core.transcript.last().unwrap().clone();
+        assert_eq!(answer.cut_short, Some(proto::CutShort::Length));
+    }
+
+    /// The chat's messages keep room for the answer and the system part:
+    /// context − answer room − system part, here a laptop's 8,192 less 2,048
+    /// and the plain instructions (docs/DECISIONS.md, 2026-10-26, rule A).
+    #[test]
+    fn the_chat_budget_leaves_the_answer_its_room() {
+        let mut core = core_with(Script::new(Vec::new()));
+        let plain = prompt::tokens_of(prompt::SYSTEM_PLAIN) + prompt::TEMPLATE_TOKENS;
+        let expected = (8192 - 2048 - plain).min(core.cfg.profile.working_set_tokens);
+        assert_eq!(chat_budget(&core), expected);
+        // With thinking on, the thinking budget's room comes off too.
+        core.thinking = Some(true);
+        core.thinking_budget = 1024;
+        assert_eq!(
+            chat_budget(&core),
+            (8192 - 3072 - plain).min(core.cfg.profile.working_set_tokens)
         );
     }
 
