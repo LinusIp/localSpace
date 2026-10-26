@@ -57,7 +57,13 @@ test("a file too large to send is told the size limit only when it may be text",
   // Text with a name the chooser doesn't list is still text.
   assert.ok(mayBeText({ type: "", name: "export.jsonl" }));
   assert.ok(mayBeText({ type: "", name: "server.log.1" }));
-  assert.ok(!mayBeText({ type: "application/zip", name: "logs.txt" }));
+  // The name wins over the type Windows gives some text files.
+  assert.ok(mayBeText({ type: "application/zip", name: "logs.txt" }));
+  assert.ok(mayBeText({ type: "video/vnd.dlna.mpeg-tts", name: "api.ts" }));
+  assert.ok(mayBeText({ type: "application/vnd.ms-excel", name: "export.csv" }));
+  // Archives, models and databases are not text.
+  for (const name of ["backup.tgz", "logs.zst", "book.epub", "qwen3-4b.gguf", "app.db"]) assert.ok(!mayBeText({ type: "", name }), name);
+  assert.ok(!mayBeText({ type: "application/x-compressed", name: "backup" }));
 });
 
 test("the words are left out when they disagree with the share read", () => {

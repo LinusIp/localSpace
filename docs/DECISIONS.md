@@ -22,7 +22,7 @@ Internal plan 38, F1 and a smaller F4. It is part of the frozen 0.2.0 scope on `
   - **Nearly UTF-8 counts as UTF-8:** a character cut at the end, or a stray byte, when the file has more good characters beyond ASCII than invalid sequences. Without this, the whole file would be read as Windows-1251.
   - **Anything else is read as Windows-1251,** the usual encoding of Russian and Uzbek Cyrillic files on Windows.
   - **Refused as not text:** a file with a zero byte anywhere in it, or with more than 1% control characters in its first 65,536. Escape doesn't count, so a coloured log is text.
-  - **Also refused:** an empty file, and one over 2 MiB. A large file is told "too large", with its size to one decimal ("2.1 MB"), only when its start reads as text. Anything else, like a PDF or a zip, is told it isn't text. The composer says both at once, without sending the file. It judges by the type and the name: "too large" unless they say the file is something else, such as a PDF, an archive, an Office file, audio or video. Core judges by the bytes.
+  - **Also refused:** an empty file, and one over 2 MiB. A large file is told "too large", with its size to one decimal ("2.1 MB"), only when its start reads as text. Anything else, like a PDF or a zip, is told it isn't text. The composer says both at once, without sending the file. It judges by the name first, then the type: "too large" unless they say the file is something else, such as a PDF, an archive, an Office file, a model, a database, audio or video. A name the chooser offers wins, since Windows gives some text files other types (`.ts` as video, `.csv` as Excel). Core judges by the bytes.
   - **A folder dropped or pasted** is never sent.
 - **No new library.** The Windows-1251 table is ours (`text_file.rs`), since `encoding_rs` would be a new dependency.
 - **Kept as UTF-8,** as `<id>.txt` beside the pictures, and deleted with its chat.
@@ -34,7 +34,8 @@ Internal plan 38, F1 and a smaller F4. It is part of the frozen 0.2.0 scope on `
   - **A word** is at least a token, one for every four bytes of it.
   - **A run of punctuation** is one token, or more when it is long.
   - **Never less** than the old estimate of a token for every four bytes.
-  - **Why:** the old count read a table of figures as a third of its real size or less, which could overflow the laptop's 8,192-token context. Counting every mark alone would have counted code and Markdown at up to 1.7 times their size.
+  - **Two or more spaces before a figure** count as the tokenizers cut them: the last space is a token, and the others one more.
+  - **Why:** the old count read a table of figures as a third of its real size or less, which could overflow the laptop's 8,192-token context. Measured against Qwen's pieces, tables of figures now count at about their real size. Prose, code and Markdown count 1.3 to 1.6 times it, which errs on the safe side: a code file gets somewhat less of its share than would fit.
   - **The same count everywhere:** the conversation's costs, its trimming, and the cut of a file.
 - **How much the model reads:**
   - **The budget:** the text files of one message share half the working set, less the person's own words and each file's header.

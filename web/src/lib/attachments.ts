@@ -13,7 +13,7 @@ export const PICTURE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
 export const TEXT_EXTENSIONS = [
   "txt", "md", "markdown", "csv", "tsv", "json", "xml", "yaml", "yml", "toml", "ini", "log",
   "rs", "py", "js", "ts", "tsx", "jsx", "java", "c", "h", "cpp", "hpp", "cs", "go", "rb", "php",
-  "swift", "kt", "sql", "sh", "ps1", "bat", "html", "css",
+  "swift", "kt", "sql", "sh", "ps1", "bat", "html", "css", "svg",
 ] as const;
 
 /** What the file chooser offers: pictures and text files. */
@@ -26,18 +26,23 @@ export const MOST_ATTACHMENTS = 4;
 export const TEXT_MAX_BYTES = 2 * 1024 * 1024;
 
 /** Files known not to be text, by their type or their name. */
-const NOT_TEXT_TYPES = /^(audio|video|image|font)\/|^application\/(pdf|zip|x-zip|x-7z|x-rar|vnd\.|msword|x-msdownload|x-msi|gzip|x-tar|octet-stream$)/;
+const NOT_TEXT_TYPES = /^(audio|video|image|font)\/|^application\/(pdf|zip|x-zip|x-7z|x-rar|x-compressed|x-bzip|x-xz|zstd|epub\+zip|java-archive|vnd\.|msword|x-msdownload|x-msi|gzip|x-tar|octet-stream$)/;
 const NOT_TEXT_EXTENSIONS = [
-  "pdf", "zip", "7z", "rar", "gz", "tar", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
-  "exe", "dll", "msi", "iso", "bin", "mp3", "mp4", "m4a", "mov", "avi", "mkv", "wav", "flac", "ogg", "webm",
+  "pdf", "zip", "7z", "rar", "gz", "tgz", "tar", "xz", "bz2", "zst", "jar", "apk", "epub",
+  "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "msg", "pst",
+  "exe", "dll", "msi", "iso", "bin", "gguf", "safetensors", "db", "sqlite",
+  "mp3", "mp4", "m4a", "mov", "avi", "mkv", "wav", "flac", "ogg", "webm",
   "gif", "bmp", "tif", "tiff", "heic", "psd", "ttf", "otf", "woff", "woff2",
 ];
 
 /** Whether a file too large to send may be text: it is told the size limit, unless its type or its name says it is something else, which is told it can't be attached at all. */
 export function mayBeText(file: { type: string; name: string }): boolean {
-  if (NOT_TEXT_TYPES.test(file.type)) return false;
   const dot = file.name.lastIndexOf(".");
-  return dot <= 0 || !NOT_TEXT_EXTENSIONS.includes(file.name.slice(dot + 1).toLowerCase());
+  const extension = dot > 0 ? file.name.slice(dot + 1).toLowerCase() : "";
+  // A name the chooser offers wins over the type Windows gives it (.ts can come as video, .csv as Excel).
+  if ((TEXT_EXTENSIONS as readonly string[]).includes(extension)) return true;
+  if (NOT_TEXT_TYPES.test(file.type)) return false;
+  return !NOT_TEXT_EXTENSIONS.includes(extension);
 }
 
 /** Whether a file looks like a picture the app takes, by its type or its name. */

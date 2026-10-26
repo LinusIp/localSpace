@@ -276,8 +276,9 @@ pub const PICTURE_TOKENS: usize = 400;
 /// - the Uzbek ʻ and ʼ are one each.
 ///
 /// It is never less than the system's estimate of a token for every four
-/// bytes. A table of figures would otherwise count as a third of what it is,
-/// and code or Markdown as more than it is (docs/DECISIONS.md, 2026-10-26).
+/// bytes. A table of figures would otherwise count as a third of what it is
+/// (docs/DECISIONS.md, 2026-10-26). Code and Markdown count about 1.3 to 1.6
+/// times the tokenizers' pieces: on the safe side.
 pub fn tokens_of(text: &str) -> usize {
     let mut counted = Counted::default();
     for c in text.chars() {
@@ -294,8 +295,10 @@ pub struct Counted {
     /// The pieces before the one being read.
     done: usize,
     run: Run,
-    /// The bytes of the piece being read.
+    /// The bytes of the piece being read, and of its last character.
     run_bytes: usize,
+    run_last: usize,
+    run_chars: usize,
     all_bytes: usize,
 }
 
@@ -323,20 +326,29 @@ impl Counted {
             Run::Word
         };
         if c.is_ascii_digit() || matches!(c, '\u{02BB}' | '\u{02BC}') {
-            // A space before a digit is a piece of its own.
-            let spaces = if self.run == Run::Spaces { 1 } else { 0 };
-            self.done += self.cost().max(spaces) + 1;
-            (self.run, self.run_bytes) = (Run::None, 0);
+            // A space before a digit is a piece of its own, and the spaces
+            // before that one another.
+            let before = match self.run {
+                Run::Spaces if self.run_chars > 1 => {
+                    (self.run_bytes - self.run_last).div_ceil(4).max(1) + 1
+                }
+                Run::Spaces => 1,
+                _ => self.cost(),
+            };
+            self.done += before + 1;
+            (self.run, self.run_bytes, self.run_chars) = (Run::None, 0, 0);
             return;
         }
         // Spaces end in a line break as one piece.
         let joins = run == self.run || (self.run == Run::Spaces && run == Run::Lines);
         if !joins {
             self.done += self.cost();
-            self.run_bytes = 0;
+            (self.run_bytes, self.run_chars) = (0, 0);
         }
         self.run = run;
         self.run_bytes += c.len_utf8();
+        self.run_last = c.len_utf8();
+        self.run_chars += 1;
     }
 
     /// What the piece being read costs so far.
@@ -996,6 +1008,10 @@ mod tests {
         assert_eq!(tokens_of(""), 0);
         // Rent ; 8 _ 0 0 0 _ 0 0 0 ; 8 _ 0 0 0 _ 0 0 0 \n
         assert_eq!(tokens_of("Rent;8 000 000;8 000 000\n"), 22);
+        // Spaces before a figure: the last is a piece, the others one more.
+        assert_eq!(tokens_of("  1"), 3);
+        assert_eq!(tokens_of("1\t\t2"), 4);
+        assert_eq!(tokens_of("\u{a0}1"), 2);
         // A run of marks is one piece, not one per mark.
         assert!(tokens_of("**bold** and `code();`") <= 9);
         // Never less than a token for every four bytes.

@@ -1746,6 +1746,45 @@ mod tests {
         );
     }
 
+    /// The divider counts the files' heads as the model reads them: a chat
+    /// of short messages, each with four small files under long names,
+    /// outgrows the working set by the files' heads before it does by their
+    /// words alone (docs/DECISIONS.md, 2026-10-26).
+    #[test]
+    fn the_divider_counts_the_files_heads() {
+        let mut core = core_with(Script::new(Vec::new()));
+        core.run_inline = true;
+        let ws = core.cfg.profile.working_set_tokens;
+        let named = "a-report-with-a-long-name-".repeat(7);
+        let mut read_from = 0;
+        for n in 0..1000 {
+            let ids: Vec<String> = (0..4)
+                .map(|k| {
+                    match core.handle(proto::Request::AddAttachment {
+                        name: format!("{named}{n}-{k}.txt"),
+                        bytes: format!("note {n} {k}\n").into_bytes(),
+                    }) {
+                        proto::Response::Attached { attachment } => attachment.id,
+                        other => panic!("expected the file taken, got {other:?}"),
+                    }
+                })
+                .collect();
+            send(&mut core, None, "Next.", ids);
+            if let proto::Response::Transcript { read_from: at, .. } = transcript(&core) {
+                read_from = at;
+            }
+            if read_from > 0 {
+                break;
+            }
+        }
+        assert!(read_from > 0, "the chat outgrew the working set");
+        assert_eq!(
+            prompt::read_from(&core.transcript, ws),
+            0,
+            "by the words alone it still fits: the heads moved the divider"
+        );
+    }
+
     #[test]
     fn a_turn_with_no_tool_calls_answers_and_stops() {
         let script = Script::new(vec![ChatReply {
