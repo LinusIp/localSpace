@@ -131,7 +131,9 @@ fn read_text_files(
         .iter()
         .zip(&texts)
         .filter(|(_, text)| text.is_some())
-        .map(|(a, _)| prompt::tokens_of(&file_block(&a.name, LONGEST_NOTE, "")))
+        .map(|(a, _)| {
+            prompt::tokens_of(&file_head(&a.name, LONGEST_NOTE)) + prompt::tokens_of(FILE_END)
+        })
         .sum();
     let budget =
         (core.cfg.profile.working_set_tokens / 2).saturating_sub(prompt::tokens_of(words) + frames);
@@ -182,10 +184,16 @@ const NO_ROOM: &str = " (there was no room left to read it here; say so if it ma
 /// The longest note, for the room a file's frame takes.
 const LONGEST_NOTE: &str = " (only its first less than 1% fits here; say so if the rest matters)";
 
-/// A text file as it joins the person's words.
+/// A text file as it joins the person's words: its head, its part, its end.
 fn file_block(name: &str, note: &str, part: &str) -> String {
-    format!("\n\n--- File: {name}{note} ---\n{part}\n--- End of file ---")
+    format!("{}{part}{FILE_END}", file_head(name, note))
 }
+
+fn file_head(name: &str, note: &str) -> String {
+    format!("\n\n--- File: {name}{note} ---\n")
+}
+
+const FILE_END: &str = "\n--- End of file ---";
 
 /// The chat as the model reads it: each text file a person attached joins
 /// their words, as much of it as was decided when it was sent, and leaves
@@ -1688,6 +1696,21 @@ mod tests {
         let words = "Sum the second column, please. ".repeat(40);
         core.run_inline = true;
         send(&mut core, None, &words, vec![file.id]);
+        // Two more like it, so the chat outgrows the working set and the
+        // model's reading of it begins further on.
+        for n in 2..=3 {
+            let more: String = (1..=20_000)
+                .map(|i| format!("Row {i};{n} 000 000;12.5\n"))
+                .collect();
+            let file = match core.handle(proto::Request::AddAttachment {
+                name: format!("rows-{n}.csv"),
+                bytes: more.into_bytes(),
+            }) {
+                proto::Response::Attached { attachment } => attachment,
+                other => panic!("expected the file taken, got {other:?}"),
+            };
+            send(&mut core, None, "And this one?", vec![file.id]);
+        }
         let (user, chat) = (core.active.user.clone(), core.conversations.current.clone());
         let read = with_text_files(&core, &user, &chat, core.transcript.clone());
         let half = core.cfg.profile.working_set_tokens / 2;
@@ -1706,10 +1729,13 @@ mod tests {
             "the file is in the words now"
         );
         match transcript(&core) {
-            proto::Response::Transcript { read_from, .. } => assert_eq!(
-                read_from,
-                prompt::read_from(&read, core.cfg.profile.working_set_tokens)
-            ),
+            proto::Response::Transcript { read_from, .. } => {
+                assert!(read_from > 0, "three long files outgrow the working set");
+                assert_eq!(
+                    read_from,
+                    prompt::read_from(&read, core.cfg.profile.working_set_tokens)
+                );
+            }
             other => panic!("expected the transcript, got {other:?}"),
         }
         let seen = script.seen.lock().unwrap();

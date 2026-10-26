@@ -15,31 +15,37 @@ moved with them.
 
 ## 2026-10-26, text files in chat (0.2.0)
 
-Internal plan 38, F1 and a smaller F4. It is part of the frozen 0.2.0 scope on `release/0.2`, so it isn't behind a switch (the switch rule covers later work on `main`). A fresh-eyes review of the first version found 27 problems. All are fixed here, and a second check of the fixes found 11 more, also fixed.
+Internal plan 38, F1 and a smaller F4. It is part of the frozen 0.2.0 scope on `release/0.2`, so it isn't behind a switch (the switch rule covers later work on `main`). A fresh-eyes review of the first version found 27 problems, all fixed here. Two more checks of the fixes found 11 and then 12 smaller ones, also fixed.
 
 - **What is taken:** any file that isn't a picture goes to Core, whatever its name (a `README` or a `Dockerfile` too). Core reads it as text or refuses it. The file chooser offers pictures, text and code files as a hint only.
   - **Read as they are:** UTF-8 (with or without a byte-order mark) and UTF-16 (with a mark, or found by its zero bytes).
-  - **Nearly UTF-8 counts as UTF-8:** a character cut at the end, or a stray byte, when the file has more good characters beyond ASCII than bad bytes. Without this, the whole file would be read as Windows-1251.
+  - **Nearly UTF-8 counts as UTF-8:** a character cut at the end, or a stray byte, when the file has more good characters beyond ASCII than invalid sequences. Without this, the whole file would be read as Windows-1251.
   - **Anything else is read as Windows-1251,** the usual encoding of Russian and Uzbek Cyrillic files on Windows.
   - **Refused as not text:** a file with a zero byte anywhere in it, or with more than 1% control characters in its first 65,536. Escape doesn't count, so a coloured log is text.
-  - **Also refused:** an empty file, and one over 2 MiB. A large file is told "too large", with its size to one decimal ("2.1 MB"), only when its start reads as text. Anything else, like a PDF or a zip, is told it isn't text. The composer says both at once without sending the file: it judges by the type and the name, and Core judges by the bytes.
+  - **Also refused:** an empty file, and one over 2 MiB. A large file is told "too large", with its size to one decimal ("2.1 MB"), only when its start reads as text. Anything else, like a PDF or a zip, is told it isn't text. The composer says both at once, without sending the file. It judges by the type and the name: "too large" unless they say the file is something else, such as a PDF, an archive, an Office file, audio or video. Core judges by the bytes.
   - **A folder dropped or pasted** is never sent.
 - **No new library.** The Windows-1251 table is ours (`text_file.rs`), since `encoding_rs` would be a new dependency.
 - **Kept as UTF-8,** as `<id>.txt` beside the pictures, and deleted with its chat.
   - **The id is the hash of the file's name and bytes,** so two files that read the same stay two, each with its own name. The same file attached twice goes once.
   - **Taking a message's files is all or nothing:** if one can't move into the chat, those already moved go back. A file the chat already has from an earlier message is never moved, so nothing it uses is ever taken back.
   - **Served back** as `text/plain; charset=utf-8`, with `nosniff`, as a download, never shown as a page.
-- **How the prompt counts:** `prompt::tokens_of`, the system's estimate of a token for every four bytes, except that **a digit, a punctuation mark, the Uzbek ʻ and ʼ, and a space before a digit are each a token**. That is how the models' tokenizers read them (Qwen, Gemma). Without it, a table of figures counted as a third of its real size or less, and could overflow the laptop's 8,192-token context. The conversation's costs and its trimming use the same count.
+- **How the prompt counts:** `prompt::tokens_of` counts by the pieces the models' tokenizers cut text into (Qwen, Gemma).
+  - **A token each:** a digit, the space before a digit, the Uzbek ʻ and ʼ, and a line break.
+  - **A word** is at least a token, one for every four bytes of it.
+  - **A run of punctuation** is one token, or more when it is long.
+  - **Never less** than the old estimate of a token for every four bytes.
+  - **Why:** the old count read a table of figures as a third of its real size or less, which could overflow the laptop's 8,192-token context. Counting every mark alone would have counted code and Markdown at up to 1.7 times their size.
+  - **The same count everywhere:** the conversation's costs, its trimming, and the cut of a file.
 - **How much the model reads:**
   - **The budget:** the text files of one message share half the working set, less the person's own words and each file's header.
   - **Each file takes what it needs, or an equal share of what is left,** so a long file never leaves a short one nothing.
   - **A longer file is cut by the same count,** at a line end when there is one in the last tenth of what fits.
   - **The cut is decided once,** when the message is sent, and kept with the file, so every later prompt reads the same part.
 - **The divider matches what the model reads:** the chat's `read_from` is worked out on the chat as the model reads it, files and all (`agent::with_text_files`). Only the part of each file the model reads is read from the disk for this. Settings → "This turn" shows the files the same way.
-- **The person's request is always read:** when a turn's own tool calls fill the working set, the request is kept with the newest calls that fit beside it, so the model never works on without it.
+- **The person's request is always read:** when a turn's own tool calls fill the working set, the request is kept with the newest calls that fit beside it, so the model never works on without it. If not even the newest call fits beside it, the working set holds, and the newest calls are read as before.
 - **Never cut silently:**
   - **The model is told** when only the start fits, or when there was no room for a file at all.
-  - **The person sees how much was read:** "the model read the first 23% (about 5,000 of 22,000 words)". Below 1% the figure has one decimal, below 0.1% it says "<0.1", and it is never "0%". The words are left out when a file has fewer than 100.
+  - **The person sees how much was read:** "the model read the first 23% (about 5,000 of 22,000 words)". Below 1% the figure has one decimal, below 0.1% it says "<0.1", and it is never "0%". The word counts are left out when a file has fewer than 100 words, or when the share of words read and the share of characters read differ by more than twice. A long line of data, or a picture inside a Markdown file, can make them differ.
   - **Russian agrees with the number:** "из 22 001 слова".
   - **A file read none of** says so in its own sentence.
 - **Four attachments a message,** pictures and files together. Only pictures are refused for a model that can't read them.

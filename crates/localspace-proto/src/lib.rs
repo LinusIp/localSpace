@@ -593,8 +593,8 @@ pub struct TextFile {
     pub read_chars: u64,
     pub read_words: u64,
     /// What the part read costs in the prompt, by Core's count for the
-    /// prompt: a token for every four bytes, and one for every digit and
-    /// punctuation mark.
+    /// prompt (`prompt::tokens_of`, by the pieces the models' tokenizers
+    /// cut text into).
     pub read_tokens: u64,
 }
 

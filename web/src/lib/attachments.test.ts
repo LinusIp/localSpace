@@ -54,6 +54,10 @@ test("a file too large to send is told the size limit only when it may be text",
   assert.ok(mayBeText({ type: "", name: "big.log" }));
   assert.ok(!mayBeText({ type: "application/pdf", name: "contract.pdf" }));
   assert.ok(!mayBeText({ type: "", name: "film.mp4" }));
+  // Text with a name the chooser doesn't list is still text.
+  assert.ok(mayBeText({ type: "", name: "export.jsonl" }));
+  assert.ok(mayBeText({ type: "", name: "server.log.1" }));
+  assert.ok(!mayBeText({ type: "application/zip", name: "logs.txt" }));
 });
 
 test("the words are left out when they disagree with the share read", () => {

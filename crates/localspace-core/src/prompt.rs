@@ -266,43 +266,94 @@ pub fn build(
 /// (docs/DECISIONS.md, 2026-10-21).
 pub const PICTURE_TOKENS: usize = 400;
 
-/// What words cost in what the model reads: the system's estimate (a token
-/// for every four bytes), except that a digit, a punctuation mark, the Uzbek
-/// ʻ and ʼ, and a space before a digit are each a token of their own, as
-/// the models' tokenizers read them (Qwen, Gemma). A table of figures would
-/// otherwise count as a third of what it is (docs/DECISIONS.md, 2026-10-26).
+/// What words cost in what the model reads, counted by the pieces the
+/// models' tokenizers cut text into before they read it (Qwen's and Gemma's):
+/// - a digit is a piece of its own, and so is a space before one;
+/// - a word is at least one, a token for every four bytes of it;
+/// - a run of punctuation is one, or more when it is long;
+/// - a run of spaces, beyond the one that joins the next word, and a line
+///   break are one each;
+/// - the Uzbek ʻ and ʼ are one each.
+///
+/// It is never less than the system's estimate of a token for every four
+/// bytes. A table of figures would otherwise count as a third of what it is,
+/// and code or Markdown as more than it is (docs/DECISIONS.md, 2026-10-26).
 pub fn tokens_of(text: &str) -> usize {
     let mut counted = Counted::default();
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        counted.add(c, chars.peek().copied());
+    for c in text.chars() {
+        counted.add(c);
     }
     counted.tokens()
 }
 
-/// The running count behind [`tokens_of`], for cutting a text where it fits.
+/// The running count behind [`tokens_of`], one character at a time, so a
+/// text can be cut where it fits: the count of a start of a text is the
+/// count of that start alone.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Counted {
-    alone: usize,
-    bytes: usize,
+    /// The pieces before the one being read.
+    done: usize,
+    run: Run,
+    /// The bytes of the piece being read.
+    run_bytes: usize,
+    all_bytes: usize,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Run {
+    #[default]
+    None,
+    Word,
+    Marks,
+    Spaces,
+    Lines,
 }
 
 impl Counted {
-    /// One more character; `next` is the one after it, if any.
-    pub fn add(&mut self, c: char, next: Option<char>) {
-        let alone = c.is_ascii_digit()
-            || c.is_ascii_punctuation()
-            || matches!(c, '\u{02BB}' | '\u{02BC}')
-            || (c.is_whitespace() && next.is_some_and(|n| n.is_ascii_digit()));
-        if alone {
-            self.alone += 1;
+    /// One more character.
+    pub fn add(&mut self, c: char) {
+        self.all_bytes += c.len_utf8();
+        let run = if c == '\n' || c == '\r' {
+            Run::Lines
+        } else if c.is_whitespace() {
+            Run::Spaces
+        } else if c.is_ascii_punctuation() {
+            Run::Marks
         } else {
-            self.bytes += c.len_utf8();
+            Run::Word
+        };
+        if c.is_ascii_digit() || matches!(c, '\u{02BB}' | '\u{02BC}') {
+            // A space before a digit is a piece of its own.
+            let spaces = if self.run == Run::Spaces { 1 } else { 0 };
+            self.done += self.cost().max(spaces) + 1;
+            (self.run, self.run_bytes) = (Run::None, 0);
+            return;
+        }
+        // Spaces end in a line break as one piece.
+        let joins = run == self.run || (self.run == Run::Spaces && run == Run::Lines);
+        if !joins {
+            self.done += self.cost();
+            self.run_bytes = 0;
+        }
+        self.run = run;
+        self.run_bytes += c.len_utf8();
+    }
+
+    /// What the piece being read costs so far.
+    fn cost(&self) -> usize {
+        match self.run {
+            Run::None => 0,
+            Run::Word => self.run_bytes.div_ceil(4),
+            Run::Marks => self.run_bytes.div_ceil(4).max(1),
+            // The last space joins the word after it.
+            Run::Spaces => (self.run_bytes - 1).div_ceil(4),
+            // A line break, with any spaces before it, is a piece at least.
+            Run::Lines => (self.run_bytes - 1).div_ceil(4).max(1),
         }
     }
 
     pub fn tokens(&self) -> usize {
-        self.alone + self.bytes.div_ceil(4)
+        (self.done + self.cost()).max(self.all_bytes.div_ceil(4))
     }
 }
 
@@ -409,11 +460,16 @@ pub fn turns(messages: &[proto::ChatMessage], working_set: usize) -> Vec<Turn> {
     let mut used = 0usize;
     while from > person + 1 {
         let cost = tokens_of(&all[from - 1].render());
-        if used + cost > room && from < all.len() {
+        if used + cost > room {
             break;
         }
         used += cost;
         from -= 1;
+    }
+    // Not even the newest call fits beside it: the working set holds, and
+    // the newest calls are read as before.
+    if from == all.len() {
+        return all[start..].to_vec();
     }
     std::iter::once(all[person].clone())
         .chain(all[from..].iter().cloned())
@@ -921,6 +977,37 @@ mod tests {
         assert!(kept.len() < messages.len());
         let tokens: usize = kept.iter().map(|t| tokens_of(&t.render())).sum();
         assert!(tokens <= 1000, "{tokens}");
+        // A request too long for any call beside it: the working set holds.
+        let mut long = vec![msg(
+            Role::User,
+            &"Put these notes on the board. ".repeat(140),
+        )];
+        long.extend((0..40).map(call));
+        let kept = turns(&long, 1000);
+        let tokens: usize = kept.iter().map(|t| tokens_of(&t.render())).sum();
+        assert!(tokens <= 1000 || kept.len() == 1, "{tokens}");
+    }
+
+    /// The count follows the pieces the tokenizers cut text into: a digit
+    /// and the space before it are each a token, a run of marks is one, a
+    /// word is at least one; and a start of a text counts as that start alone.
+    #[test]
+    fn the_count_follows_the_tokenizers_pieces() {
+        assert_eq!(tokens_of(""), 0);
+        // Rent ; 8 _ 0 0 0 _ 0 0 0 ; 8 _ 0 0 0 _ 0 0 0 \n
+        assert_eq!(tokens_of("Rent;8 000 000;8 000 000\n"), 22);
+        // A run of marks is one piece, not one per mark.
+        assert!(tokens_of("**bold** and `code();`") <= 9);
+        // Never less than a token for every four bytes.
+        let prose = "The quick brown fox jumps over the lazy dog. ".repeat(20);
+        assert!(tokens_of(&prose) >= prose.len().div_ceil(4));
+        // The count of a start is the count of that start.
+        let text = "Счёт № 7: 1 250 сум.\n    let x = [1, 2];\n";
+        let mut counted = Counted::default();
+        for (at, c) in text.char_indices() {
+            counted.add(c);
+            assert_eq!(counted.tokens(), tokens_of(&text[..at + c.len_utf8()]));
+        }
     }
 
     /// An answer's thinking is stored with it and is no part of what the

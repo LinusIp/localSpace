@@ -25,11 +25,19 @@ export const MOST_ATTACHMENTS = 4;
 /** Core's limit for a text file; it holds to it, and the composer says so before sending one larger. */
 export const TEXT_MAX_BYTES = 2 * 1024 * 1024;
 
-/** Whether a file too large to send may be text, by its type or its name: it is told the size limit; anything else is told it can't be attached at all. */
+/** Files known not to be text, by their type or their name. */
+const NOT_TEXT_TYPES = /^(audio|video|image|font)\/|^application\/(pdf|zip|x-zip|x-7z|x-rar|vnd\.|msword|x-msdownload|x-msi|gzip|x-tar|octet-stream$)/;
+const NOT_TEXT_EXTENSIONS = [
+  "pdf", "zip", "7z", "rar", "gz", "tar", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
+  "exe", "dll", "msi", "iso", "bin", "mp3", "mp4", "m4a", "mov", "avi", "mkv", "wav", "flac", "ogg", "webm",
+  "gif", "bmp", "tif", "tiff", "heic", "psd", "ttf", "otf", "woff", "woff2",
+];
+
+/** Whether a file too large to send may be text: it is told the size limit, unless its type or its name says it is something else, which is told it can't be attached at all. */
 export function mayBeText(file: { type: string; name: string }): boolean {
-  if (file.type.startsWith("text/")) return true;
+  if (NOT_TEXT_TYPES.test(file.type)) return false;
   const dot = file.name.lastIndexOf(".");
-  return dot <= 0 || (TEXT_EXTENSIONS as readonly string[]).includes(file.name.slice(dot + 1).toLowerCase());
+  return dot <= 0 || !NOT_TEXT_EXTENSIONS.includes(file.name.slice(dot + 1).toLowerCase());
 }
 
 /** Whether a file looks like a picture the app takes, by its type or its name. */

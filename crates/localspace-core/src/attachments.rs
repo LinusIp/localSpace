@@ -290,15 +290,14 @@ impl Attachments {
         }
         std::fs::create_dir_all(&chat).map_err(|_| proto::AttachmentRefusal::NotFound)?;
         let mut moved: Vec<String> = Vec::new();
+        let mut had: Vec<String> = Vec::new();
         for a in &taken {
             for name in [file_of(a), format!("{}.json", a.id)] {
                 // Already in the chat from an earlier message: the same name
-                // and bytes, so the pending copy goes, and nothing the chat
-                // had is ever moved back.
+                // and bytes. It stays, and nothing the chat had is ever
+                // moved back; the pending copy goes once all is taken.
                 if chat.join(&name).exists() {
-                    if let Err(e) = std::fs::remove_file(pending.join(&name)) {
-                        tracing::warn!("could not drop a pending copy: {e}");
-                    }
+                    had.push(name);
                     continue;
                 }
                 if let Err(e) = std::fs::rename(pending.join(&name), chat.join(&name)) {
@@ -312,6 +311,11 @@ impl Attachments {
                     return Err(proto::AttachmentRefusal::NotFound);
                 }
                 moved.push(name);
+            }
+        }
+        for name in had {
+            if let Err(e) = std::fs::remove_file(pending.join(&name)) {
+                tracing::warn!("could not drop a pending copy: {e}");
             }
         }
         Ok(taken)

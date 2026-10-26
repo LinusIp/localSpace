@@ -7,7 +7,8 @@
 //! 1. a byte-order mark: UTF-8, UTF-16 little-endian or big-endian;
 //! 2. UTF-16 without a mark, told by its zero bytes in every other place;
 //! 3. bytes that are UTF-8, or nearly (more good characters beyond ASCII
-//!    than bad bytes: a character cut at the end, a stray byte), are UTF-8;
+//!    than invalid sequences: a character cut at the end, a stray byte),
+//!    are UTF-8;
 //! 4. otherwise Windows-1251.
 //!
 //! A file with zero bytes or many control characters left after that is
@@ -129,8 +130,8 @@ fn looks_like_text(text: &str) -> bool {
 /// UTF-8, or nearly: a file cut in the middle of its last character, or
 /// with a stray byte, keeps its good characters rather than all of them
 /// being read as Windows-1251, when it has more good characters beyond
-/// ASCII than bad bytes. Windows-1251 Cyrillic makes almost no valid UTF-8
-/// beyond ASCII, so it never passes.
+/// ASCII than invalid sequences. Windows-1251 Cyrillic makes almost no
+/// valid UTF-8 beyond ASCII, so it never passes.
 fn mostly_utf8(bytes: &[u8]) -> Option<String> {
     if let Ok(text) = std::str::from_utf8(bytes) {
         return Some(text.to_owned());
@@ -176,8 +177,7 @@ pub fn decode(bytes: &[u8]) -> Result<Decoded, NotText> {
 }
 
 /// How much of a file the model reads, by the prompt's own count
-/// ([`crate::prompt::tokens_of`]: a token for every four bytes, and one for
-/// every digit).
+/// ([`crate::prompt::tokens_of`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Read {
     pub chars: u64,
@@ -233,14 +233,12 @@ pub fn read_within(text: &str, tokens: usize) -> Read {
     // The longest start that fits, by the same count.
     let mut counted = crate::prompt::Counted::default();
     let mut end = 0;
-    let mut chars = text.char_indices().peekable();
-    while let Some((at, c)) = chars.next() {
-        let mut more = counted;
-        more.add(c, chars.peek().map(|&(_, n)| n));
-        if more.tokens() > tokens {
+    for (at, c) in text.char_indices() {
+        counted.add(c);
+        if counted.tokens() > tokens {
             break;
         }
-        (counted, end) = (more, at + c.len_utf8());
+        end = at + c.len_utf8();
     }
     if let Some(line) = text[..end].rfind('\n').filter(|&at| at * 10 >= end * 9) {
         end = line + 1;
@@ -449,6 +447,17 @@ mod tests {
             "{alone} digits and marks in a 4000-token part"
         );
         assert!(r.tokens <= 4000 && r.tokens as usize >= alone);
+        // A labelled table: each row's label and line break count too.
+        let rows: String = (1..=5000)
+            .map(|i| format!("Row {i};8 000 000;12.5\n"))
+            .collect();
+        let r = read_within(&rows, 4000);
+        let part = first_chars(&rows, r.chars);
+        let pieces: usize = part
+            .lines()
+            .map(|row| crate::prompt::tokens_of(row) + 1)
+            .sum();
+        assert!(pieces <= 4000 + 1, "{pieces} pieces in a 4000-token part");
         assert!(part.ends_with('\n'));
     }
 
