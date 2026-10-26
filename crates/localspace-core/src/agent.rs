@@ -613,6 +613,18 @@ fn ask_the_model(core: &mut Core, id: u64) {
     } else {
         None
     };
+    // One that stopped before its first word is answered afresh in its
+    // place: it leaves the chat, and the new answer is kept as any other,
+    // after the calls it makes.
+    if continuing && begun.is_none() {
+        write(core, &user, &workspace, &conversation, |messages| {
+            messages
+                .pop_if(|m| m.role == proto::Role::Assistant && m.stopped && m.content.is_empty());
+        });
+        if let Some(i) = index(core, id) {
+            core.turns[i].continuing = false;
+        }
+    }
     let messages = with_text_files(core, &user, &conversation, messages);
     // The words carried on are part of what the engine reads: the chat's
     // messages have that much less room (docs/DECISIONS.md, 2026-10-26).
@@ -2530,6 +2542,50 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// Trying again after an answer with no words answers afresh in its
+    /// place: the empty answer leaves the chat, and the new one is kept
+    /// after the calls it makes, never joined above them.
+    #[test]
+    fn trying_again_answers_afresh_in_the_empty_answers_place() {
+        let script = Script::new(vec![
+            call("find_capability", serde_json::json!({"need": "a board"})),
+            ChatReply {
+                text: "There is a board.".into(),
+                ..Default::default()
+            },
+        ]);
+        let seen = script.clone();
+        let mut core = core_with_something_installed(script);
+        let mut failed = message(proto::Role::Assistant, "");
+        failed.stopped = true;
+        failed.cut_short = Some(proto::CutShort::Failed);
+        core.transcript = vec![message(proto::Role::User, "Is there a board?"), failed];
+        core.record_conversation();
+
+        assert!(matches!(
+            core.handle(proto::Request::ContinueAnswer { conversation: None }),
+            proto::Response::Transcript { .. }
+        ));
+        let roles: Vec<proto::Role> = core.transcript.iter().map(|m| m.role).collect();
+        assert_eq!(
+            roles,
+            [proto::Role::User, proto::Role::Tool, proto::Role::Assistant],
+            "{:#?}",
+            core.transcript
+        );
+        let answer = core.transcript.last().unwrap();
+        assert_eq!(answer.content, "There is a board.");
+        assert!(!answer.stopped && answer.cut_short.is_none(), "{answer:?}");
+        // Asked afresh: the tools on offer, and no stopped answer read.
+        let first = seen.seen.lock().unwrap()[0].clone();
+        assert!(first.begun.is_none() && !first.tools.is_empty());
+        assert!(
+            !first.text().contains(prompt::STOPPED_HERE),
+            "{}",
+            first.text()
+        );
     }
 
     /// What the 14B wrote on 2026-10-06, asked for a translation with the
