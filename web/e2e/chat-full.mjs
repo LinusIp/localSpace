@@ -89,7 +89,7 @@ try {
   //    chat says it is full, in Uzbek, offering a new chat.
   await box.fill("Salom!");
   await box.press("Enter");
-  await until("the first answer", async () => (await page.locator(".prose-chat").count()) === 1 && (await answered()), 30000);
+  await until("the first answer", async () => (await page.locator(".message").count()) === 2 && (await answered()), 30000);
   if ((await lines.count()) !== 0) throw new Error(`a whole answer has a line: ${await lines.first().innerText()}`);
   await box.fill("Iltimos, diqqat bilan oʻqing. ".repeat(80));
   await box.press("Enter");
@@ -139,18 +139,18 @@ try {
   if (RAW.test(await page.evaluate(() => document.body.innerText))) throw new Error("the raw refusal reached the page");
   step(`one message too long: "${tooLong}"`);
 
-  // 6. An answer at its own length limit: that is what it says, never a full
-  //    chat, and Continue carries it on.
+  // 6. In the same chat, an answer at its own length limit: that is what it
+  //    says, never a full chat, and Continue carries it on.
   step("loading `limit`, a test engine that writes to its own limit");
   await load("limit");
   await page.reload();
-  await until("the composer", async () => (await box.count()) > 0 && (await box.isEnabled()), 30000);
+  await until("the chat as it was", async () => (await box.count()) > 0 && (await box.isEnabled()) && (await lines.count()) === 1, 30000);
   await box.fill("Write a long answer.");
   await box.press("Enter");
-  await until("the limit line", async () => (await lines.count()) === 1 && (await lines.first().innerText()).includes(SAYS.en.atLimit), 30000);
-  const limit = await lines.first().innerText();
+  await until("the limit line", async () => (await lines.count()) === 2 && (await lines.last().innerText()).includes(SAYS.en.atLimit), 30000);
+  const limit = await lines.last().innerText();
   if (/full/i.test(limit)) throw new Error(`an answer at its own limit says the chat is full: ${limit}`);
-  await lines.first().getByRole("button", { name: SAYS.en.continue, exact: true }).click();
+  await lines.last().getByRole("button", { name: SAYS.en.continue, exact: true }).click();
   await until("the answer carried on", async () => (await page.locator(".prose-chat").last().innerText()).split("The first part").length > 2, 30000);
   step("at its own limit: said so, and Continue carried it on");
   console.log("chat-full walk: ok");
