@@ -22,39 +22,42 @@ export const ACCEPT = [...PICTURE_TYPES, "text/*", ...TEXT_EXTENSIONS.map((e) =>
 /** The most attachments, pictures and files together, with one message, as Core takes them. */
 export const MOST_ATTACHMENTS = 4;
 
+/** Core's limit for a text file; it holds to it, and the composer says so before sending one larger. */
+export const TEXT_MAX_BYTES = 2 * 1024 * 1024;
+
 /** Whether a file looks like a picture the app takes, by its type or its name. */
 export function isPicture(file: { type: string; name: string }): boolean {
   if ((PICTURE_TYPES as readonly string[]).includes(file.type)) return true;
   return /\.(png|jpe?g|webp)$/i.test(file.name);
 }
 
-/** Whether a file looks like a text file the app takes, by its type or its name; Core reads it to be sure. */
-export function isTextFile(file: { type: string; name: string }): boolean {
-  if (file.type.startsWith("text/")) return true;
-  const dot = file.name.lastIndexOf(".");
-  return dot > 0 && (TEXT_EXTENSIONS as readonly string[]).includes(file.name.slice(dot + 1).toLowerCase());
-}
-
-/** Whether the composer takes a file at all. */
-export function isAttachable(file: { type: string; name: string }): boolean {
-  return isPicture(file) || isTextFile(file);
-}
-
 /**
- * What the person is told of a text file the model read only the start of
- * (plan 38, F4: never cut silently); null when it read all of it.
+ * What the person is told of a text file the model read only the start of,
+ * or none of (plan 38, F4: never cut silently); null when it read all of it.
  */
 export function partReadText(strings: Strings, file: Attachment, language: Language): string | null {
   const t = file.text;
   if (!t || t.read_chars >= t.chars) return null;
-  // Rounded down, so as never to claim more was read; under 1%, to one decimal, never "0".
+  if (t.read_chars === 0) return strings.fileNotRead;
+  // Rounded down, so as never to claim more was read: whole numbers from
+  // 1%, one decimal below it, and "<0.1" below that, never "0".
   const exact = (t.read_chars * 100) / Math.max(1, t.chars);
+  const tenth = new Intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   const percent =
     exact >= 1
       ? new Intl.NumberFormat(language).format(Math.floor(exact))
-      : new Intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Math.max(0.1, Math.floor(exact * 10) / 10));
+      : exact >= 0.1
+        ? tenth.format(Math.floor(exact * 10) / 10)
+        : `<${tenth.format(0.1)}`;
+  // The words only when there are enough of them to say something.
   const n = new Intl.NumberFormat(language);
-  return strings.filePartRead(percent, n.format(t.read_words), n.format(t.words));
+  const words = t.words >= 100 && t.read_words < t.words ? { read: n.format(t.read_words), total: n.format(t.words), count: t.words } : null;
+  return strings.filePartRead(percent, words);
+}
+
+/** A file's size as the message says it: megabytes to one decimal, rounded up, in the language's own figures. */
+export function aboutMegabytes(bytes: number, language: Language): string {
+  return new Intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Math.ceil((bytes / (1024 * 1024)) * 10) / 10);
 }
 
 /**
@@ -88,7 +91,7 @@ export function refusalText(
   if (refusal === "not_found") return strings.pictureNotFound;
   if (refusal === "not_text") return strings.notText;
   if (refusal === "empty_file") return strings.emptyFile;
-  if ("text_too_large" in refusal) return strings.textTooLarge(refusal.text_too_large.megabytes);
+  if ("text_too_large" in refusal) return strings.textTooLarge(aboutMegabytes(refusal.text_too_large.bytes, language));
   if ("too_large" in refusal) return strings.pictureTooLarge(refusal.too_large.megabytes);
   if ("too_many_pixels" in refusal) return strings.pictureTooManyPixels(refusal.too_many_pixels.width, refusal.too_many_pixels.height);
   if ("picture_file_left_out" in refusal) return leftOutText(strings, refusal.picture_file_left_out.needs_mib, language, instead);

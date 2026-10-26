@@ -56,9 +56,13 @@ export interface Strings {
   /** Why a text file was not taken (plan 38, F1). */
   notText: string;
   emptyFile: string;
-  textTooLarge: (megabytes: number) => string;
-  /** A text file the model read only the start of: how much, never silently (plan 38, F4). */
-  filePartRead: (percent: string, read: string, words: string) => string;
+  textTooLarge: (megabytes: string) => string;
+  /** A text file that could not reach Core (the connection, the session). */
+  fileNotAttached: string;
+  /** A text file the model read only the start of: how much, never silently (plan 38, F4); its words when there are enough to say. */
+  filePartRead: (percent: string, words: { read: string; total: string; count: number } | null) => string;
+  /** A text file the model read none of: the message had no room left for it. */
+  fileNotRead: string;
   /** A sent text file: saves it on this computer. */
   saveFile: string;
   /** A model that cannot read pictures here, and what to do. */
@@ -91,8 +95,10 @@ const en: Strings = {
   notText: "Only pictures (PNG, JPEG, WebP) and text files (.txt, .md, .csv and code) can be attached.",
   emptyFile: "This file is empty.",
   textTooLarge: (mb) => `This file is ${mb} MB, and text files up to 2 MB can be attached.`,
-  filePartRead: (percent, read, words) =>
-    `Too long to read whole: the model read the first ${percent}% (about ${read} of ${words} words).`,
+  fileNotAttached: "This file could not be attached. Try again.",
+  filePartRead: (percent, words) =>
+    `Too long to read whole: the model read the first ${percent}%${words ? ` (about ${words.read} of ${words.total} words)` : ""}.`,
+  fileNotRead: "No room was left in this message to read this file, so the model didn't read it.",
   saveFile: "Save",
   cannotReadPictures: (model) => `${model} can't read pictures.`,
   pictureFileLeftOut: (gb, model) =>
@@ -122,8 +128,10 @@ const ru: Strings = {
   notText: "Прикрепить можно только изображения (PNG, JPEG, WebP) и текстовые файлы (.txt, .md, .csv и код).",
   emptyFile: "Этот файл пустой.",
   textTooLarge: (mb) => `Этот файл весит ${mb} МБ, а прикрепить можно текстовые файлы до 2 МБ.`,
-  filePartRead: (percent, read, words) =>
-    `Файл слишком длинный, чтобы прочитать его целиком: модель прочитала первые ${percent}% (примерно ${read} из ${words} слов).`,
+  fileNotAttached: "Не удалось прикрепить этот файл. Попробуйте ещё раз.",
+  filePartRead: (percent, words) =>
+    `Файл слишком длинный, чтобы прочитать его целиком: модель прочитала первые ${percent}%${words ? ` (примерно ${words.read} из ${words.total} ${words.count % 10 === 1 && words.count % 100 !== 11 ? "слова" : "слов"})` : ""}.`,
+  fileNotRead: "В этом сообщении не хватило места, чтобы прочитать этот файл, поэтому модель его не прочитала.",
   saveFile: "Сохранить",
   cannotReadPictures: (model) => `${model} не умеет читать изображения.`,
   pictureFileLeftOut: (gb, model) =>
@@ -154,8 +162,10 @@ const uz: Strings = {
   notText: "Faqat rasmlarni (PNG, JPEG, WebP) va matnli fayllarni (.txt, .md, .csv va kod) biriktirish mumkin.",
   emptyFile: "Bu fayl boʻsh.",
   textTooLarge: (mb) => `Bu fayl ${mb} MB. Faqat 2 MB gacha boʻlgan matnli fayllarni biriktirish mumkin.`,
-  filePartRead: (percent, read, words) =>
-    `Butunlay oʻqish uchun juda uzun: model birinchi ${percent}% qismini oʻqidi (taxminan ${words} soʻzdan ${read} tasi).`,
+  fileNotAttached: "Bu faylni biriktirib boʻlmadi. Qaytadan urinib koʻring.",
+  filePartRead: (percent, words) =>
+    `Butunlay oʻqish uchun juda uzun: model birinchi ${percent}% qismini oʻqidi${words ? ` (taxminan ${words.total} soʻzdan ${words.read} tasi)` : ""}.`,
+  fileNotRead: "Bu xabarda faylni oʻqish uchun joy qolmadi, shuning uchun model uni oʻqimadi.",
   saveFile: "Saqlash",
   cannotReadPictures: (model) => `${model} rasmlarni oʻqiy olmaydi.`,
   pictureFileLeftOut: (gb, model) =>

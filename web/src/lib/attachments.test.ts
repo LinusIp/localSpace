@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ACCEPT, MOST_ATTACHMENTS, aboutGigabytes, isAttachable, isPicture, isTextFile, partReadText, refusalText } from "./attachments.ts";
+import { ACCEPT, MOST_ATTACHMENTS, TEXT_MAX_BYTES, aboutGigabytes, aboutMegabytes, isPicture, partReadText, refusalText } from "./attachments.ts";
 import { STRINGS } from "./strings.ts";
 
 test("pictures are taken by their type or, without one, by their name", () => {
@@ -15,35 +15,43 @@ test("as many pictures and files with one message as Core takes", () => {
   assert.equal(MOST_ATTACHMENTS, 4);
 });
 
-test("text files are taken by their type or, without one, by their name; others are not", () => {
-  assert.ok(isTextFile({ type: "text/plain", name: "x" }));
-  assert.ok(isTextFile({ type: "", name: "Report.CSV" }));
-  assert.ok(isTextFile({ type: "", name: "main.rs" }));
-  assert.ok(!isTextFile({ type: "application/pdf", name: "a.pdf" }));
-  assert.ok(!isTextFile({ type: "", name: "noextension" }));
-  assert.ok(isAttachable({ type: "", name: "notes.md" }));
-  assert.ok(isAttachable({ type: "image/png", name: "x" }));
-  assert.ok(!isAttachable({ type: "application/zip", name: "a.zip" }));
+test("the file chooser offers pictures and text files; Core decides what a file is", () => {
   assert.match(ACCEPT, /image\/png/);
   assert.match(ACCEPT, /\.csv/);
+  assert.equal(TEXT_MAX_BYTES, 2 * 1024 * 1024);
+});
+
+const file = (chars: number, read: number, words: number, readWords: number) => ({
+  id: "a", kind: "text" as const, name: "long.txt", mime: "text/plain", bytes: 100, width: 0, height: 0,
+  text: { encoding: "UTF-8", chars, words, read_chars: read, read_words: readWords, read_tokens: 4000 },
 });
 
 test("a text file read only in part says how much, in the person's language; one read whole says nothing", () => {
-  const file = (read: number) => ({
-    id: "a", kind: "text" as const, name: "long.txt", mime: "text/plain", bytes: 100, width: 0, height: 0,
-    text: { encoding: "UTF-8", chars: 1000, words: 22000, read_chars: read, read_words: 5000, read_tokens: 4000 },
-  });
   for (const language of ["en", "ru", "uz"] as const) {
     const s = STRINGS[language];
-    assert.equal(partReadText(s, file(1000), language), null);
-    const said = partReadText(s, file(230), language) ?? "";
+    assert.equal(partReadText(s, file(1000, 1000, 22000, 22000), language), null);
+    const said = partReadText(s, file(1000, 230, 22000, 5000), language) ?? "";
     assert.match(said, /23/, language);
     assert.match(said, /22[\s,.  ]?000/, language);
-    // Under 1%: one decimal, never "0%".
-    const little = partReadText(s, file(4), language) ?? "";
-    assert.match(little, /0[.,]4/, language);
-    assert.doesNotMatch(little, /(^|\D)0%/, language);
+    // Under 1%: one decimal; under 0.1%, "<0.1"; never "0%" and never more than was read.
+    assert.match(partReadText(s, file(1000, 4, 22000, 90), language) ?? "", /0[.,]4/, language);
+    const tiny = partReadText(s, file(1_000_000, 50, 220_000, 9), language) ?? "";
+    assert.match(tiny, /<0[.,]1/, language);
+    assert.doesNotMatch(tiny, /(^|[^<\d.,])0%/, language);
+    // Read none of it: said plainly, without a percentage.
+    assert.equal(partReadText(s, file(1000, 0, 200, 0), language), s.fileNotRead);
+    // Too few words to count: only the percentage.
+    assert.equal(partReadText(s, file(1_500_000, 16_000, 1, 1), language), s.filePartRead("1", null), language);
   }
+  // Russian says "слова" after a number ending in 1, but not 11.
+  assert.match(partReadText(STRINGS.ru, file(1000, 230, 22001, 5000), "ru") ?? "", /слова\)/);
+  assert.match(partReadText(STRINGS.ru, file(1000, 230, 22011, 5000), "ru") ?? "", /слов\)/);
+});
+
+test("a file's size is said in megabytes to one decimal, rounded up", () => {
+  assert.equal(aboutMegabytes(2 * 1024 * 1024 + 1, "en"), "2.1");
+  assert.equal(aboutMegabytes(2_100_000, "ru"), "2,1");
+  assert.equal(aboutMegabytes(3 * 1024 * 1024, "en"), "3.0");
 });
 
 test("every refusal says why in the person's language, with its numbers", () => {
@@ -54,7 +62,7 @@ test("every refusal says why in the person's language, with its numbers", () => 
     assert.equal(refusalText(s, "not_found"), s.pictureNotFound);
     assert.equal(refusalText(s, "not_text"), s.notText);
     assert.equal(refusalText(s, "empty_file"), s.emptyFile);
-    assert.match(refusalText(s, { text_too_large: { megabytes: 3 } }), /3/);
+    assert.match(refusalText(s, { text_too_large: { bytes: 2 * 1024 * 1024 + 1 } }, undefined, null, language), /2[.,]1/);
     assert.match(refusalText(s, { too_large: { megabytes: 41 } }), /41/);
     assert.match(refusalText(s, { too_many_pixels: { width: 9000, height: 8000 } }), /9000.*8000/);
     assert.match(refusalText(s, { too_many: { most: 4 } }), /4/);

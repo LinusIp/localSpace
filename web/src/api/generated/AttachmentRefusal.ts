@@ -4,4 +4,4 @@
  * Why an attachment was not taken: in parts, so that the client says it
  * in the person's language.
  */
-export type AttachmentRefusal = { "too_large": { megabytes: number, } } | { "too_many_pixels": { width: number, height: number, } } | "not_a_picture" | "unreadable" | { "too_many": { most: number, } } | "not_found" | "cannot_read_pictures" | { "picture_file_left_out": { needs_mib: number, } } | "not_text" | "empty_file" | { "text_too_large": { megabytes: number, } };
+export type AttachmentRefusal = { "too_large": { megabytes: number, } } | { "too_many_pixels": { width: number, height: number, } } | "not_a_picture" | "unreadable" | { "too_many": { most: number, } } | "not_found" | "cannot_read_pictures" | { "picture_file_left_out": { needs_mib: number, } } | "not_text" | "empty_file" | { "text_too_large": { bytes: number, } };

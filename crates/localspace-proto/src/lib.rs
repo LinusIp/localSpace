@@ -635,8 +635,9 @@ pub enum AttachmentRefusal {
     NotText,
     /// A text file with nothing in it.
     EmptyFile,
-    /// A text file over 2 MB; `megabytes` is its own size.
-    TextTooLarge { megabytes: u64 },
+    /// A text file over 2 MB, with its own size in bytes; the client says
+    /// it in megabytes, to one decimal.
+    TextTooLarge { bytes: u64 },
 }
 
 /// Why Core ended an answer before the model did.

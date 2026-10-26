@@ -6,7 +6,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ClipIcon, CloseIcon, Dialog, SpinnerIcon, StopIcon } from "@localspace/ui";
 import type { Attachment, ChatMessage, ToolCallRecord } from "../api/generated";
 import { addAttachment, attachmentUrl } from "../api/client";
-import { ACCEPT, MOST_ATTACHMENTS, isAttachable, isPicture, leftOutText, partReadText, refusalText } from "../lib/attachments";
+import { ACCEPT, MOST_ATTACHMENTS, TEXT_MAX_BYTES, aboutMegabytes, isPicture, leftOutText, partReadText, refusalText } from "../lib/attachments";
 import { useLanguage, useStrings } from "../useStrings";
 import { initialsOf, outcomeLine, useSession } from "../store";
 import type { LiveToolCall } from "../store";
@@ -451,12 +451,14 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
   // Its picture file left out at this load, for want of free memory (plan 38, P5).
   const leftOut = environment?.picture_file_left_out_mib ?? null;
 
-  // Each picture or text file goes to Core as soon as it is added: made
-  // ready and kept there until the message goes. A refusal is said once,
-  // plainly.
+  // Each file goes to Core as soon as it is added, which reads it as a
+  // picture or as text, whatever its name, and keeps it until the message
+  // goes. A refusal is said once, plainly. A text file larger than Core
+  // takes is said at once, without sending it.
   const addFiles = (files: File[]) => {
-    const taken = files.filter(isAttachable);
-    if (taken.length < files.length) setSaid(strings.notText);
+    const taken = files.filter((file) => isPicture(file) || file.size <= TEXT_MAX_BYTES);
+    const large = files.find((file) => !taken.includes(file));
+    if (large) setSaid(strings.textTooLarge(aboutMegabytes(large.size, language)));
     const room = MOST_ATTACHMENTS - pending.length;
     if (taken.length > room) setSaid(strings.tooManyPictures(MOST_ATTACHMENTS));
     for (const file of taken.slice(0, Math.max(0, room))) {
@@ -466,15 +468,23 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
       void addAttachment(file, file.name || "file")
         .then((answer) => {
           if ("attachment" in answer) {
-            setPending((all) => all.map((p) => (p.key === key ? { ...p, attachment: answer.attachment } : p)));
+            // The same file twice is attached once: its first chip stays.
+            setPending((all) => {
+              const twice = all.find((p) => p.key === key && all.some((q) => q.key !== key && q.attachment?.id === answer.attachment.id));
+              if (twice) {
+                letGo(twice);
+                return all.filter((p) => p.key !== key);
+              }
+              return all.map((p) => (p.key === key ? { ...p, attachment: answer.attachment } : p));
+            });
           } else {
-            setSaid(refusalText(strings, answer.refusal));
+            setSaid(refusalText(strings, answer.refusal, undefined, null, language));
             setPending((all) => all.filter((p) => p.key !== key));
             if (preview) URL.revokeObjectURL(preview);
           }
         })
         .catch(() => {
-          setSaid(preview ? strings.pictureUnreadable : strings.notText);
+          setSaid(preview ? strings.pictureUnreadable : strings.fileNotAttached);
           setPending((all) => all.filter((p) => p.key !== key));
           if (preview) URL.revokeObjectURL(preview);
         });
@@ -593,7 +603,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
       <textarea
         onPaste={(e) => {
           const files = Array.from(e.clipboardData.items)
-            .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+            .filter((item) => item.kind === "file")
             .flatMap((item) => {
               const file = item.getAsFile();
               return file ? [file] : [];

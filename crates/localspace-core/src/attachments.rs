@@ -152,7 +152,7 @@ impl Attachments {
     ) -> Result<proto::Attachment, proto::AttachmentRefusal> {
         if bytes.len() > TEXT_MAX_BYTES {
             return Err(proto::AttachmentRefusal::TextTooLarge {
-                megabytes: (bytes.len() as u64).div_ceil(1024 * 1024),
+                bytes: bytes.len() as u64,
             });
         }
         let decoded = text_file::decode(bytes).map_err(|why| match why {
@@ -163,7 +163,9 @@ impl Attachments {
         let text = String::from_utf8_lossy(&kept);
         let whole = text_file::read_within(&text, usize::MAX);
         let attachment = proto::Attachment {
-            id: blake3::hash(&kept).to_hex()[..32].to_string(),
+            // The file's own: its name and its bytes, so two files that
+            // read the same stay two, each with its name.
+            id: file_id(name, bytes),
             kind: proto::AttachmentKind::Text,
             name: name.chars().take(200).collect(),
             mime: "text/plain".into(),
@@ -258,18 +260,30 @@ impl Attachments {
         }
         let pending = self.person(user).join(PENDING);
         let chat = self.person(user).join(folder(conversation));
-        let mut taken = Vec::new();
+        let mut taken: Vec<proto::Attachment> = Vec::new();
         for id in ids {
+            // The same file attached twice goes once.
+            if taken.iter().any(|a| &a.id == id) {
+                continue;
+            }
             let attachment = read_meta(&pending, id).ok_or(proto::AttachmentRefusal::NotFound)?;
             taken.push(attachment);
         }
         std::fs::create_dir_all(&chat).map_err(|_| proto::AttachmentRefusal::NotFound)?;
+        let mut moved: Vec<String> = Vec::new();
         for a in &taken {
             for name in [file_of(a), format!("{}.json", a.id)] {
                 if let Err(e) = std::fs::rename(pending.join(&name), chat.join(&name)) {
                     tracing::warn!("could not move an attachment into its chat: {e}");
+                    // Nothing is left half-moved: what went is put back.
+                    for name in moved.iter().rev() {
+                        if let Err(e) = std::fs::rename(chat.join(name), pending.join(name)) {
+                            tracing::warn!("could not put an attachment back: {e}");
+                        }
+                    }
                     return Err(proto::AttachmentRefusal::NotFound);
                 }
+                moved.push(name);
             }
         }
         Ok(taken)
@@ -320,6 +334,15 @@ impl Attachments {
             tracing::warn!("could not delete a chat's attachments: {e}");
         }
     }
+}
+
+/// A text file's id: its name and its bytes, hashed.
+fn file_id(name: &str, bytes: &[u8]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(name.as_bytes());
+    hasher.update(&[0]);
+    hasher.update(bytes);
+    hasher.finalize().to_hex()[..32].to_string()
 }
 
 fn file_of(a: &proto::Attachment) -> String {
@@ -429,7 +452,9 @@ mod tests {
         let large = vec![b'a'; TEXT_MAX_BYTES + 1];
         assert_eq!(
             kept.add("anna", "big.txt", &large).unwrap_err(),
-            proto::AttachmentRefusal::TextTooLarge { megabytes: 3 }
+            proto::AttachmentRefusal::TextTooLarge {
+                bytes: TEXT_MAX_BYTES as u64 + 1
+            }
         );
         // Named as a picture, it is read as one, and refused as one.
         assert_eq!(
