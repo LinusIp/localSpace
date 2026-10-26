@@ -26,6 +26,14 @@ The founder's ruling of 26 October: a written vulnerability-handling process now
 - **The time aims:** confirm receipt within 5 working days; a severity within 10 more; critical fixes as soon as we can; for high-severity issues, "we aim to fix high-severity issues within 30 days and will tell you if it takes longer" (the founder's wording); the rest in the next release; an advisory when the fix is out, within 90 days of the report.
 - **Only the newest release and preview** get fixes.
 
+## 2026-10-26, no open-source licence: the `sdk/` Apache exception is withdrawn
+
+The founder's ruling of 26 October. It replaces the 25 October entries on the `sdk/` folder.
+
+- **Nothing in this repository is open source.** It's visible on GitHub, all rights reserved. The root `LICENSE` says so again, without the exception.
+- **`sdk/` is removed,** with its `LICENSE`, `NOTICE` and README, and so is `scripts/check-sdk-boundary.mjs` with its CI step, which only guarded the Apache folder.
+
+
 ## 2026-10-25, the plugin manifest is `plugin.toml`; plugins are `.lspkg` files
 
 The owner's ruling of 25 October.
