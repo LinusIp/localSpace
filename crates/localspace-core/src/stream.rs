@@ -33,7 +33,7 @@ const CONNECT: Duration = Duration::from_secs(10);
 const SEND: Duration = Duration::from_secs(30);
 /// What a response's head may come to, and what a refusal's body is read to.
 const HEAD_BYTES: usize = 64 * 1024;
-const REFUSAL_BYTES: u64 = 64 * 1024;
+pub(crate) const REFUSAL_BYTES: u64 = 64 * 1024;
 /// How long one wait for the model's next bytes lasts before Stop and the
 /// silence are looked at again. On Windows a socket shut from another thread
 /// does not wake a read already waiting on it; this does, everywhere.
@@ -191,14 +191,7 @@ fn exchange(
         let _ = Body::new(reader, head.framing)
             .take(REFUSAL_BYTES)
             .read_to_end(&mut refusal);
-        if let Some(no_room) = no_room(&refusal) {
-            return Err(anyhow::Error::new(no_room));
-        }
-        bail!(
-            "the model answered {}: {}",
-            head.status,
-            refusal_message(&refusal)
-        );
+        return Err(refused(head.status, &refusal));
     }
 
     // After the first word the model is writing: from then on the shorter
@@ -494,6 +487,15 @@ pub struct NoRoom {
     /// The engine's own count of the prompt, and its context, when it says.
     pub prompt_tokens: Option<u64>,
     pub context: Option<u64>,
+}
+
+/// The engine refused the request: for want of room, told apart, or for
+/// another reason, in its own words.
+pub(crate) fn refused(status: u16, body: &[u8]) -> anyhow::Error {
+    match no_room(body) {
+        Some(no_room) => anyhow::Error::new(no_room),
+        None => anyhow::anyhow!("the model answered {status}: {}", refusal_message(body)),
+    }
 }
 
 fn no_room(body: &[u8]) -> Option<NoRoom> {

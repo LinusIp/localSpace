@@ -503,6 +503,9 @@ impl OpenAiWorker {
             .config()
             .timeout_global(None)
             .timeout_recv_response(Some(silence.before_first_word))
+            // A refusal is read, as over plain http: the engine says in its
+            // body why, and a want of room is told apart.
+            .http_status_as_error(false)
             .build();
         if let Some(k) = &self.api_key {
             request = request.header("Authorization", &format!("Bearer {k}"));
@@ -511,6 +514,15 @@ impl OpenAiWorker {
             .send_json(body)
             .map_err(|e| anyhow::anyhow!("{e}"))
             .with_context(|| format!("POST {url}"))?;
+        let status = res.status().as_u16();
+        if status != 200 {
+            let mut refusal = Vec::new();
+            let _ = std::io::Read::read_to_end(
+                &mut std::io::Read::take(res.body_mut().as_reader(), crate::stream::REFUSAL_BYTES),
+                &mut refusal,
+            );
+            return Err(crate::stream::refused(status, &refusal));
+        }
         let reader = std::io::BufReader::new(res.body_mut().as_reader());
         read_sse(reader, on_delta, stop)
     }
