@@ -123,7 +123,7 @@ const ru: Strings = {
   emptyFile: "Этот файл пустой.",
   textTooLarge: (mb) => `Этот файл весит ${mb} МБ, а прикрепить можно текстовые файлы до 2 МБ.`,
   filePartRead: (percent, read, words) =>
-    `Слишком длинный, чтобы прочитать целиком: модель прочитала первые ${percent}% (примерно ${read} из ${words} слов).`,
+    `Файл слишком длинный, чтобы прочитать его целиком: модель прочитала первые ${percent}% (примерно ${read} из ${words} слов).`,
   saveFile: "Сохранить",
   cannotReadPictures: (model) => `${model} не умеет читать изображения.`,
   pictureFileLeftOut: (gb, model) =>
@@ -153,7 +153,7 @@ const uz: Strings = {
   pictureNotFound: "Bu fayl endi yoʻq. Uni qaytadan biriktiring.",
   notText: "Faqat rasmlarni (PNG, JPEG, WebP) va matnli fayllarni (.txt, .md, .csv va kod) biriktirish mumkin.",
   emptyFile: "Bu fayl boʻsh.",
-  textTooLarge: (mb) => `Bu fayl ${mb} MB, 2 MB gacha boʻlgan matnli fayllarni biriktirish mumkin.`,
+  textTooLarge: (mb) => `Bu fayl ${mb} MB. Faqat 2 MB gacha boʻlgan matnli fayllarni biriktirish mumkin.`,
   filePartRead: (percent, read, words) =>
     `Butunlay oʻqish uchun juda uzun: model birinchi ${percent}% qismini oʻqidi (taxminan ${words} soʻzdan ${read} tasi).`,
   saveFile: "Saqlash",
