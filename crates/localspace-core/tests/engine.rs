@@ -263,7 +263,7 @@ fn core_on_an_ordinary_laptop(dir: &Path) -> Core {
     std::fs::write(
         catalog.join("catalog.json"),
         r#"{"version":1,"models":[
-            {"id":"tiny","title":"Tiny","params_b":0.1,"bytes":16,"context_len":2048,
+            {"id":"tiny","title":"Tiny","params_b":0.1,"bytes":16,"context_len":8192,
              "repo":"example/tiny","files":["tiny.gguf"],
              "tensor":{"core_bytes":16,"routed_expert_bytes":0,"layers":2,"moe":null,"kv_bytes_per_token_fp16":256}},
             {"id":"vast","title":"Vast","params_b":3.0,"bytes":900000000000000,"context_len":2048,
@@ -443,7 +443,7 @@ fn core_with_two_slow_models(dir: &Path, load_ms: u64) -> (Core, Arc<Mutex<Vec<p
     let stub = format!("loads in {load_ms} ms");
     let entry = |id: &str, title: &str| {
         serde_json::json!({
-            "id": id, "title": title, "params_b": 0.1, "bytes": stub.len(), "context_len": 2048,
+            "id": id, "title": title, "params_b": 0.1, "bytes": stub.len(), "context_len": 8192,
             "repo": format!("example/{id}"), "files": [format!("{id}.gguf")],
             "tensor": {"core_bytes": 16, "routed_expert_bytes": 0, "layers": 2, "moe": null,
                        "kv_bytes_per_token_fp16": 256}
