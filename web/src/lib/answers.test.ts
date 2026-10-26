@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { endOfAnswer, workedBefore } from "./answers.ts";
+import { endOfAnswer, workOf } from "./answers.ts";
 import { STRINGS } from "./strings.ts";
 import type { ChatMessage } from "../api/generated";
 
@@ -59,15 +59,15 @@ test("someone who cannot load a model is not told to, when the model fails", () 
   assert.doesNotMatch(member?.text ?? "", /Settings/);
 });
 
-test("an answer whose turn did tool work, and has no words, has no line", () => {
+test("an answer whose turn did tool work, and has no words, has no line: its work is what it did", () => {
   const call = { id: "c", tool: "t", params: {}, outcome: { ok: { diff_summary: "", result: {}, commit: null } } };
   const message = (role: ChatMessage["role"], content: string, tool_calls: object[] = []) =>
     ({ role, content, tool_calls, stopped: false, thinking: "", cut_short: null }) as unknown as ChatMessage;
   // As Core keeps it: the call is a message of its own, before the answer.
   const transcript = [message("user", "Put a plan on the board."), message("tool", "", [call]), message("assistant", ""), message("user", "Thanks."), message("assistant", "")];
-  const worked = workedBefore(transcript);
-  assert.ok(worked.has(transcript[2]));
-  assert.ok(!worked.has(transcript[4]), "the next turn did no work");
+  const work = workOf(transcript);
+  assert.deepEqual(work.get(transcript[2]), [call]);
+  assert.ok(!work.has(transcript[4]), "the next turn did no work");
   assert.equal(endOfAnswer(STRINGS.en, transcript[2], { didWork: true, mayLoadModel: true }), null);
   assert.deepEqual(endOfAnswer(STRINGS.en, transcript[4], plain), { text: STRINGS.en.noAnswer, action: null });
 });

@@ -14,7 +14,7 @@ import { Markdown } from "../components/Markdown";
 import { Mark } from "../components/Mark";
 import { TopBar } from "../components/TopBar";
 import { greeting } from "../lib/time";
-import { endOfAnswer, workedBefore } from "../lib/answers";
+import { endOfAnswer, workOf } from "../lib/answers";
 import { modelLabel } from "../lib/models";
 
 /** The answer in progress in the chat on screen: its words so far, where it
@@ -93,7 +93,7 @@ export function Conversation({ compact }: { compact?: boolean }) {
   const carried = continuing && last?.role === "assistant" && last.stopped;
   const joining = carried && last.content.trim() !== "";
   const thread = carried && !joining ? shown.slice(0, -1) : shown;
-  const worked = workedBefore(transcript);
+  const work = workOf(transcript);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -126,7 +126,7 @@ export function Conversation({ compact }: { compact?: boolean }) {
                     {strings.olderMessagesLeftOut}
                   </div>
                 )}
-                <Message message={m} joined={isLast && joining ? streaming : null} mayContinue={isLast && !turn} didWork={worked.has(m)} />
+                <Message message={m} joined={isLast && joining ? streaming : null} mayContinue={isLast && !turn} work={work.get(m) ?? []} />
               </Fragment>
             );
           })}
@@ -261,7 +261,7 @@ function PersonAvatar() {
  * *Continue* when it is the chat's last and nothing is in progress; while it
  * is carried on, `joined` holds the new words, shown in its place.
  */
-function Message({ message, joined, mayContinue, didWork }: { message: ChatMessage; joined: string | null; mayContinue: boolean; didWork: boolean }) {
+function Message({ message, joined, mayContinue, work }: { message: ChatMessage; joined: string | null; mayContinue: boolean; work: ToolCallRecord[] }) {
   const continueAnswer = useSession((s) => s.continueAnswer);
   const newConversation = useSession((s) => s.newConversation);
   const me = useSession((s) => s.me);
@@ -290,7 +290,7 @@ function Message({ message, joined, mayContinue, didWork }: { message: ChatMessa
   const text = joined === null ? message.content : message.content + joined;
   // On an organisation's server only an administrator loads a model.
   const mayLoadModel = me?.topology !== "organisation" || me.roles.includes("admin");
-  const end = endOfAnswer(strings, message, { didWork, mayLoadModel });
+  const end = endOfAnswer(strings, message, { didWork: work.length > 0, mayLoadModel });
   return (
     <div className="message">
       <AssistantAvatar />
@@ -298,6 +298,12 @@ function Message({ message, joined, mayContinue, didWork }: { message: ChatMessa
         {message.tool_calls.map((c) => (
           <Work key={c.id} call={c} />
         ))}
+        {/* An answer of no words after tool work: the work is what it did. A
+            declined proposal is shown in the chat already. */}
+        {!text &&
+          work
+            .filter((c) => !("declined" in c.outcome))
+            .map((c) => <Work key={c.id} call={c} />)}
         {text && (
           <div className="prose-chat">
             <Markdown text={text} />

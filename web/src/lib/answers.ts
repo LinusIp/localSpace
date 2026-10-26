@@ -5,7 +5,7 @@
 // a message too long for the model is not a full chat either, since a new
 // chat would read the same.
 
-import type { ChatMessage } from "../api/generated";
+import type { ChatMessage, ToolCallRecord } from "../api/generated";
 import type { Strings } from "./strings";
 
 /** What the line under an answer offers: carry it on, start a new chat, or ask again. */
@@ -47,14 +47,14 @@ export function endOfAnswer(strings: Strings, m: Pick<ChatMessage, "stopped" | "
   return null;
 }
 
-/** The answers whose turn did tool work: a call Core keeps as a message of its own, between the person's message and the answer. */
-export function workedBefore(transcript: ChatMessage[]): Set<ChatMessage> {
-  const worked = new Set<ChatMessage>();
-  let work = false;
+/** The tool work of each answer's turn: the calls Core keeps as messages of their own, between the person's message and the answer. */
+export function workOf(transcript: ChatMessage[]): Map<ChatMessage, ToolCallRecord[]> {
+  const work = new Map<ChatMessage, ToolCallRecord[]>();
+  let calls: ToolCallRecord[] = [];
   for (const m of transcript) {
-    if (m.role === "user") work = false;
-    else if (m.role === "tool") work = true;
-    else if (m.role === "assistant" && work) worked.add(m);
+    if (m.role === "user") calls = [];
+    else if (m.role === "tool") calls = [...calls, ...m.tool_calls];
+    else if (m.role === "assistant" && calls.length > 0) work.set(m, calls);
   }
-  return worked;
+  return work;
 }
