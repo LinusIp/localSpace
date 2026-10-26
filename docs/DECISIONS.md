@@ -13,6 +13,12 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-26, the security mailbox is the main reporting channel
+
+The founder's ruling of 26 October.
+- **`localspace.security@gmail.com`** is the main way to report a security problem, in `SECURITY.md` and in the website's `security.txt`.
+- **GitHub's private vulnerability reporting** stays as an extra while this repository is public. It works only on public repos, so before this repository goes private it moves to the public plugin-interface repo, and both files are updated.
+
 ## 2026-10-26, how security problems are reported and handled
 
 The founder's ruling of 26 October: a written vulnerability-handling process now, ahead of the rest of the supply-chain work (the egress and supply-chain tasks of the workplan).
