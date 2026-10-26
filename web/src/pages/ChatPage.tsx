@@ -14,6 +14,7 @@ import { Markdown } from "../components/Markdown";
 import { Mark } from "../components/Mark";
 import { TopBar } from "../components/TopBar";
 import { greeting } from "../lib/time";
+import { endOfAnswer } from "../lib/answers";
 import { modelLabel } from "../lib/models";
 
 /** The answer in progress in the chat on screen: its words so far, where it
@@ -45,10 +46,6 @@ const WAITS_FOR_ANOTHER_CHAT = "Waiting for the answer in your other chat to fin
  *  2026-09-24): "server", since the person has no choice to make about the
  *  model here. */
 const WAITS_FOR_THE_SERVER = "The server is answering other people right now. This one will start by itself.";
-
-/** Said under an answer Core ended early (ruled 2026-10-10). */
-const REPEATED = "The answer started repeating itself, so it was stopped.";
-const AT_LIMIT = "The answer reached its length limit.";
 
 /** Said where a proposal the person declined stood (ruled 2026-09-24). */
 const DECLINED = "You declined this change. The answer stopped here.";
@@ -261,6 +258,8 @@ function PersonAvatar() {
  */
 function Message({ message, joined, mayContinue }: { message: ChatMessage; joined: string | null; mayContinue: boolean }) {
   const continueAnswer = useSession((s) => s.continueAnswer);
+  const newConversation = useSession((s) => s.newConversation);
+  const strings = useStrings();
   if (message.role === "tool") {
     return (
       <div className="message">
@@ -283,6 +282,7 @@ function Message({ message, joined, mayContinue }: { message: ChatMessage; joine
     );
   }
   const text = joined === null ? message.content : message.content + joined;
+  const end = endOfAnswer(strings, message);
   return (
     <div className="message">
       <AssistantAvatar />
@@ -295,15 +295,18 @@ function Message({ message, joined, mayContinue }: { message: ChatMessage; joine
             <Markdown text={text} />
           </div>
         )}
-        {joined === null && message.cut_short === "repeated" && <div className="message-stopped">{REPEATED}</div>}
-        {joined === null && message.stopped && (
-          <div className="message-stopped">
-            {message.cut_short === "length" ? AT_LIMIT : "The answer stopped here."}
-            {mayContinue && (
+        {joined === null && end && (
+          <div className="message-stopped" role="status">
+            {end.text}
+            {mayContinue && end.action && (
               <>
                 {" "}
-                <button type="button" className="link green" onClick={() => void continueAnswer()}>
-                  Continue
+                <button
+                  type="button"
+                  className="link green"
+                  onClick={() => void (end.action === "new_chat" ? newConversation() : continueAnswer())}
+                >
+                  {end.action === "new_chat" ? strings.newChat : end.action === "try_again" ? strings.tryAgain : strings.continueAnswer}
                 </button>
               </>
             )}
