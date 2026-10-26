@@ -86,3 +86,53 @@ fn the_rail_is_remembered_per_user_across_a_restart_and_only_known_keys_are_kept
     );
     assert!(values(&mut core, &ben).is_empty());
 }
+
+fn set(core: &mut Core, who: &Caller, key: &str, value: &str) -> proto::Response {
+    core.handle_as(
+        who,
+        proto::Request::SetPreference {
+            key: key.into(),
+            value: value.into(),
+        },
+    )
+}
+
+#[test]
+fn the_language_chosen_in_settings_is_remembered_across_a_restart() {
+    // The 0.2.0 fix: Settings → Language saved "language", and Core refused
+    // the key, so the choice showed an error and was gone after a restart.
+    let data = tempfile::tempdir().unwrap();
+    let anna = member("anna");
+    {
+        let mut core = core(data.path());
+        for choice in ["ru", "uz", "system", "pt-BR", "uz"] {
+            match set(&mut core, &anna, "language", choice) {
+                proto::Response::Preferences { values } => {
+                    assert_eq!(values.get("language").map(String::as_str), Some(choice))
+                }
+                other => panic!("{choice} was refused: {other:?}"),
+            }
+        }
+    }
+    let mut core = core(data.path());
+    assert_eq!(
+        values(&mut core, &anna).get("language").map(String::as_str),
+        Some("uz")
+    );
+}
+
+#[test]
+fn a_language_that_is_not_a_language_tag_is_refused() {
+    let data = tempfile::tempdir().unwrap();
+    let anna = member("anna");
+    let mut core = core(data.path());
+    for bad in ["", "../ru", "ru en", "-ru", "<script>", "ru;drop"] {
+        match set(&mut core, &anna, "language", bad) {
+            proto::Response::Error { message } => {
+                assert!(message.contains("not a language"), "{message}")
+            }
+            other => panic!("{bad:?} was kept: {other:?}"),
+        }
+    }
+    assert!(values(&mut core, &anna).get("language").is_none());
+}
