@@ -17,7 +17,7 @@ moved with them.
 
 The founder's ruling of 26 October: a written vulnerability-handling process now, ahead of the rest of the supply-chain work (the egress and supply-chain tasks of the workplan).
 - **`SECURITY.md`** says how to report a problem privately (GitHub's private vulnerability reporting), what happens next and when, and what is covered. The engine's own problems go to llama.cpp.
-- **The time aims:** confirm receipt within 5 working days; a severity within 10 more; critical fixes as soon as we can, high within 30 days, the rest in the next release; an advisory when the fix is out, within 90 days of the report.
+- **The time aims:** confirm receipt within 5 working days; a severity within 10 more; critical fixes as soon as we can; for high-severity issues, "we aim to fix high-severity issues within 30 days and will tell you if it takes longer" (the founder's wording); the rest in the next release; an advisory when the fix is out, within 90 days of the report.
 - **Only the newest release and preview** get fixes.
 
 ## 2026-10-25, the plugin manifest is `plugin.toml`; plugins are `.lspkg` files

@@ -21,7 +21,7 @@ localSpace runs AI models on your own computer. If you find a way to make it lea
   | Severity | Our aim for a fixed release |
   |---|---|
   | Critical (data leaving the computer, code running outside the sandbox) | as soon as we can |
-  | High | 30 days |
+  | High | we aim to fix it within 30 days, and will tell you if it takes longer |
   | Medium and low | the next planned release |
 - **We publish an advisory when the fix is released:**
   - where: GitHub Security Advisories for this repository, and the release notes;
