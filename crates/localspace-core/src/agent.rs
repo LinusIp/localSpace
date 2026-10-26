@@ -663,14 +663,12 @@ fn ask_the_model(core: &mut Core, id: u64) {
     // The prompt as a system message and turns, the ledger after the newest
     // message (docs/DECISIONS.md, 2026-09-24 and 2026-10-06).
     let prompt_estimate = p.total_tokens();
-    // Nothing before the person's newest message is read: a new chat would
-    // read the same.
-    let alone = p
-        .turns
-        .iter()
-        .filter(|t| matches!(t, prompt::Turn::Person(_)))
-        .count()
-        <= 1;
+    // Nothing is read but the person's newest message: no earlier message,
+    // no words carried on, no call of this turn's. A new chat would read the
+    // same.
+    let alone = begun.is_none()
+        && refused.is_none()
+        && matches!(p.turns.as_slice(), [prompt::Turn::Person(_)]);
     let system = p.prefix();
     let after = p.after();
     let mut turns = p.turns;
@@ -2542,6 +2540,32 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// Carrying on an answer reads its words: when they fill the room, the
+    /// chat is full, not the person's message too long.
+    #[test]
+    fn an_answer_carried_on_until_the_room_runs_out_fills_the_chat() {
+        let script = Script::new(vec![ChatReply {
+            text: " and more".into(),
+            at_limit: true,
+            completion_tokens: 40,
+            ..Default::default()
+        }]);
+        let mut core = core_with(script);
+        let mut stopped = message(proto::Role::Assistant, "A long essay");
+        stopped.stopped = true;
+        stopped.cut_short = Some(proto::CutShort::Length);
+        core.transcript = vec![message(proto::Role::User, "Write a long essay."), stopped];
+        core.record_conversation();
+
+        assert!(matches!(
+            core.handle(proto::Request::ContinueAnswer { conversation: None }),
+            proto::Response::Transcript { .. }
+        ));
+        let answer = core.transcript.last().unwrap();
+        assert_eq!(answer.content, "A long essay and more");
+        assert_eq!(answer.cut_short, Some(proto::CutShort::ChatFull));
     }
 
     /// Trying again after an answer with no words answers afresh in its
