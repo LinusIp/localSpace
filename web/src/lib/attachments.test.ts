@@ -39,6 +39,10 @@ test("a text file read only in part says how much, in the person's language; one
     const said = partReadText(s, file(230), language) ?? "";
     assert.match(said, /23/, language);
     assert.match(said, /22[\s,.  ]?000/, language);
+    // Under 1%: one decimal, never "0%".
+    const little = partReadText(s, file(4), language) ?? "";
+    assert.match(little, /0[.,]4/, language);
+    assert.doesNotMatch(little, /(^|\D)0%/, language);
   }
 });
 

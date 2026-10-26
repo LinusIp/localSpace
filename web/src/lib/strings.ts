@@ -58,7 +58,7 @@ export interface Strings {
   emptyFile: string;
   textTooLarge: (megabytes: number) => string;
   /** A text file the model read only the start of: how much, never silently (plan 38, F4). */
-  filePartRead: (percent: number, read: string, words: string) => string;
+  filePartRead: (percent: string, read: string, words: string) => string;
   /** A sent text file: saves it on this computer. */
   saveFile: string;
   /** A model that cannot read pictures here, and what to do. */

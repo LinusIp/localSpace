@@ -177,10 +177,13 @@ fn with_text_files(
                     String::new()
                 } else {
                     let total = facts.as_ref().map_or(0, |f| f.chars).max(1);
-                    format!(
-                        " (only its first {}% fits here; say so if the rest matters)",
-                        read_chars * 100 / total
-                    )
+                    let percent = read_chars * 100 / total;
+                    let part = if percent == 0 {
+                        "less than 1%".to_string()
+                    } else {
+                        format!("{percent}%")
+                    };
+                    format!(" (only its first {part} fits here; say so if the rest matters)")
                 };
                 m.content.push_str(&format!(
                     "\n\n--- File: {}{note} ---\n{part}\n--- End of file ---",

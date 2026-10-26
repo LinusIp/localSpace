@@ -47,7 +47,12 @@ export function isAttachable(file: { type: string; name: string }): boolean {
 export function partReadText(strings: Strings, file: Attachment, language: Language): string | null {
   const t = file.text;
   if (!t || t.read_chars >= t.chars) return null;
-  const percent = Math.floor((t.read_chars * 100) / Math.max(1, t.chars));
+  // Rounded down, so as never to claim more was read; under 1%, to one decimal, never "0".
+  const exact = (t.read_chars * 100) / Math.max(1, t.chars);
+  const percent =
+    exact >= 1
+      ? new Intl.NumberFormat(language).format(Math.floor(exact))
+      : new Intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Math.max(0.1, Math.floor(exact * 10) / 10));
   const n = new Intl.NumberFormat(language);
   return strings.filePartRead(percent, n.format(t.read_words), n.format(t.words));
 }
