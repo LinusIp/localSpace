@@ -452,7 +452,9 @@ mod tests {
         assert_eq!(facts.encoding, "Windows-1251");
         assert_eq!((facts.chars, facts.words), (9, 3));
         assert_eq!(facts.read_chars, facts.chars, "all of it, until it is sent");
-        let taken = kept.take("anna", "c_1", &[file.id.clone()]).expect("taken");
+        let taken = kept
+            .take("anna", "c_1", std::slice::from_ref(&file.id))
+            .expect("taken");
         assert_eq!(
             kept.text("anna", "c_1", &taken[0]).as_deref(),
             Some("Счёт № 7\n")
