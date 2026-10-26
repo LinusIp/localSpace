@@ -28,9 +28,9 @@ moved with them.
 - **Why an answer ended is told apart and said in the person's language** (`CutShort`; the words are the client's, in `web/src/lib/answers.ts` and `strings.ts`):
   - **at its own length limit:** "The answer reached its length limit.", with Continue. With no words at all, the thinking used all the room: "Try again";
   - **the chat is full** (`chat_full`): the engine stopped at the limit with fewer tokens than the answer was allowed, so the context ran out. Or it refused the request for want of room (llama-server's `exceed_context_size_error`, read over http and https alike). The line says the chat is full and offers a new chat, never Continue. An engine that gives no figure is taken to have reached the answer's own limit, so a chat is never called full when it isn't;
-  - **the message is too long** (`too_long`): the same, with nothing read but the person's newest message. A new chat would read the same, so none is offered: the line says to send a shorter message, or to attach the text as a file;
+  - **the message is too long** (`too_long`): the same, with nothing read but the person's newest message: no earlier message, no words of an answer carried on. A new chat would read the same, so none is offered: the line says to send a shorter message, or to attach the text as a file;
   - **the model could not answer** (`failed`): any other error. The chat says so and offers to try again. The error itself goes to the log, never into the chat or a notice. Where the person can load a model, the line says to load it again in Settings if it happens again; an organisation's member is told to tell their administrator;
-  - **no words at all:** "The model gave no answer. Ask again.", unless the turn did tool work;
+  - **no words at all:** "The model gave no answer. Ask again." When the turn did tool work, the work is shown in the answer's place instead;
   - "The answer stopped here." and "repeating itself" are unchanged, now translated.
   - **A line with a button doesn't repeat the button's words.**
 - **Trying again after an answer with no words** answers afresh in its place: the empty answer leaves the chat when the new one begins, and the new one is kept after any calls it makes. Meanwhile the chat shows where the new answer stands ("Starting…", "Thinking…", a wait), as for any answer.
