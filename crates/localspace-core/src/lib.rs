@@ -46,6 +46,7 @@ pub mod runtime;
 pub mod store;
 pub mod stream;
 pub mod task;
+pub mod text_file;
 pub mod tools;
 pub mod transport;
 pub mod turns;
