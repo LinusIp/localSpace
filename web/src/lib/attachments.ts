@@ -25,6 +25,13 @@ export const MOST_ATTACHMENTS = 4;
 /** Core's limit for a text file; it holds to it, and the composer says so before sending one larger. */
 export const TEXT_MAX_BYTES = 2 * 1024 * 1024;
 
+/** Whether a file too large to send may be text, by its type or its name: it is told the size limit; anything else is told it can't be attached at all. */
+export function mayBeText(file: { type: string; name: string }): boolean {
+  if (file.type.startsWith("text/")) return true;
+  const dot = file.name.lastIndexOf(".");
+  return dot <= 0 || (TEXT_EXTENSIONS as readonly string[]).includes(file.name.slice(dot + 1).toLowerCase());
+}
+
 /** Whether a file looks like a picture the app takes, by its type or its name. */
 export function isPicture(file: { type: string; name: string }): boolean {
   if ((PICTURE_TYPES as readonly string[]).includes(file.type)) return true;
@@ -51,7 +58,12 @@ export function partReadText(strings: Strings, file: Attachment, language: Langu
         : `<${tenth.format(0.1)}`;
   // The words only when there are enough of them to say something.
   const n = new Intl.NumberFormat(language);
-  const words = t.words >= 100 && t.read_words < t.words ? { read: n.format(t.read_words), total: n.format(t.words), count: t.words } : null;
+  // ...and only when they agree with the share of the characters (a long
+  // line of data, a picture inside a Markdown file, can make them differ).
+  const wordShare = t.read_words / Math.max(1, t.words);
+  const charShare = t.read_chars / Math.max(1, t.chars);
+  const agree = wordShare <= charShare * 2 && charShare <= wordShare * 2;
+  const words = t.words >= 100 && t.read_words < t.words && agree ? { read: n.format(t.read_words), total: n.format(t.words), count: t.words } : null;
   return strings.filePartRead(percent, words);
 }
 

@@ -6,7 +6,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ClipIcon, CloseIcon, Dialog, SpinnerIcon, StopIcon } from "@localspace/ui";
 import type { Attachment, ChatMessage, ToolCallRecord } from "../api/generated";
 import { addAttachment, attachmentUrl } from "../api/client";
-import { ACCEPT, MOST_ATTACHMENTS, TEXT_MAX_BYTES, aboutMegabytes, isPicture, leftOutText, partReadText, refusalText } from "../lib/attachments";
+import { ACCEPT, MOST_ATTACHMENTS, TEXT_MAX_BYTES, aboutMegabytes, isPicture, leftOutText, mayBeText, partReadText, refusalText } from "../lib/attachments";
 import { useLanguage, useStrings } from "../useStrings";
 import { initialsOf, outcomeLine, useSession } from "../store";
 import type { LiveToolCall } from "../store";
@@ -431,6 +431,16 @@ function letGo(p: Pending) {
   if (p.preview) URL.revokeObjectURL(p.preview);
 }
 
+/** The files dropped or pasted, folders left out. */
+function filesOf(items: DataTransferItemList): File[] {
+  return Array.from(items)
+    .filter((item) => item.kind === "file" && !item.webkitGetAsEntry()?.isDirectory)
+    .flatMap((item) => {
+      const file = item.getAsFile();
+      return file ? [file] : [];
+    });
+}
+
 function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (text: string) => void; placeholder: string }) {
   const { send, cancel, environment, catalogModels, goSettings, loadModel, downloadModel } = useSession();
   const strings = useStrings();
@@ -458,7 +468,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
   const addFiles = (files: File[]) => {
     const taken = files.filter((file) => isPicture(file) || file.size <= TEXT_MAX_BYTES);
     const large = files.find((file) => !taken.includes(file));
-    if (large) setSaid(strings.textTooLarge(aboutMegabytes(large.size, language)));
+    if (large) setSaid(mayBeText(large) ? strings.textTooLarge(aboutMegabytes(large.size, language)) : strings.notText);
     const room = MOST_ATTACHMENTS - pending.length;
     if (taken.length > room) setSaid(strings.tooManyPictures(MOST_ATTACHMENTS));
     for (const file of taken.slice(0, Math.max(0, room))) {
@@ -564,7 +574,9 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
       onDrop={(e) => {
         e.preventDefault();
         setDragging(false);
-        addFiles(Array.from(e.dataTransfer.files));
+        addFiles(filesOf(e.dataTransfer.items));
+        // A folder is not a file: said as such, never sent.
+        if (Array.from(e.dataTransfer.items).some((item) => item.webkitGetAsEntry()?.isDirectory)) setSaid(strings.notText);
       }}
     >
       {dragging && <div className="composer-drop">{strings.dropFileHere}</div>}
@@ -602,12 +614,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
       )}
       <textarea
         onPaste={(e) => {
-          const files = Array.from(e.clipboardData.items)
-            .filter((item) => item.kind === "file")
-            .flatMap((item) => {
-              const file = item.getAsFile();
-              return file ? [file] : [];
-            });
+          const files = filesOf(e.clipboardData.items);
           if (files.length > 0) {
             e.preventDefault();
             addFiles(files);

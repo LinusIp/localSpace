@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ACCEPT, MOST_ATTACHMENTS, TEXT_MAX_BYTES, aboutGigabytes, aboutMegabytes, isPicture, partReadText, refusalText } from "./attachments.ts";
+import { ACCEPT, MOST_ATTACHMENTS, TEXT_MAX_BYTES, aboutGigabytes, aboutMegabytes, isPicture, mayBeText, partReadText, refusalText } from "./attachments.ts";
 import { STRINGS } from "./strings.ts";
 
 test("pictures are taken by their type or, without one, by their name", () => {
@@ -46,6 +46,19 @@ test("a text file read only in part says how much, in the person's language; one
   // Russian says "слова" after a number ending in 1, but not 11.
   assert.match(partReadText(STRINGS.ru, file(1000, 230, 22001, 5000), "ru") ?? "", /слова\)/);
   assert.match(partReadText(STRINGS.ru, file(1000, 230, 22011, 5000), "ru") ?? "", /слов\)/);
+});
+
+test("a file too large to send is told the size limit only when it may be text", () => {
+  assert.ok(mayBeText({ type: "text/csv", name: "a.csv" }));
+  assert.ok(mayBeText({ type: "", name: "README" }));
+  assert.ok(mayBeText({ type: "", name: "big.log" }));
+  assert.ok(!mayBeText({ type: "application/pdf", name: "contract.pdf" }));
+  assert.ok(!mayBeText({ type: "", name: "film.mp4" }));
+});
+
+test("the words are left out when they disagree with the share read", () => {
+  // 1% of the characters but 99% of the words: a picture inside a Markdown file.
+  assert.equal(partReadText(STRINGS.en, file(1_400_000, 15_875, 1523, 1503), "en"), STRINGS.en.filePartRead("1", null));
 });
 
 test("a file's size is said in megabytes to one decimal, rounded up", () => {

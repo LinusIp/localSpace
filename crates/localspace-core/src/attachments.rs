@@ -151,8 +151,13 @@ impl Attachments {
         bytes: &[u8],
     ) -> Result<proto::Attachment, proto::AttachmentRefusal> {
         if bytes.len() > TEXT_MAX_BYTES {
-            return Err(proto::AttachmentRefusal::TextTooLarge {
-                bytes: bytes.len() as u64,
+            // Too large is said only of what reads as text: anything else
+            // is not text, whatever its size.
+            return Err(match text_file::decode(&bytes[..64 * 1024]) {
+                Err(text_file::NotText::Binary) => proto::AttachmentRefusal::NotText,
+                _ => proto::AttachmentRefusal::TextTooLarge {
+                    bytes: bytes.len() as u64,
+                },
             });
         }
         let decoded = text_file::decode(bytes).map_err(|why| match why {
@@ -216,18 +221,32 @@ impl Attachments {
             .collect()
     }
 
-    /// A kept text file of the chat, as text.
+    /// A kept text file of the chat, as text: as much of it as the model
+    /// reads, which is all of it until the message is sent.
     pub fn text(
         &self,
         user: &str,
         conversation: &str,
         attachment: &proto::Attachment,
     ) -> Option<String> {
-        if attachment.kind != proto::AttachmentKind::Text {
+        use std::io::Read;
+        if attachment.kind != proto::AttachmentKind::Text || !is_id(&attachment.id) {
             return None;
         }
-        self.bytes(user, conversation, attachment)
-            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        // A character is at most four bytes.
+        let most = attachment
+            .text
+            .as_ref()
+            .map_or(u64::MAX, |t| t.read_chars.saturating_mul(4));
+        let path = self
+            .person(user)
+            .join(folder(conversation))
+            .join(file_of(attachment));
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)
+            .and_then(|file| file.take(most).read_to_end(&mut bytes))
+            .ok()?;
+        Some(String::from_utf8_lossy(&bytes).into_owned())
     }
 
     /// What is known of one of the chat's attachments changed (how much of a
@@ -273,6 +292,15 @@ impl Attachments {
         let mut moved: Vec<String> = Vec::new();
         for a in &taken {
             for name in [file_of(a), format!("{}.json", a.id)] {
+                // Already in the chat from an earlier message: the same name
+                // and bytes, so the pending copy goes, and nothing the chat
+                // had is ever moved back.
+                if chat.join(&name).exists() {
+                    if let Err(e) = std::fs::remove_file(pending.join(&name)) {
+                        tracing::warn!("could not drop a pending copy: {e}");
+                    }
+                    continue;
+                }
                 if let Err(e) = std::fs::rename(pending.join(&name), chat.join(&name)) {
                     tracing::warn!("could not move an attachment into its chat: {e}");
                     // Nothing is left half-moved: what went is put back.
@@ -448,6 +476,13 @@ mod tests {
         assert_eq!(
             kept.add("anna", "empty.txt", b" \n ").unwrap_err(),
             proto::AttachmentRefusal::EmptyFile
+        );
+        // Over the limit: too large when it reads as text, not text otherwise.
+        let mut zipped = vec![0x50, 0x4b, 0x03, 0x04, 0x00, 0x00];
+        zipped.resize(TEXT_MAX_BYTES + 1, 0);
+        assert_eq!(
+            kept.add("anna", "archive.txt", &zipped).unwrap_err(),
+            proto::AttachmentRefusal::NotText
         );
         let large = vec![b'a'; TEXT_MAX_BYTES + 1];
         assert_eq!(

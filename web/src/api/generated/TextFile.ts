@@ -21,6 +21,8 @@ chars: number, words: number,
  */
 read_chars: number, read_words: number, 
 /**
- * What the part read costs in the prompt, by `estimate_tokens`.
+ * What the part read costs in the prompt, by Core's count for the
+ * prompt: a token for every four bytes, and one for every digit and
+ * punctuation mark.
  */
 read_tokens: number, };

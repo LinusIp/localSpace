@@ -15,26 +15,28 @@ moved with them.
 
 ## 2026-10-26, text files in chat (0.2.0)
 
-Internal plan 38, F1 and a smaller F4. It is part of the frozen 0.2.0 scope on `release/0.2`, so it isn't behind a switch (the switch rule covers later work on `main`). A fresh-eyes review of the first version found 27 problems, all fixed here.
+Internal plan 38, F1 and a smaller F4. It is part of the frozen 0.2.0 scope on `release/0.2`, so it isn't behind a switch (the switch rule covers later work on `main`). A fresh-eyes review of the first version found 27 problems. All are fixed here, and a second check of the fixes found 11 more, also fixed.
 
 - **What is taken:** any file that isn't a picture goes to Core, whatever its name (a `README` or a `Dockerfile` too). Core reads it as text or refuses it. The file chooser offers pictures, text and code files as a hint only.
   - **Read as they are:** UTF-8 (with or without a byte-order mark) and UTF-16 (with a mark, or found by its zero bytes).
-  - **Nearly UTF-8 counts as UTF-8:** a character cut at the end, or a stray byte among many good characters. Without this, the whole file would be read as Windows-1251.
+  - **Nearly UTF-8 counts as UTF-8:** a character cut at the end, or a stray byte, when the file has more good characters beyond ASCII than bad bytes. Without this, the whole file would be read as Windows-1251.
   - **Anything else is read as Windows-1251,** the usual encoding of Russian and Uzbek Cyrillic files on Windows.
-  - **Refused as not text:** a file with a zero byte, or with more than 1% control characters. Escape doesn't count, so a coloured log is text.
-  - **Also refused:** an empty file, and one over 2 MiB, said with its size to one decimal ("2.1 MB"). The composer says the size refusal at once, without sending the file.
+  - **Refused as not text:** a file with a zero byte anywhere in it, or with more than 1% control characters in its first 65,536. Escape doesn't count, so a coloured log is text.
+  - **Also refused:** an empty file, and one over 2 MiB. A large file is told "too large", with its size to one decimal ("2.1 MB"), only when its start reads as text. Anything else, like a PDF or a zip, is told it isn't text. The composer says both at once without sending the file: it judges by the type and the name, and Core judges by the bytes.
+  - **A folder dropped or pasted** is never sent.
 - **No new library.** The Windows-1251 table is ours (`text_file.rs`), since `encoding_rs` would be a new dependency.
 - **Kept as UTF-8,** as `<id>.txt` beside the pictures, and deleted with its chat.
   - **The id is the hash of the file's name and bytes,** so two files that read the same stay two, each with its own name. The same file attached twice goes once.
-  - **Taking a message's files is all or nothing:** if one can't move into the chat, those already moved go back.
+  - **Taking a message's files is all or nothing:** if one can't move into the chat, those already moved go back. A file the chat already has from an earlier message is never moved, so nothing it uses is ever taken back.
   - **Served back** as `text/plain; charset=utf-8`, with `nosniff`, as a download, never shown as a page.
-- **How the prompt counts:** `prompt::tokens_of`, the system's estimate of a token for every four bytes, except that **every digit is a token**. That is how the models' tokenizers read digits (Qwen, Gemma). Without it, a table of figures counted as a quarter of its real size and could overflow the laptop's 8,192-token context. The conversation's costs and its trimming use the same count.
+- **How the prompt counts:** `prompt::tokens_of`, the system's estimate of a token for every four bytes, except that **a digit, a punctuation mark, the Uzbek ʻ and ʼ, and a space before a digit are each a token**. That is how the models' tokenizers read them (Qwen, Gemma). Without it, a table of figures counted as a third of its real size or less, and could overflow the laptop's 8,192-token context. The conversation's costs and its trimming use the same count.
 - **How much the model reads:**
   - **The budget:** the text files of one message share half the working set, less the person's own words and each file's header.
   - **Each file takes what it needs, or an equal share of what is left,** so a long file never leaves a short one nothing.
   - **A longer file is cut by the same count,** at a line end when there is one in the last tenth of what fits.
   - **The cut is decided once,** when the message is sent, and kept with the file, so every later prompt reads the same part.
-- **The divider matches what the model reads:** the chat's `read_from` is worked out on the chat as the model reads it, files and all (`agent::with_text_files`). Settings → "This turn" shows the files the same way.
+- **The divider matches what the model reads:** the chat's `read_from` is worked out on the chat as the model reads it, files and all (`agent::with_text_files`). Only the part of each file the model reads is read from the disk for this. Settings → "This turn" shows the files the same way.
+- **The person's request is always read:** when a turn's own tool calls fill the working set, the request is kept with the newest calls that fit beside it, so the model never works on without it.
 - **Never cut silently:**
   - **The model is told** when only the start fits, or when there was no room for a file at all.
   - **The person sees how much was read:** "the model read the first 23% (about 5,000 of 22,000 words)". Below 1% the figure has one decimal, below 0.1% it says "<0.1", and it is never "0%". The words are left out when a file has fewer than 100.
@@ -42,7 +44,9 @@ Internal plan 38, F1 and a smaller F4. It is part of the frozen 0.2.0 scope on `
   - **A file read none of** says so in its own sentence.
 - **Four attachments a message,** pictures and files together. Only pictures are refused for a model that can't read them.
 - **The desktop window takes dragged files:** Tauri's own drag-drop handler is off (`disable_drag_drop_handler`), since on Windows it keeps drops from the page. A file dropped outside the message box doesn't open in place of the app. A pasted file is taken like a dropped one.
-- **Later:** counting with the engine's `/tokenize` instead of the estimate, which matters most for Uzbek Latin text (not measured yet); PDF and DOCX (preview.3).
+- **Later:**
+  - **counting with the engine's `/tokenize`** instead of the estimate. This matters most for Uzbek Latin text, which may still be counted short; it isn't measured yet;
+  - PDF and DOCX (preview.3).
 - **Walked in CI:** `web/e2e/text-files.mjs`, with the test engine that can't read pictures.
   - Core refuses a `.txt` that isn't text.
   - A Windows-1251 file is taken; added again, it goes once. A file with no extension is taken too.

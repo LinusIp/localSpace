@@ -1668,6 +1668,58 @@ mod tests {
         core
     }
 
+    /// A long text file joins the person's words within half the working
+    /// set, less the words, and the divider the person sees is where the
+    /// model starts reading (docs/DECISIONS.md, 2026-10-26).
+    #[test]
+    fn a_long_text_file_keeps_to_its_share_and_the_divider_reads_it() {
+        let script = Script::new(Vec::new());
+        let mut core = core_with(script.clone());
+        let rows: String = (1..=20_000)
+            .map(|i| format!("Row {i};8 000 000;12.5\n"))
+            .collect();
+        let file = match core.handle(proto::Request::AddAttachment {
+            name: "rows.csv".into(),
+            bytes: rows.into_bytes(),
+        }) {
+            proto::Response::Attached { attachment } => attachment,
+            other => panic!("expected the file taken, got {other:?}"),
+        };
+        let words = "Sum the second column, please. ".repeat(40);
+        core.run_inline = true;
+        send(&mut core, None, &words, vec![file.id]);
+        let (user, chat) = (core.active.user.clone(), core.conversations.current.clone());
+        let read = with_text_files(&core, &user, &chat, core.transcript.clone());
+        let half = core.cfg.profile.working_set_tokens / 2;
+        assert!(
+            prompt::tokens_of(&read[0].content) <= half,
+            "{} tokens over half the working set, {half}",
+            prompt::tokens_of(&read[0].content)
+        );
+        assert!(
+            read[0]
+                .content
+                .contains("--- File: rows.csv (only its first ")
+        );
+        assert!(
+            read[0].attachments.is_empty(),
+            "the file is in the words now"
+        );
+        match transcript(&core) {
+            proto::Response::Transcript { read_from, .. } => assert_eq!(
+                read_from,
+                prompt::read_from(&read, core.cfg.profile.working_set_tokens)
+            ),
+            other => panic!("expected the transcript, got {other:?}"),
+        }
+        let seen = script.seen.lock().unwrap();
+        let sent = format!("{:?}", seen[0].said);
+        assert!(
+            sent.contains("Row 1;8 000 000;12.5"),
+            "the engine read the file"
+        );
+    }
+
     #[test]
     fn a_turn_with_no_tool_calls_answers_and_stops() {
         let script = Script::new(vec![ChatReply {

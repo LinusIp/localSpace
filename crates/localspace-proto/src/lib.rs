@@ -592,7 +592,9 @@ pub struct TextFile {
     /// silently: the client says how much was read.
     pub read_chars: u64,
     pub read_words: u64,
-    /// What the part read costs in the prompt, by `estimate_tokens`.
+    /// What the part read costs in the prompt, by Core's count for the
+    /// prompt: a token for every four bytes, and one for every digit and
+    /// punctuation mark.
     pub read_tokens: u64,
 }
 

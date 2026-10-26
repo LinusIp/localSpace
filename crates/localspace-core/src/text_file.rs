@@ -6,8 +6,8 @@
 //! below (the WHATWG encoding index). The order of the guesses:
 //! 1. a byte-order mark: UTF-8, UTF-16 little-endian or big-endian;
 //! 2. UTF-16 without a mark, told by its zero bytes in every other place;
-//! 3. bytes that are UTF-8, or nearly (a character cut at the end, a
-//!    stray byte among many good characters), are UTF-8;
+//! 3. bytes that are UTF-8, or nearly (more good characters beyond ASCII
+//!    than bad bytes: a character cut at the end, a stray byte), are UTF-8;
 //! 4. otherwise Windows-1251.
 //!
 //! A file with zero bytes or many control characters left after that is
@@ -112,13 +112,13 @@ fn utf16_without_mark(bytes: &[u8]) -> Option<bool> {
 /// Text has no NUL and few control characters besides tab, line feed,
 /// carriage return, form feed and escape (a coloured log's colours).
 fn looks_like_text(text: &str) -> bool {
+    if text.contains('\0') {
+        return false;
+    }
     let mut chars = 0usize;
     let mut control = 0usize;
     for c in text.chars().take(65_536) {
         chars += 1;
-        if c == '\0' {
-            return false;
-        }
         if c.is_control() && !matches!(c, '\t' | '\n' | '\r' | '\u{000C}' | '\u{001B}') {
             control += 1;
         }
@@ -127,9 +127,10 @@ fn looks_like_text(text: &str) -> bool {
 }
 
 /// UTF-8, or nearly: a file cut in the middle of its last character, or
-/// with a stray byte among many good characters, keeps its good characters
-/// rather than all of them being read as Windows-1251. Windows-1251
-/// Cyrillic makes almost no valid UTF-8 beyond ASCII, so it never passes.
+/// with a stray byte, keeps its good characters rather than all of them
+/// being read as Windows-1251, when it has more good characters beyond
+/// ASCII than bad bytes. Windows-1251 Cyrillic makes almost no valid UTF-8
+/// beyond ASCII, so it never passes.
 fn mostly_utf8(bytes: &[u8]) -> Option<String> {
     if let Ok(text) = std::str::from_utf8(bytes) {
         return Some(text.to_owned());
@@ -141,7 +142,7 @@ fn mostly_utf8(bytes: &[u8]) -> Option<String> {
             bad += 1;
         }
     }
-    (good >= 10 * bad).then(|| String::from_utf8_lossy(bytes).into_owned())
+    (good > bad).then(|| String::from_utf8_lossy(bytes).into_owned())
 }
 
 /// Read `bytes` as text, or say why it isn't.
@@ -230,17 +231,16 @@ pub fn read_within(text: &str, tokens: usize) -> Read {
         };
     }
     // The longest start that fits, by the same count.
-    let (mut digits, mut other, mut end) = (0usize, 0usize, 0usize);
-    for (at, c) in text.char_indices() {
-        let (d, o) = if c.is_ascii_digit() {
-            (digits + 1, other)
-        } else {
-            (digits, other + c.len_utf8())
-        };
-        if d + o.div_ceil(4) > tokens {
+    let mut counted = crate::prompt::Counted::default();
+    let mut end = 0;
+    let mut chars = text.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        let mut more = counted;
+        more.add(c, chars.peek().map(|&(_, n)| n));
+        if more.tokens() > tokens {
             break;
         }
-        (digits, other, end) = (d, o, at + c.len_utf8());
+        (counted, end) = (more, at + c.len_utf8());
     }
     if let Some(line) = text[..end].rfind('\n').filter(|&at| at * 10 >= end * 9) {
         end = line + 1;
@@ -395,6 +395,26 @@ mod tests {
     }
 
     #[test]
+    fn a_short_utf8_note_cut_in_its_last_character_stays_utf8() {
+        let note = "Привет";
+        let cut = &note.as_bytes()[..note.len() - 1];
+        let read = decode(cut).unwrap();
+        assert_eq!(read.encoding, Encoding::Utf8);
+        assert!(read.text.starts_with("Приве"));
+        let header = "Дата;Сумма\n2026-10-01;8 000 000\n";
+        let mut stray = header.as_bytes().to_vec();
+        stray.push(0xB9);
+        assert_eq!(decode(&stray).unwrap().encoding, Encoding::Utf8);
+    }
+
+    #[test]
+    fn a_zero_byte_late_in_a_file_is_not_text() {
+        let mut late = "a".repeat(70_000).into_bytes();
+        late.push(0);
+        assert_eq!(decode(&late), Err(NotText::Binary));
+    }
+
+    #[test]
     fn a_coloured_log_is_text_and_many_control_characters_are_not() {
         let log = "\u{1b}[32m   Compiling\u{1b}[0m localspace-core v0.2.0\n".repeat(200);
         assert_eq!(decode(log.as_bytes()).unwrap().text, log);
@@ -419,9 +439,16 @@ mod tests {
         let csv = "2026-10-01;1234567.89;4500000.00;12;0.15\n".repeat(2000);
         let r = read_within(&csv, 4000);
         let part = first_chars(&csv, r.chars);
-        let digits = part.chars().filter(char::is_ascii_digit).count();
-        assert!(digits <= 4000, "{digits} digits in a 4000-token part");
-        assert!(r.tokens <= 4000 && r.tokens as usize >= digits);
+        // Digits and the marks between them are a token each.
+        let alone = part
+            .chars()
+            .filter(|c| c.is_ascii_digit() || c.is_ascii_punctuation())
+            .count();
+        assert!(
+            alone <= 4000,
+            "{alone} digits and marks in a 4000-token part"
+        );
+        assert!(r.tokens <= 4000 && r.tokens as usize >= alone);
         assert!(part.ends_with('\n'));
     }
 

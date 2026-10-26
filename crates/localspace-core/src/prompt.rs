@@ -267,13 +267,43 @@ pub fn build(
 pub const PICTURE_TOKENS: usize = 400;
 
 /// What words cost in what the model reads: the system's estimate (a token
-/// for every four bytes), except that every digit is a token of its own, as
+/// for every four bytes), except that a digit, a punctuation mark, the Uzbek
+/// ʻ and ʼ, and a space before a digit are each a token of their own, as
 /// the models' tokenizers read them (Qwen, Gemma). A table of figures would
-/// otherwise count as a quarter of what it is (docs/DECISIONS.md,
-/// 2026-10-26).
+/// otherwise count as a third of what it is (docs/DECISIONS.md, 2026-10-26).
 pub fn tokens_of(text: &str) -> usize {
-    let digits = text.bytes().filter(u8::is_ascii_digit).count();
-    digits + (text.len() - digits).div_ceil(4)
+    let mut counted = Counted::default();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        counted.add(c, chars.peek().copied());
+    }
+    counted.tokens()
+}
+
+/// The running count behind [`tokens_of`], for cutting a text where it fits.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Counted {
+    alone: usize,
+    bytes: usize,
+}
+
+impl Counted {
+    /// One more character; `next` is the one after it, if any.
+    pub fn add(&mut self, c: char, next: Option<char>) {
+        let alone = c.is_ascii_digit()
+            || c.is_ascii_punctuation()
+            || matches!(c, '\u{02BB}' | '\u{02BC}')
+            || (c.is_whitespace() && next.is_some_and(|n| n.is_ascii_digit()));
+        if alone {
+            self.alone += 1;
+        } else {
+            self.bytes += c.len_utf8();
+        }
+    }
+
+    pub fn tokens(&self) -> usize {
+        self.alone + self.bytes.div_ceil(4)
+    }
 }
 
 fn cost(m: &proto::ChatMessage) -> usize {
@@ -364,9 +394,30 @@ pub fn turns(messages: &[proto::ChatMessage], working_set: usize) -> Vec<Turn> {
         .iter()
         .position(|t| matches!(t, Turn::Person(_)))
     {
-        start += person;
+        return all[start + person..].to_vec();
     }
-    all[start..].to_vec()
+    // The turn's own calls filled the working set: the person's request is
+    // read all the same, with the newest calls that fit beside it.
+    let Some(person) = all[..start]
+        .iter()
+        .rposition(|t| matches!(t, Turn::Person(_)))
+    else {
+        return all[start..].to_vec();
+    };
+    let room = working_set.saturating_sub(tokens_of(&all[person].render()));
+    let mut from = all.len();
+    let mut used = 0usize;
+    while from > person + 1 {
+        let cost = tokens_of(&all[from - 1].render());
+        if used + cost > room && from < all.len() {
+            break;
+        }
+        used += cost;
+        from -= 1;
+    }
+    std::iter::once(all[person].clone())
+        .chain(all[from..].iter().cloned())
+        .collect()
 }
 
 /// The pictures the person sent, put with their messages: `pictures` by the
@@ -833,6 +884,43 @@ mod tests {
                 Turn::Answer(format!("Once upon {STOPPED_HERE}")),
             ]
         );
+    }
+
+    /// The turn's own calls never push the person's request out of what the
+    /// model reads: it is kept, with the newest calls that fit beside it
+    /// (docs/DECISIONS.md, 2026-10-26).
+    #[test]
+    fn the_persons_request_survives_a_turn_full_of_calls() {
+        let call = |i: usize| {
+            let mut m = msg(Role::Tool, "");
+            m.tool_calls = vec![proto::ToolCallRecord {
+                id: format!("t{i}"),
+                tool: "canvas.add_sticky".into(),
+                params: Json(
+                    serde_json::json!({"text": "a note with some words in it ".repeat(4)}),
+                ),
+                outcome: proto::ToolOutcome::Ok {
+                    diff_summary: "added 1 shape".into(),
+                    result: Json(serde_json::json!({})),
+                    commit: None,
+                },
+            }];
+            m
+        };
+        let mut messages = vec![msg(
+            Role::User,
+            &"Put these notes on the board. ".repeat(20),
+        )];
+        messages.extend((0..40).map(call));
+        let kept = turns(&messages, 1000);
+        assert!(
+            matches!(kept.first(), Some(Turn::Person(text)) if text.starts_with("Put these notes")),
+            "{kept:?}"
+        );
+        assert!(matches!(kept.last(), Some(Turn::Call { id, .. }) if id == "t39"));
+        assert!(kept.len() < messages.len());
+        let tokens: usize = kept.iter().map(|t| tokens_of(&t.render())).sum();
+        assert!(tokens <= 1000, "{tokens}");
     }
 
     /// An answer's thinking is stored with it and is no part of what the
