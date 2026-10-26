@@ -30,7 +30,9 @@ const NOT_TEXT_TYPES = /^(audio|video|image|font)\/|^application\/(pdf|zip|x-zip
 const NOT_TEXT_EXTENSIONS = [
   "pdf", "zip", "7z", "rar", "gz", "tgz", "tar", "xz", "bz2", "zst", "jar", "apk", "epub",
   "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "msg", "pst",
-  "exe", "dll", "msi", "iso", "bin", "gguf", "safetensors", "db", "sqlite",
+  "exe", "dll", "msi", "iso", "bin", "img", "dmg", "vhd", "vhdx", "so", "wasm", "lz4", "zipx",
+  "gguf", "safetensors", "onnx", "pt", "pth", "ckpt", "h5", "pkl", "npy", "npz", "parquet",
+  "db", "db3", "sqlite", "sqlite3", "mdb", "accdb",
   "mp3", "mp4", "m4a", "mov", "avi", "mkv", "wav", "flac", "ogg", "webm",
   "gif", "bmp", "tif", "tiff", "heic", "psd", "ttf", "otf", "woff", "woff2",
 ];

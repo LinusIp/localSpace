@@ -277,8 +277,9 @@ pub const PICTURE_TOKENS: usize = 400;
 ///
 /// It is never less than the system's estimate of a token for every four
 /// bytes. A table of figures would otherwise count as a third of what it is
-/// (docs/DECISIONS.md, 2026-10-26). Code and Markdown count about 1.3 to 1.6
-/// times the tokenizers' pieces: on the safe side.
+/// (docs/DECISIONS.md, 2026-10-26). Against the real tokenizers it counts
+/// tables at 1.0 to 1.25 times, English, Russian, code and Markdown at 1.2
+/// to 1.9 times, and Uzbek Latin short, at 0.76 to 0.87.
 pub fn tokens_of(text: &str) -> usize {
     let mut counted = Counted::default();
     for c in text.chars() {
@@ -325,17 +326,27 @@ impl Counted {
         } else {
             Run::Word
         };
-        if c.is_ascii_digit() || matches!(c, '\u{02BB}' | '\u{02BC}') {
-            // A space before a digit is a piece of its own, and the spaces
-            // before that one another.
+        // A digit is a piece of its own; one beyond ASCII (Arabic-Indic,
+        // full-width) is read byte by byte.
+        let digit = if c.is_ascii_digit() || matches!(c, '\u{02BB}' | '\u{02BC}') {
+            Some(1)
+        } else if c.is_numeric() {
+            Some(c.len_utf8())
+        } else {
+            None
+        };
+        if let Some(digit) = digit {
+            // The space before a digit is a piece of its own (a no-break
+            // space, byte by byte, as Gemma reads it), and the spaces before
+            // that one more for every twenty.
             let before = match self.run {
                 Run::Spaces if self.run_chars > 1 => {
-                    (self.run_bytes - self.run_last).div_ceil(4).max(1) + 1
+                    (self.run_bytes - self.run_last).div_ceil(20).max(1) + self.run_last
                 }
-                Run::Spaces => 1,
+                Run::Spaces => self.run_last,
                 _ => self.cost(),
             };
-            self.done += before + 1;
+            self.done += before + digit;
             (self.run, self.run_bytes, self.run_chars) = (Run::None, 0, 0);
             return;
         }
@@ -1011,7 +1022,13 @@ mod tests {
         // Spaces before a figure: the last is a piece, the others one more.
         assert_eq!(tokens_of("  1"), 3);
         assert_eq!(tokens_of("1\t\t2"), 4);
-        assert_eq!(tokens_of("\u{a0}1"), 2);
+        // A no-break space before a figure is two bytes, as Gemma reads it.
+        assert_eq!(tokens_of("\u{a0}1"), 3);
+        // Wide columns: a token for every twenty spaces and the last, so no
+        // more than the floor of four bytes a token.
+        assert_eq!(tokens_of(&format!("{}7", " ".repeat(19))), 5);
+        // Digits beyond ASCII are read byte by byte.
+        assert_eq!(tokens_of("\u{0661}\u{0662}"), 4);
         // A run of marks is one piece, not one per mark.
         assert!(tokens_of("**bold** and `code();`") <= 9);
         // Never less than a token for every four bytes.

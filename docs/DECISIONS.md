@@ -34,8 +34,16 @@ Internal plan 38, F1 and a smaller F4. It is part of the frozen 0.2.0 scope on `
   - **A word** is at least a token, one for every four bytes of it.
   - **A run of punctuation** is one token, or more when it is long.
   - **Never less** than the old estimate of a token for every four bytes.
-  - **Two or more spaces before a figure** count as the tokenizers cut them: the last space is a token, and the others one more.
-  - **Why:** the old count read a table of figures as a third of its real size or less, which could overflow the laptop's 8,192-token context. Measured against Qwen's pieces, tables of figures now count at about their real size. Prose, code and Markdown count 1.3 to 1.6 times it, which errs on the safe side: a code file gets somewhat less of its share than would fit.
+  - **Spaces before a figure:** the last space is a token, and the others one more for every twenty (the models' vocabularies hold runs of spaces as single tokens). A no-break space counts its two bytes, as Gemma reads it.
+  - **Digits beyond ASCII** (Arabic-Indic, full-width) count a token for each of their bytes.
+  - **Why:** the old count read a table of figures as a third of its real size or less.
+  - **Measured against the real tokenizers** of Qwen2.5, Qwen3.5 and Gemma 4 (their vocabularies, through the engine's own tokenizer):
+    - tables of figures count at 1.0 to 1.25 times their real size;
+    - English prose about 1.4 times;
+    - Russian 1.5 to 1.9 times;
+    - code and Markdown 1.2 to 1.5 times;
+    - **Uzbek Latin prose counts short, at 0.76 to 0.87 of its real size, and so does Uzbek Cyrillic on Qwen2.5 (0.89).**
+  - **What that means:** a long Uzbek chat on a laptop can go over the engine's 8,192-token context before the divider moves. This was so before text files too: the old count was shorter still. It is a question of the context budget (plan 41), and the founder decides it.
   - **The same count everywhere:** the conversation's costs, its trimming, and the cut of a file.
 - **How much the model reads:**
   - **The budget:** the text files of one message share half the working set, less the person's own words and each file's header.
@@ -52,7 +60,7 @@ Internal plan 38, F1 and a smaller F4. It is part of the frozen 0.2.0 scope on `
 - **Four attachments a message,** pictures and files together. Only pictures are refused for a model that can't read them.
 - **The desktop window takes dragged files:** Tauri's own drag-drop handler is off (`disable_drag_drop_handler`), since on Windows it keeps drops from the page. A file dropped outside the message box doesn't open in place of the app. A pasted file is taken like a dropped one.
 - **Later:**
-  - **counting with the engine's `/tokenize`** instead of the estimate. This matters most for Uzbek Latin text, which may still be counted short; it isn't measured yet;
+  - **counting with the engine's `/tokenize`** instead of the estimate. This matters most for Uzbek, which is counted short (above);
   - PDF and DOCX (preview.3).
 - **Walked in CI:** `web/e2e/text-files.mjs`, with the test engine that can't read pictures.
   - Core refuses a `.txt` that isn't text.
