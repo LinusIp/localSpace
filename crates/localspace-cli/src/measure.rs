@@ -573,6 +573,8 @@ struct Answered {
     tools: Vec<String>,
     error: Option<String>,
     measure: Option<AnswerMeasure>,
+    /// Why Core ended the answer early, if it did.
+    cut_short: Option<proto::CutShort>,
 }
 
 /// Sends one message by `send` in the chat on screen and reads the answer.
@@ -600,12 +602,14 @@ fn ask(
         .rposition(|m| m.role == proto::Role::User)
         .map_or(0, |i| i + 1);
     let since = &messages[since_user..];
-    let reply = since
+    let answer = since
         .iter()
         .rev()
-        .find(|m| m.role == proto::Role::Assistant)
+        .find(|m| m.role == proto::Role::Assistant);
+    let reply = answer
         .map(|m| m.content.trim().to_string())
         .unwrap_or_default();
+    let cut_short = answer.and_then(|m| m.cut_short);
     let tools: Vec<String> = since
         .iter()
         .flat_map(|m| m.tool_calls.iter().map(|c| c.tool.clone()))
@@ -622,6 +626,7 @@ fn ask(
         tools,
         error,
         measure,
+        cut_short,
     })
 }
 
@@ -1579,16 +1584,7 @@ fn table(lines: &mut Vec<String>, items: &[(&'static str, Vec<Answered>)]) {
             } else {
                 format!("{name}: {}", t.text)
             };
-            let back = match (&t.error, t.reply.is_empty()) {
-                (Some(error), _) => format!("**{error}**"),
-                (None, true) => "**no reply**".to_string(),
-                (None, false) => t.reply.clone(),
-            };
-            let back = if t.measure.as_ref().is_some_and(|m| m.repeated) {
-                format!("**stopped: it repeated itself** {back}")
-            } else {
-                back
-            };
+            let back = came_back(t);
             lines.push(format!(
                 "| {} | {:.1} s | {} | {} | {} | {} | {} |",
                 cell(&label),
@@ -1604,6 +1600,44 @@ fn table(lines: &mut Vec<String>, items: &[(&'static str, Vec<Answered>)]) {
                 cell(&back)
             ));
         }
+    }
+}
+
+/// What came back, as the results file says it: the reply, or why there
+/// was none. Why it ended short is said too: the chat says it to the
+/// person, and the error itself is only in the log, which testers do not
+/// send.
+fn came_back(a: &Answered) -> String {
+    let detail = a.measure.as_ref().and_then(|m| m.cut.as_deref());
+    let why = match (a.cut_short.map(cut_words), detail) {
+        (Some(words), Some(detail)) => Some(format!("{words} ({detail})")),
+        (Some(words), None) => Some(words.to_string()),
+        (None, detail) => detail.map(str::to_string),
+    };
+    let back = match (&a.error, a.reply.is_empty(), why) {
+        (Some(error), _, _) => format!("**{error}**"),
+        (None, true, Some(why)) => format!("**no reply: {why}**"),
+        (None, true, None) => "**no reply**".to_string(),
+        (None, false, _) => match a.cut_short {
+            None | Some(proto::CutShort::Repeated) => a.reply.clone(),
+            Some(why) => format!("**cut short: {}** {}", cut_words(why), a.reply),
+        },
+    };
+    if a.measure.as_ref().is_some_and(|m| m.repeated) {
+        format!("**stopped: it repeated itself** {back}")
+    } else {
+        back
+    }
+}
+
+/// Why an answer ended short, as the results file says it.
+fn cut_words(why: proto::CutShort) -> &'static str {
+    match why {
+        proto::CutShort::Repeated => "it repeated itself",
+        proto::CutShort::Length => "at its length limit",
+        proto::CutShort::ChatFull => "the chat was full",
+        proto::CutShort::TooLong => "the message was too long for the model",
+        proto::CutShort::Failed => "the model could not answer",
     }
 }
 
@@ -1814,11 +1848,7 @@ fn report(run: &Progress) -> String {
                     format!("{:.1} s", a.seconds),
                     seconds(a.measure.as_ref().and_then(|m| m.first_word)),
                     figures_cell(a.measure.as_ref()),
-                    match (&a.error, a.reply.is_empty()) {
-                        (Some(error), _) => format!("**{}**", cell(error)),
-                        (None, true) => "**no reply**".to_string(),
-                        (None, false) => cell(&a.reply),
-                    },
+                    cell(&came_back(a)),
                 ),
                 (Ok(_), None) => (
                     "yes".to_string(),
@@ -1841,11 +1871,7 @@ fn report(run: &Progress) -> String {
         lines.push("| # | Message | Time | First word | Read / wrote | What came back |".into());
         lines.push("|---|---|---|---|---|---|".into());
         for (i, a) in run.chat.iter().enumerate() {
-            let back = match (&a.error, a.reply.is_empty()) {
-                (Some(error), _) => format!("**{}**", cell(error)),
-                (None, true) => "**no reply**".to_string(),
-                (None, false) => cell(&a.reply),
-            };
+            let back = cell(&came_back(a));
             lines.push(format!(
                 "| {} | {} | {:.1} s | {} | {} | {back} |",
                 i + 1,
@@ -1876,11 +1902,7 @@ fn report(run: &Progress) -> String {
                     format!("{:.1} s", a.seconds),
                     seconds(a.measure.as_ref().and_then(|m| m.first_word)),
                     figures_cell(a.measure.as_ref()),
-                    match (&a.error, a.reply.is_empty()) {
-                        (Some(error), _) => format!("**{}**", cell(error)),
-                        (None, true) => "**no reply**".to_string(),
-                        (None, false) => cell(&a.reply),
-                    },
+                    cell(&came_back(a)),
                 ),
             };
             lines.push(format!(
@@ -1996,6 +2018,42 @@ mod tests {
         );
     }
 
+    /// An answer that ended short says why in the results file: the chat
+    /// says it to the person, and the error is only in the log.
+    #[test]
+    fn what_came_back_says_why_an_answer_ended_short() {
+        let answered = |reply: &str, cut_short, cut: Option<&str>| Answered {
+            text: "Hi".into(),
+            seconds: 1.0,
+            reply: reply.into(),
+            tools: Vec::new(),
+            error: None,
+            measure: cut.map(|cut| AnswerMeasure {
+                cut: Some(cut.into()),
+                ..Default::default()
+            }),
+            cut_short,
+        };
+        assert_eq!(
+            came_back(&answered(
+                "",
+                Some(proto::CutShort::TooLong),
+                Some("the model answered: request (9000 tokens) exceeds")
+            )),
+            "**no reply: the message was too long for the model (the model answered: request (9000 tokens) exceeds)**"
+        );
+        assert_eq!(
+            came_back(&answered("", Some(proto::CutShort::ChatFull), None)),
+            "**no reply: the chat was full**"
+        );
+        assert_eq!(
+            came_back(&answered("Some words", Some(proto::CutShort::Length), None)),
+            "**cut short: at its length limit** Some words"
+        );
+        assert_eq!(came_back(&answered("", None, None)), "**no reply**");
+        assert_eq!(came_back(&answered("Hello!", None, None)), "Hello!");
+    }
+
     #[test]
     fn the_cells_say_what_the_measure_holds_and_never_break_a_table() {
         assert_eq!(cell("a | b\nc"), "a \\| b ⏎ c");
@@ -2054,6 +2112,7 @@ mod tests {
                         tools: Vec::new(),
                         error: None,
                         measure: None,
+                        cut_short: None,
                     }],
                 )],
                 carried: None,
