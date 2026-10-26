@@ -4,7 +4,8 @@ localSpace runs AI models on your own computer. If you find a way to make it lea
 
 ## How to report
 
-- **Use GitHub's private reporting:** this repository's **Security** tab, then **Report a vulnerability**. Only the maintainers see it.
+- **E-mail us at [localspace.security@gmail.com](mailto:localspace.security@gmail.com).** This is the main way to reach us.
+- **Or use GitHub's private reporting:** this repository's **Security** tab, then **Report a vulnerability**. Only the maintainers see it.
 - **Please don't open a public issue** or post about it before a fix is out.
 - **Include, if you can:**
   - the version (Settings → About);
