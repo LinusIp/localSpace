@@ -13,12 +13,26 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-26, the security mailbox is the main reporting channel
+
+The founder's ruling of 26 October.
+- **`localspace.security@gmail.com`** is the main way to report a security problem, in `SECURITY.md` and in the website's `security.txt`.
+- **GitHub's private vulnerability reporting** stays as an extra while this repository is public. It works only on public repos, so before this repository goes private it moves to the public plugin-interface repo, and both files are updated.
+
+## 2026-10-26, how security problems are reported and handled
+
+The founder's ruling of 26 October: a written vulnerability-handling process now, ahead of the rest of the supply-chain work (the egress and supply-chain tasks of the workplan).
+- **`SECURITY.md`** says how to report a problem privately (GitHub's private vulnerability reporting), what happens next and when, and what is covered. The engine's own problems go to llama.cpp.
+- **The time aims:** confirm receipt within 5 working days; a severity within 10 more; critical fixes as soon as we can; for high-severity issues, "we aim to fix high-severity issues within 30 days and will tell you if it takes longer" (the founder's wording); the rest in the next release; an advisory when the fix is out, within 90 days of the report.
+- **Only the newest release and preview** get fixes.
+
 ## 2026-10-26, no open-source licence: the `sdk/` Apache exception is withdrawn
 
 The founder's ruling of 26 October. It replaces the 25 October entries on the `sdk/` folder.
 
 - **Nothing in this repository is open source.** It's visible on GitHub, all rights reserved. The root `LICENSE` says so again, without the exception.
 - **`sdk/` is removed,** with its `LICENSE`, `NOTICE` and README, and so is `scripts/check-sdk-boundary.mjs` with its CI step, which only guarded the Apache folder.
+
 
 ## 2026-10-25, the plugin manifest is `plugin.toml`; plugins are `.lspkg` files
 
