@@ -1,7 +1,8 @@
 // A text file attached in the composer, in a real browser (docs/DECISIONS.md,
 // 2026-10-26; plan 38, F1 and F4), with a model that cannot read pictures:
-// a file that is not text is refused, saying why; a Windows-1251 file is
-// taken and sent, the engine is sent it as words, and it is saved again as
+// a file that is not text is refused by Core, saying why; a Windows-1251
+// file and one with no extension are taken (the same file twice, once) and
+// sent, the engine is sent them as words, and the first is saved again as
 // UTF-8; a file too long for the chat says how much the model read; and
 // deleting the chat deletes the files, on the server and on the disk. Runs
 // against a `localspace serve` that is already up, with
@@ -66,6 +67,9 @@ const long = path.join(files, "long.md");
 fs.writeFileSync(long, Array.from({ length: 30000 }, (_, i) => `Line ${i + 1} of a long report, kept for the record.`).join("\n"));
 const binary = path.join(files, "data.txt");
 fs.writeFileSync(binary, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00, 0x08, 0x00, 0xff, 0x00, 0x01, 0x02]));
+// Text with no extension at all: taken for what it is, whatever its name.
+const readme = path.join(files, "README");
+fs.writeFileSync(readme, "Run it with: localspace serve\n");
 
 let browser;
 for (const channel of ["msedge", "chrome"]) {
@@ -107,16 +111,25 @@ try {
   //    and the engine is sent the file as words, in UTF-8.
   await chooser.setInputFiles(invoice);
   await until("the file taken", async () => (await page.locator(".composer-file:not(.uploading)").count()) === 1, 15000);
-  if (kept().length !== 1) throw new Error(`expected one kept file, found ${kept().length}`);
+  // The same file again is attached once: Core answers, and its chip goes.
+  const again = page.waitForResponse((r) => r.url().includes("/api/v1/attachments") && r.request().method() === "POST");
+  await chooser.setInputFiles(invoice);
+  await again;
+  await until("the second copy settled", async () => (await page.locator(".composer-file.uploading").count()) === 0, 15000);
+  if ((await page.locator(".composer-file").count()) !== 1) throw new Error("the same file twice made two chips");
+  await chooser.setInputFiles(readme);
+  await until("the file with no extension taken", async () => (await page.locator(".composer-file:not(.uploading)").count()) === 2, 15000);
+  if (kept().length !== 2) throw new Error(`expected two kept files, found ${kept().length}`);
   if (/cannot read pictures|can't read pictures/i.test((await said.allInnerTexts()).join(" "))) throw new Error("a text file was taken for a picture");
   await box.fill("What is the total?");
   await box.press("Enter");
   const sent = page.locator(".message-file");
-  await until("the file in the sent message", async () => (await sent.count()) === 1, 30000);
+  await until("the files in the sent message", async () => (await sent.count()) === 2, 30000);
   const engineLog = () => fs.readFileSync(path.join(data, "engines", `${model}.log`), "utf8");
   await until("the engine to be sent the file", async () => engineLog().includes("fake llama-server: --- File: счёт.txt --- | Счёт № 7"), 15000);
+  await until("the engine to be sent the file with no extension", async () => engineLog().includes("fake llama-server: --- File: README --- | Run it with: localspace serve"), 15000);
   if ((await sent.locator(".message-file-note").count()) !== 0) throw new Error("a short file says it was read only in part");
-  const href = await sent.locator("a").getAttribute("href");
+  const href = await sent.first().locator("a").getAttribute("href");
   const served = await fetch(`${origin}${href}`, { headers });
   if (served.status !== 200 || served.headers.get("content-type") !== "text/plain; charset=utf-8") {
     throw new Error(`the sent file was not served as UTF-8 text: ${served.status} ${served.headers.get("content-type")}`);
@@ -124,7 +137,7 @@ try {
   if (served.headers.get("x-content-type-options") !== "nosniff") throw new Error("the file is served without nosniff");
   if (!/^attachment/.test(served.headers.get("content-disposition") ?? "")) throw new Error("the file is not served as a download");
   if ((await served.text()) !== words) throw new Error("the file saved again is not the words it was sent with");
-  step("sent: the engine had the Windows-1251 file as words; saved again, it is the same words in UTF-8");
+  step("sent: the same file twice went once; the engine had the Windows-1251 file and the one with no extension as words; saved again, it is the same words in UTF-8");
 
   // 3. A file too long for the chat: the model reads the start, and the
   //    message says how much (never cut silently).
@@ -133,12 +146,12 @@ try {
   await until("the long file taken", async () => (await page.locator(".composer-file:not(.uploading)").count()) === 1, 15000);
   await box.fill("Summarise this report.");
   await box.press("Enter");
-  await until("the long file in the sent message", async () => (await sent.count()) === 2, 30000);
+  await until("the long file in the sent message", async () => (await sent.count()) === 3, 30000);
   const note = await until("how much was read", async () => {
-    const n = sent.nth(1).locator(".message-file-note");
+    const n = sent.nth(2).locator(".message-file-note");
     return (await n.count()) === 1 ? n.innerText() : null;
   });
-  if (!/the model read the first \d+% \(about [\d,]+ of [\d,]+ words\)/.test(note)) throw new Error(`the part read is not said plainly: ${note}`);
+  if (!/the model read the first \d+(?:\.\d)?% \(about [\d,]+ of [\d,]+ words\)/.test(note)) throw new Error(`the part read is not said plainly: ${note}`);
   await until("the engine to be sent the start of it", async () => /--- File: long\.md \([^)]*\) --- \| Line 1 of a long report/.test(engineLog()), 15000);
   step(`read in part: "${note}"`);
 
