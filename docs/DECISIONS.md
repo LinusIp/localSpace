@@ -13,6 +13,31 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-26, a chat's messages leave the answer its room; why an answer ended is always said (0.2.0)
+
+- **The rule:** a chat's messages ≤ context − answer room − system part (`prompt::budget`, `agent::chat_budget`). The old working-set figure stays as an upper limit. The big step of `read_from` is to half of the result.
+  - **On a laptop** (8,192-token context, a 2,048-token answer), a plain chat keeps about 6,090 tokens of messages, not 8,000. With thinking on, the answer's room is 2,048 plus the thinking budget, so about 5,070. With tools on offer, the system part is larger.
+  - **Before, a full chat** left the answer almost no room in the engine, which then cut it short or refused the request.
+  - **The same figure** is used by the step, the divider, the text-file share and Settings' "This turn". So a text file read whole on a laptop drops from about 3,950 counted tokens to about 3,000.
+  - **On the reference tiers** (a 16,384-token context) it is about 14,280, where the working sets of 16,000 and 24,000 had gone over the context.
+- **What the count adds:**
+  - the chat template's frame: 3 tokens a message beyond the role word, and 12 for the template's own markers (measured from the Qwen3.5 and Gemma 4 templates);
+  - when an answer is carried on, the words handed back, which take room from the messages.
+- **What the rule does not do:** it prevents the refusal, not every cut. Text the count reads short can still leave the answer less room than it needs. Measured against the real tokenizers, Uzbek Latin counts at 0.79–0.86 of its real size on Qwen3.5 and 0.87–0.91 on Gemma 4. Counting with the engine's own figures comes later.
+- **Why an answer ended is told apart and said in the person's language** (`CutShort`; the words are the client's, in `web/src/lib/answers.ts` and `strings.ts`):
+  - **at its own length limit:** "The answer reached its length limit.", with Continue. With no words at all, the thinking used all the room: "Try again";
+  - **the chat is full** (`chat_full`): the engine stopped at the limit with fewer tokens than the answer was allowed, so the context ran out. Or it refused the request for want of room (llama-server's `exceed_context_size_error`). The line says the chat is full and offers a new chat, never Continue. An engine that gives no figure is taken to have reached the answer's own limit, so a chat is never called full when it isn't;
+  - **the model could not answer** (`failed`): any other error. The chat says so and offers to try again. The error itself goes to the log, never into the chat or a notice;
+  - **no words at all:** "The model gave no answer. Ask again."
+  - "The answer stopped here." and "repeating itself" are unchanged, now translated.
+- **The log** gives, for each answer, the engine's prompt size beside our own count and how many tokens were written of how many allowed. A refusal gives the engine's own count and its context.
+- **Tests:**
+  - the budget, with thinking off and on;
+  - every way an answer ends, against the test engine, with no error notice and no raw error in the chat;
+  - the client's lines in all three languages;
+  - a browser walk (`web/e2e/chat-full.mjs`): a full chat and a refusal said in Uzbek, then Russian and English, a new chat, and an answer at its own limit carried on.
+  - The test models declare an 8,192-token context, as every catalog model allows on a laptop. A model whose context can't hold the answer's room leaves its messages none.
+
 ## 2026-10-26, text files in chat (0.2.0)
 
 Internal plan 38, F1 and a smaller F4. It is part of the frozen 0.2.0 scope on `release/0.2`, so it isn't behind a switch (the switch rule covers later work on `main`). A fresh-eyes review of the first version found 27 problems, all fixed here. Two more checks of the fixes found 11 and then 12 smaller ones, also fixed.
