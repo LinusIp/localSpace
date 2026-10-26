@@ -122,6 +122,57 @@ fn switching_conversations_switches_the_transcript_and_survives_a_restart() {
     }
 }
 
+/// A text file attached to a message is kept with its chat as UTF-8, can be
+/// fetched by its person as plain text, and is deleted with the chat
+/// (docs/DECISIONS.md, 2026-10-26).
+#[test]
+fn an_attached_text_file_is_kept_with_its_chat_and_deleted_with_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut core = core_in(dir.path());
+    let utf16: Vec<u8> = [0xFF, 0xFE]
+        .into_iter()
+        .chain(
+            "Oʻzbek tili: sanalar, raqamlar\n"
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes),
+        )
+        .collect();
+    let attachment = match core.handle(proto::Request::AddAttachment {
+        name: "notes.md".into(),
+        bytes: utf16,
+    }) {
+        proto::Response::Attached { attachment } => attachment,
+        other => panic!("expected the file taken, got {other:?}"),
+    };
+    assert_eq!(attachment.kind, proto::AttachmentKind::Text);
+    core.handle(proto::Request::SendMessage {
+        text: "Summarise this.".into(),
+        conversation: None,
+        attachments: vec![attachment.id.clone()],
+    });
+    assert_eq!(transcript(&mut core)[0].attachments[0].id, attachment.id);
+    match core.handle(proto::Request::GetAttachment {
+        id: attachment.id.clone(),
+    }) {
+        proto::Response::DocBlob { mime, bytes, .. } => {
+            assert_eq!(mime, "text/plain");
+            assert_eq!(
+                String::from_utf8(bytes).unwrap(),
+                "Oʻzbek tili: sanalar, raqamlar\n"
+            );
+        }
+        other => panic!("expected the file, got {other:?}"),
+    }
+    let chat = conversations(&mut core).1;
+    core.handle(proto::Request::DeleteConversation { id: chat });
+    assert!(matches!(
+        core.handle(proto::Request::GetAttachment { id: attachment.id }),
+        proto::Response::AttachmentRefused {
+            refusal: proto::AttachmentRefusal::NotFound
+        }
+    ));
+}
+
 /// A picture attached to a message is kept with its chat, survives a
 /// restart, can be fetched by its person, and is deleted with the chat
 /// (docs/DECISIONS.md, 2026-10-18).
@@ -171,19 +222,21 @@ fn an_attached_picture_is_kept_with_its_chat_and_deleted_with_it() {
     ));
 }
 
-/// A file that is not a picture is refused, in parts the client can say in
-/// the person's language; an id that was never added cannot be sent.
+/// A file that is neither a picture nor text is refused, in parts the
+/// client can say in the person's language; an id that was never added
+/// cannot be sent.
 #[test]
-fn a_file_that_is_not_a_picture_and_an_unknown_id_are_refused() {
+fn a_file_that_is_neither_a_picture_nor_text_and_an_unknown_id_are_refused() {
     let dir = tempfile::tempdir().unwrap();
     let mut core = core_in(dir.path());
+    let binary: Vec<u8> = (0..600u32).map(|i| (i * 7 % 256) as u8).collect();
     assert!(matches!(
         core.handle(proto::Request::AddAttachment {
-            name: "notes.txt".into(),
-            bytes: b"just some words".to_vec(),
+            name: "archive.zip".into(),
+            bytes: binary,
         }),
         proto::Response::AttachmentRefused {
-            refusal: proto::AttachmentRefusal::NotAPicture
+            refusal: proto::AttachmentRefusal::NotText
         }
     ));
     assert!(matches!(

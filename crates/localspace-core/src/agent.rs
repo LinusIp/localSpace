@@ -71,7 +71,15 @@ pub fn send(
         .unwrap()
         .info()
         .is_some_and(|m| !m.supports_vision);
-    if !attachments.is_empty() && cannot_read_pictures {
+    // Only pictures need a model that reads them; a text file goes to any
+    // model (docs/DECISIONS.md, 2026-10-26).
+    let has_pictures = !attachments.is_empty()
+        && core
+            .attachments
+            .pending(&user, &attachments)
+            .iter()
+            .any(|a| a.kind == proto::AttachmentKind::Picture);
+    if has_pictures && cannot_read_pictures {
         // A picture file left out at this load is said with what it needs.
         let refusal = match core
             .engine
@@ -91,6 +99,7 @@ pub fn send(
             Err(refusal) => return proto::Response::AttachmentRefused { refusal },
         }
     };
+    let attached = read_text_files(core, &user, &conversation, attached);
     write(core, &user, &workspace, &conversation, |messages| {
         let mut said = message(proto::Role::User, text);
         said.attachments = attached;
@@ -99,6 +108,88 @@ pub fn send(
     queue(core, conversation, false);
     drain(core);
     transcript(core)
+}
+
+/// How much of each attached text file the model reads, decided once, as
+/// the message is sent (internal plan 38, F4; docs/DECISIONS.md,
+/// 2026-10-26). The files of one message share half the working set, in
+/// the order they were attached; a file longer than its share is read from
+/// its start, and the client says how much. Nothing is cut silently.
+fn read_text_files(
+    core: &Core,
+    user: &str,
+    conversation: &str,
+    attached: Vec<proto::Attachment>,
+) -> Vec<proto::Attachment> {
+    let mut left = core.cfg.profile.working_set_tokens / 2;
+    attached
+        .into_iter()
+        .map(|mut a| {
+            let Some(text) = core.attachments.text(user, conversation, &a) else {
+                return a;
+            };
+            let read = crate::text_file::read_within(&text, left);
+            left = left.saturating_sub(read.tokens as usize);
+            if let Some(facts) = a.text.as_mut() {
+                facts.read_chars = read.chars;
+                facts.read_words = read.words;
+                facts.read_tokens = read.tokens;
+            }
+            core.attachments.update(user, conversation, &a);
+            a
+        })
+        .collect()
+}
+
+/// The chat as the model reads it: each text file a person attached joins
+/// their words, as much of it as was decided when it was sent, and leaves
+/// the attachments (its cost is now in the words). Pictures stay attached.
+fn with_text_files(
+    core: &Core,
+    user: &str,
+    conversation: &str,
+    messages: Vec<proto::ChatMessage>,
+) -> Vec<proto::ChatMessage> {
+    messages
+        .into_iter()
+        .map(|mut m| {
+            if m.role != proto::Role::User
+                || !m
+                    .attachments
+                    .iter()
+                    .any(|a| a.kind == proto::AttachmentKind::Text)
+            {
+                return m;
+            }
+            let (files, pictures): (Vec<_>, Vec<_>) = std::mem::take(&mut m.attachments)
+                .into_iter()
+                .partition(|a| a.kind == proto::AttachmentKind::Text);
+            m.attachments = pictures;
+            for file in files {
+                let Some(text) = core.attachments.text(user, conversation, &file) else {
+                    continue;
+                };
+                let facts = file.text.clone();
+                let read_chars = facts.as_ref().map_or(0, |f| f.read_chars);
+                let part = crate::text_file::first_chars(&text, read_chars);
+                let whole = facts.as_ref().is_none_or(|f| f.read_chars >= f.chars);
+                let note = if whole {
+                    String::new()
+                } else {
+                    let total = facts.as_ref().map_or(0, |f| f.chars).max(1);
+                    format!(
+                        " (only its first {}% fits here; say so if the rest matters)",
+                        read_chars * 100 / total
+                    )
+                };
+                m.content.push_str(&format!(
+                    "\n\n--- File: {}{note} ---\n{part}\n--- End of file ---",
+                    file.name
+                ));
+            }
+            m
+        })
+        .collect()
 }
 
 /// Carry on the answer that stopped in a chat, as part of that answer: its
@@ -481,6 +572,7 @@ fn ask_the_model(core: &mut Core, id: u64) {
     } else {
         None
     };
+    let messages = with_text_files(core, &user, &conversation, messages);
     let p = prompt::build(
         &core.cfg.profile,
         &active,

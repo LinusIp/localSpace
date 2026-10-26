@@ -548,9 +548,9 @@ pub struct ChatMessage {
     /// it (docs/DECISIONS.md, 2026-10-10).
     #[serde(default)]
     pub cut_short: Option<CutShort>,
-    /// What the person attached to this message: its pictures, kept on this
-    /// computer with the chat and deleted with it (docs/DECISIONS.md,
-    /// 2026-10-18).
+    /// What the person attached to this message: its pictures and text
+    /// files, kept on this computer with the chat and deleted with it
+    /// (docs/DECISIONS.md, 2026-10-18 and 2026-10-26).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<Attachment>,
 }
@@ -564,13 +564,36 @@ pub struct Attachment {
     pub kind: AttachmentKind,
     /// The name it had on the person's computer.
     pub name: String,
-    /// `image/png` or `image/jpeg` for a picture.
+    /// `image/png` or `image/jpeg` for a picture, `text/plain` for a text
+    /// file (kept as UTF-8, whatever it was in).
     pub mime: String,
     /// The kept file's size.
     pub bytes: u64,
-    /// A picture's size in pixels, once made ready.
+    /// A picture's size in pixels, once made ready; 0 for a text file.
     pub width: u32,
     pub height: u32,
+    /// A text file's facts: how it was read and how much the model reads.
+    #[serde(default)]
+    pub text: Option<TextFile>,
+}
+
+/// What Core knows of an attached text file (internal plan 38, F1 and F4;
+/// docs/DECISIONS.md, 2026-10-26).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
+pub struct TextFile {
+    /// The encoding it was read in: "UTF-8", "UTF-16 (little-endian)",
+    /// "UTF-16 (big-endian)" or "Windows-1251".
+    pub encoding: String,
+    /// The whole file, in characters and words.
+    pub chars: u64,
+    pub words: u64,
+    /// How much of it the model reads, decided when the message is sent:
+    /// the whole file, or its start when it is longer than fits. Never cut
+    /// silently: the client says how much was read.
+    pub read_chars: u64,
+    pub read_words: u64,
+    /// What the part read costs in the prompt, by `estimate_tokens`.
+    pub read_tokens: u64,
 }
 
 #[derive(
@@ -579,6 +602,8 @@ pub struct Attachment {
 #[serde(rename_all = "snake_case")]
 pub enum AttachmentKind {
     Picture,
+    /// A text file: txt, md, csv or code.
+    Text,
 }
 
 /// Why an attachment was not taken: in parts, so that the client says it
@@ -606,6 +631,12 @@ pub enum AttachmentRefusal {
     /// than 3 GB still free. `needs_mib` more free memory would keep it
     /// (plan 38, P5; docs/DECISIONS.md, 2026-10-18).
     PictureFileLeftOut { needs_mib: u64 },
+    /// Neither a picture nor a text file (docs/DECISIONS.md, 2026-10-26).
+    NotText,
+    /// A text file with nothing in it.
+    EmptyFile,
+    /// A text file over 2 MB; `megabytes` is its own size.
+    TextTooLarge { megabytes: u64 },
 }
 
 /// Why Core ended an answer before the model did.

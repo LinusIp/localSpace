@@ -1,16 +1,17 @@
 //! What people attach to their messages, kept on this computer with the
 //! chat and deleted with it (docs/DECISIONS.md, 2026-10-18; plan 38, P1).
 //!
-//! A file is made ready when it is added (a picture: see [`crate::picture`])
-//! and only that copy is kept, named by its hash: under the person's own
+//! A file is made ready when it is added (a picture: see [`crate::picture`];
+//! a text file is kept as UTF-8, see [`crate::text_file`]) and only that
+//! copy is kept, named by its hash: under the person's own
 //! folder, in `pending` until it goes with a message, then in the chat's
 //! folder. A person reaches only their own folder, so an id from someone
 //! else's chat is simply not there. What was added and never sent is
 //! cleared when Core next starts.
 //!
 //! ```text
-//! <data>/attachments/<person>/pending/<id>.<png|jpg>   added, not yet sent
-//! <data>/attachments/<person>/<chat>/<id>.<png|jpg>    sent with a message
+//! <data>/attachments/<person>/pending/<id>.<png|jpg|txt>   added, not yet sent
+//! <data>/attachments/<person>/<chat>/<id>.<png|jpg|txt>    sent with a message
 //! <data>/attachments/<person>/.../<id>.json            what it is (name, size)
 //! ```
 
@@ -18,9 +19,9 @@ use std::path::{Path, PathBuf};
 
 use localspace_proto as proto;
 
-use crate::picture;
+use crate::{picture, text_file};
 
-/// The most pictures one message takes.
+/// The most attachments (pictures and text files together) one message takes.
 pub const MOST_PER_MESSAGE: usize = 4;
 
 const PENDING: &str = "pending";
@@ -54,7 +55,28 @@ fn is_id(id: &str) -> bool {
 }
 
 fn extension(mime: &str) -> &'static str {
-    if mime == "image/jpeg" { "jpg" } else { "png" }
+    match mime {
+        "image/jpeg" => "jpg",
+        "text/plain" => "txt",
+        _ => "png",
+    }
+}
+
+/// A text file is at most 2 MB: a book's worth, more than any model here
+/// reads at once (docs/DECISIONS.md, 2026-10-26).
+pub const TEXT_MAX_BYTES: usize = 2 * 1024 * 1024;
+
+/// Pictures are told by their first bytes, or by their name when those are
+/// not readable; everything else is tried as text.
+fn is_picture(name: &str, bytes: &[u8]) -> bool {
+    let png = bytes.starts_with(&[0x89, b'P', b'N', b'G']);
+    let jpeg = bytes.starts_with(&[0xFF, 0xD8, 0xFF]);
+    let webp = bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP";
+    let named = name
+        .rsplit_once('.')
+        .map(|(_, ext)| ext.to_ascii_lowercase())
+        .is_some_and(|ext| matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp"));
+    png || jpeg || webp || named
 }
 
 impl Attachments {
@@ -90,6 +112,9 @@ impl Attachments {
         name: &str,
         bytes: &[u8],
     ) -> Result<proto::Attachment, proto::AttachmentRefusal> {
+        if !is_picture(name, bytes) {
+            return self.add_text(user, name, bytes);
+        }
         let ready = picture::prepare(bytes).map_err(|refused| match refused {
             picture::Refused::TooLarge { megabytes } => {
                 proto::AttachmentRefusal::TooLarge { megabytes }
@@ -112,21 +137,110 @@ impl Attachments {
             bytes: ready.bytes.len() as u64,
             width: ready.width,
             height: ready.height,
+            text: None,
         };
+        self.keep_pending(user, &attachment, &ready.bytes)?;
+        Ok(attachment)
+    }
+
+    /// A text file: read in its encoding, kept as UTF-8.
+    fn add_text(
+        &self,
+        user: &str,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<proto::Attachment, proto::AttachmentRefusal> {
+        if bytes.len() > TEXT_MAX_BYTES {
+            return Err(proto::AttachmentRefusal::TextTooLarge {
+                megabytes: (bytes.len() as u64).div_ceil(1024 * 1024),
+            });
+        }
+        let decoded = text_file::decode(bytes).map_err(|why| match why {
+            text_file::NotText::Empty => proto::AttachmentRefusal::EmptyFile,
+            text_file::NotText::Binary => proto::AttachmentRefusal::NotText,
+        })?;
+        let kept = decoded.text.into_bytes();
+        let text = String::from_utf8_lossy(&kept);
+        let whole = text_file::read_within(&text, usize::MAX);
+        let attachment = proto::Attachment {
+            id: blake3::hash(&kept).to_hex()[..32].to_string(),
+            kind: proto::AttachmentKind::Text,
+            name: name.chars().take(200).collect(),
+            mime: "text/plain".into(),
+            bytes: kept.len() as u64,
+            width: 0,
+            height: 0,
+            text: Some(proto::TextFile {
+                encoding: decoded.encoding.name().into(),
+                chars: whole.chars,
+                words: whole.words,
+                read_chars: whole.chars,
+                read_words: whole.words,
+                read_tokens: whole.tokens,
+            }),
+        };
+        self.keep_pending(user, &attachment, &kept)?;
+        Ok(attachment)
+    }
+
+    fn keep_pending(
+        &self,
+        user: &str,
+        attachment: &proto::Attachment,
+        bytes: &[u8],
+    ) -> Result<(), proto::AttachmentRefusal> {
         let dir = self.person(user).join(PENDING);
         let written = std::fs::create_dir_all(&dir)
-            .and_then(|_| std::fs::write(dir.join(file_of(&attachment)), &ready.bytes))
+            .and_then(|_| std::fs::write(dir.join(file_of(attachment)), bytes))
             .and_then(|_| {
                 std::fs::write(
                     dir.join(format!("{}.json", attachment.id)),
-                    serde_json::to_vec(&attachment).unwrap_or_default(),
+                    serde_json::to_vec(attachment).unwrap_or_default(),
                 )
             });
         if let Err(e) = written {
-            tracing::warn!("could not keep an attached picture: {e}");
+            tracing::warn!("could not keep an attachment: {e}");
             return Err(proto::AttachmentRefusal::Unreadable);
         }
-        Ok(attachment)
+        Ok(())
+    }
+
+    /// The person's pending attachments named by `ids`, as they are, without
+    /// taking them: so a message can be refused before anything moves.
+    pub fn pending(&self, user: &str, ids: &[String]) -> Vec<proto::Attachment> {
+        let pending = self.person(user).join(PENDING);
+        ids.iter()
+            .filter_map(|id| read_meta(&pending, id))
+            .collect()
+    }
+
+    /// A kept text file of the chat, as text.
+    pub fn text(
+        &self,
+        user: &str,
+        conversation: &str,
+        attachment: &proto::Attachment,
+    ) -> Option<String> {
+        if attachment.kind != proto::AttachmentKind::Text {
+            return None;
+        }
+        self.bytes(user, conversation, attachment)
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// What is known of one of the chat's attachments changed (how much of a
+    /// text file the model reads): its record is written again.
+    pub fn update(&self, user: &str, conversation: &str, attachment: &proto::Attachment) {
+        if !is_id(&attachment.id) {
+            return;
+        }
+        let path = self
+            .person(user)
+            .join(folder(conversation))
+            .join(format!("{}.json", attachment.id));
+        if let Err(e) = std::fs::write(&path, serde_json::to_vec(attachment).unwrap_or_default()) {
+            tracing::warn!("could not update an attachment's record: {e}");
+        }
     }
 
     /// The attachments named by `ids`, moved from the person's pending ones
@@ -303,9 +417,52 @@ mod tests {
     fn a_refused_file_says_why_in_parts() {
         let dir = tempfile::tempdir().expect("a folder");
         let kept = Attachments::new(dir.path().to_path_buf());
+        let binary: Vec<u8> = (0..600u32).map(|i| (i * 7 % 256) as u8).collect();
         assert_eq!(
-            kept.add("anna", "notes.txt", b"just words").unwrap_err(),
+            kept.add("anna", "data.bin", &binary).unwrap_err(),
+            proto::AttachmentRefusal::NotText
+        );
+        assert_eq!(
+            kept.add("anna", "empty.txt", b" \n ").unwrap_err(),
+            proto::AttachmentRefusal::EmptyFile
+        );
+        let large = vec![b'a'; TEXT_MAX_BYTES + 1];
+        assert_eq!(
+            kept.add("anna", "big.txt", &large).unwrap_err(),
+            proto::AttachmentRefusal::TextTooLarge { megabytes: 3 }
+        );
+        // Named as a picture, it is read as one, and refused as one.
+        assert_eq!(
+            kept.add("anna", "notes.png", b"just words").unwrap_err(),
             proto::AttachmentRefusal::NotAPicture
+        );
+    }
+
+    #[test]
+    fn a_text_file_is_kept_as_utf8_with_how_it_was_read() {
+        let dir = tempfile::tempdir().expect("a folder");
+        let kept = Attachments::new(dir.path().to_path_buf());
+        // "Счёт № 7" in Windows-1251.
+        let file = kept
+            .add("anna", "счёт.txt", b"\xd1\xf7\xb8\xf2 \xb9 7\n")
+            .expect("taken");
+        assert_eq!(file.kind, proto::AttachmentKind::Text);
+        assert_eq!(file.mime, "text/plain");
+        let facts = file.text.clone().expect("a text file's facts");
+        assert_eq!(facts.encoding, "Windows-1251");
+        assert_eq!((facts.chars, facts.words), (9, 3));
+        assert_eq!(facts.read_chars, facts.chars, "all of it, until it is sent");
+        let taken = kept.take("anna", "c_1", &[file.id.clone()]).expect("taken");
+        assert_eq!(
+            kept.text("anna", "c_1", &taken[0]).as_deref(),
+            Some("Счёт № 7\n")
+        );
+        assert!(
+            dir.path()
+                .join("anna")
+                .join("c_1")
+                .join(format!("{}.txt", file.id))
+                .is_file()
         );
     }
 

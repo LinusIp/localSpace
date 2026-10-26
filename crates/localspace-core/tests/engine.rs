@@ -354,6 +354,36 @@ fn on_an_ordinary_computer_the_engine_gets_a_number_of_layers_and_one_named_devi
             refusal: proto::AttachmentRefusal::CannotReadPictures
         }
     ));
+    // A text file goes to any model, inside the person's words: here one in
+    // Windows-1251, read as Russian (docs/DECISIONS.md, 2026-10-26).
+    let file = match core.handle(proto::Request::AddAttachment {
+        name: "счёт.txt".into(),
+        bytes: b"\xd1\xf7\xb8\xf2 \xb9 7\r\n\xd1\xf3\xec\xec\xe0: 2 340 000\r\n".to_vec(),
+    }) {
+        proto::Response::Attached { attachment } => attachment,
+        other => panic!("expected the file taken, got {other:?}"),
+    };
+    assert_eq!(
+        file.text.as_ref().map(|t| t.encoding.as_str()),
+        Some("Windows-1251")
+    );
+    let answered = core.handle(proto::Request::SendMessage {
+        text: "Какая сумма?".into(),
+        conversation: None,
+        attachments: vec![file.id],
+    });
+    assert!(
+        !matches!(
+            answered,
+            proto::Response::AttachmentRefused { .. } | proto::Response::Error { .. }
+        ),
+        "{answered:?}"
+    );
+    let log = std::fs::read_to_string(dir.path().join("engines").join("tiny.log")).unwrap();
+    assert!(
+        log.contains("fake llama-server: --- File: счёт.txt --- | Счёт № 7"),
+        "{log}"
+    );
     // A model has been chosen now: no first run any more, and the next start
     // of the window begins with this one.
     match core.handle(proto::Request::DescribeComputer) {

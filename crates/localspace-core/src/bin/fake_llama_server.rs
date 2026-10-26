@@ -214,6 +214,18 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
         );
     }
     for message in request["messages"].as_array().into_iter().flatten() {
+        // A text file in a person's words: its header and its first line.
+        if let Some(words) = message["content"].as_str() {
+            let mut lines = words.lines();
+            while let Some(line) = lines.next() {
+                if line.starts_with("--- File: ") {
+                    eprintln!(
+                        "fake llama-server: {line} | {}",
+                        lines.next().unwrap_or_default()
+                    );
+                }
+            }
+        }
         if let Some(parts) = message["content"].as_array() {
             let kinds: Vec<&str> = parts.iter().filter_map(|p| p["type"].as_str()).collect();
             eprintln!(

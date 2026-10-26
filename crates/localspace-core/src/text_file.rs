@@ -71,11 +71,11 @@ fn windows_1251(bytes: &[u8]) -> String {
 }
 
 fn utf16(bytes: &[u8], little_endian: bool) -> String {
-    let units = bytes.chunks_exact(2).map(|pair| {
+    let units = bytes.as_chunks::<2>().0.iter().map(|&pair| {
         if little_endian {
-            u16::from_le_bytes([pair[0], pair[1]])
+            u16::from_le_bytes(pair)
         } else {
-            u16::from_be_bytes([pair[0], pair[1]])
+            u16::from_be_bytes(pair)
         }
     });
     char::decode_utf16(units)
@@ -155,9 +155,92 @@ pub fn decode(bytes: &[u8]) -> Result<Decoded, NotText> {
     Ok(Decoded { text, encoding })
 }
 
+/// How much of a file the model reads, by the same estimate the prompt
+/// uses everywhere (`localspace_proto::estimate_tokens`, a token for every
+/// four bytes, which errs towards reading less of Cyrillic text, never more).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Read {
+    pub chars: u64,
+    pub words: u64,
+    pub tokens: u64,
+}
+
+/// The words in `text`, as a person would count them.
+pub fn words(text: &str) -> u64 {
+    text.split_whitespace().count() as u64
+}
+
+/// The part of `text` that fits in `tokens`: all of it when it fits,
+/// otherwise its start, cut between characters, at the last line break in
+/// the final tenth of what fits when there is one.
+pub fn read_within(text: &str, tokens: usize) -> Read {
+    let whole = localspace_proto::estimate_tokens(text);
+    if whole <= tokens {
+        return Read {
+            chars: text.chars().count() as u64,
+            words: words(text),
+            tokens: whole as u64,
+        };
+    }
+    let most = tokens.saturating_mul(4).min(text.len());
+    let mut end = most;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    if let Some(line) = text[..end].rfind('\n').filter(|&at| at * 10 >= end * 9) {
+        end = line + 1;
+    }
+    let part = &text[..end];
+    Read {
+        chars: part.chars().count() as u64,
+        words: words(part),
+        tokens: localspace_proto::estimate_tokens(part) as u64,
+    }
+}
+
+/// The first `chars` characters of `text`.
+pub fn first_chars(text: &str, chars: u64) -> &str {
+    match text.char_indices().nth(chars as usize) {
+        Some((at, _)) => &text[..at],
+        None => text,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_file_that_fits_is_read_whole_and_a_long_one_from_its_start() {
+        let short = "one two three
+";
+        let r = read_within(short, 100);
+        assert_eq!((r.chars, r.words), (14, 3));
+        let long = "строка текста
+"
+        .repeat(1000);
+        let r = read_within(&long, 500);
+        assert!(r.tokens <= 500, "{r:?}");
+        assert!(r.chars > 0 && r.chars < long.chars().count() as u64);
+        let part = first_chars(&long, r.chars);
+        assert!(
+            part.ends_with('\n'),
+            "cut at a line break: {:?}",
+            &part[part.len() - 20..]
+        );
+        assert_eq!(words(part), r.words);
+    }
+
+    #[test]
+    fn a_cut_never_splits_a_character() {
+        let text = "ё".repeat(10_000);
+        for tokens in [1, 7, 333, 2_500] {
+            let r = read_within(&text, tokens);
+            let part = first_chars(&text, r.chars);
+            assert!(part.chars().all(|c| c == 'ё'));
+            assert!(r.tokens as usize <= tokens);
+        }
+    }
 
     fn cp1251(text: &str) -> Vec<u8> {
         text.chars()

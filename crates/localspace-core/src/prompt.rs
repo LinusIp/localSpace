@@ -271,7 +271,17 @@ fn cost(m: &proto::ChatMessage) -> usize {
         .iter()
         .map(|t| proto::estimate_tokens(&t.render()))
         .sum::<usize>()
-        + m.attachments.len() * PICTURE_TOKENS
+        + m.attachments
+            .iter()
+            .map(|a| match a.kind {
+                proto::AttachmentKind::Picture => PICTURE_TOKENS,
+                // What the model reads of a text file, decided when it was
+                // sent (docs/DECISIONS.md, 2026-10-26).
+                proto::AttachmentKind::Text => {
+                    a.text.as_ref().map_or(0, |t| t.read_tokens as usize)
+                }
+            })
+            .sum::<usize>()
 }
 
 /// Where the model's reading of a chat begins, in big steps rather than a
@@ -553,6 +563,7 @@ mod tests {
                     bytes: 1,
                     width: 1,
                     height: 1,
+                    text: None,
                 };
                 2
             ];
