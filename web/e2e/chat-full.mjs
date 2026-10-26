@@ -108,7 +108,8 @@ try {
   step("the same lines in Russian and English after a change of language");
 
   // 4. The new-chat button opens an empty chat.
-  await lines.first().getByRole("button", { name: "New chat", exact: true }).click();
+  // Only the chat's last answer offers a button: here, the refusal's.
+  await lines.last().getByRole("button", { name: "New chat", exact: true }).click();
   await until("an empty chat", async () => (await page.locator(".message").count()) === 0, 15000);
   step("New chat opens an empty chat");
 
