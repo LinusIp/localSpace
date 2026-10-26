@@ -54,6 +54,7 @@ export type { Step } from "./Step";
 export type { StepStatus } from "./StepStatus";
 export type { SurfaceKind } from "./SurfaceKind";
 export type { Task } from "./Task";
+export type { TextFile } from "./TextFile";
 export type { Tier } from "./Tier";
 export type { Tone } from "./Tone";
 export type { ToolCallRecord } from "./ToolCallRecord";

@@ -71,7 +71,15 @@ pub fn send(
         .unwrap()
         .info()
         .is_some_and(|m| !m.supports_vision);
-    if !attachments.is_empty() && cannot_read_pictures {
+    // Only pictures need a model that reads them; a text file goes to any
+    // model (docs/DECISIONS.md, 2026-10-26).
+    let has_pictures = !attachments.is_empty()
+        && core
+            .attachments
+            .pending(&user, &attachments)
+            .iter()
+            .any(|a| a.kind == proto::AttachmentKind::Picture);
+    if has_pictures && cannot_read_pictures {
         // A picture file left out at this load is said with what it needs.
         let refusal = match core
             .engine
@@ -91,6 +99,7 @@ pub fn send(
             Err(refusal) => return proto::Response::AttachmentRefused { refusal },
         }
     };
+    let attached = read_text_files(core, &user, &conversation, text, attached);
     write(core, &user, &workspace, &conversation, |messages| {
         let mut said = message(proto::Role::User, text);
         said.attachments = attached;
@@ -99,6 +108,130 @@ pub fn send(
     queue(core, conversation, false);
     drain(core);
     transcript(core)
+}
+
+/// How much of each attached text file the model reads, decided once, as
+/// the message is sent (internal plan 38, F4; docs/DECISIONS.md,
+/// 2026-10-26). The files of one message share half the working set, less
+/// the person's own words: each takes what it needs or an equal share of
+/// what is left. A file longer than its share is read from its start, and
+/// the client says how much. Nothing is cut silently.
+fn read_text_files(
+    core: &Core,
+    user: &str,
+    conversation: &str,
+    words: &str,
+    attached: Vec<proto::Attachment>,
+) -> Vec<proto::Attachment> {
+    let texts: Vec<Option<String>> = attached
+        .iter()
+        .map(|a| core.attachments.text(user, conversation, a))
+        .collect();
+    let frames: usize = attached
+        .iter()
+        .zip(&texts)
+        .filter(|(_, text)| text.is_some())
+        .map(|(a, _)| {
+            prompt::tokens_of(&file_head(&a.name, LONGEST_NOTE)) + prompt::tokens_of(FILE_END)
+        })
+        .sum();
+    let budget =
+        (core.cfg.profile.working_set_tokens / 2).saturating_sub(prompt::tokens_of(words) + frames);
+    let needs: Vec<usize> = texts
+        .iter()
+        .map(|text| text.as_deref().map_or(0, prompt::tokens_of))
+        .collect();
+    let shares = crate::text_file::share(budget, &needs);
+    attached
+        .into_iter()
+        .zip(texts)
+        .zip(shares)
+        .map(|((mut a, text), share)| {
+            let Some(text) = text else {
+                return a;
+            };
+            let read = crate::text_file::read_within(&text, share);
+            if let Some(facts) = a.text.as_mut() {
+                facts.read_chars = read.chars;
+                facts.read_words = read.words;
+                facts.read_tokens = read.tokens;
+            }
+            core.attachments.update(user, conversation, &a);
+            a
+        })
+        .collect()
+}
+
+/// What the model is told of a text file it reads only part of, or none of.
+fn note_of(facts: Option<&proto::TextFile>) -> String {
+    let Some(f) = facts.filter(|f| f.read_chars < f.chars) else {
+        return String::new();
+    };
+    if f.read_chars == 0 {
+        return NO_ROOM.to_string();
+    }
+    let percent = f.read_chars * 100 / f.chars.max(1);
+    let part = if percent == 0 {
+        "less than 1%".to_string()
+    } else {
+        format!("{percent}%")
+    };
+    format!(" (only its first {part} fits here; say so if the rest matters)")
+}
+
+const NO_ROOM: &str = " (there was no room left to read it here; say so if it matters)";
+
+/// The longest note, for the room a file's frame takes.
+const LONGEST_NOTE: &str = " (only its first less than 1% fits here; say so if the rest matters)";
+
+/// A text file as it joins the person's words: its head, its part, its end.
+fn file_block(name: &str, note: &str, part: &str) -> String {
+    format!("{}{part}{FILE_END}", file_head(name, note))
+}
+
+fn file_head(name: &str, note: &str) -> String {
+    format!("\n\n--- File: {name}{note} ---\n")
+}
+
+const FILE_END: &str = "\n--- End of file ---";
+
+/// The chat as the model reads it: each text file a person attached joins
+/// their words, as much of it as was decided when it was sent, and leaves
+/// the attachments (its cost is now in the words). Pictures stay attached.
+pub(crate) fn with_text_files(
+    core: &Core,
+    user: &str,
+    conversation: &str,
+    messages: Vec<proto::ChatMessage>,
+) -> Vec<proto::ChatMessage> {
+    messages
+        .into_iter()
+        .map(|mut m| {
+            if m.role != proto::Role::User
+                || !m
+                    .attachments
+                    .iter()
+                    .any(|a| a.kind == proto::AttachmentKind::Text)
+            {
+                return m;
+            }
+            let (files, pictures): (Vec<_>, Vec<_>) = std::mem::take(&mut m.attachments)
+                .into_iter()
+                .partition(|a| a.kind == proto::AttachmentKind::Text);
+            m.attachments = pictures;
+            for file in files {
+                let Some(text) = core.attachments.text(user, conversation, &file) else {
+                    continue;
+                };
+                let facts = file.text.as_ref();
+                let read_chars = facts.map_or(u64::MAX, |f| f.read_chars);
+                let part = crate::text_file::first_chars(&text, read_chars);
+                m.content
+                    .push_str(&file_block(&file.name, &note_of(facts), part));
+            }
+            m
+        })
+        .collect()
 }
 
 /// Carry on the answer that stopped in a chat, as part of that answer: its
@@ -481,6 +614,7 @@ fn ask_the_model(core: &mut Core, id: u64) {
     } else {
         None
     };
+    let messages = with_text_files(core, &user, &conversation, messages);
     let p = prompt::build(
         &core.cfg.profile,
         &active,
@@ -1240,10 +1374,15 @@ fn delivery(core: &Core, user: &str) -> Delivery {
     })
 }
 
-fn transcript(core: &Core) -> proto::Response {
+/// The chat on screen, with where the model's reading of it begins, worked
+/// out on the chat as the model reads it, text files and all: the divider
+/// the person sees is where the model starts.
+pub(crate) fn transcript(core: &Core) -> proto::Response {
+    let (user, chat) = (&core.active.user, &core.conversations.current);
+    let read = with_text_files(core, user, chat, core.transcript.clone());
     proto::Response::Transcript {
         messages: core.transcript.clone(),
-        read_from: crate::prompt::read_from(&core.transcript, core.cfg.profile.working_set_tokens),
+        read_from: prompt::read_from(&read, core.cfg.profile.working_set_tokens),
     }
 }
 
@@ -1535,6 +1674,115 @@ mod tests {
             }]),
         ));
         core
+    }
+
+    /// A long text file joins the person's words within half the working
+    /// set, less the words, and the divider the person sees is where the
+    /// model starts reading (docs/DECISIONS.md, 2026-10-26).
+    #[test]
+    fn a_long_text_file_keeps_to_its_share_and_the_divider_reads_it() {
+        let script = Script::new(Vec::new());
+        let mut core = core_with(script.clone());
+        let rows: String = (1..=20_000)
+            .map(|i| format!("Row {i};8 000 000;12.5\n"))
+            .collect();
+        let file = match core.handle(proto::Request::AddAttachment {
+            name: "rows.csv".into(),
+            bytes: rows.into_bytes(),
+        }) {
+            proto::Response::Attached { attachment } => attachment,
+            other => panic!("expected the file taken, got {other:?}"),
+        };
+        let words = "Sum the second column, please. ".repeat(40);
+        core.run_inline = true;
+        send(&mut core, None, &words, vec![file.id]);
+        // Two more like it, so the chat outgrows the working set and the
+        // model's reading of it begins further on.
+        for n in 2..=3 {
+            let more: String = (1..=20_000)
+                .map(|i| format!("Row {i};{n} 000 000;12.5\n"))
+                .collect();
+            let file = match core.handle(proto::Request::AddAttachment {
+                name: format!("rows-{n}.csv"),
+                bytes: more.into_bytes(),
+            }) {
+                proto::Response::Attached { attachment } => attachment,
+                other => panic!("expected the file taken, got {other:?}"),
+            };
+            send(&mut core, None, "And this one?", vec![file.id]);
+        }
+        let (user, chat) = (core.active.user.clone(), core.conversations.current.clone());
+        let read = with_text_files(&core, &user, &chat, core.transcript.clone());
+        let half = core.cfg.profile.working_set_tokens / 2;
+        assert!(
+            prompt::tokens_of(&read[0].content) <= half,
+            "{} tokens over half the working set, {half}",
+            prompt::tokens_of(&read[0].content)
+        );
+        assert!(
+            read[0]
+                .content
+                .contains("--- File: rows.csv (only its first ")
+        );
+        assert!(
+            read[0].attachments.is_empty(),
+            "the file is in the words now"
+        );
+        match transcript(&core) {
+            proto::Response::Transcript { read_from, .. } => {
+                assert!(read_from > 0, "three long files outgrow the working set");
+                assert_eq!(
+                    read_from,
+                    prompt::read_from(&read, core.cfg.profile.working_set_tokens)
+                );
+            }
+            other => panic!("expected the transcript, got {other:?}"),
+        }
+        let seen = script.seen.lock().unwrap();
+        let sent = format!("{:?}", seen[0].said);
+        assert!(
+            sent.contains("Row 1;8 000 000;12.5"),
+            "the engine read the file"
+        );
+    }
+
+    /// The divider counts the files' heads as the model reads them: a chat
+    /// of short messages, each with four small files under long names,
+    /// outgrows the working set by the files' heads before it does by their
+    /// words alone (docs/DECISIONS.md, 2026-10-26).
+    #[test]
+    fn the_divider_counts_the_files_heads() {
+        let mut core = core_with(Script::new(Vec::new()));
+        core.run_inline = true;
+        let ws = core.cfg.profile.working_set_tokens;
+        let named = "a-report-with-a-long-name-".repeat(7);
+        let mut read_from = 0;
+        for n in 0..1000 {
+            let ids: Vec<String> = (0..4)
+                .map(|k| {
+                    match core.handle(proto::Request::AddAttachment {
+                        name: format!("{named}{n}-{k}.txt"),
+                        bytes: format!("note {n} {k}\n").into_bytes(),
+                    }) {
+                        proto::Response::Attached { attachment } => attachment.id,
+                        other => panic!("expected the file taken, got {other:?}"),
+                    }
+                })
+                .collect();
+            send(&mut core, None, "Next.", ids);
+            if let proto::Response::Transcript { read_from: at, .. } = transcript(&core) {
+                read_from = at;
+            }
+            if read_from > 0 {
+                break;
+            }
+        }
+        assert!(read_from > 0, "the chat outgrew the working set");
+        assert_eq!(
+            prompt::read_from(&core.transcript, ws),
+            0,
+            "by the words alone it still fits: the heads moved the divider"
+        );
     }
 
     #[test]

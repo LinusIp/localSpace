@@ -46,6 +46,7 @@ pub mod runtime;
 pub mod store;
 pub mod stream;
 pub mod task;
+pub mod text_file;
 pub mod tools;
 pub mod transport;
 pub mod turns;
@@ -4158,10 +4159,7 @@ impl Core {
             R::ListTurns => agent::list(self),
             R::ContinueAnswer { conversation } => agent::continue_answer(self, conversation),
 
-            R::GetTranscript => proto::Response::Transcript {
-                messages: self.transcript.clone(),
-                read_from: prompt::read_from(&self.transcript, self.cfg.profile.working_set_tokens),
-            },
+            R::GetTranscript => agent::transcript(self),
 
             R::ListConversations => self.conversations_response(),
 
@@ -4946,12 +4944,15 @@ impl Core {
                 self.cfg.profile = saved;
 
                 let active = self.active_set();
+                // As the model reads the chat: its text files in its words.
+                let (user, chat) = (&self.active.user, &self.conversations.current);
+                let messages = agent::with_text_files(self, user, chat, self.transcript.clone());
                 let p = prompt::build(
                     &self.cfg.profile,
                     &active,
                     &blocks,
                     Some(&self.task),
-                    &self.transcript,
+                    &messages,
                 );
                 proto::Response::Context {
                     blocks,

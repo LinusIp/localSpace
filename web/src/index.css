@@ -112,11 +112,18 @@ button {
 .composer-picture { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 1px solid var(--ls-line); background: var(--ls-rail); }
 .composer-picture img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .composer-picture.uploading img { opacity: 0.5; }
+.composer-file { position: relative; display: inline-flex; align-items: center; height: 64px; max-width: 220px; padding: 0 30px 0 12px; border-radius: 8px; border: 1px solid var(--ls-line); background: var(--ls-rail); font-size: 13px; }
+.composer-file.uploading { opacity: 0.6; }
+.composer-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-file .composer-picture-remove { top: 50%; transform: translateY(-50%); }
 .composer-picture-remove { position: absolute; top: 3px; right: 3px; display: inline-flex; padding: 3px; border: 0; border-radius: 999px; background: var(--ls-surface); color: var(--ls-ink); cursor: pointer; }
 .composer-said { margin-bottom: 8px; font-size: 13px; color: var(--ls-muted); }
 .composer-attach { margin-right: auto; display: inline-flex; padding: 6px; border: 0; border-radius: 8px; background: transparent; color: var(--ls-faint); cursor: pointer; }
 .composer-attach:hover:not(:disabled) { background: var(--ls-rail); color: var(--ls-ink); }
 .composer-attach:disabled { opacity: 0.4; cursor: default; }
+.message-file { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 8px; padding: 8px 12px; border: 1px solid var(--ls-line); border-radius: 8px; background: var(--ls-rail); white-space: normal; font-size: 13px; }
+.message-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+.message-file-note { flex-basis: 100%; color: var(--ls-muted); }
 .message-pictures { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; white-space: normal; }
 .message-picture { padding: 0; border: 1px solid var(--ls-line); border-radius: 8px; overflow: hidden; background: var(--ls-rail); cursor: zoom-in; }
 .message-picture img { display: block; max-width: 220px; max-height: 160px; }
