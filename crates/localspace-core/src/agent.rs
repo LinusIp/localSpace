@@ -720,8 +720,10 @@ fn ask_the_model(core: &mut Core, id: u64) {
                         silence,
                         &deliver,
                         &conversation,
-                        prompt_estimate,
-                        counted,
+                        PromptSize {
+                            estimate: prompt_estimate,
+                            counted,
+                        },
                     );
                     inbox(Internal::Replied {
                         turn: id,
@@ -760,8 +762,10 @@ fn ask_the_model(core: &mut Core, id: u64) {
                 silence,
                 &deliver,
                 &conversation,
-                prompt_estimate,
-                counted,
+                PromptSize {
+                    estimate: prompt_estimate,
+                    counted,
+                },
             );
             post(
                 core,
@@ -774,6 +778,14 @@ fn ask_the_model(core: &mut Core, id: u64) {
     }
 }
 
+/// A step's prompt, measured before it is sent: the system's estimate,
+/// and our own count (`prompt::counted`).
+#[derive(Debug, Clone, Copy)]
+struct PromptSize {
+    estimate: usize,
+    counted: usize,
+}
+
 /// Reads one model step, handing its words to the person as they come,
 /// unless the model is writing a tool call in the grammar's shape, which is
 /// not for reading and is handled whole.
@@ -784,8 +796,7 @@ fn read_the_model(
     silence: Silence,
     deliver: &Delivery,
     conversation: &str,
-    prompt_estimate: usize,
-    counted: usize,
+    size: PromptSize,
 ) -> StepEnd {
     let asked = Instant::now();
     let mut first_piece: Option<Duration> = None;
@@ -860,8 +871,8 @@ fn read_the_model(
         repeated,
         first_piece,
         took: asked.elapsed(),
-        prompt_estimate,
-        counted,
+        prompt_estimate: size.estimate,
+        counted: size.counted,
         max_tokens: request.max_tokens,
         thinking: request.thinking,
     }
