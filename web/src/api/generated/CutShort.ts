@@ -3,4 +3,4 @@
 /**
  * Why Core ended an answer before the model did.
  */
-export type CutShort = "repeated" | "length" | "chat_full" | "failed";
+export type CutShort = "repeated" | "length" | "chat_full" | "too_long" | "failed";

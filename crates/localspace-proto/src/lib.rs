@@ -657,6 +657,10 @@ pub enum CutShort {
     /// answer was written, or before it could begin. A new chat goes on
     /// (docs/DECISIONS.md, 2026-10-26).
     ChatFull,
+    /// The same, with nothing read but the person's newest message: a new
+    /// chat would read the same, so a shorter message goes on, or the text
+    /// as a file.
+    TooLong,
     /// The model could not answer: an error, kept in the log, never shown
     /// raw. Trying again asks once more.
     Failed,

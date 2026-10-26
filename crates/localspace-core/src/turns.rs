@@ -89,6 +89,9 @@ pub struct StepEnd {
     /// The prompt by our own count (`prompt::counted`), for the log beside
     /// the engine's figure (docs/DECISIONS.md, 2026-10-26).
     pub counted: usize,
+    /// What was read began at the person's newest message: no earlier
+    /// message took room, so a new chat would read the same.
+    pub alone: bool,
     /// The longest the answer could be, as asked: an answer at the limit
     /// with fewer tokens than this ran out of context instead.
     pub max_tokens: u32,

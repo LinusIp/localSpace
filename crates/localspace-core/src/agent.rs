@@ -651,6 +651,14 @@ fn ask_the_model(core: &mut Core, id: u64) {
     // The prompt as a system message and turns, the ledger after the newest
     // message (docs/DECISIONS.md, 2026-09-24 and 2026-10-06).
     let prompt_estimate = p.total_tokens();
+    // Nothing before the person's newest message is read: a new chat would
+    // read the same.
+    let alone = p
+        .turns
+        .iter()
+        .filter(|t| matches!(t, prompt::Turn::Person(_)))
+        .count()
+        <= 1;
     let system = p.prefix();
     let after = p.after();
     let mut turns = p.turns;
@@ -727,6 +735,7 @@ fn ask_the_model(core: &mut Core, id: u64) {
                         PromptSize {
                             estimate: prompt_estimate,
                             counted,
+                            alone,
                         },
                     );
                     inbox(Internal::Replied {
@@ -746,6 +755,7 @@ fn ask_the_model(core: &mut Core, id: u64) {
                     took: Duration::ZERO,
                     prompt_estimate,
                     counted,
+                    alone,
                     max_tokens,
                     thinking,
                 };
@@ -769,6 +779,7 @@ fn ask_the_model(core: &mut Core, id: u64) {
                 PromptSize {
                     estimate: prompt_estimate,
                     counted,
+                    alone,
                 },
             );
             post(
@@ -788,6 +799,7 @@ fn ask_the_model(core: &mut Core, id: u64) {
 struct PromptSize {
     estimate: usize,
     counted: usize,
+    alone: bool,
 }
 
 /// Reads one model step, handing its words to the person as they come,
@@ -877,6 +889,7 @@ fn read_the_model(
         took: asked.elapsed(),
         prompt_estimate: size.estimate,
         counted: size.counted,
+        alone: size.alone,
         max_tokens: request.max_tokens,
         thinking: request.thinking,
     }
@@ -983,19 +996,12 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
                     };
                     end(core, id, how);
                 }
-                // No room for the request at all: the chat is full, said as
-                // such in the person's language, never the raw refusal
-                // (docs/DECISIONS.md, 2026-10-26).
+                // No room for the request at all: the chat is full, or the
+                // newest message alone is too long, said as such in the
+                // person's language, never the raw refusal (docs/DECISIONS.md,
+                // 2026-10-26).
                 None if e.downcast_ref::<crate::stream::NoRoom>().is_some() => {
-                    keep(
-                        core,
-                        id,
-                        "",
-                        "",
-                        true,
-                        true,
-                        Some(proto::CutShort::ChatFull),
-                    );
+                    keep(core, id, "", "", true, true, Some(out_of_room(step.alone)));
                     end(core, id, TurnState::Done);
                 }
                 // Any other error: the chat says the model could not answer,
@@ -1053,8 +1059,9 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
         // An answer that reached the longest allowed is kept as stopped,
         // so that Continue carries it on, and the chat says why it ended.
         // One that stopped at the limit with fewer tokens than it was
-        // allowed ran out of context: the chat is full (docs/DECISIONS.md,
-        // 2026-10-26). An engine that says no figure is taken at its word.
+        // allowed ran out of context: the chat is full, or the newest
+        // message alone is too long (docs/DECISIONS.md, 2026-10-26). An
+        // engine that says no figure is taken at its word.
         if reply.at_limit {
             let full = reply.completion_tokens > 0 && reply.completion_tokens < step.max_tokens;
             keep(
@@ -1065,7 +1072,7 @@ fn replied(core: &mut Core, id: u64, step: StepEnd) {
                 true,
                 true,
                 Some(if full {
-                    proto::CutShort::ChatFull
+                    out_of_room(step.alone)
                 } else {
                     proto::CutShort::Length
                 }),
@@ -1289,6 +1296,16 @@ fn set_state(core: &mut Core, id: u64, state: TurnState) {
         conversation,
         state,
     });
+}
+
+/// Why an answer ran out of room: the chat is full, or, with nothing read
+/// but the person's newest message, that message is too long for the model.
+fn out_of_room(alone: bool) -> proto::CutShort {
+    if alone {
+        proto::CutShort::TooLong
+    } else {
+        proto::CutShort::ChatFull
+    }
 }
 
 /// The answer's words, into its chat, with the model's thinking before
@@ -1947,21 +1964,32 @@ mod tests {
     }
 
     /// An answer stopped at the limit with fewer tokens than it was allowed
-    /// ran out of context: the chat is full, not the answer too long
-    /// (docs/DECISIONS.md, 2026-10-26).
+    /// ran out of context: the chat is full, not the answer too long. With
+    /// nothing read but the person's newest message, that message is too
+    /// long, and a new chat would not help (docs/DECISIONS.md, 2026-10-26).
     #[test]
     fn an_answer_cut_by_a_full_context_says_the_chat_is_full() {
-        let script = Script::new(vec![ChatReply {
+        let cut = || ChatReply {
             text: "The first part of".into(),
             at_limit: true,
             completion_tokens: 40,
             ..Default::default()
-        }]);
-        let mut core = core_with(script);
+        };
+        let hello = ChatReply {
+            text: "Hello.".into(),
+            ..Default::default()
+        };
+        let mut core = core_with(Script::new(vec![hello, cut()]));
+        turn(&mut core, "Hello?");
         turn(&mut core, "Write a lot.");
         let answer = core.transcript.last().unwrap().clone();
         assert_eq!(answer.content, "The first part of");
         assert_eq!(answer.cut_short, Some(proto::CutShort::ChatFull));
+        // Nothing read before it.
+        let mut core = core_with(Script::new(vec![cut()]));
+        turn(&mut core, "Write a lot.");
+        let answer = core.transcript.last().unwrap().clone();
+        assert_eq!(answer.cut_short, Some(proto::CutShort::TooLong));
         // At the full limit, the answer's own length.
         let script = Script::new(vec![ChatReply {
             text: "A very long answer that".into(),

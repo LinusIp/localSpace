@@ -49,8 +49,9 @@ struct Style {
     /// as the request allowed.
     stops_at_the_limit: bool,
     /// Runs out of context while it writes: `length`, with fewer tokens
-    /// than the request allowed.
-    fills_the_context: bool,
+    /// than the request allowed. With "over N bytes", only for a request
+    /// whose body is longer: the earlier messages of a chat are answered.
+    fills_the_context: Option<usize>,
     /// Thinks until the limit and writes no words.
     thinks_until_the_limit: bool,
     /// Ends normally with no words at all.
@@ -78,7 +79,9 @@ impl Style {
             no_late_system: stub.contains("takes no late system message"),
             thinks_first: stub.contains("thinks first"),
             stops_at_the_limit: stub.contains("stops at the limit"),
-            fills_the_context: stub.contains("fills the context"),
+            fills_the_context: stub
+                .contains("fills the context")
+                .then(|| count("fills the context over ").unwrap_or(0)),
             thinks_until_the_limit: stub.contains("thinks until the limit"),
             answers_nothing: stub.contains("answers nothing"),
             refuses_over: count("refuses requests over "),
@@ -290,6 +293,9 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
         messages.count(),
         if earlier_thinking { "yes" } else { "no" }
     );
+    let fills = style
+        .fills_the_context
+        .is_some_and(|most| body.len() > most);
     let begun = request["messages"]
         .as_array()
         .and_then(|messages| messages.last())
@@ -319,7 +325,7 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
             (1..=20).map(|i| format!("word{i} ")).collect()
         } else if style.answers_nothing || style.thinks_until_the_limit {
             Vec::new()
-        } else if style.stops_at_the_limit || style.fills_the_context {
+        } else if style.stops_at_the_limit || fills {
             ["The first part ", "of a long answer"]
                 .map(String::from)
                 .to_vec()
@@ -395,7 +401,7 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
         let allowed = request["max_tokens"].as_u64().unwrap_or(2048) as usize;
         let (finish, written) = if style.stops_at_the_limit || style.thinks_until_the_limit {
             (r#""length""#, allowed)
-        } else if style.fills_the_context {
+        } else if fills {
             (r#""length""#, pieces.len().max(1))
         } else {
             (r#""stop""#, pieces.len())
