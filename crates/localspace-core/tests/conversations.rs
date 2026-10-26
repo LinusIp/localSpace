@@ -173,6 +173,50 @@ fn an_attached_text_file_is_kept_with_its_chat_and_deleted_with_it() {
     ));
 }
 
+/// The text files of one message share what the model reads: a long one
+/// never leaves a short one nothing, the same file attached twice goes
+/// once, and two files that read the same stay two, each with its name
+/// (docs/DECISIONS.md, 2026-10-26).
+#[test]
+fn text_files_share_a_message_and_the_same_file_twice_goes_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut core = core_in(dir.path());
+    let mut add = |name: &str, bytes: Vec<u8>| match core.handle(proto::Request::AddAttachment {
+        name: name.into(),
+        bytes,
+    }) {
+        proto::Response::Attached { attachment } => attachment,
+        other => panic!("expected {name} taken, got {other:?}"),
+    };
+    let long: String = (1..=40_000)
+        .map(|i| format!("Line {i} of a long report.\n"))
+        .collect();
+    let report = add("report.txt", long.into_bytes());
+    let note = add("note.txt", b"Remember the deadline.\n".to_vec());
+    let copy = add("copy-of-note.txt", b"Remember the deadline.\n".to_vec());
+    assert_ne!(note.id, copy.id, "two files that read the same stay two");
+    core.handle(proto::Request::SendMessage {
+        text: "Compare these.".into(),
+        conversation: None,
+        attachments: vec![
+            report.id.clone(),
+            note.id.clone(),
+            note.id.clone(),
+            copy.id.clone(),
+        ],
+    });
+    let said = transcript(&mut core);
+    assert_eq!(said[0].role, proto::Role::User, "the message was kept");
+    let sent = &said[0].attachments;
+    let names: Vec<&str> = sent.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, ["report.txt", "note.txt", "copy-of-note.txt"]);
+    let facts = |i: usize| sent[i].text.clone().expect("a text file's facts");
+    assert!(facts(0).read_chars > 0 && facts(0).read_chars < facts(0).chars);
+    for short in [1, 2] {
+        assert_eq!(facts(short).read_chars, facts(short).chars, "read whole");
+    }
+}
+
 /// A picture attached to a message is kept with its chat, survives a
 /// restart, can be fetched by its person, and is deleted with the chat
 /// (docs/DECISIONS.md, 2026-10-18).

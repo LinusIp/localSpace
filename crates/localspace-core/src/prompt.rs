@@ -266,17 +266,28 @@ pub fn build(
 /// (docs/DECISIONS.md, 2026-10-21).
 pub const PICTURE_TOKENS: usize = 400;
 
+/// What words cost in what the model reads: the system's estimate (a token
+/// for every four bytes), except that every digit is a token of its own, as
+/// the models' tokenizers read them (Qwen, Gemma). A table of figures would
+/// otherwise count as a quarter of what it is (docs/DECISIONS.md,
+/// 2026-10-26).
+pub fn tokens_of(text: &str) -> usize {
+    let digits = text.bytes().filter(u8::is_ascii_digit).count();
+    digits + (text.len() - digits).div_ceil(4)
+}
+
 fn cost(m: &proto::ChatMessage) -> usize {
     turns_of(m)
         .iter()
-        .map(|t| proto::estimate_tokens(&t.render()))
+        .map(|t| tokens_of(&t.render()))
         .sum::<usize>()
         + m.attachments
             .iter()
             .map(|a| match a.kind {
                 proto::AttachmentKind::Picture => PICTURE_TOKENS,
                 // What the model reads of a text file, decided when it was
-                // sent (docs/DECISIONS.md, 2026-10-26).
+                // sent (docs/DECISIONS.md, 2026-10-26). The prompt reads the
+                // file in the person's words instead (`agent::with_text_files`).
                 proto::AttachmentKind::Text => {
                     a.text.as_ref().map_or(0, |t| t.read_tokens as usize)
                 }
@@ -342,7 +353,7 @@ pub fn turns(messages: &[proto::ChatMessage], working_set: usize) -> Vec<Turn> {
     let mut start = all.len();
     let mut used = 0usize;
     while start > 0 {
-        let cost = proto::estimate_tokens(&all[start - 1].render());
+        let cost = tokens_of(&all[start - 1].render());
         if used + cost > working_set && start < all.len() {
             break;
         }

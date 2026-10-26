@@ -6,7 +6,8 @@
 //! below (the WHATWG encoding index). The order of the guesses:
 //! 1. a byte-order mark: UTF-8, UTF-16 little-endian or big-endian;
 //! 2. UTF-16 without a mark, told by its zero bytes in every other place;
-//! 3. bytes that are valid UTF-8 are UTF-8;
+//! 3. bytes that are UTF-8, or nearly (a character cut at the end, a
+//!    stray byte among many good characters), are UTF-8;
 //! 4. otherwise Windows-1251.
 //!
 //! A file with zero bytes or many control characters left after that is
@@ -109,7 +110,7 @@ fn utf16_without_mark(bytes: &[u8]) -> Option<bool> {
 }
 
 /// Text has no NUL and few control characters besides tab, line feed,
-/// carriage return and form feed.
+/// carriage return, form feed and escape (a coloured log's colours).
 fn looks_like_text(text: &str) -> bool {
     let mut chars = 0usize;
     let mut control = 0usize;
@@ -118,11 +119,29 @@ fn looks_like_text(text: &str) -> bool {
         if c == '\0' {
             return false;
         }
-        if c.is_control() && !matches!(c, '\t' | '\n' | '\r' | '\u{000C}') {
+        if c.is_control() && !matches!(c, '\t' | '\n' | '\r' | '\u{000C}' | '\u{001B}') {
             control += 1;
         }
     }
     control * 100 <= chars
+}
+
+/// UTF-8, or nearly: a file cut in the middle of its last character, or
+/// with a stray byte among many good characters, keeps its good characters
+/// rather than all of them being read as Windows-1251. Windows-1251
+/// Cyrillic makes almost no valid UTF-8 beyond ASCII, so it never passes.
+fn mostly_utf8(bytes: &[u8]) -> Option<String> {
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return Some(text.to_owned());
+    }
+    let (mut good, mut bad) = (0usize, 0usize);
+    for chunk in bytes.utf8_chunks() {
+        good += chunk.valid().chars().filter(|c| !c.is_ascii()).count();
+        if !chunk.invalid().is_empty() {
+            bad += 1;
+        }
+    }
+    (good >= 10 * bad).then(|| String::from_utf8_lossy(bytes).into_owned())
 }
 
 /// Read `bytes` as text, or say why it isn't.
@@ -141,8 +160,8 @@ pub fn decode(bytes: &[u8]) -> Result<Decoded, NotText> {
             Encoding::Utf16Be
         };
         (utf16(bytes, little_endian), encoding)
-    } else if let Ok(text) = std::str::from_utf8(bytes) {
-        (text.to_owned(), Encoding::Utf8)
+    } else if let Some(text) = mostly_utf8(bytes) {
+        (text, Encoding::Utf8)
     } else {
         (windows_1251(bytes), Encoding::Windows1251)
     };
@@ -155,9 +174,9 @@ pub fn decode(bytes: &[u8]) -> Result<Decoded, NotText> {
     Ok(Decoded { text, encoding })
 }
 
-/// How much of a file the model reads, by the same estimate the prompt
-/// uses everywhere (`localspace_proto::estimate_tokens`, a token for every
-/// four bytes, which errs towards reading less of Cyrillic text, never more).
+/// How much of a file the model reads, by the prompt's own count
+/// ([`crate::prompt::tokens_of`]: a token for every four bytes, and one for
+/// every digit).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Read {
     pub chars: u64,
@@ -165,16 +184,44 @@ pub struct Read {
     pub tokens: u64,
 }
 
-/// The words in `text`, as a person would count them.
+/// The words in `text`, as a person would count them: Chinese and
+/// Japanese, written without spaces, by their characters.
 pub fn words(text: &str) -> u64 {
-    text.split_whitespace().count() as u64
+    text.split_whitespace()
+        .map(|word| match word.chars().filter(|&c| is_cjk(c)).count() {
+            0 => 1,
+            n => n as u64,
+        })
+        .sum()
+}
+
+fn is_cjk(c: char) -> bool {
+    matches!(
+        c,
+        '\u{3040}'..='\u{30FF}' | '\u{3400}'..='\u{4DBF}' | '\u{4E00}'..='\u{9FFF}' | '\u{F900}'..='\u{FAFF}'
+    )
+}
+
+/// The tokens each of one message's files may take out of `budget`: none
+/// more than it needs, and otherwise an equal share of what is left, so a
+/// long file never leaves the others nothing (internal plan 38, F4).
+pub fn share(budget: usize, needs: &[usize]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..needs.len()).collect();
+    order.sort_by_key(|&i| needs[i]);
+    let mut shares = vec![0; needs.len()];
+    let mut left = budget;
+    for (done, &i) in order.iter().enumerate() {
+        shares[i] = needs[i].min(left / (needs.len() - done));
+        left -= shares[i];
+    }
+    shares
 }
 
 /// The part of `text` that fits in `tokens`: all of it when it fits,
 /// otherwise its start, cut between characters, at the last line break in
 /// the final tenth of what fits when there is one.
 pub fn read_within(text: &str, tokens: usize) -> Read {
-    let whole = localspace_proto::estimate_tokens(text);
+    let whole = crate::prompt::tokens_of(text);
     if whole <= tokens {
         return Read {
             chars: text.chars().count() as u64,
@@ -182,10 +229,18 @@ pub fn read_within(text: &str, tokens: usize) -> Read {
             tokens: whole as u64,
         };
     }
-    let most = tokens.saturating_mul(4).min(text.len());
-    let mut end = most;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
+    // The longest start that fits, by the same count.
+    let (mut digits, mut other, mut end) = (0usize, 0usize, 0usize);
+    for (at, c) in text.char_indices() {
+        let (d, o) = if c.is_ascii_digit() {
+            (digits + 1, other)
+        } else {
+            (digits, other + c.len_utf8())
+        };
+        if d + o.div_ceil(4) > tokens {
+            break;
+        }
+        (digits, other, end) = (d, o, at + c.len_utf8());
     }
     if let Some(line) = text[..end].rfind('\n').filter(|&at| at * 10 >= end * 9) {
         end = line + 1;
@@ -194,7 +249,7 @@ pub fn read_within(text: &str, tokens: usize) -> Read {
     Read {
         chars: part.chars().count() as u64,
         words: words(part),
-        tokens: localspace_proto::estimate_tokens(part) as u64,
+        tokens: crate::prompt::tokens_of(part) as u64,
     }
 }
 
@@ -212,13 +267,10 @@ mod tests {
 
     #[test]
     fn a_file_that_fits_is_read_whole_and_a_long_one_from_its_start() {
-        let short = "one two three
-";
+        let short = "one two three\n";
         let r = read_within(short, 100);
         assert_eq!((r.chars, r.words), (14, 3));
-        let long = "строка текста
-"
-        .repeat(1000);
+        let long = "строка текста\n".repeat(1000);
         let r = read_within(&long, 500);
         assert!(r.tokens <= 500, "{r:?}");
         assert!(r.chars > 0 && r.chars < long.chars().count() as u64);
@@ -318,6 +370,79 @@ mod tests {
         assert_eq!(decode(&png), Err(NotText::Binary));
         let noise: Vec<u8> = (0..400u32).map(|i| (i * 37 % 32) as u8).collect();
         assert_eq!(decode(&noise), Err(NotText::Binary));
+    }
+
+    #[test]
+    fn a_utf8_file_with_a_damaged_character_stays_utf8() {
+        let text = "Договор аренды № 15. Сумма: 8 000 000 сўм.\n".repeat(50);
+        // Cut in the middle of its last character.
+        let cut = &text.as_bytes()[..text.len() - 3];
+        let read = decode(cut).unwrap();
+        assert_eq!(read.encoding, Encoding::Utf8);
+        assert!(read.text.starts_with("Договор аренды № 15."));
+        // A stray byte among good characters.
+        let mut stray = text.as_bytes().to_vec();
+        stray.insert(100, 0xA0);
+        let read = decode(&stray).unwrap();
+        assert_eq!(read.encoding, Encoding::Utf8);
+        assert!(read.text.ends_with("сўм.\n"));
+        // Windows-1251 is still Windows-1251.
+        let plain = text.replace('ў', "у");
+        assert_eq!(
+            decode(&cp1251(&plain)).unwrap().encoding,
+            Encoding::Windows1251
+        );
+    }
+
+    #[test]
+    fn a_coloured_log_is_text_and_many_control_characters_are_not() {
+        let log = "\u{1b}[32m   Compiling\u{1b}[0m localspace-core v0.2.0\n".repeat(200);
+        assert_eq!(decode(log.as_bytes()).unwrap().text, log);
+        // No zero byte, but more than one character in a hundred is a control.
+        let noisy = "abc\u{1}\u{2}\u{3}defghij\n".repeat(100);
+        assert_eq!(decode(noisy.as_bytes()), Err(NotText::Binary));
+    }
+
+    #[test]
+    fn big_endian_utf16_without_a_mark() {
+        let ascii = "name,amount\nrent,8000000\n";
+        let bare: Vec<u8> = ascii.encode_utf16().flat_map(u16::to_be_bytes).collect();
+        let read = decode(&bare).unwrap();
+        assert_eq!(
+            (read.text.as_str(), read.encoding),
+            (ascii, Encoding::Utf16Be)
+        );
+    }
+
+    #[test]
+    fn digits_are_counted_one_by_one_so_a_table_of_figures_fits() {
+        let csv = "2026-10-01;1234567.89;4500000.00;12;0.15\n".repeat(2000);
+        let r = read_within(&csv, 4000);
+        let part = first_chars(&csv, r.chars);
+        let digits = part.chars().filter(char::is_ascii_digit).count();
+        assert!(digits <= 4000, "{digits} digits in a 4000-token part");
+        assert!(r.tokens <= 4000 && r.tokens as usize >= digits);
+        assert!(part.ends_with('\n'));
+    }
+
+    #[test]
+    fn chinese_is_counted_by_its_characters() {
+        assert_eq!(words("今天天气很好"), 6);
+        assert_eq!(words("Hello 世界 again"), 4);
+    }
+
+    #[test]
+    fn files_share_the_budget_and_none_is_left_with_nothing() {
+        // A short file gets all it needs; the long one, the rest.
+        assert_eq!(share(4000, &[30_000, 12]), vec![3988, 12]);
+        // Long files share it equally.
+        assert_eq!(share(4000, &[9_000, 9_000, 9_000, 9_000]), vec![1000; 4]);
+        // What fits is read whole.
+        assert_eq!(share(4000, &[100, 200]), vec![100, 200]);
+        assert_eq!(share(0, &[5, 5]), vec![0, 0]);
+        let shares = share(4000, &[5_000, 700, 30_000]);
+        assert_eq!(shares[1], 700);
+        assert!(shares.iter().sum::<usize>() <= 4000);
     }
 
     #[test]

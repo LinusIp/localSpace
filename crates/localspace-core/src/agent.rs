@@ -99,7 +99,7 @@ pub fn send(
             Err(refusal) => return proto::Response::AttachmentRefused { refusal },
         }
     };
-    let attached = read_text_files(core, &user, &conversation, attached);
+    let attached = read_text_files(core, &user, &conversation, text, attached);
     write(core, &user, &workspace, &conversation, |messages| {
         let mut said = message(proto::Role::User, text);
         said.attachments = attached;
@@ -112,24 +112,43 @@ pub fn send(
 
 /// How much of each attached text file the model reads, decided once, as
 /// the message is sent (internal plan 38, F4; docs/DECISIONS.md,
-/// 2026-10-26). The files of one message share half the working set, in
-/// the order they were attached; a file longer than its share is read from
-/// its start, and the client says how much. Nothing is cut silently.
+/// 2026-10-26). The files of one message share half the working set, less
+/// the person's own words: each takes what it needs or an equal share of
+/// what is left. A file longer than its share is read from its start, and
+/// the client says how much. Nothing is cut silently.
 fn read_text_files(
     core: &Core,
     user: &str,
     conversation: &str,
+    words: &str,
     attached: Vec<proto::Attachment>,
 ) -> Vec<proto::Attachment> {
-    let mut left = core.cfg.profile.working_set_tokens / 2;
+    let texts: Vec<Option<String>> = attached
+        .iter()
+        .map(|a| core.attachments.text(user, conversation, a))
+        .collect();
+    let frames: usize = attached
+        .iter()
+        .zip(&texts)
+        .filter(|(_, text)| text.is_some())
+        .map(|(a, _)| prompt::tokens_of(&file_block(&a.name, LONGEST_NOTE, "")))
+        .sum();
+    let budget =
+        (core.cfg.profile.working_set_tokens / 2).saturating_sub(prompt::tokens_of(words) + frames);
+    let needs: Vec<usize> = texts
+        .iter()
+        .map(|text| text.as_deref().map_or(0, prompt::tokens_of))
+        .collect();
+    let shares = crate::text_file::share(budget, &needs);
     attached
         .into_iter()
-        .map(|mut a| {
-            let Some(text) = core.attachments.text(user, conversation, &a) else {
+        .zip(texts)
+        .zip(shares)
+        .map(|((mut a, text), share)| {
+            let Some(text) = text else {
                 return a;
             };
-            let read = crate::text_file::read_within(&text, left);
-            left = left.saturating_sub(read.tokens as usize);
+            let read = crate::text_file::read_within(&text, share);
             if let Some(facts) = a.text.as_mut() {
                 facts.read_chars = read.chars;
                 facts.read_words = read.words;
@@ -141,10 +160,37 @@ fn read_text_files(
         .collect()
 }
 
+/// What the model is told of a text file it reads only part of, or none of.
+fn note_of(facts: Option<&proto::TextFile>) -> String {
+    let Some(f) = facts.filter(|f| f.read_chars < f.chars) else {
+        return String::new();
+    };
+    if f.read_chars == 0 {
+        return NO_ROOM.to_string();
+    }
+    let percent = f.read_chars * 100 / f.chars.max(1);
+    let part = if percent == 0 {
+        "less than 1%".to_string()
+    } else {
+        format!("{percent}%")
+    };
+    format!(" (only its first {part} fits here; say so if the rest matters)")
+}
+
+const NO_ROOM: &str = " (there was no room left to read it here; say so if it matters)";
+
+/// The longest note, for the room a file's frame takes.
+const LONGEST_NOTE: &str = " (only its first less than 1% fits here; say so if the rest matters)";
+
+/// A text file as it joins the person's words.
+fn file_block(name: &str, note: &str, part: &str) -> String {
+    format!("\n\n--- File: {name}{note} ---\n{part}\n--- End of file ---")
+}
+
 /// The chat as the model reads it: each text file a person attached joins
 /// their words, as much of it as was decided when it was sent, and leaves
 /// the attachments (its cost is now in the words). Pictures stay attached.
-fn with_text_files(
+pub(crate) fn with_text_files(
     core: &Core,
     user: &str,
     conversation: &str,
@@ -169,26 +215,11 @@ fn with_text_files(
                 let Some(text) = core.attachments.text(user, conversation, &file) else {
                     continue;
                 };
-                let facts = file.text.clone();
-                let read_chars = facts.as_ref().map_or(0, |f| f.read_chars);
+                let facts = file.text.as_ref();
+                let read_chars = facts.map_or(u64::MAX, |f| f.read_chars);
                 let part = crate::text_file::first_chars(&text, read_chars);
-                let whole = facts.as_ref().is_none_or(|f| f.read_chars >= f.chars);
-                let note = if whole {
-                    String::new()
-                } else {
-                    let total = facts.as_ref().map_or(0, |f| f.chars).max(1);
-                    let percent = read_chars * 100 / total;
-                    let part = if percent == 0 {
-                        "less than 1%".to_string()
-                    } else {
-                        format!("{percent}%")
-                    };
-                    format!(" (only its first {part} fits here; say so if the rest matters)")
-                };
-                m.content.push_str(&format!(
-                    "\n\n--- File: {}{note} ---\n{part}\n--- End of file ---",
-                    file.name
-                ));
+                m.content
+                    .push_str(&file_block(&file.name, &note_of(facts), part));
             }
             m
         })
@@ -1335,10 +1366,15 @@ fn delivery(core: &Core, user: &str) -> Delivery {
     })
 }
 
-fn transcript(core: &Core) -> proto::Response {
+/// The chat on screen, with where the model's reading of it begins, worked
+/// out on the chat as the model reads it, text files and all: the divider
+/// the person sees is where the model starts.
+pub(crate) fn transcript(core: &Core) -> proto::Response {
+    let (user, chat) = (&core.active.user, &core.conversations.current);
+    let read = with_text_files(core, user, chat, core.transcript.clone());
     proto::Response::Transcript {
         messages: core.transcript.clone(),
-        read_from: crate::prompt::read_from(&core.transcript, core.cfg.profile.working_set_tokens),
+        read_from: prompt::read_from(&read, core.cfg.profile.working_set_tokens),
     }
 }
 
