@@ -29,8 +29,8 @@ thinking: string,
  */
 cut_short: CutShort | null, 
 /**
- * What the person attached to this message: its pictures, kept on this
- * computer with the chat and deleted with it (docs/DECISIONS.md,
- * 2026-10-18).
+ * What the person attached to this message: its pictures and text
+ * files, kept on this computer with the chat and deleted with it
+ * (docs/DECISIONS.md, 2026-10-18 and 2026-10-26).
  */
 attachments?: Array<Attachment>, };
