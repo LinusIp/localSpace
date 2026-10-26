@@ -17,7 +17,8 @@ This repository is visible on GitHub, all rights reserved. No open-source licenc
   - desktop `-np 1`, `--cache-ram 256`, `--ctx-checkpoints 4`;
   - a database page cache of 64 MiB;
   - 8,192 tokens of context per chat;
-  - big-step trimming to half, with a divider;
+  - a chat's messages ≤ context − answer room − system part (about 6,000 tokens on a laptop for a plain chat; less with thinking on or tools on offer);
+  - big-step trimming to half of that, with a divider;
   - a picture counts as 400 tokens.
 - **Default-model rule:** model system part + 2.4 GB, + 3 GB for other programs, + 3 GB free. That gives the 4B on 16 GB with a 4 GB card, and the 9B elsewhere.
 - **Pictures (P5):**
@@ -49,11 +50,6 @@ This repository is visible on GitHub, all rights reserved. No open-source licenc
   - superseded runs are cancelled;
   - document-only changes skip CI.
 - Record decisions with the date (section 3.5). Keep plans and this file in step.
-
-**The founder's computer**
-- His AppData is read-only for agents.
-- Never use `Remove-Item` on a junction; use `(Get-Item <path>).Delete()`.
-- Local builds use 2 jobs. Heavy jobs on the founder's computer (builds, model runs) need his yes first.
 
 **Talking to the founder**
 - Plain, short words; tables for schedules; one clear list of the decisions he needs to make, each with your recommendation.
@@ -132,7 +128,6 @@ Then wait for the answer.
 
 **Locally**
 - Run only the one or two test suites you're working on (`cargo test -p localspace-core --test <suite>`), and leave `cargo test --workspace` to CI.
-- Smart App Control stays on. If a freshly built exe is refused, copy it to a new name or build it in release.
 
 **Before every push**
 ```bash
