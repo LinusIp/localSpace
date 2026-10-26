@@ -13,6 +13,19 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-26, text files in chat (0.2.0)
+
+Internal plan 38, F1 and a smaller F4; part of the frozen 0.2.0 scope on `release/0.2`, so not behind a switch (the switch rule covers later work on `main`).
+
+- **What is taken:** a file Core can read as text, whatever its name. UTF-8 (with or without a byte-order mark) and UTF-16 (with a mark, or found by its zero bytes) are read as they are; anything else is read as Windows-1251, the usual Russian and Uzbek Cyrillic encoding on Windows. A file with a zero byte, or more than 1% control characters, is refused as not text; so is an empty one, and one over 2 MB.
+- **No new library.** The Windows-1251 table is ours (`text_file.rs`), 64 characters plus the alphabet, since `encoding_rs` would be a new dependency.
+- **Kept as UTF-8,** `<id>.txt` beside the pictures, and deleted with its chat. It is served back as `text/plain; charset=utf-8`, with `nosniff`, as a download, never shown as a page.
+- **How much the model reads:** the text files of one message share half the working set, at the prompt's estimate of 4 bytes a token. A longer file is cut at a line end in its last tenth. The cut is decided once, when the message is sent, and kept with the file, so every later prompt reads the same part.
+- **Never cut silently:** the model is told when only the start fits, and the person sees how much it read ("the model read the first 23% (about 5,000 of 22,000 words)").
+- **Four attachments a message,** pictures and files together. Only pictures are refused for a model that cannot read them.
+- **Later:** counting with the engine's `/tokenize` instead of the estimate; PDF and DOCX (preview.3).
+- **Walked in CI:** `web/e2e/text-files.mjs`, with the test engine that cannot read pictures.
+
 ## 2026-10-25, the plugin manifest is `plugin.toml`; plugins are `.lspkg` files
 
 The owner's ruling of 25 October.
