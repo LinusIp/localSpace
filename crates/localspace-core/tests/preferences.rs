@@ -134,5 +134,5 @@ fn a_language_that_is_not_a_language_tag_is_refused() {
             other => panic!("{bad:?} was kept: {other:?}"),
         }
     }
-    assert!(values(&mut core, &anna).get("language").is_none());
+    assert!(!values(&mut core, &anna).contains_key("language"));
 }
