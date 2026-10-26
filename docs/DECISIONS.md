@@ -13,6 +13,18 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-26, the language chosen in Settings is remembered (0.2.0)
+
+The founder's ruling of 25 October: fix it on `release/0.2`, with a test, before the 4 November cut-off.
+
+- **The bug:** the 18 October entry says the choice is "kept as the `language` preference". Core accepted only `rail_collapsed` (`PREFERENCE_KEYS`), so choosing a language in Settings showed "`language` is not something the shell remembers", and the choice was gone after a restart. It was in preview.1. The language shown still followed Windows.
+- **The fix:** `language` joins `PREFERENCE_KEYS`.
+  - **What it accepts:** "system" or a short language tag (letters, digits and hyphens, starting with a letter, at most 35 characters). A language added to the client later needs no change in Core.
+  - **What it refuses:** anything else, with "`…` is not a language".
+- **Tested** (`tests/preferences.rs`):
+  - the choice is kept across a restart;
+  - malformed values are refused, and nothing is stored.
+
 ## 2026-10-25, the plugin manifest is `plugin.toml`; plugins are `.lspkg` files
 
 The owner's ruling of 25 October.
