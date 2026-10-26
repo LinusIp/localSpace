@@ -317,7 +317,7 @@ jobs:
       - name: an answer that ends early is said in the person's language (a full chat, a refusal for want of room, the answer's own limit)
         run: |
           mkdir -p "$RUNNER_TEMP/fulldata/models" "$RUNNER_TEMP/fullcatalog"
-          printf 'fills the context; refuses requests over 6000 bytes\n' > "$RUNNER_TEMP/fulldata/models/full.gguf"
+          printf 'fills the context over 2000 bytes; refuses requests over 6000 bytes\n' > "$RUNNER_TEMP/fulldata/models/full.gguf"
           printf 'stops at the limit\n' > "$RUNNER_TEMP/fulldata/models/limit.gguf"
           full="$(wc -c < "$RUNNER_TEMP/fulldata/models/full.gguf" | tr -d ' ')"
           limit="$(wc -c < "$RUNNER_TEMP/fulldata/models/limit.gguf" | tr -d ' ')"

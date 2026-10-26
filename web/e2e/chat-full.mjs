@@ -1,12 +1,14 @@
 // How an answer that ends early is said, in a real browser (docs/DECISIONS.md,
 // 2026-10-26): a chat that runs out of room says so in the person's language
 // and offers a new chat, never Continue; a request the engine refuses for want
-// of room says the same, never the raw error; an answer at its own length
-// limit says that, and Continue carries it on. The words come from the
-// client, so the same chat reads in Uzbek, Russian and English. Runs against
-// a `localspace serve` that is already up, with `LOCALSPACE_LLAMA_SERVER`
-// set to the test engine and two models: `full` ("fills the context;
-// refuses requests over 6000 bytes") and `limit` ("stops at the limit").
+// of room says the same, never the raw error; one message too long for the
+// model alone is said as such, with no new chat offered, since a new chat
+// would read the same; an answer at its own length limit says that, and
+// Continue carries it on. The words come from the client, so the same chat
+// reads in Uzbek, Russian and English. Runs against a `localspace serve` that
+// is already up, with `LOCALSPACE_LLAMA_SERVER` set to the test engine and
+// two models: `full` ("fills the context over 2000 bytes; refuses requests
+// over 6000 bytes") and `limit` ("stops at the limit").
 //
 //   node e2e/chat-full.mjs http://127.0.0.1:8449 ci-token
 
@@ -33,7 +35,13 @@ const step = (text) => console.log(`· ${text}`);
 const SAYS = {
   uz: { chatFull: "Bu suhbat toʻldi, shuning uchun javob chala qoldi.", noRoom: "modelga javob berish uchun joy qolmadi", newChat: "Yangi suhbat" },
   ru: { chatFull: "Этот чат заполнен, поэтому ответ оборван.", noRoom: "модели не хватило места для ответа" },
-  en: { chatFull: "This chat is full, so the answer was cut short.", noRoom: "the model had no room to answer", atLimit: "The answer reached its length limit.", continue: "Continue" },
+  en: {
+    chatFull: "This chat is full, so the answer was cut short.",
+    noRoom: "the model had no room to answer",
+    tooLong: "This message is too long for this model, so it had no room to answer.",
+    atLimit: "The answer reached its length limit.",
+    continue: "Continue",
+  },
 };
 const RAW = /\b400\b|context size|could not reach|exceed/i;
 
@@ -74,9 +82,16 @@ try {
   const lines = page.locator(".message-stopped");
   const errors = page.locator(".toast.error");
 
-  // 1. The context runs out while the answer is written: the words that came
-  //    stay, and the chat says it is full, in Uzbek, offering a new chat.
-  await box.fill("Uzun javob yozing.");
+  const answered = async () => (await box.isEnabled()) && (await page.locator(".send.stop").count()) === 0;
+
+  // 1. A short exchange, answered as any other; then the context runs out
+  //    while the next answer is written: the words that came stay, and the
+  //    chat says it is full, in Uzbek, offering a new chat.
+  await box.fill("Salom!");
+  await box.press("Enter");
+  await until("the first answer", async () => (await page.locator(".prose-chat").count()) === 1 && (await answered()), 30000);
+  if ((await lines.count()) !== 0) throw new Error(`a whole answer has a line: ${await lines.first().innerText()}`);
+  await box.fill("Iltimos, diqqat bilan oʻqing. ".repeat(80));
   await box.press("Enter");
   await until("the full-chat line", async () => (await lines.count()) === 1 && (await lines.first().innerText()).includes(SAYS.uz.chatFull), 30000);
   const first = await lines.first().innerText();
@@ -85,10 +100,11 @@ try {
   if ((await page.locator(".prose-chat").last().innerText()).trim() === "") throw new Error("the words that came were not kept");
   step(`ran out of room: "${first}"`);
 
-  // 2. A request too long for the engine at all: refused for want of room,
-  //    said as such, never the raw refusal, never an error notice.
-  await until("the answer before the next message", async () => (await box.isEnabled()) && (await page.locator(".send.stop").count()) === 0, 30000);
-  await box.fill("Iltimos, diqqat bilan oʻqing. ".repeat(260));
+  // 2. With more of the chat, a request too long for the engine at all:
+  //    refused for want of room, said as a full chat, never the raw refusal,
+  //    never an error notice.
+  await until("the answer before the next message", answered, 30000);
+  await box.fill("Iltimos, diqqat bilan oʻqing. ".repeat(130));
   await box.press("Enter");
   await until("the no-room line", async () => (await lines.count()) === 2 && (await lines.nth(1).innerText()).includes(SAYS.uz.noRoom), 30000);
   const body = await page.evaluate(() => document.body.innerText);
@@ -113,7 +129,17 @@ try {
   await until("an empty chat", async () => (await page.locator(".message").count()) === 0, 15000);
   step("New chat opens an empty chat");
 
-  // 5. An answer at its own length limit: that is what it says, never a full
+  // 5. One message too long for the model alone: said as such, never as a
+  //    full chat, and no new chat is offered, since it would read the same.
+  await box.fill("Please read this carefully. ".repeat(250));
+  await box.press("Enter");
+  await until("the too-long line", async () => (await lines.count()) === 1 && (await lines.first().innerText()).includes(SAYS.en.tooLong), 30000);
+  const tooLong = await lines.first().innerText();
+  if (/full|New chat|Continue/.test(tooLong)) throw new Error(`a message too long is said as a full chat, or offers a button: ${tooLong}`);
+  if (RAW.test(await page.evaluate(() => document.body.innerText))) throw new Error("the raw refusal reached the page");
+  step(`one message too long: "${tooLong}"`);
+
+  // 6. An answer at its own length limit: that is what it says, never a full
   //    chat, and Continue carries it on.
   step("loading `limit`, a test engine that writes to its own limit");
   await load("limit");
