@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MOST_PICTURES, aboutGigabytes, isPicture, refusalText } from "./attachments.ts";
+import { ACCEPT, MOST_ATTACHMENTS, aboutGigabytes, isAttachable, isPicture, isTextFile, partReadText, refusalText } from "./attachments.ts";
 import { STRINGS } from "./strings.ts";
 
 test("pictures are taken by their type or, without one, by their name", () => {
@@ -11,8 +11,35 @@ test("pictures are taken by their type or, without one, by their name", () => {
   assert.ok(!isPicture({ type: "application/pdf", name: "a.pdf" }));
 });
 
-test("as many pictures with one message as Core takes", () => {
-  assert.equal(MOST_PICTURES, 4);
+test("as many pictures and files with one message as Core takes", () => {
+  assert.equal(MOST_ATTACHMENTS, 4);
+});
+
+test("text files are taken by their type or, without one, by their name; others are not", () => {
+  assert.ok(isTextFile({ type: "text/plain", name: "x" }));
+  assert.ok(isTextFile({ type: "", name: "Report.CSV" }));
+  assert.ok(isTextFile({ type: "", name: "main.rs" }));
+  assert.ok(!isTextFile({ type: "application/pdf", name: "a.pdf" }));
+  assert.ok(!isTextFile({ type: "", name: "noextension" }));
+  assert.ok(isAttachable({ type: "", name: "notes.md" }));
+  assert.ok(isAttachable({ type: "image/png", name: "x" }));
+  assert.ok(!isAttachable({ type: "application/zip", name: "a.zip" }));
+  assert.match(ACCEPT, /image\/png/);
+  assert.match(ACCEPT, /\.csv/);
+});
+
+test("a text file read only in part says how much, in the person's language; one read whole says nothing", () => {
+  const file = (read: number) => ({
+    id: "a", kind: "text" as const, name: "long.txt", mime: "text/plain", bytes: 100, width: 0, height: 0,
+    text: { encoding: "UTF-8", chars: 1000, words: 22000, read_chars: read, read_words: 5000, read_tokens: 4000 },
+  });
+  for (const language of ["en", "ru", "uz"] as const) {
+    const s = STRINGS[language];
+    assert.equal(partReadText(s, file(1000), language), null);
+    const said = partReadText(s, file(230), language) ?? "";
+    assert.match(said, /23/, language);
+    assert.match(said, /22[\s,.  ]?000/, language);
+  }
 });
 
 test("every refusal says why in the person's language, with its numbers", () => {
@@ -21,6 +48,9 @@ test("every refusal says why in the person's language, with its numbers", () => 
     assert.equal(refusalText(s, "not_a_picture"), s.notAPicture);
     assert.equal(refusalText(s, "unreadable"), s.pictureUnreadable);
     assert.equal(refusalText(s, "not_found"), s.pictureNotFound);
+    assert.equal(refusalText(s, "not_text"), s.notText);
+    assert.equal(refusalText(s, "empty_file"), s.emptyFile);
+    assert.match(refusalText(s, { text_too_large: { megabytes: 3 } }), /3/);
     assert.match(refusalText(s, { too_large: { megabytes: 41 } }), /41/);
     assert.match(refusalText(s, { too_many_pixels: { width: 9000, height: 8000 } }), /9000.*8000/);
     assert.match(refusalText(s, { too_many: { most: 4 } }), /4/);

@@ -6,7 +6,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, ClipIcon, CloseIcon, Dialog, SpinnerIcon, StopIcon } from "@localspace/ui";
 import type { Attachment, ChatMessage, ToolCallRecord } from "../api/generated";
 import { addAttachment, attachmentUrl } from "../api/client";
-import { MOST_PICTURES, PICTURE_TYPES, isPicture, leftOutText, refusalText } from "../lib/attachments";
+import { ACCEPT, MOST_ATTACHMENTS, isAttachable, isPicture, leftOutText, partReadText, refusalText } from "../lib/attachments";
 import { useLanguage, useStrings } from "../useStrings";
 import { initialsOf, outcomeLine, useSession } from "../store";
 import type { LiveToolCall } from "../store";
@@ -276,7 +276,7 @@ function Message({ message, joined, mayContinue }: { message: ChatMessage; joine
       <div className="message">
         <PersonAvatar />
         <div className="message-body user ls-pre">
-          {message.attachments && message.attachments.length > 0 && <SentPictures pictures={message.attachments} />}
+          {message.attachments && message.attachments.length > 0 && <SentAttachments attachments={message.attachments} />}
           {message.content}
         </div>
       </div>
@@ -369,9 +369,37 @@ function ApprovalCard({ id, kind, prompt }: { id: string; kind: string; prompt: 
 }
 
 /**
- * The pictures of a sent message, small, each opening larger in the app
- * (docs/DECISIONS.md, 2026-10-18; plan 38, P3).
+ * What a sent message carried: its pictures, small, each opening larger in
+ * the app (docs/DECISIONS.md, 2026-10-18; plan 38, P3), and its text files,
+ * each with how much the model read when that was not all of it (plan 38,
+ * F4) and a way to save it again.
  */
+function SentAttachments({ attachments }: { attachments: Attachment[] }) {
+  const strings = useStrings();
+  const language = useLanguage();
+  const pictures = attachments.filter((a) => a.kind === "picture");
+  const files = attachments.filter((a) => a.kind === "text");
+  return (
+    <>
+      {pictures.length > 0 && <SentPictures pictures={pictures} />}
+      {files.map((f) => {
+        const part = partReadText(strings, f, language);
+        return (
+          <div key={f.id} className="message-file">
+            <span className="message-file-name" title={f.name}>
+              {f.name}
+            </span>
+            <a className="link green" href={attachmentUrl(f.id)} download={f.name}>
+              {strings.saveFile}
+            </a>
+            {part && <div className="message-file-note">{part}</div>}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 function SentPictures({ pictures }: { pictures: Attachment[] }) {
   const [open, setOpen] = useState<Attachment | null>(null);
   return (
@@ -390,13 +418,17 @@ function SentPictures({ pictures }: { pictures: Attachment[] }) {
   );
 }
 
-/** A picture in the composer, before the message goes: on its way to Core, or taken. */
+/** A picture or a text file in the composer, before the message goes: on its way to Core, or taken. */
 interface Pending {
   key: string;
   name: string;
-  /** What the person sees meanwhile: the file itself, on this computer. */
-  preview: string;
+  /** A picture's preview meanwhile: the file itself, on this computer; none for a text file. */
+  preview: string | null;
   attachment: Attachment | null;
+}
+
+function letGo(p: Pending) {
+  if (p.preview) URL.revokeObjectURL(p.preview);
 }
 
 function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (text: string) => void; placeholder: string }) {
@@ -411,7 +443,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
   // Pictures with a model that cannot read them here: said at once, with the
   // model to switch to (docs/DECISIONS.md, 2026-10-18; plan 38, P4).
   const loaded = environment?.model ?? null;
-  const blind = pending.length > 0 && loaded !== null && !loaded.supports_vision;
+  const blind = pending.some((p) => p.preview !== null) && loaded !== null && !loaded.supports_vision;
   // The model Core found at the load that would read them here, never a
   // larger one (docs/DECISIONS.md, 2026-10-19); none, and only "Try again".
   const suggested = environment?.picture_model ?? null;
@@ -419,38 +451,39 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
   // Its picture file left out at this load, for want of free memory (plan 38, P5).
   const leftOut = environment?.picture_file_left_out_mib ?? null;
 
-  // Each picture goes to Core as soon as it is added: made ready and kept
-  // there until the message goes. A refusal is said once, plainly.
+  // Each picture or text file goes to Core as soon as it is added: made
+  // ready and kept there until the message goes. A refusal is said once,
+  // plainly.
   const addFiles = (files: File[]) => {
-    const pictures = files.filter(isPicture);
-    if (pictures.length < files.length) setSaid(strings.notAPicture);
-    const room = MOST_PICTURES - pending.length;
-    if (pictures.length > room) setSaid(strings.tooManyPictures(MOST_PICTURES));
-    for (const file of pictures.slice(0, Math.max(0, room))) {
+    const taken = files.filter(isAttachable);
+    if (taken.length < files.length) setSaid(strings.notText);
+    const room = MOST_ATTACHMENTS - pending.length;
+    if (taken.length > room) setSaid(strings.tooManyPictures(MOST_ATTACHMENTS));
+    for (const file of taken.slice(0, Math.max(0, room))) {
       const key = `${file.name}-${file.size}-${Math.random()}`;
-      const preview = URL.createObjectURL(file);
-      setPending((all) => [...all, { key, name: file.name || "picture", preview, attachment: null }]);
-      void addAttachment(file, file.name || "picture")
+      const preview = isPicture(file) ? URL.createObjectURL(file) : null;
+      setPending((all) => [...all, { key, name: file.name || "file", preview, attachment: null }]);
+      void addAttachment(file, file.name || "file")
         .then((answer) => {
           if ("attachment" in answer) {
             setPending((all) => all.map((p) => (p.key === key ? { ...p, attachment: answer.attachment } : p)));
           } else {
             setSaid(refusalText(strings, answer.refusal));
             setPending((all) => all.filter((p) => p.key !== key));
-            URL.revokeObjectURL(preview);
+            if (preview) URL.revokeObjectURL(preview);
           }
         })
         .catch(() => {
-          setSaid(strings.pictureUnreadable);
+          setSaid(preview ? strings.pictureUnreadable : strings.notText);
           setPending((all) => all.filter((p) => p.key !== key));
-          URL.revokeObjectURL(preview);
+          if (preview) URL.revokeObjectURL(preview);
         });
     }
   };
   const remove = (key: string) => {
     setPending((all) => {
       const gone = all.find((p) => p.key === key);
-      if (gone) URL.revokeObjectURL(gone.preview);
+      if (gone) letGo(gone);
       return all.filter((p) => p.key !== key);
     });
   };
@@ -475,7 +508,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
   }, [pending]);
   useEffect(
     () => () => {
-      for (const p of previews.current) URL.revokeObjectURL(p.preview);
+      for (const p of previews.current) letGo(p);
     },
     [],
   );
@@ -503,7 +536,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
         setPending(sent);
         setSaid(refusalText(strings, refusal, modelLabel(model?.id, catalogModels), instead?.title ?? null, language));
       } else {
-        for (const p of sent) URL.revokeObjectURL(p.preview);
+        for (const p of sent) letGo(p);
       }
     });
   };
@@ -524,12 +557,12 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
         addFiles(Array.from(e.dataTransfer.files));
       }}
     >
-      {dragging && <div className="composer-drop">{strings.dropPictureHere}</div>}
+      {dragging && <div className="composer-drop">{strings.dropFileHere}</div>}
       {pending.length > 0 && (
         <div className="composer-pictures">
           {pending.map((p) => (
-            <div key={p.key} className={`composer-picture${p.attachment ? "" : " uploading"}`}>
-              <img src={p.preview} alt={p.name} />
+            <div key={p.key} className={`${p.preview ? "composer-picture" : "composer-file"}${p.attachment ? "" : " uploading"}`}>
+              {p.preview ? <img src={p.preview} alt={p.name} /> : <span className="composer-file-name" title={p.name}>{p.name}</span>}
               <button type="button" className="composer-picture-remove" onClick={() => remove(p.key)} aria-label={`${strings.removePicture}: ${p.name}`} title={strings.removePicture}>
                 <CloseIcon size={12} />
               </button>
@@ -588,7 +621,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
         <input
           ref={chooser}
           type="file"
-          accept={PICTURE_TYPES.join(",")}
+          accept={ACCEPT}
           multiple
           hidden
           onChange={(e) => {
@@ -596,7 +629,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
             e.target.value = "";
           }}
         />
-        <button type="button" className="composer-attach" onClick={() => chooser.current?.click()} disabled={pending.length >= MOST_PICTURES} aria-label={strings.attachPicture} title={strings.attachPicture}>
+        <button type="button" className="composer-attach" onClick={() => chooser.current?.click()} disabled={pending.length >= MOST_ATTACHMENTS} aria-label={strings.attachFile} title={strings.attachFile}>
           <ClipIcon size={17} />
         </button>
         <div className="ls-row ls-gap-2">
