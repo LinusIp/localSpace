@@ -647,7 +647,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
             submit();
           }
         }}
-        placeholder={model ? placeholder : "Choose a model in Settings first, then ask here"}
+        placeholder={model ? placeholder : strings.chooseModelToStart}
         aria-label="Message"
         autoFocus
       />
@@ -667,16 +667,16 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
           <ClipIcon size={17} />
         </button>
         <div className="ls-row ls-gap-2">
-          <button type="button" className="model-chip" onClick={() => goSettings("assistant")} title="Choose the assistant">
+          <button type="button" className="model-chip" onClick={() => goSettings("assistant")} title={strings.chooseModelLabel}>
             {modelLabel(model?.id, catalogModels)}
             <ChevronDownIcon size={13} className="ls-faint" />
           </button>
           {busy ? (
-            <button type="button" className="send stop" onClick={() => void cancel()} title="Stop" aria-label="Stop">
+            <button type="button" className="send stop" onClick={() => void cancel()} title={strings.stop} aria-label={strings.stop}>
               <StopIcon size={16} />
             </button>
           ) : (
-            <button type="button" className="send" onClick={submit} disabled={!draft.trim() || !model || uploading || blind} aria-label="Send">
+            <button type="button" className="send" onClick={submit} disabled={!draft.trim() || !model || uploading || blind} aria-label={strings.send} title={strings.send}>
               <ArrowUpIcon size={17} />
             </button>
           )}

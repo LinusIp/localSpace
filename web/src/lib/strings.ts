@@ -57,7 +57,20 @@ export interface Strings {
   /** The same, for a person who cannot load a model: a member of an organisation. */
   modelFailedAskAdmin: string;
   noAnswer: string;
+  /** The top bar (plan 45 §5): each chip opens the part of Settings it speaks of. */
+  chooseModel: string;
+  onlineForDownloads: string;
+  offline: string;
   /** The composer. */
+  chooseModelToStart: string;
+  send: string;
+  stop: string;
+  /** The model's name under the message box, which opens Settings → Assistant. */
+  chooseModelLabel: string;
+  /** Said when the app on this computer can't reach its own Core. */
+  notResponding: string;
+  /** The Store on this computer, with no tools for this version. */
+  noToolsYet: string;
   attachFile: string;
   removePicture: string;
   dropFileHere: string;
@@ -134,6 +147,15 @@ const en: Strings = {
   modelFailed: "The model couldn't answer. If it happens again, load the model again in Settings.",
   modelFailedAskAdmin: "The model couldn't answer. If it happens again, tell your administrator.",
   noAnswer: "The model gave no answer. Ask again.",
+  chooseModel: "Choose a model",
+  onlineForDownloads: "Online for downloads only",
+  offline: "Offline",
+  chooseModelToStart: "Choose a model to start, then ask here",
+  send: "Send",
+  stop: "Stop",
+  chooseModelLabel: "Choose a model",
+  notResponding: "localSpace isn't responding. Close it and open it again.",
+  noToolsYet: "No tools are available for this version yet.",
   switchForPictures: (model) => `Switch to ${model} for pictures`,
   downloadForPictures: (model) => `Download ${model} for pictures`,
 };
@@ -181,6 +203,15 @@ const ru: Strings = {
   modelFailed: "Модели не удалось ответить. Если это повторится, загрузите модель заново в Settings.",
   modelFailedAskAdmin: "Модели не удалось ответить. Если это повторится, сообщите администратору.",
   noAnswer: "Модель не дала ответа. Спросите ещё раз.",
+  chooseModel: "Выберите модель",
+  onlineForDownloads: "В сети только для загрузок",
+  offline: "Не в сети",
+  chooseModelToStart: "Выберите модель, чтобы начать, а затем задайте вопрос здесь",
+  send: "Отправить",
+  stop: "Остановить",
+  chooseModelLabel: "Выбрать модель",
+  notResponding: "localSpace не отвечает. Закройте его и откройте снова.",
+  noToolsYet: "Для этой версии пока нет инструментов.",
   switchForPictures: (model) => `Переключиться на ${model} для изображений`,
   downloadForPictures: (model) => `Скачать ${model} для изображений`,
 };
@@ -228,6 +259,15 @@ const uz: Strings = {
   modelFailed: "Model javob bera olmadi. Yana takrorlansa, modelni Settings boʻlimida qaytadan yuklang.",
   modelFailedAskAdmin: "Model javob bera olmadi. Yana takrorlansa, administratoringizga xabar bering.",
   noAnswer: "Model javob bermadi. Qaytadan soʻrang.",
+  chooseModel: "Modelni tanlang",
+  onlineForDownloads: "Faqat yuklab olish uchun onlayn",
+  offline: "Oflayn",
+  chooseModelToStart: "Boshlash uchun modelni tanlang, keyin shu yerda soʻrang",
+  send: "Yuborish",
+  stop: "Toʻxtatish",
+  chooseModelLabel: "Modelni tanlash",
+  notResponding: "localSpace javob bermayapti. Uni yoping va qaytadan oching.",
+  noToolsYet: "Bu versiya uchun hozircha vositalar yoʻq.",
   switchForPictures: (model) => `Rasmlar uchun ${model} ga oʻtish`,
   downloadForPictures: (model) => `Rasmlar uchun ${model} ni yuklab olish`,
 };

@@ -528,7 +528,7 @@ function AdvancedPane() {
       <DiagnosticsSection />
       <HistorySection />
       <RunToolSection />
-      <p className="ls-small ls-faint" style={{ marginTop: 22 }}>
+      <p className="ls-small ls-muted" style={{ marginTop: 22 }}>
         Model profile: {environment?.profile ?? "…"}.
       </p>
     </>
@@ -646,7 +646,7 @@ function DiagnosticsSection() {
             <ol style={{ margin: "6px 0", paddingLeft: 18 }}>
               {task.plan.map((s, i) => (
                 <li key={i}>
-                  <span className="ls-mono ls-muted">{s.harness}</span> {s.intent} <span className="ls-faint">· {s.status}</span>
+                  <span className="ls-mono ls-muted">{s.harness}</span> {s.intent} <span className="ls-muted">· {s.status}</span>
                 </li>
               ))}
             </ol>
