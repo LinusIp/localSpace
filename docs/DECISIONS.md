@@ -13,6 +13,25 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-27, the message box keeps the cursor; small wording fixes (0.2.0)
+
+- **The message box keeps the cursor,** so people can type without clicking:
+  - when the app opens, on a new chat and when switching chats;
+  - after a message goes, whether sent with Enter or with the button;
+  - after leaving Settings, and when a dialog or a menu closes.
+
+  **Never while a dialog or a menu is open.** The composer watches for one, and gives the cursor back when the last one closes. A browser walk (`web/e2e/cursor.mjs`) tests each case.
+- **The top bar's chips are buttons into Settings:** "Choose a model" (to Settings → Assistant, for whoever may load one; members still read "No model — ask your administrator") and "Online for downloads only" / "Offline" (to Settings → Network).
+- **Other words:**
+  - the composer with no model: "Choose a model to start, then ask here";
+  - the composer's buttons are named "Send" and "Stop", and the model's name under the box is titled "Choose a model";
+  - on this computer, a request Core can't answer says "localSpace isn't responding. Close it and open it again." An organisation's sign-in keeps "The server could not be reached.";
+  - the Store on this computer, with nothing to add: "No tools are available for this version yet.";
+  - a model download that finishes says "{model} is ready". Core writes this sentence, so it stays English until Core sends codes instead.
+- **All of these lines are in English, Russian and Uzbek** (`strings.ts`), except Core's download sentence.
+- **The "connected to localSpace" notice at every start is gone.**
+- **Faint text is darker:** captions, placeholders, quiet links and labels use the muted grey (contrast 4.87:1 on white, from 2.59:1). Icons keep the faint grey.
+
 ## 2026-10-26, a chat's messages leave the answer its room; why an answer ended is always said (0.2.0)
 
 - **The rule:** a chat's messages ≤ context − answer room − system part (`prompt::budget`, `agent::chat_budget`). The old working-set figure stays as an upper limit. The big step of `read_from` is to half of the result.
