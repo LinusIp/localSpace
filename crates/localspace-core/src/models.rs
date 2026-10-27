@@ -1492,7 +1492,7 @@ fn fetch_and_tell(
             proto::NoticeLevel::Error
         },
         text: match result {
-            Ok(()) => format!("{} downloaded; load it from Models", m.title),
+            Ok(()) => format!("{} is ready", m.title),
             Err(e) => format!("{} download {e:#}", m.title),
         },
     });
