@@ -14,6 +14,7 @@ import { Markdown } from "../components/Markdown";
 import { Mark } from "../components/Mark";
 import { TopBar } from "../components/TopBar";
 import { greeting } from "../lib/time";
+import { endOfAnswer, workOf } from "../lib/answers";
 import { modelLabel } from "../lib/models";
 
 /** The answer in progress in the chat on screen: its words so far, where it
@@ -45,10 +46,6 @@ const WAITS_FOR_ANOTHER_CHAT = "Waiting for the answer in your other chat to fin
  *  2026-09-24): "server", since the person has no choice to make about the
  *  model here. */
 const WAITS_FOR_THE_SERVER = "The server is answering other people right now. This one will start by itself.";
-
-/** Said under an answer Core ended early (ruled 2026-10-10). */
-const REPEATED = "The answer started repeating itself, so it was stopped.";
-const AT_LIMIT = "The answer reached its length limit.";
 
 /** Said where a proposal the person declined stood (ruled 2026-09-24). */
 const DECLINED = "You declined this change. The answer stopped here.";
@@ -89,9 +86,14 @@ export function Conversation({ compact }: { compact?: boolean }) {
   const draft = useSession((s) => s.drafts[chat] ?? "");
   const setDraft = (text: string) => useSession.get().setDraft(chat, text);
   const empty = shown.length === 0 && !streaming;
-  // Carrying on a stopped answer: its new words join it, in its place.
+  // Carrying on a stopped answer: its new words join it, in its place. One
+  // with no words is answered afresh: it gives way to the answer in progress,
+  // which says where it stands as any other does.
   const last = shown[shown.length - 1];
-  const joining = continuing && last?.role === "assistant" && last.stopped;
+  const carried = continuing && last?.role === "assistant" && last.stopped;
+  const joining = carried && last.content.trim() !== "";
+  const thread = carried && !joining ? shown.slice(0, -1) : shown;
+  const work = workOf(transcript);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -115,8 +117,8 @@ export function Conversation({ compact }: { compact?: boolean }) {
     <div className="chat">
       <div className="chat-scroll">
         <div className="chat-thread">
-          {shown.map((m, i) => {
-            const isLast = i === shown.length - 1;
+          {thread.map((m, i) => {
+            const isLast = i === thread.length - 1;
             return (
               <Fragment key={i}>
                 {m === firstRead && (
@@ -124,7 +126,7 @@ export function Conversation({ compact }: { compact?: boolean }) {
                     {strings.olderMessagesLeftOut}
                   </div>
                 )}
-                <Message message={m} joined={isLast && joining ? streaming : null} mayContinue={isLast && !turn} />
+                <Message message={m} joined={isLast && joining ? streaming : null} mayContinue={isLast && !turn} work={work.get(m) ?? []} />
               </Fragment>
             );
           })}
@@ -259,8 +261,11 @@ function PersonAvatar() {
  * *Continue* when it is the chat's last and nothing is in progress; while it
  * is carried on, `joined` holds the new words, shown in its place.
  */
-function Message({ message, joined, mayContinue }: { message: ChatMessage; joined: string | null; mayContinue: boolean }) {
+function Message({ message, joined, mayContinue, work }: { message: ChatMessage; joined: string | null; mayContinue: boolean; work: ToolCallRecord[] }) {
   const continueAnswer = useSession((s) => s.continueAnswer);
+  const newConversation = useSession((s) => s.newConversation);
+  const me = useSession((s) => s.me);
+  const strings = useStrings();
   if (message.role === "tool") {
     return (
       <div className="message">
@@ -283,6 +288,9 @@ function Message({ message, joined, mayContinue }: { message: ChatMessage; joine
     );
   }
   const text = joined === null ? message.content : message.content + joined;
+  // On an organisation's server only an administrator loads a model.
+  const mayLoadModel = me?.topology !== "organisation" || me.roles.includes("admin");
+  const end = endOfAnswer(strings, message, { didWork: work.length > 0, mayLoadModel });
   return (
     <div className="message">
       <AssistantAvatar />
@@ -290,20 +298,29 @@ function Message({ message, joined, mayContinue }: { message: ChatMessage; joine
         {message.tool_calls.map((c) => (
           <Work key={c.id} call={c} />
         ))}
+        {/* An answer of no words after tool work: the work is what it did. A
+            declined proposal is shown in the chat already. */}
+        {!text &&
+          work
+            .filter((c) => !("declined" in c.outcome))
+            .map((c) => <Work key={c.id} call={c} />)}
         {text && (
           <div className="prose-chat">
             <Markdown text={text} />
           </div>
         )}
-        {joined === null && message.cut_short === "repeated" && <div className="message-stopped">{REPEATED}</div>}
-        {joined === null && message.stopped && (
-          <div className="message-stopped">
-            {message.cut_short === "length" ? AT_LIMIT : "The answer stopped here."}
-            {mayContinue && (
+        {joined === null && end && (
+          <div className="message-stopped" role="status">
+            {end.text}
+            {mayContinue && end.action && (
               <>
                 {" "}
-                <button type="button" className="link green" onClick={() => void continueAnswer()}>
-                  Continue
+                <button
+                  type="button"
+                  className="link green"
+                  onClick={() => void (end.action === "new_chat" ? newConversation() : continueAnswer())}
+                >
+                  {end.action === "new_chat" ? strings.newChat : end.action === "try_again" ? strings.tryAgain : strings.continueAnswer}
                 </button>
               </>
             )}

@@ -78,7 +78,7 @@ impl Bench {
         let catalog = root.join("catalog");
         std::fs::create_dir_all(&catalog).unwrap();
         let entry = serde_json::json!({"version": 1, "models": [{
-            "id": "tiny", "title": "Tiny", "params_b": 0.1, "bytes": stub.len(), "context_len": 2048,
+            "id": "tiny", "title": "Tiny", "params_b": 0.1, "bytes": stub.len(), "context_len": 8192,
             "repo": "example/tiny", "files": ["tiny.gguf"],
             "tensor": {"core_bytes": 16, "routed_expert_bytes": 0, "layers": 2, "moe": null,
                        "kv_bytes_per_token_fp16": 256}
@@ -744,6 +744,93 @@ fn an_engine_that_goes_away_mid_answer_leaves_what_came() {
     assert!(answer.stopped);
     let line = a_cut_line(&bench.events_of("anna")).expect("the log line of the cut");
     assert!(line.contains("ended before the answer did"), "{line}");
+}
+
+/// Every way an answer ends short is named, and none reaches the person as
+/// a raw error (docs/DECISIONS.md, 2026-10-26): the answer's own limit, a
+/// chat that ran out of room while it wrote, a refusal for want of room, the
+/// same with nothing read but one message too long, a thinking that used
+/// all the room, and no words at all.
+#[test]
+fn every_way_an_answer_ends_short_is_named() {
+    use proto::CutShort::{ChatFull, Length, TooLong};
+    // The stub, whether a short exchange comes first, why it ended, whether
+    // it is marked stopped, whether it has words.
+    let cases = [
+        ("stops at the limit", false, Some(Length), true, true),
+        ("fills the context", false, Some(TooLong), true, true),
+        (
+            "fills the context over 2000 bytes",
+            true,
+            Some(ChatFull),
+            true,
+            true,
+        ),
+        (
+            "refuses requests over 4000 bytes",
+            false,
+            Some(TooLong),
+            true,
+            false,
+        ),
+        (
+            "refuses requests over 4000 bytes",
+            true,
+            Some(ChatFull),
+            true,
+            false,
+        ),
+        ("thinks until the limit", false, Some(Length), true, false),
+        ("answers nothing", false, None, false, false),
+    ];
+    let long = "Please read this carefully. ".repeat(200);
+    for (stub, earlier, cut, stopped, words) in cases {
+        let bench = Bench::new(stub, 1, Silence::ANSWER);
+        let anna = person("anna");
+        if earlier {
+            let chat = bench.send(&anna, "Hello?");
+            bench.ended("anna", &chat, TurnState::Done);
+            assert_eq!(
+                bench.transcript(&anna).len(),
+                2,
+                "{stub}: the first answered"
+            );
+        }
+        let chat = bench.send(&anna, &long);
+        let answers = if earlier { 2 } else { 1 };
+        bench.wait_for("anna", "the answer", |events| {
+            events
+                .iter()
+                .filter(|e| {
+                    matches!(e, proto::Event::TurnChanged { conversation: c, state: TurnState::Done } if *c == chat)
+                })
+                .count()
+                == answers
+        });
+        let answer = bench.transcript(&anna).last().unwrap().clone();
+        assert_eq!(answer.role, proto::Role::Assistant, "{stub}");
+        assert_eq!(answer.cut_short, cut, "{stub}: {answer:?}");
+        assert_eq!(answer.stopped, stopped, "{stub}");
+        assert_eq!(!answer.content.is_empty(), words, "{stub}: {answer:?}");
+        assert!(
+            !answer.content.contains("400") && !answer.content.contains("context size"),
+            "{stub}: {answer:?}"
+        );
+        let errors = bench
+            .events_of("anna")
+            .into_iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    proto::Event::Notice {
+                        level: proto::NoticeLevel::Error,
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert_eq!(errors, 0, "{stub}: no error notice");
+    }
 }
 
 /// Russian text, every letter's bytes arriving in separate reads here and

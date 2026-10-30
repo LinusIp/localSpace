@@ -193,12 +193,77 @@ impl Prompt {
     }
 }
 
+/// What a chat template adds around each message beyond the role word our
+/// count reads ("user: "): about five tokens a message for Qwen3.5 and
+/// Gemma 4, measured from their templates (docs/DECISIONS.md, 2026-10-26).
+pub const FRAME_TOKENS: usize = 3;
+
+/// The template's own fixed frame: the system message's markers and the
+/// start of the answer.
+pub const TEMPLATE_TOKENS: usize = 12;
+
+/// How much of the engine's context a chat's messages may take: the context,
+/// less the answer's room and the system part, and never more than the
+/// profile's working set (docs/DECISIONS.md, 2026-10-26, rule A). The big
+/// step of [`read_from`] is to half of it.
+pub fn budget(context: usize, answer: usize, system: usize, working_set: usize) -> usize {
+    context.saturating_sub(answer + system).min(working_set)
+}
+
+/// The prompt as the engine is sent it, by our count: the system part, the
+/// turns with their frames, what comes after them, the template's own frame,
+/// and the pictures at [`PICTURE_TOKENS`]. For the log, beside the engine's
+/// own figure.
+pub fn counted(system: &str, turns: &[Turn], after: &str) -> usize {
+    TEMPLATE_TOKENS
+        + tokens_of(system)
+        + tokens_of(after)
+        + turns
+            .iter()
+            .map(|t| {
+                let pictures = match t {
+                    Turn::Picture { pictures, .. } => pictures.len() * PICTURE_TOKENS,
+                    _ => 0,
+                };
+                tokens_of(&t.render()) + frames(t) + pictures
+            })
+            .sum::<usize>()
+}
+
+/// The template's frames around a turn: a call goes to the engine as two
+/// messages, the model's call and the tool's reply.
+fn frames(t: &Turn) -> usize {
+    match t {
+        Turn::Call { .. } => 2 * FRAME_TOKENS,
+        _ => FRAME_TOKENS,
+    }
+}
+
 pub fn build(
     profile: &ModelProfile,
     active: &proto::ActiveSet,
     blocks: &[proto::ContextBlock],
     task: Option<&proto::Task>,
     messages: &[proto::ChatMessage],
+) -> Prompt {
+    build_within(
+        profile,
+        active,
+        blocks,
+        task,
+        messages,
+        profile.working_set_tokens,
+    )
+}
+
+/// [`build`], with the chat's messages kept within `budget` (see [`budget`]).
+pub fn build_within(
+    profile: &ModelProfile,
+    active: &proto::ActiveSet,
+    blocks: &[proto::ContextBlock],
+    task: Option<&proto::Task>,
+    messages: &[proto::ChatMessage],
+    budget: usize,
 ) -> Prompt {
     // Nothing is on offer only when nothing is installed: Core's own tools
     // go with the Store's (see `exposure`).
@@ -254,10 +319,7 @@ pub fn build(
         tools,
         context,
         ledger,
-        turns: turns(
-            &messages[read_from(messages, profile.working_set_tokens)..],
-            profile.working_set_tokens,
-        ),
+        turns: turns(&messages[read_from(messages, budget)..], budget),
     }
 }
 
@@ -383,7 +445,7 @@ impl Counted {
 fn cost(m: &proto::ChatMessage) -> usize {
     turns_of(m)
         .iter()
-        .map(|t| tokens_of(&t.render()))
+        .map(|t| tokens_of(&t.render()) + frames(t))
         .sum::<usize>()
         + m.attachments
             .iter()
@@ -457,7 +519,7 @@ pub fn turns(messages: &[proto::ChatMessage], working_set: usize) -> Vec<Turn> {
     let mut start = all.len();
     let mut used = 0usize;
     while start > 0 {
-        let cost = tokens_of(&all[start - 1].render());
+        let cost = tokens_of(&all[start - 1].render()) + frames(&all[start - 1]);
         if used + cost > working_set && start < all.len() {
             break;
         }
@@ -478,11 +540,11 @@ pub fn turns(messages: &[proto::ChatMessage], working_set: usize) -> Vec<Turn> {
     else {
         return all[start..].to_vec();
     };
-    let room = working_set.saturating_sub(tokens_of(&all[person].render()));
+    let room = working_set.saturating_sub(tokens_of(&all[person].render()) + frames(&all[person]));
     let mut from = all.len();
     let mut used = 0usize;
     while from > person + 1 {
-        let cost = tokens_of(&all[from - 1].render());
+        let cost = tokens_of(&all[from - 1].render()) + frames(&all[from - 1]);
         if used + cost > room {
             break;
         }

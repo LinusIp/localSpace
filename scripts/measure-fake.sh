@@ -34,10 +34,10 @@ seer="$(wc -c < "$work/models/seer.gguf" | tr -d ' ')"
 proj="$(wc -c < "$work/models/seer-mmproj.gguf" | tr -d ' ')"
 cat > "$work/catalog/catalog.json" <<EOF
 {"version": 1, "models": [
-  {"id": "tiny", "title": "The test engine", "params_b": 0.1, "bytes": $tiny, "context_len": 2048,
+  {"id": "tiny", "title": "The test engine", "params_b": 0.1, "bytes": $tiny, "context_len": 8192,
    "repo": "example/tiny", "files": ["tiny.gguf"],
    "tensor": {"core_bytes": 16, "routed_expert_bytes": 0, "layers": 2, "moe": null, "kv_bytes_per_token_fp16": 256}},
-  {"id": "seer", "title": "The test engine that thinks and sees", "params_b": 0.1, "bytes": $((seer + proj)), "context_len": 2048,
+  {"id": "seer", "title": "The test engine that thinks and sees", "params_b": 0.1, "bytes": $((seer + proj)), "context_len": 8192,
    "repo": "example/seer", "files": ["seer.gguf", "seer-mmproj.gguf"], "vision_file": "seer-mmproj.gguf", "hidden": true,
    "tensor": {"core_bytes": 16, "routed_expert_bytes": 0, "layers": 2, "moe": null, "kv_bytes_per_token_fp16": 256}}
 ]}
