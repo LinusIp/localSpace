@@ -13,6 +13,17 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-30, the three palettes, light and dark (themes, step 2)
+
+`docs/design/0.2.1-THEMES-AND-TRANSLATION.md` §2. **Off by default:** nothing changes unless the `themes` switch is on.
+
+- **The palettes** are in `web/packages/ui/src/ui.css`, with the brief's values: `:root[data-palette="indigo|violet|teal"]` for light, and the same with `[data-theme="dark"]` for dark.
+- **The bare `:root` keeps today's look while `themes` is off.** The brief has it hold indigo light; that waits until themes are on by default, so turning the switch off really gives the old look.
+- **The page always carries the mode.** "Same as Windows" is resolved in the client (`web/src/lib/look.ts`), which sets `data-theme` and follows Windows when it changes, so each palette has one light rule and one dark rule, not a third copy inside a media query. `color-scheme` follows, so scrollbars and native controls match.
+- **What every palette derives from its own colours** sits in one shared rule: the lines around tinted areas (`color-mix` of the status colour), the quiet neutrals (the palette's line, hover and faint), the text on ink (the page colour), and the avatars. In dark mode the avatars turn light under dark initials. Edges are lines, not shadows; only menus, toasts and dialogs keep a shadow.
+- **The temporary switch:** until Core reports its switches, `localStorage["ls.features"]` (a comma-separated list) turns `themes` on, and `ls.palette` and `ls.mode` pick the look (`web/src/lib/features.ts`). Settings → Appearance and Core's switch replace them.
+- **The contrast check is a unit test** (`web/packages/ui/src/tokens.test.ts`). It reads the six rules from `ui.css` and fails below AA on the brief's pairs, plus the page colour on ink and on the warning fill, and the initials on every avatar colour.
+
 ## 2026-10-30, every colour comes from a token (themes, step 1)
 
 The first step towards the themes in `docs/design/0.2.1-THEMES-AND-TRANSLATION.md` §2. **Nothing on screen changes:** each new token holds the exact colour it replaces, so this needs no switch.
