@@ -93,10 +93,13 @@ try {
 
   // One chat with an answer, for every look to show.
   page = await open(LOOKS[0]);
+  await page.locator(".rail-new").click();
+  await until("an empty chat", async () => (await page.locator(".message").count()) === 0, 15000);
   const box = page.getByRole("textbox", { name: "Message" });
   await box.fill(CHAT);
   await box.press("Enter");
-  await until("the answer", async () => (await page.locator(".message").count()) >= 2 && (await page.locator(".send.stop").count()) === 0, 30000);
+  await until("the answer", async () => (await page.locator(".message").count()) === 2 && (await page.locator(".send.stop").count()) === 0, 30000);
+  await until("the chat in the rail", async () => (await page.locator(".rail-chat", { hasText: "Looks walk" }).count()) > 0, 15000);
   await page.context().close();
   step("a chat with an answer, to show in every look");
 
@@ -110,11 +113,11 @@ try {
     }));
     if (!look.palette) {
       if (seen.palette || seen.theme) throw new Error(`with themes off the page carries a look: ${JSON.stringify(seen)}`);
-      if (!seen.font.startsWith('"Figtree"')) throw new Error(`with themes off the font is ${seen.font}`);
+      if (!/^"?Figtree/.test(seen.font)) throw new Error(`with themes off the font is ${seen.font}`);
     } else {
       if (seen.palette !== look.palette || seen.theme !== look.mode) throw new Error(`${look.name}: the page carries ${JSON.stringify(seen)}`);
       if (seen.background !== PAGE[look.palette][look.mode]) throw new Error(`${look.name}: the page is ${seen.background}, not ${PAGE[look.palette][look.mode]}`);
-      if (!seen.font.startsWith('"Onest"')) throw new Error(`${look.name}: the font is ${seen.font}`);
+      if (!/^"?Onest/.test(seen.font)) throw new Error(`${look.name}: the font is ${seen.font}`);
       const faces = await page.evaluate(async () => (await document.fonts.load('16px "Onest"', "oʻ")).map((f) => f.unicodeRange));
       if (!faces.some((range) => /U\+0*2BB/i.test(range))) throw new Error(`${look.name}: no Onest face covering ʻ loaded (${JSON.stringify(faces)})`);
     }
