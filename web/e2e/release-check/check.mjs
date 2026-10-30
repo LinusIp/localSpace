@@ -307,6 +307,13 @@ try {
   });
 
   // ---- 5. Items 12 and 13 on the processor ------------------------------
+  // A new chat, settled: its empty message box is the one on screen before
+  // anything is typed or attached into it.
+  const newChat = async () => {
+    await p.locator(".rail-new").click();
+    await until("an empty chat", async () => (await p.locator(".message").count()) === 0 && (await p.getByPlaceholder("Ask anything…").count()) === 1, 15000);
+    await sleep(500);
+  };
   const ask = async (text, file) => {
     await p.locator(".rail-chat").first().waitFor({ timeout: 10000 }).catch(() => undefined);
     if (file) {
@@ -330,8 +337,7 @@ try {
 
   await report.item("Item 12: a full Uzbek chat with a text file: no refusal", async () => {
     const from = Date.now() - 1000;
-    await p.locator(".rail-chat").first().click().catch(() => undefined);
-    await p.locator(".rail-new").click();
+    await newChat();
     const text = path.join(here, "uzbek-text.txt");
     const questions = [
       ["Bu matnning qisqacha mazmunini oʻzbek tilida, uch gap bilan ayting.", text],
@@ -366,7 +372,7 @@ try {
     }).then((r) => r.text());
     report.note(`The picture sent to the app directly: ${direct.slice(0, 300)}`);
     const from = Date.now() - 1000;
-    await p.locator(".rail-new").click();
+    await newChat();
     const answer = await ask("What is in this picture? Answer in two sentences.", picture);
     if (!answer) throw new Error("no answer about the picture");
     await shot("en-chat-picture");
@@ -380,10 +386,10 @@ try {
   });
 
   await report.item("Answers in Russian and Uzbek stay in their language and alphabet", async () => {
-    await p.locator(".rail-new").click();
+    await newChat();
     const ru = await ask("Привет! Расскажи в двух предложениях о Самарканде.");
     report.answer("Russian", "Привет! Расскажи в двух предложениях о Самарканде.", ru || "(no words)");
-    await p.locator(".rail-new").click();
+    await newChat();
     const uz = await ask("Salom! Samarqand haqida ikki gap yozing.");
     report.answer("Uzbek", "Salom! Samarqand haqida ikki gap yozing.", uz || "(no words)");
     const cyrillic = (s) => (s.match(/[Ѐ-ӿ]/g) ?? []).length;
