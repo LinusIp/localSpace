@@ -13,6 +13,20 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-30, every colour comes from a token (themes, step 1)
+
+The first step towards the themes in `docs/design/0.2.1-THEMES-AND-TRANSLATION.md` §2. **Nothing on screen changes:** each new token holds the exact colour it replaces, so this needs no switch.
+
+- **New tokens** in `web/packages/ui/src/ui.css`:
+  - `--ls-accent-fill` and `--ls-on-accent`. Buttons, switches, radio buttons and progress bars use the fill; text and links keep `--ls-accent`. `--ls-on-ink` is the text on ink-coloured buttons, chips and toasts;
+  - `--ls-ok` and `--ls-ok-soft`, apart from the accent. The "ready" pill and dot use them;
+  - lines around tinted areas (`--ls-ok-line`, `--ls-warn-line`, `--ls-warn-soft-line`, `--ls-danger-line`, `--ls-danger-line-strong`, `--ls-accent-ring`, `--ls-accent-wash`), `--ls-warn-fill`, three quiet neutrals, the swatch outline and the five avatar colours;
+  - the shadows and the dialog backdrop as tokens, so dark mode can swap them for lines.
+- **Every colour written into the client now goes through a token:** the stylesheets, the logo (ink, or the accent on the chat page), the avatars and the whiteboard's controls. The whiteboard keeps its fallbacks inside `var(--ls-…, …)`.
+- **A test keeps it that way** (`web/packages/ui/src/tokens.test.ts`). It fails when a stylesheet names a colour outside the token definitions, or a component names one in a string.
+- **The shades stay as they are for now.** A few lines use a slightly different green from the accent (`rgba(31, 157, 91, …)`), so they get tokens of their own instead of being folded into `--ls-accent-line`. The palettes set them per theme.
+- **Not in this step:** the whiteboard's drawing colours (people's content, not the app's look), the palettes, dark mode, the highlight tokens and the focus ring. Each comes with the screen that uses it, behind the `themes` switch.
+
 ## 2026-10-27, the message box keeps the cursor; small wording fixes (0.2.0)
 
 - **The message box keeps the cursor,** so people can type without clicking:

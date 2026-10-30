@@ -175,7 +175,7 @@ function People() {
                 <tr key={u.id}>
                   <td>
                     <div className="person">
-                      <span className="avatar small" style={{ background: u.disabled || !u.has_password ? "#c4c1bc" : avatarColour(u.id) }} aria-hidden="true">
+                      <span className="avatar small" style={{ background: u.disabled || !u.has_password ? "var(--ls-control-line)" : avatarColour(u.id) }} aria-hidden="true">
                         {initialsOf(u.name || u.email)}
                       </span>
                       <div>
