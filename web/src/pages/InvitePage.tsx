@@ -7,6 +7,7 @@ import { ShieldIcon } from "@localspace/ui";
 import { ApiError, inviteStatus, me, setPassword } from "../api/client";
 import type { InviteStatus } from "../api/client";
 import { useSession } from "../store";
+import { ErrorLine } from "../components/Themed";
 
 export function InvitePage({ token, onDone }: { token: string; onDone: () => void }) {
   const signIn = useSession((s) => s.signIn);
@@ -83,7 +84,7 @@ export function InvitePage({ token, onDone }: { token: string; onDone: () => voi
           <span>Password, again</span>
           <input className="input" type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} />
         </label>
-        {error && <div className="error">{error}</div>}
+        {error && <ErrorLine>{error}</ErrorLine>}
         <button type="submit" className="auth-button" disabled={busy || !password || !again || (first && (!name.trim() || !email.trim()))}>
           {busy ? "One moment…" : first ? "Set the password and sign in" : "Set the password and sign in"}
         </button>
