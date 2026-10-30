@@ -458,6 +458,11 @@ function filesOf(items: DataTransferItemList): File[] {
     });
 }
 
+/** A dialog or a menu is open: the message box leaves the cursor to it. */
+function overlayOpen(): boolean {
+  return document.querySelector('[role="dialog"], [role="menu"]') !== null;
+}
+
 function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (text: string) => void; placeholder: string }) {
   const { send, cancel, environment, catalogModels, goSettings, loadModel, downloadModel } = useSession();
   const strings = useStrings();
@@ -529,6 +534,28 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
   const box = useRef<HTMLTextAreaElement>(null);
   const model = environment?.model ?? null;
 
+  // The message box keeps the cursor, so that people can type without
+  // clicking: when the chat opens or changes, after a message goes, and when
+  // a dialog or a menu closes; never while one is open (docs/DECISIONS.md,
+  // 2026-10-27).
+  const chat = useSession((s) => s.currentConversation);
+  const takeCursor = () => {
+    if (!overlayOpen()) box.current?.focus();
+  };
+  useEffect(() => {
+    if (!overlayOpen()) box.current?.focus();
+  }, [chat]);
+  useEffect(() => {
+    let open = overlayOpen();
+    const watch = new MutationObserver(() => {
+      const now = overlayOpen();
+      if (open && !now) box.current?.focus();
+      open = now;
+    });
+    watch.observe(document.body, { childList: true, subtree: true });
+    return () => watch.disconnect();
+  }, []);
+
   // A starter puts words in the box; the cursor follows them.
   useEffect(() => {
     if (draft && box.current) {
@@ -566,6 +593,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
     onDraft("");
     setPending([]);
     setSaid(null);
+    takeCursor();
     void send(trimmed, attachments).then((refusal) => {
       if (refusal) {
         // Not taken: the words and the pictures back where they were.
@@ -647,9 +675,8 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
             submit();
           }
         }}
-        placeholder={model ? placeholder : "Choose a model in Settings first, then ask here"}
+        placeholder={model ? placeholder : strings.chooseModelToStart}
         aria-label="Message"
-        autoFocus
       />
       <div className="composer-row">
         <input
@@ -667,16 +694,16 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
           <ClipIcon size={17} />
         </button>
         <div className="ls-row ls-gap-2">
-          <button type="button" className="model-chip" onClick={() => goSettings("assistant")} title="Choose the assistant">
+          <button type="button" className="model-chip" onClick={() => goSettings("assistant")} title={strings.chooseModelLabel}>
             {modelLabel(model?.id, catalogModels)}
             <ChevronDownIcon size={13} className="ls-faint" />
           </button>
           {busy ? (
-            <button type="button" className="send stop" onClick={() => void cancel()} title="Stop" aria-label="Stop">
+            <button type="button" className="send stop" onClick={() => void cancel()} title={strings.stop} aria-label={strings.stop}>
               <StopIcon size={16} />
             </button>
           ) : (
-            <button type="button" className="send" onClick={submit} disabled={!draft.trim() || !model || uploading || blind} aria-label="Send">
+            <button type="button" className="send" onClick={submit} disabled={!draft.trim() || !model || uploading || blind} aria-label={strings.send} title={strings.send}>
               <ArrowUpIcon size={17} />
             </button>
           )}

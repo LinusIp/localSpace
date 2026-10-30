@@ -255,7 +255,7 @@ jobs:
             > "$RUNNER_TEMP/serve.log" 2>&1 &
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8443/healthz > /dev/null && break; sleep 1; done
           cd web && node e2e/whiteboard.mjs http://127.0.0.1:8443 ci-token --no-agent
-      - name: maths in a chat answer, rendered by KaTeX (the test engine writes a formula); a text file sent to a model that cannot read pictures
+      - name: maths in a chat answer, rendered by KaTeX (the test engine writes a formula); a text file sent to a model that cannot read pictures; the message box keeps the cursor
         run: |
           mkdir -p "$RUNNER_TEMP/mathsdata/models" "$RUNNER_TEMP/mathscatalog"
           printf 'writes maths\n' > "$RUNNER_TEMP/mathsdata/models/maths.gguf"
@@ -282,6 +282,7 @@ jobs:
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8447/healthz > /dev/null && break; sleep 1; done
           (cd web && node e2e/maths.mjs http://127.0.0.1:8447 ci-token maths) || { echo "--- the server's log"; tail -n 60 "$RUNNER_TEMP/maths-serve.log"; exit 1; }
           (cd web && node e2e/text-files.mjs http://127.0.0.1:8447 ci-token maths "$RUNNER_TEMP/mathsdata") || { echo "--- the server's log"; tail -n 60 "$RUNNER_TEMP/maths-serve.log"; exit 1; }
+          (cd web && node e2e/cursor.mjs http://127.0.0.1:8447 ci-token maths) || { echo "--- the server's log"; tail -n 60 "$RUNNER_TEMP/maths-serve.log"; exit 1; }
           kill "$MATHS"; wait "$MATHS" || true
       - name: a picture attached in the composer, sent, shown, and deleted with its chat
         run: |

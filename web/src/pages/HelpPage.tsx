@@ -55,7 +55,7 @@ export function HelpPage() {
             </div>
           </div>
         </div>
-        <p className="ls-small ls-faint" style={{ marginTop: 22 }}>
+        <p className="ls-small ls-muted" style={{ marginTop: 22 }}>
           localSpace {me?.version ?? ""}
         </p>
       </div>
