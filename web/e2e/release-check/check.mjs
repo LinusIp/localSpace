@@ -254,14 +254,15 @@ try {
   });
 
   await report.item("Stop, then Continue", async () => {
+    // Nothing else being written: the essay is answered at once, not queued.
+    await answersDone(api);
     await p.locator(".rail-new").click();
+    await until("an empty chat", async () => (await p.locator(".message").count()) === 0, 10000);
     await box.fill("Write a long essay about the history of tea, at least 600 words.");
     await box.press("Enter");
     const stop = p.getByRole("button", { name: "Stop", exact: true });
-    await until("the Stop button", async () => (await stop.count()) === 1, MINUTE);
-    await until("the first words", async () => (await p.locator(".prose-chat").count()) > 0, 10 * MINUTE, 1000);
-    await sleep(3000);
-    if ((await stop.count()) === 0) throw new Error("the answer ended before Stop could be pressed");
+    const streamed = async () => (await p.locator(".message .prose-chat").last().innerText().catch(() => "")).length;
+    await until("the essay's first words", async () => (await stop.count()) === 1 && (await streamed()) > 40, 10 * MINUTE, 500);
     await stop.click({ timeout: 10000 });
     await until("the stopped line", async () => (await lines.last().innerText().catch(() => "")).includes("The answer stopped here."), MINUTE);
     const before = (await p.locator(".prose-chat").last().innerText()).length;
@@ -308,8 +309,15 @@ try {
   // ---- 5. Items 12 and 13 on the processor ------------------------------
   const ask = async (text, file) => {
     await p.locator(".rail-chat").first().waitFor({ timeout: 10000 }).catch(() => undefined);
-    if (file) await p.locator('input[type="file"]').setInputFiles(file);
-    if (file) await until("the file to attach", async () => (await p.locator(".uploading").count()) === 0, 2 * MINUTE);
+    if (file) {
+      // Sent only once the file's chip is there and its upload is done:
+      // sent sooner, the message goes without it.
+      const chips = p.locator(".composer-picture, .composer-file");
+      const before = await chips.count();
+      await p.locator('input[type="file"]').setInputFiles(file);
+      await until("the file's chip", async () => (await chips.count()) > before, MINUTE);
+      await until("the file to attach", async () => (await p.locator(".composer-pictures .uploading").count()) === 0, 2 * MINUTE);
+    }
     await box.fill(text);
     await box.press("Enter");
     await answersDone(api);
@@ -352,6 +360,8 @@ try {
     await shot("en-chat-picture");
     const size = promptSizes(from).slice(-1)[0];
     if (!size) throw new Error("the log does not give the prompt's size");
+    // A picture alone is some hundreds of tokens; a prompt this short had none.
+    if (size.engine < 250) throw new Error(`the picture did not reach the model (a prompt of ${size.engine} tokens)`);
     report.figure("Item 13: one picture and a short question, the engine's prompt / our count (a picture counted as 400)", `${size.engine} / ${size.counted}`);
     report.answer("English", "What is in this picture?", answer);
     return `the engine read ${size.engine} tokens; we counted ${size.counted}`;
