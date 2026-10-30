@@ -6,7 +6,8 @@
   "description": "The component library: tokens, controls, menus, dialogs, tabs, the docking layout, our own icons, and a small store (architecture v2.1 §6.1)",
   "exports": {
     ".": "./src/index.ts",
-    "./ui.css": "./src/ui.css"
+    "./ui.css": "./src/ui.css",
+    "./look.css": "./src/look.css"
   },
   "peerDependencies": {
     "react": "^19.2.0",
