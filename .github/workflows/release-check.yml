@@ -1,0 +1,119 @@
+# The release check: the files a release will publish, installed and used on
+# a fresh Windows machine, as a person would, before they are published
+# (docs/DECISIONS.md, 2026-10-30).
+#
+# It takes a tag's own package (the run `package.yml` made when the tag was
+# pushed: the very files its `publish` job takes), or a package run named by
+# its id, and checks:
+#   - the files against the SHA-256s `package.yml` wrote;
+#   - the last public release installed first, a chat made in it, then this
+#     package installed over it: the chat is kept and the app says its version;
+#   - the model the hardware check chooses for this machine, downloaded through
+#     the app and checked against the catalog's SHA-256;
+#   - the walk: the cursor, the wording, the language setting, the Help link,
+#     Stop and Continue;
+#   - a full Uzbek chat with a text file, and one picture's real prompt size,
+#     on the processor;
+#   - a screenshot of every screen in English, Russian and Uzbek;
+#   - uninstalling, which leaves the person's data.
+#
+# What this machine cannot say: anything about a graphics card (it has none),
+# Smart App Control (it is Windows Server), or speed. No figure from here is
+# published. The run's summary is a pass/fail table, with the answers in
+# Russian and Uzbek as text; the screenshots and the app's log are its artifact.
+#
+# Started by hand only.
+
+name: release-check
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The v* tag whose package is checked: the files that publishing it would take (for example v0.2.0). Leave empty to name a package run below."
+        type: string
+        default: ""
+      package_run:
+        description: "Or: the id of a package run to check (a candidate built by hand). Used only when the tag is empty."
+        type: string
+        default: ""
+      previous:
+        description: "The last public release, installed first and updated from."
+        type: string
+        default: "v0.2.0-preview.1"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-check-${{ inputs.tag || inputs.package_run }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: installed and used on a fresh Windows machine
+    runs-on: windows-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: the browser driver the walks use
+        shell: bash
+        run: cd web && npm ci --ignore-scripts
+      - name: the package, checked against the SHA-256s it was built with
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          RUN: ${{ inputs.package_run }}
+        run: |
+          set -euo pipefail
+          if [ -n "$TAG" ]; then
+            # The same run `package.yml`'s publish job takes: the tag's own push.
+            git fetch --depth 1 origin "refs/tags/$TAG:refs/tags/$TAG"
+            sha=$(git rev-list -n 1 "$TAG")
+            RUN=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow package.yml --event push --branch "$TAG" --status success --limit 5 --json databaseId,headSha --jq ".[] | select(.headSha == \"$sha\") | .databaseId" | head -n 1)
+            [ -n "$RUN" ] || { echo "::error::no successful package run of $TAG ($sha)"; exit 1; }
+          fi
+          [ -n "$RUN" ] || { echo "::error::name a tag or a package run"; exit 1; }
+          sha=$(gh run view "$RUN" --repo "$GITHUB_REPOSITORY" --json headSha,workflowName,conclusion --jq 'select(.workflowName == "package" and .conclusion == "success") | .headSha')
+          [ -n "$sha" ] || { echo "::error::run $RUN is not a successful package run"; exit 1; }
+          gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name "localSpace-windows-${sha:0:8}" --dir package
+          (cd package && sha256sum -c SHA256SUMS.txt)
+          ls -l package
+          {
+            echo "PACKAGE_RUN=$RUN"
+            echo "PACKAGE_SHA=$sha"
+          } >> "$GITHUB_ENV"
+      - name: the last public release, to update from
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS: ${{ inputs.previous }}
+        run: |
+          set -euo pipefail
+          gh release download "$PREVIOUS" --repo LinusIp/localSpace-releases --pattern '*-setup.exe' --pattern 'SHA256SUMS.txt' --dir previous
+          (cd previous && sha256sum -c --ignore-missing SHA256SUMS.txt)
+          ls -l previous
+      - name: installed, updated, used and uninstalled
+        shell: bash
+        env:
+          PREVIOUS: ${{ inputs.previous }}
+        run: node web/e2e/release-check/check.mjs --package package --previous previous --out results
+      - name: the summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f results/summary.md ]; then cat results/summary.md >> "$GITHUB_STEP_SUMMARY"; else echo "The check did not get far enough to write its summary; see the step above." >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-check-screens-and-logs
+          path: results/
+          retention-days: 14
+          if-no-files-found: warn
