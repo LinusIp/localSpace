@@ -23,6 +23,7 @@ moved with them.
   - `onest-cyrillic.woff2` `68e5e01d6265bd68967746d4f5a9d18d0e6cbb5d15583c7082d6384ab1229b27`
   - `onest-cyrillic-ext.woff2` `268f03691b3d06e57abcf20f9277e314ea8784298983aab5b40c1b91965027e1`
 - **Uzbek's ʻ (U+02BB) is in the font:** read from the Latin file's character map, with ʼ, ‘ and ’. So are the Russian letters and the Uzbek Cyrillic қ, ҳ, ғ and ө. How it looks on screen is checked in the screenshots.
+- **Its `@font-face` rules sit in the shell's `web/src/index.css`, not in `ui.css`.** Only the shell's own page carries a palette; a surface in its own frame keeps Figtree. In `ui.css` they took `@localspace/ui` to 10.5 KB gzipped, over its 10.4 KB limit, so they moved instead of the limit moving.
 - **Settings → About names the typeface in use:** Onest with `themes` on, Figtree with it off.
 - **The third-party notices list both typefaces** (`packaging/licences/notices.json`, pointing at the OFL texts in `web/public/fonts/`). Figtree had been missing from them.
 - **The whiteboard still draws with Figtree.** The canvas names its font itself; it moves with the whiteboard's own look.
