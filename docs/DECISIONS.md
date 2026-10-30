@@ -13,6 +13,26 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-30, the components' new look, first pass (themes, step 5)
+
+`docs/design/0.2.1-THEMES-AND-TRANSLATION.md` §3. **Off by default:** every rule starts with `:root[data-palette]`.
+
+- **Where it lives:** `web/packages/ui/src/look.css`, in the component package. **Only the shell imports it** (`web/src/main.tsx`), not the package's `index.ts`.
+  - The frames' copy of `ui.css` is built from `index.ts`. A surface in its own frame carries no palette yet, so it gains nothing from these rules.
+  - That copy is at its size limit (`@localspace/ui`, 10.4 KB gzipped with the script). Kept apart, the new look costs it nothing. When surfaces get themes, the look joins that copy, and its limit grows then, as a decision.
+- **This pass restyles what the screens already use,** both the package's `ls-*` classes and the shell's own (`.btn`, `.chip`, `.pill`, `.input`, the cards):
+  - type at 12, 13, 14, 16, 20, 24 and 32; chat text at 16;
+  - radii of 6 for controls, 10 for cards and the composer, and 16 for panels and dialogs;
+  - buttons at 32 and 40 px, fields at 36, badges as pills in neutral, ok, warn and danger;
+  - the send button in the accent fill;
+  - **a 2 px focus ring** in `--ls-accent-fill`, offset 2 px, on `:focus-visible` everywhere. The message box shows focus with its card's border instead.
+- **New package components** (`web/packages/ui/src/feedback.tsx`):
+  - **Badge**, in neutral, accent, highlight (the Recommended badge), ok, warn and danger;
+  - **Notice**: one sentence, at most one action, the technical text folded under "Details";
+  - **Progress**, always with its words.
+- **The screens use them only while `themes` is on,** through `web/src/components/Themed.tsx`. Off, it renders the shell's old pill, error line and bar, exactly as before. That file is the one place to drop the old half when the switch goes. It's used in Settings → Assistant, the first run, the Store, Admin, sign-in and the invitation page.
+- **The `@localspace/ui` size limit goes from 10.4 KB to 12 KB gzipped** (approved 2026-10-30), for these components and the ones still to come. Measured in CI with them: 10.9 KB. The highlight tokens join the bare `:root` with the indigo palette's amber, so every token is defined in every block.
+
 ## 2026-10-30, a browser walk through the looks, with screenshots (themes, step 4)
 
 - **`web/e2e/looks.mjs`** opens the app in seven looks: `themes` off, and each palette in light and dark. In each it saves seven screens: a chat with an answer, a new chat, Settings → General, Assistant, Network and About, and Help.

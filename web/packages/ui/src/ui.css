@@ -42,6 +42,12 @@
   --ls-warn-soft: #fbf0d9;
   --ls-danger: #a63244;
   --ls-danger-soft: #fbe9e9;
+  /* The Recommended badge; shown only behind the `themes` switch, so these
+     hold the indigo palette's amber. */
+  --ls-highlight: #a35400;
+  --ls-highlight-fill: #f5a524;
+  --ls-highlight-soft: #fdf0d8;
+  --ls-on-highlight: #1a1b26;
   /* Fills, and the text that sits on them: buttons and switches use the
      fill, text and links use --ls-accent. */
   --ls-accent-fill: #1d7a55;
@@ -528,6 +534,19 @@
 .ls-pill.ls-ok { background: var(--ls-ok-soft); color: var(--ls-ok); border-color: var(--ls-ok-line); }
 .ls-pill.ls-warn-pill { background: var(--ls-warn-soft); color: var(--ls-warn); border-color: var(--ls-warn-line); }
 .ls-pill.ls-danger-pill { background: var(--ls-danger-soft); color: var(--ls-danger); border-color: var(--ls-danger-line); }
+.ls-pill.ls-accent-pill { background: var(--ls-accent-soft); color: var(--ls-accent); border-color: var(--ls-accent-line); }
+.ls-pill.ls-highlight-pill { background: var(--ls-highlight-fill); color: var(--ls-on-highlight); border-color: var(--ls-highlight-fill); }
+
+/* A notice: one sentence where the problem is, an action, folded details. */
+.ls-notice { display: flex; align-items: flex-start; gap: var(--ls-space-3); padding: var(--ls-space-3) var(--ls-space-4); border: 1px solid var(--ls-line); border-radius: var(--ls-radius-lg); background: var(--ls-surface-muted); color: var(--ls-ink); font-size: 14px; line-height: 1.5; }
+.ls-notice.ls-warn-notice { background: var(--ls-warn-soft); border-color: var(--ls-warn-soft-line); }
+.ls-notice.ls-danger-notice { background: var(--ls-danger-soft); border-color: var(--ls-danger-line); }
+.ls-notice-body { flex: 1 1 auto; min-width: 0; }
+.ls-notice-details { margin-top: var(--ls-space-1); color: var(--ls-muted); font-size: 13px; }
+.ls-notice-details pre { margin: var(--ls-space-1) 0 0; white-space: pre-wrap; font-family: var(--ls-font-mono); font-size: 12px; }
+.ls-progress-track { height: 8px; border-radius: 999px; overflow: hidden; background: var(--ls-accent-soft); }
+.ls-progress-track > div { height: 100%; background: var(--ls-accent-fill); transition: width 200ms; }
+.ls-progress-label { margin-top: var(--ls-space-1); font-size: 13px; color: var(--ls-muted); }
 .ls-dot { display: inline-block; width: 8px; height: 8px; border-radius: 999px; background: var(--ls-faint); }
 .ls-dot.ls-ok { background: var(--ls-ok); }
 .ls-dot.ls-warn-pill { background: var(--ls-warn); }

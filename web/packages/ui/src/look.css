@@ -1,0 +1,136 @@
+/* The components' new look, behind the `themes` switch (docs/design/
+   0.2.1-THEMES-AND-TRANSLATION.md §3): one type scale, one set of radii,
+   buttons at 32 and 40 px, fields at 36, badges as pills, and a 2 px focus
+   ring everywhere. Every rule starts with :root[data-palette], so with the
+   switch off nothing here applies. Only the shell imports this file
+   (web/src/main.tsx): a surface in its own frame carries no palette yet, so
+   the frames' copy of ui.css stays as it is. */
+
+:root[data-palette] {
+  --ls-radius: 6px;
+  --ls-radius-lg: 10px;
+  --ls-radius-panel: 16px;
+  --ls-focus-ring: 2px solid var(--ls-accent-fill);
+}
+
+/* -- the focus ring: on :focus-visible, everywhere ----------------------- */
+
+:root[data-palette] :focus-visible {
+  outline: var(--ls-focus-ring);
+  outline-offset: 2px;
+}
+/* The message box shows focus with its card's border; a ring around the
+   text alone would sit inside the card. */
+:root[data-palette] .composer-card textarea:focus-visible { outline: none; }
+
+/* -- type: 12, 13, 14, 16, 20, 24, 32 ------------------------------------ */
+
+:root[data-palette] .hero-title { font-size: 32px; line-height: 1.25; }
+:root[data-palette] .page-title,
+:root[data-palette] .pane-title { font-size: 24px; line-height: 1.25; }
+:root[data-palette] .auth-title { font-size: 24px; line-height: 1.25; }
+:root[data-palette] .message-body,
+:root[data-palette] .composer-card textarea { font-size: 16px; }
+:root[data-palette] .message-body { line-height: 1.6; }
+
+/* -- buttons: primary, secondary, quiet and danger, at 32 and 40 px ------- */
+
+:root[data-palette] .btn,
+:root[data-palette] .ls-button {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--ls-radius);
+  font-size: 14px;
+  font-weight: 500;
+}
+:root[data-palette] .btn { border-color: var(--ls-line-strong); }
+:root[data-palette] .btn:hover,
+:root[data-palette] .ls-button:hover { background: var(--ls-hover); }
+:root[data-palette] .btn.solid,
+:root[data-palette] .ls-button.ls-primary { font-weight: 600; }
+:root[data-palette] .btn.solid:hover,
+:root[data-palette] .ls-button.ls-primary:hover { background: var(--ls-accent-strong); }
+:root[data-palette] .btn.danger,
+:root[data-palette] .ls-button.ls-danger-button { border-color: var(--ls-danger-line-strong); color: var(--ls-danger); }
+:root[data-palette] .btn.danger:hover,
+:root[data-palette] .ls-button.ls-danger-button:hover { background: var(--ls-danger-soft); }
+:root[data-palette] .ls-button.ls-small-button { height: 28px; padding: 0 8px; font-size: 13px; }
+:root[data-palette] .btn.tall,
+:root[data-palette] .auth-button,
+:root[data-palette] .rail-new { height: 40px; padding: 0 16px; border-radius: var(--ls-radius); font-size: 14px; }
+:root[data-palette] .ls-iconbutton { border-radius: var(--ls-radius); }
+:root[data-palette] .send { width: 32px; height: 32px; background: var(--ls-accent-fill); color: var(--ls-on-accent); }
+:root[data-palette] .send:hover:not(:disabled) { background: var(--ls-accent-strong); }
+:root[data-palette] .send:disabled { background: var(--ls-line-strong); color: var(--ls-muted); }
+:root[data-palette] .send.stop { background: var(--ls-danger); color: var(--ls-on-accent); }
+:root[data-palette] .sub { border-radius: var(--ls-radius); }
+
+/* -- fields at 36 px ----------------------------------------------------- */
+
+:root[data-palette] .input,
+:root[data-palette] .select,
+:root[data-palette] .ls-input,
+:root[data-palette] .ls-select {
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--ls-line-strong);
+  border-radius: var(--ls-radius);
+  font-size: 14px;
+}
+:root[data-palette] .ls-textarea { border: 1px solid var(--ls-line-strong); border-radius: var(--ls-radius); padding: 8px 12px; font-size: 14px; }
+:root[data-palette] .input:focus,
+:root[data-palette] .ls-input:focus,
+:root[data-palette] .ls-textarea:focus,
+:root[data-palette] .ls-select:focus { border-color: var(--ls-accent-fill); }
+
+/* -- badges: neutral, accent, ok, warn, danger --------------------------- */
+
+:root[data-palette] .pill,
+:root[data-palette] .ls-pill {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  background: var(--ls-hover);
+  color: var(--ls-ink-soft);
+}
+:root[data-palette] .pill.green,
+:root[data-palette] .ls-pill.ls-ok { background: var(--ls-ok-soft); border-color: var(--ls-ok-line); color: var(--ls-ok); }
+:root[data-palette] .pill.amber,
+:root[data-palette] .ls-pill.ls-warn-pill { background: var(--ls-warn-soft); border-color: var(--ls-warn-line); color: var(--ls-warn); }
+:root[data-palette] .pill.red,
+:root[data-palette] .ls-pill.ls-danger-pill { background: var(--ls-danger-soft); border-color: var(--ls-danger-line); color: var(--ls-danger); }
+
+/* Chips in the top bar and under the message box: pills that do something. */
+:root[data-palette] .chip,
+:root[data-palette] .model-chip { height: 28px; padding: 0 12px; font-size: 13px; font-weight: 500; }
+:root[data-palette] .chip.green { background: var(--ls-accent-soft); border-color: var(--ls-accent-line); color: var(--ls-accent); }
+:root[data-palette] .chip-filter { height: 32px; font-size: 13px; }
+:root[data-palette] .chip-filter.on { background: var(--ls-accent-fill); border-color: var(--ls-accent-fill); color: var(--ls-on-accent); }
+
+/* -- cards, notices, toasts, progress ------------------------------------ */
+
+:root[data-palette] .starter,
+:root[data-palette] .tile,
+:root[data-palette] .opt,
+:root[data-palette] .composer-card,
+:root[data-palette] .approval,
+:root[data-palette] .table-card { border-radius: var(--ls-radius-lg); }
+:root[data-palette] .auth-card,
+:root[data-palette] .ls-dialog { border-radius: var(--ls-radius-panel); }
+:root[data-palette] .opt.on { border-color: var(--ls-accent-fill); box-shadow: 0 0 0 1px var(--ls-accent-fill) inset; }
+:root[data-palette] .starter:hover { border-color: var(--ls-accent-line); background: var(--ls-surface-muted); }
+:root[data-palette] .toast,
+:root[data-palette] .ls-toast { border-radius: var(--ls-radius-lg); font-size: 13px; }
+:root[data-palette] .progress { height: 8px; background: var(--ls-accent-soft); }
+
+/* -- text in the accent, never in its fill shade -------------------------- */
+
+/* --ls-accent-strong is a fill (hover); in dark mode it is too dark to read
+   on the page, so text that used it takes --ls-accent. */
+:root[data-palette] .cite,
+:root[data-palette] .first-run-verdict { color: var(--ls-accent); }

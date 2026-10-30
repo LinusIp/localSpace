@@ -8,6 +8,7 @@ import { avatarColour, initialsOf, useSession } from "../store";
 import type { AdminPane } from "../store";
 import { TopBar } from "../components/TopBar";
 import { whenLabel } from "../lib/time";
+import { StatePill, ErrorLine } from "../components/Themed";
 
 const PANES: Array<{ id: AdminPane; label: string }> = [
   { id: "people", label: "People" },
@@ -188,15 +189,15 @@ function People() {
                     </div>
                   </td>
                   <td>
-                    <span className="pill">{roleOf(u).label}</span>
+                    <StatePill>{roleOf(u).label}</StatePill>
                   </td>
                   <td className="ls-muted">
                     {u.disabled ? (
-                      <span className="pill red">Disabled</span>
+                      <StatePill tone="danger">Disabled</StatePill>
                     ) : locked ? (
-                      <span className="pill amber">Locked after failed sign-ins</span>
+                      <StatePill tone="warn">Locked after failed sign-ins</StatePill>
                     ) : !u.has_password ? (
-                      <span className="pill amber">Invitation sent</span>
+                      <StatePill tone="warn">Invitation sent</StatePill>
                     ) : (
                       whenLabel(u.last_login_ms)
                     )}
@@ -286,7 +287,7 @@ function People() {
             ))}
           </select>
         </label>
-        {error && <div className="error">{error}</div>}
+        {error && <ErrorLine>{error}</ErrorLine>}
       </Dialog>
       <LinkDialog invite={link?.invite ?? null} what={link?.what ?? ""} onClose={() => setLink(null)} />
     </>

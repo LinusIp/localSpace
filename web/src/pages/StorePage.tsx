@@ -10,6 +10,7 @@ import { useSession } from "../store";
 import type { InstallPrompt } from "../store";
 import { TopBar } from "../components/TopBar";
 import { useStrings } from "../useStrings";
+import { StatePill } from "../components/Themed";
 
 /** The first sentence of a description, for the tile. */
 function firstSentence(text: string): string {
@@ -120,7 +121,7 @@ function Tile({ entry, installed, busy, mayChange, onInstall, onOpen, onRemove }
         <span className={`glyph${blocked ? " grey" : ""}`}>
           <BoardIcon size={21} />
         </span>
-        {installed && <span className="pill green">Installed</span>}
+        {installed && <StatePill tone="ok">Installed</StatePill>}
       </div>
       <div className="tile-title" style={blocked ? { color: "var(--ls-muted)" } : undefined}>
         {entry.title}

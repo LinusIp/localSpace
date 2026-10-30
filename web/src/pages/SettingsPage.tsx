@@ -16,6 +16,7 @@ import { featureOn } from "../lib/features";
 import type { Json, ToolOutcome } from "../api/generated";
 import { useStrings } from "../useStrings";
 import { LANGUAGE_NAMES, type Language, type LanguageChoice } from "../lib/strings";
+import { StatePill, ErrorLine, DownloadBar } from "../components/Themed";
 
 const PANES: Array<{ id: SettingsPane; label: string }> = [
   { id: "general", label: "General" },
@@ -176,7 +177,7 @@ function AssistantPane() {
               <span style={{ flex: 1 }}>
                 <span className="opt-title">
                   {modelLabel(current, catalogModels)}
-                  <span className="pill green">In use</span>
+                  <StatePill tone="ok">In use</StatePill>
                 </span>
                 <div className="opt-body">A model on a server you connected under Advanced.</div>
               </span>
@@ -194,9 +195,9 @@ function AssistantPane() {
                   <span style={{ flex: 1 }}>
                     <span className="opt-title">
                       {m.title}
-                      {m.maker && <span className="pill">{m.maker}</span>}
-                      {on && <span className="pill green">In use</span>}
-                      {starting && <span className="pill amber">Starting up…</span>}
+                      {m.maker && <StatePill>{m.maker}</StatePill>}
+                      {on && <StatePill tone="ok">In use</StatePill>}
+                      {starting && <StatePill tone="warn">Starting up…</StatePill>}
                     </span>
                     <div className="opt-body">
                       {modelReason(m)}
@@ -311,7 +312,7 @@ function ModelGroup({ title, models, offline, onDownload, onStop, onDelete }: { 
               <div key={m.id} className="row-item">
                 <div className="row-main">
                   <div className="row-title">
-                    {m.title} {m.maker && <span className="pill">{m.maker}</span>}
+                    {m.title} {m.maker && <StatePill>{m.maker}</StatePill>}
                   </div>
                   <div className="row-body">
                     {modelReason(m)}
@@ -319,15 +320,16 @@ function ModelGroup({ title, models, offline, onDownload, onStop, onDelete }: { 
                   </div>
                   {(downloading || paused || checking) && m.download && (
                     <div style={{ marginTop: 8 }}>
-                      <div className="progress">
-                        <div style={{ width: `${percent}%` }} />
-                      </div>
-                      <div className="row-body">{checking ? "Checking that the file on this computer is the published one…" : paused ? `${percent.toFixed(0)}% is already here.` : `${percent.toFixed(0)}% downloaded`}</div>
+                      <DownloadBar
+                        percent={percent}
+                        labelClass="row-body"
+                        label={checking ? "Checking that the file on this computer is the published one…" : paused ? `${percent.toFixed(0)}% is already here.` : `${percent.toFixed(0)}% downloaded`}
+                      />
                     </div>
                   )}
                   {queued && <div className="row-body" style={{ marginTop: 8 }}>Waiting for the download before it to finish: one at a time, so that each is as fast as your connection.</div>}
-                  {failed && <div className="error">The download stopped. What came is kept: start it again and it continues from there.</div>}
-                  {m.no_room && !downloading && !queued && !checking && <div className="error">{m.no_room}</div>}
+                  {failed && <ErrorLine>The download stopped. What came is kept: start it again and it continues from there.</ErrorLine>}
+                  {m.no_room && !downloading && !queued && !checking && <ErrorLine>{m.no_room}</ErrorLine>}
                   {/* It would load, but leaves no room to spare here (docs/DECISIONS.md, 2026-10-18). */}
                   {m.memory_tight && <div className="row-body">{strings.memoryTight}</div>}
                 </div>

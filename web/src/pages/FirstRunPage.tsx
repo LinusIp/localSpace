@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { sizeInWords } from "../lib/models";
 import { useSession } from "../store";
 import { useStrings } from "../useStrings";
+import { ErrorLine, DownloadBar } from "../components/Themed";
 
 export function FirstRunPage() {
   const strings = useStrings();
@@ -81,19 +82,20 @@ export function FirstRunPage() {
                   </div>
                 )
               )}
-              {model.no_room && !downloading && !checking && <div className="error">{model.no_room}</div>}
+              {model.no_room && !downloading && !checking && <ErrorLine>{model.no_room}</ErrorLine>}
               {/* Offered first though it leaves no room to spare: nothing here does (docs/DECISIONS.md, 2026-10-18). */}
               {model.memory_tight && <div className="auth-sub">{strings.memoryTight}</div>}
               {(downloading || paused || checking || starting || (accepted && model.installed)) && (
                 <div style={{ marginTop: 18 }}>
-                  <div className="progress">
-                    <div style={{ width: `${model.installed ? 100 : percent}%` }} />
-                  </div>
-                  <div className="auth-sub">{model.installed ? "Starting it up. A larger model takes a minute." : checking ? "Checking that the file on this computer is the published one…" : paused ? `${percent.toFixed(0)}% is already here.` : `${percent.toFixed(0)}% downloaded`}</div>
+                  <DownloadBar
+                    percent={model.installed ? 100 : percent}
+                    labelClass="auth-sub"
+                    label={model.installed ? "Starting it up. A larger model takes a minute." : checking ? "Checking that the file on this computer is the published one…" : paused ? `${percent.toFixed(0)}% is already here.` : `${percent.toFixed(0)}% downloaded`}
+                  />
                 </div>
               )}
               {queued && <div className="auth-sub">Waiting for the download before it to finish: one at a time.</div>}
-              {failed && <div className="error">The download stopped. What came is kept: start it again and it continues from there.</div>}
+              {failed && <ErrorLine>The download stopped. What came is kept: start it again and it continues from there.</ErrorLine>}
               {offline && !model.installed && (
                 <div className="auth-sub">
                   Downloads need the network, and this computer is set to stay offline.{" "}

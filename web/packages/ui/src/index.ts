@@ -6,6 +6,7 @@ import "./ui.css";
 
 export * from "./controls.tsx";
 export * from "./overlays.tsx";
+export * from "./feedback.tsx";
 export * from "./dock.tsx";
 export * from "./icons.tsx";
 export { useStore, createStore } from "./store.ts";

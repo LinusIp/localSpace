@@ -40,7 +40,7 @@ function stripAllowed(css: string): string {
 }
 
 test("no stylesheet names a colour outside the token definitions", () => {
-  const sheets = ["packages/ui/src/ui.css", "src/index.css", ...filesIn("surfaces/", [".css"]).filter((p) => p.includes("/src/"))];
+  const sheets = ["packages/ui/src/ui.css", "packages/ui/src/look.css", "src/index.css", ...filesIn("surfaces/", [".css"]).filter((p) => p.includes("/src/"))];
   for (const path of sheets) {
     const lines = stripAllowed(read(path)).split("\n");
     const found = lines.filter((l) => COLOUR.test(l));

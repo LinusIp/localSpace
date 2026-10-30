@@ -6,6 +6,7 @@ import { useState } from "react";
 import { ShieldIcon } from "@localspace/ui";
 import { ApiError, login, loginWithPassword, me } from "../api/client";
 import { useSession } from "../store";
+import { ErrorLine } from "../components/Themed";
 
 export function SignInPage() {
   const { authMode, signIn } = useSession();
@@ -57,7 +58,7 @@ export function SignInPage() {
               <input className="input mono" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} autoFocus />
             </label>
           )}
-          {error && <div className="error">{error}</div>}
+          {error && <ErrorLine>{error}</ErrorLine>}
           <button type="submit" className="auth-button" disabled={busy || (organisation ? !email.trim() || !password : !token.trim())}>
             {busy ? "Signing in…" : "Sign in"}
           </button>
