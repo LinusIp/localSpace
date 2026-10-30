@@ -296,6 +296,7 @@
 /* What every palette derives from its own colours, in both modes. */
 :root[data-palette] {
   color-scheme: light;
+  --ls-font-sans: "Onest", system-ui, -apple-system, "Segoe UI", sans-serif;
   --ls-on-ink: var(--ls-page);
   --ls-ok-line: color-mix(in srgb, var(--ls-ok) 20%, transparent);
   --ls-accent-ring: color-mix(in srgb, var(--ls-accent) 35%, transparent);

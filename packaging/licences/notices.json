@@ -54,6 +54,18 @@
       "licence": "BSD-3-Clause (Microsoft), with its own notices",
       "where": "localspace-app.exe",
       "text": "webview2.txt"
+    },
+    {
+      "name": "Figtree, the typeface",
+      "licence": "OFL-1.1",
+      "where": "the web client",
+      "text": "../../web/public/fonts/OFL-Figtree.txt"
+    },
+    {
+      "name": "Onest, the typeface (Fontsource 5.3.1 files)",
+      "licence": "OFL-1.1",
+      "where": "the web client",
+      "text": "../../web/public/fonts/OFL-Onest.txt"
     }
   ]
 }
