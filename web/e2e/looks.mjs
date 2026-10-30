@@ -113,11 +113,11 @@ try {
     }));
     if (!look.palette) {
       if (seen.palette || seen.theme) throw new Error(`with themes off the page carries a look: ${JSON.stringify(seen)}`);
-      if (!/^"?Figtree/.test(seen.font)) throw new Error(`with themes off the font is ${seen.font}`);
+      if (!/^"?Figtree/.test(seen.font)) throw new Error(`with themes off the font is ${seen.font}`);
     } else {
       if (seen.palette !== look.palette || seen.theme !== look.mode) throw new Error(`${look.name}: the page carries ${JSON.stringify(seen)}`);
       if (seen.background !== PAGE[look.palette][look.mode]) throw new Error(`${look.name}: the page is ${seen.background}, not ${PAGE[look.palette][look.mode]}`);
-      if (!/^"?Onest/.test(seen.font)) throw new Error(`${look.name}: the font is ${seen.font}`);
+      if (!/^"?Onest/.test(seen.font)) throw new Error(`${look.name}: the font is ${seen.font}`);
       const faces = await page.evaluate(async () => (await document.fonts.load('16px "Onest"', "oʻ")).map((f) => f.unicodeRange));
       if (!faces.some((range) => /U\+0*2BB/i.test(range))) throw new Error(`${look.name}: no Onest face covering ʻ loaded (${JSON.stringify(faces)})`);
     }
