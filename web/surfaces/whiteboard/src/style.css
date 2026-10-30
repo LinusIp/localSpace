@@ -37,4 +37,4 @@ body { font-family: var(--ls-font-sans, system-ui, sans-serif); font-size: 14px;
 .zoom-level { min-width: 48px; height: 30px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 13px; font-weight: 600; color: var(--ls-ink, #1c1e20); cursor: pointer; padding: 0 4px; }
 .zoom-level:hover { background: var(--ls-hover, #efedea); }
 
-.board-note { position: absolute; z-index: 2; left: 50%; bottom: 22px; transform: translateX(-50%); max-width: min(480px, calc(100% - 200px)); padding: 7px 13px; border-radius: 9px; background: var(--ls-ink, #1c1e20); color: #fff; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.board-note { position: absolute; z-index: 2; left: 50%; bottom: 22px; transform: translateX(-50%); max-width: min(480px, calc(100% - 200px)); padding: 7px 13px; border-radius: 9px; background: var(--ls-ink, #1c1e20); color: var(--ls-on-ink, #fff); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
