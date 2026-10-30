@@ -46,6 +46,7 @@ pub mod runtime;
 pub mod store;
 pub mod stream;
 pub mod task;
+pub mod text_file;
 pub mod tools;
 pub mod transport;
 pub mod turns;
@@ -76,8 +77,21 @@ use std::sync::{Arc, Mutex, RwLock};
 pub const READ_ONLY_REASON: &str = "Your account can read here but not change anything.";
 
 /// What the shell may remember per user, server-side, across their devices
-/// (the shell answers of 2026-09-12: the rail's state lives with the user).
-pub const PREFERENCE_KEYS: &[&str] = &["rail_collapsed"];
+/// (the shell answers of 2026-09-12: the rail's state lives with the user),
+/// and the language the person chose in Settings (0.2.0; the client has
+/// asked to keep it since 2026-10-18, and Core refused it until now).
+pub const PREFERENCE_KEYS: &[&str] = &["rail_collapsed", "language"];
+
+/// A language choice is "system" or a short language tag (`ru`, `uz`,
+/// `pt-BR`): letters, digits and hyphens. Any tag is kept, so a language
+/// the client learns later needs no change here.
+fn language_choice_ok(value: &str) -> bool {
+    value == "system"
+        || (!value.is_empty()
+            && value.len() <= 35
+            && value.starts_with(|c: char| c.is_ascii_alphabetic())
+            && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+}
 
 pub const CORE_TOOLS: &[&str] = &[
     "find_capability",
@@ -4145,10 +4159,7 @@ impl Core {
             R::ListTurns => agent::list(self),
             R::ContinueAnswer { conversation } => agent::continue_answer(self, conversation),
 
-            R::GetTranscript => proto::Response::Transcript {
-                messages: self.transcript.clone(),
-                read_from: prompt::read_from(&self.transcript, self.cfg.profile.working_set_tokens),
-            },
+            R::GetTranscript => agent::transcript(self),
 
             R::ListConversations => self.conversations_response(),
 
@@ -4162,6 +4173,11 @@ impl Core {
                 if value.chars().count() > 200 {
                     return proto::Response::Error {
                         message: "a preference is at most 200 characters".into(),
+                    };
+                }
+                if key == "language" && !language_choice_ok(&value) {
+                    return proto::Response::Error {
+                        message: format!("`{value}` is not a language"),
                     };
                 }
                 if let Err(e) = self.store.set_preference(&self.active.user, &key, &value) {
@@ -4928,12 +4944,15 @@ impl Core {
                 self.cfg.profile = saved;
 
                 let active = self.active_set();
+                // As the model reads the chat: its text files in its words.
+                let (user, chat) = (&self.active.user, &self.conversations.current);
+                let messages = agent::with_text_files(self, user, chat, self.transcript.clone());
                 let p = prompt::build(
                     &self.cfg.profile,
                     &active,
                     &blocks,
                     Some(&self.task),
-                    &self.transcript,
+                    &messages,
                 );
                 proto::Response::Context {
                     blocks,

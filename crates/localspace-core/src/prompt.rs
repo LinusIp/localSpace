@@ -266,12 +266,137 @@ pub fn build(
 /// (docs/DECISIONS.md, 2026-10-21).
 pub const PICTURE_TOKENS: usize = 400;
 
+/// What words cost in what the model reads, counted by the pieces the
+/// models' tokenizers cut text into before they read it (Qwen's and Gemma's):
+/// - a digit is a piece of its own, and so is a space before one;
+/// - a word is at least one, a token for every four bytes of it;
+/// - a run of punctuation is one, or more when it is long;
+/// - a run of spaces, beyond the one that joins the next word, and a line
+///   break are one each;
+/// - the Uzbek ʻ and ʼ are one each.
+///
+/// It is never less than the system's estimate of a token for every four
+/// bytes. A table of figures would otherwise count as a third of what it is
+/// (docs/DECISIONS.md, 2026-10-26). Against the real tokenizers it counts
+/// tables at 1.0 to 1.25 times, English, Russian, code and Markdown at 1.2
+/// to 1.9 times, and Uzbek Latin short, at 0.76 to 0.87.
+pub fn tokens_of(text: &str) -> usize {
+    let mut counted = Counted::default();
+    for c in text.chars() {
+        counted.add(c);
+    }
+    counted.tokens()
+}
+
+/// The running count behind [`tokens_of`], one character at a time, so a
+/// text can be cut where it fits: the count of a start of a text is the
+/// count of that start alone.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Counted {
+    /// The pieces before the one being read.
+    done: usize,
+    run: Run,
+    /// The bytes of the piece being read, and of its last character.
+    run_bytes: usize,
+    run_last: usize,
+    run_chars: usize,
+    all_bytes: usize,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Run {
+    #[default]
+    None,
+    Word,
+    Marks,
+    Spaces,
+    Lines,
+}
+
+impl Counted {
+    /// One more character.
+    pub fn add(&mut self, c: char) {
+        self.all_bytes += c.len_utf8();
+        let run = if c == '\n' || c == '\r' {
+            Run::Lines
+        } else if c.is_whitespace() {
+            Run::Spaces
+        } else if c.is_ascii_punctuation() {
+            Run::Marks
+        } else {
+            Run::Word
+        };
+        // A digit is a piece of its own; one beyond ASCII (Arabic-Indic,
+        // full-width) is read byte by byte.
+        let digit = if c.is_ascii_digit() || matches!(c, '\u{02BB}' | '\u{02BC}') {
+            Some(1)
+        } else if c.is_numeric() {
+            Some(c.len_utf8())
+        } else {
+            None
+        };
+        if let Some(digit) = digit {
+            // The space before a digit is a piece of its own (a no-break
+            // space, byte by byte, as Gemma reads it), and the spaces before
+            // that one more for every twenty.
+            let before = match self.run {
+                Run::Spaces if self.run_chars > 1 => {
+                    (self.run_bytes - self.run_last).div_ceil(20).max(1) + self.run_last
+                }
+                Run::Spaces => self.run_last,
+                _ => self.cost(),
+            };
+            self.done += before + digit;
+            (self.run, self.run_bytes, self.run_chars) = (Run::None, 0, 0);
+            return;
+        }
+        // Spaces end in a line break as one piece.
+        let joins = run == self.run || (self.run == Run::Spaces && run == Run::Lines);
+        if !joins {
+            self.done += self.cost();
+            (self.run_bytes, self.run_chars) = (0, 0);
+        }
+        self.run = run;
+        self.run_bytes += c.len_utf8();
+        self.run_last = c.len_utf8();
+        self.run_chars += 1;
+    }
+
+    /// What the piece being read costs so far.
+    fn cost(&self) -> usize {
+        match self.run {
+            Run::None => 0,
+            Run::Word => self.run_bytes.div_ceil(4),
+            Run::Marks => self.run_bytes.div_ceil(4).max(1),
+            // The last space joins the word after it.
+            Run::Spaces => (self.run_bytes - 1).div_ceil(4),
+            // A line break, with any spaces before it, is a piece at least.
+            Run::Lines => (self.run_bytes - 1).div_ceil(4).max(1),
+        }
+    }
+
+    pub fn tokens(&self) -> usize {
+        (self.done + self.cost()).max(self.all_bytes.div_ceil(4))
+    }
+}
+
 fn cost(m: &proto::ChatMessage) -> usize {
     turns_of(m)
         .iter()
-        .map(|t| proto::estimate_tokens(&t.render()))
+        .map(|t| tokens_of(&t.render()))
         .sum::<usize>()
-        + m.attachments.len() * PICTURE_TOKENS
+        + m.attachments
+            .iter()
+            .map(|a| match a.kind {
+                proto::AttachmentKind::Picture => PICTURE_TOKENS,
+                // What the model reads of a text file, decided when it was
+                // sent (docs/DECISIONS.md, 2026-10-26). The prompt reads the
+                // file in the person's words instead (`agent::with_text_files`).
+                proto::AttachmentKind::Text => {
+                    a.text.as_ref().map_or(0, |t| t.read_tokens as usize)
+                }
+            })
+            .sum::<usize>()
 }
 
 /// Where the model's reading of a chat begins, in big steps rather than a
@@ -332,7 +457,7 @@ pub fn turns(messages: &[proto::ChatMessage], working_set: usize) -> Vec<Turn> {
     let mut start = all.len();
     let mut used = 0usize;
     while start > 0 {
-        let cost = proto::estimate_tokens(&all[start - 1].render());
+        let cost = tokens_of(&all[start - 1].render());
         if used + cost > working_set && start < all.len() {
             break;
         }
@@ -343,9 +468,35 @@ pub fn turns(messages: &[proto::ChatMessage], working_set: usize) -> Vec<Turn> {
         .iter()
         .position(|t| matches!(t, Turn::Person(_)))
     {
-        start += person;
+        return all[start + person..].to_vec();
     }
-    all[start..].to_vec()
+    // The turn's own calls filled the working set: the person's request is
+    // read all the same, with the newest calls that fit beside it.
+    let Some(person) = all[..start]
+        .iter()
+        .rposition(|t| matches!(t, Turn::Person(_)))
+    else {
+        return all[start..].to_vec();
+    };
+    let room = working_set.saturating_sub(tokens_of(&all[person].render()));
+    let mut from = all.len();
+    let mut used = 0usize;
+    while from > person + 1 {
+        let cost = tokens_of(&all[from - 1].render());
+        if used + cost > room {
+            break;
+        }
+        used += cost;
+        from -= 1;
+    }
+    // Not even the newest call fits beside it: the working set holds, and
+    // the newest calls are read as before.
+    if from == all.len() {
+        return all[start..].to_vec();
+    }
+    std::iter::once(all[person].clone())
+        .chain(all[from..].iter().cloned())
+        .collect()
 }
 
 /// The pictures the person sent, put with their messages: `pictures` by the
@@ -553,6 +704,7 @@ mod tests {
                     bytes: 1,
                     width: 1,
                     height: 1,
+                    text: None,
                 };
                 2
             ];
@@ -811,6 +963,84 @@ mod tests {
                 Turn::Answer(format!("Once upon {STOPPED_HERE}")),
             ]
         );
+    }
+
+    /// The turn's own calls never push the person's request out of what the
+    /// model reads: it is kept, with the newest calls that fit beside it
+    /// (docs/DECISIONS.md, 2026-10-26).
+    #[test]
+    fn the_persons_request_survives_a_turn_full_of_calls() {
+        let call = |i: usize| {
+            let mut m = msg(Role::Tool, "");
+            m.tool_calls = vec![proto::ToolCallRecord {
+                id: format!("t{i}"),
+                tool: "canvas.add_sticky".into(),
+                params: Json(
+                    serde_json::json!({"text": "a note with some words in it ".repeat(4)}),
+                ),
+                outcome: proto::ToolOutcome::Ok {
+                    diff_summary: "added 1 shape".into(),
+                    result: Json(serde_json::json!({})),
+                    commit: None,
+                },
+            }];
+            m
+        };
+        let mut messages = vec![msg(
+            Role::User,
+            &"Put these notes on the board. ".repeat(20),
+        )];
+        messages.extend((0..40).map(call));
+        let kept = turns(&messages, 1000);
+        assert!(
+            matches!(kept.first(), Some(Turn::Person(text)) if text.starts_with("Put these notes")),
+            "{kept:?}"
+        );
+        assert!(matches!(kept.last(), Some(Turn::Call { id, .. }) if id == "t39"));
+        assert!(kept.len() < messages.len());
+        let tokens: usize = kept.iter().map(|t| tokens_of(&t.render())).sum();
+        assert!(tokens <= 1000, "{tokens}");
+        // A request too long for any call beside it: the working set holds.
+        let mut long = vec![msg(
+            Role::User,
+            &"Put these notes on the board. ".repeat(140),
+        )];
+        long.extend((0..40).map(call));
+        let kept = turns(&long, 1000);
+        let tokens: usize = kept.iter().map(|t| tokens_of(&t.render())).sum();
+        assert!(tokens <= 1000 || kept.len() == 1, "{tokens}");
+    }
+
+    /// The count follows the pieces the tokenizers cut text into: a digit
+    /// and the space before it are each a token, a run of marks is one, a
+    /// word is at least one; and a start of a text counts as that start alone.
+    #[test]
+    fn the_count_follows_the_tokenizers_pieces() {
+        assert_eq!(tokens_of(""), 0);
+        // Rent ; 8 _ 0 0 0 _ 0 0 0 ; 8 _ 0 0 0 _ 0 0 0 \n
+        assert_eq!(tokens_of("Rent;8 000 000;8 000 000\n"), 22);
+        // Spaces before a figure: the last is a piece, the others one more.
+        assert_eq!(tokens_of("  1"), 3);
+        assert_eq!(tokens_of("1\t\t2"), 4);
+        // A no-break space before a figure is two bytes, as Gemma reads it.
+        assert_eq!(tokens_of("\u{a0}1"), 3);
+        // Wide columns: a token for every twenty spaces and the last, so no
+        // more than the floor of four bytes a token.
+        assert_eq!(tokens_of(&format!("{}7", " ".repeat(19))), 5);
+        // Digits beyond ASCII are read byte by byte.
+        assert_eq!(tokens_of("\u{0661}\u{0662}"), 4);
+        // A run of marks is one piece, not one per mark.
+        assert!(tokens_of("**bold** and `code();`") <= 9);
+        // Never less than a token for every four bytes.
+        let prose = "The quick brown fox jumps over the lazy dog. ".repeat(20);
+        assert!(tokens_of(&prose) >= prose.len().div_ceil(4));
+        // The count of a start is the count of that start.
+        let text = "Счёт № 7: 1 250 сум.\n    let x = [1, 2];\n";
+        let mut counted = Counted::default();
+        for (at, c) in text.char_indices() {
+            counted.add(c);
+            assert_eq!(counted.tokens(), tokens_of(&text[..at + c.len_utf8()]));
+        }
     }
 
     /// An answer's thinking is stored with it and is no part of what the

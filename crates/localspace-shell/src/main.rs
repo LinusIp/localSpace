@@ -112,6 +112,10 @@ fn open_main_window(app: &tauri::App, url: &str) -> anyhow::Result<()> {
         .title("localSpace")
         .inner_size(1440.0, 900.0)
         .min_inner_size(900.0, 600.0)
+        // A picture or a file dragged from Explorer reaches the page, which
+        // takes it in the message box; Tauri's own handler would keep it
+        // from the page on Windows (docs/DECISIONS.md, 2026-10-26).
+        .disable_drag_drop_handler()
         // A link the person clicks that would open a new window (Help → Send
         // feedback, a link in an answer) goes to their own browser, and only
         // an https one; the app itself fetches nothing (docs/DECISIONS.md,

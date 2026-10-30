@@ -43,9 +43,9 @@ export interface Strings {
   /** A model that would load, but leaves no room to spare (the approved note). */
   memoryTight: string;
   /** The composer. */
-  attachPicture: string;
+  attachFile: string;
   removePicture: string;
-  dropPictureHere: string;
+  dropFileHere: string;
   /** Why a picture was not taken. */
   pictureTooLarge: (megabytes: number) => string;
   pictureTooManyPixels: (width: number, height: number) => string;
@@ -53,6 +53,18 @@ export interface Strings {
   pictureUnreadable: string;
   tooManyPictures: (most: number) => string;
   pictureNotFound: string;
+  /** Why a text file was not taken (plan 38, F1). */
+  notText: string;
+  emptyFile: string;
+  textTooLarge: (megabytes: string) => string;
+  /** A text file that could not reach Core (the connection, the session). */
+  fileNotAttached: string;
+  /** A text file the model read only the start of: how much, never silently (plan 38, F4); its words when there are enough to say. */
+  filePartRead: (percent: string, words: { read: string; total: string; count: number } | null) => string;
+  /** A text file the model read none of: the message had no room left for it. */
+  fileNotRead: string;
+  /** A sent text file: saves it on this computer. */
+  saveFile: string;
   /** A model that cannot read pictures here, and what to do. */
   cannotReadPictures: (model: string) => string;
   pictureFileLeftOut: (gigabytes: string, model: string) => string;
@@ -70,16 +82,24 @@ const en: Strings = {
   languageTitle: "Language",
   languageSystem: "Same as Windows",
   memoryTight: "Needs most of this computer's memory: close other programs, such as your browser, before you use it.",
-  attachPicture: "Attach a picture",
+  attachFile: "Attach a picture or a text file",
   removePicture: "Remove",
-  dropPictureHere: "Drop the picture here",
+  dropFileHere: "Drop the picture or file here",
   pictureTooLarge: (mb) => `This file is ${mb} MB, and pictures up to 30 MB can be attached. Attach a normal-size photo or a screenshot instead.`,
   pictureTooManyPixels: (w, h) =>
     `This picture is ${w} by ${h} pixels, and pictures up to 60 megapixels can be attached. Attach a normal-size photo or a screenshot instead.`,
   notAPicture: "Only PNG, JPEG and WebP pictures can be attached.",
   pictureUnreadable: "This picture could not be read. Try saving it again, or take a screenshot of it.",
-  tooManyPictures: (most) => `Up to ${most} pictures can go with one message.`,
-  pictureNotFound: "That picture is no longer here. Attach it again.",
+  tooManyPictures: (most) => `Up to ${most} pictures or files can go with one message.`,
+  pictureNotFound: "That file is no longer here. Attach it again.",
+  notText: "Only pictures (PNG, JPEG, WebP) and text files (.txt, .md, .csv and code) can be attached.",
+  emptyFile: "This file is empty.",
+  textTooLarge: (mb) => `This file is ${mb} MB, and text files up to 2 MB can be attached.`,
+  fileNotAttached: "This file could not be attached. Try again.",
+  filePartRead: (percent, words) =>
+    `Too long to read whole: the model read the first ${percent}%${words ? ` (about ${words.read} of ${words.total} words)` : ""}.`,
+  fileNotRead: "No room was left in this message to read this file, so the model didn't read it.",
+  saveFile: "Save",
   cannotReadPictures: (model) => `${model} can't read pictures.`,
   pictureFileLeftOut: (gb, model) =>
     `Pictures need about ${gb} GB more memory than is free now. Close other programs, or switch to ${model} for pictures.`,
@@ -94,17 +114,25 @@ const ru: Strings = {
   languageTitle: "Язык",
   languageSystem: "Как в Windows",
   memoryTight: "Занимает большую часть памяти этого компьютера: перед работой закройте другие программы, например браузер.",
-  attachPicture: "Прикрепить изображение",
+  attachFile: "Прикрепить изображение или текстовый файл",
   removePicture: "Убрать",
-  dropPictureHere: "Перетащите изображение сюда",
+  dropFileHere: "Перетащите изображение или файл сюда",
   pictureTooLarge: (mb) =>
     `Этот файл весит ${mb} МБ, а прикрепить можно изображения до 30 МБ. Прикрепите фото обычного размера или снимок экрана.`,
   pictureTooManyPixels: (w, h) =>
     `Это изображение ${w} на ${h} пикселей, а прикрепить можно изображения до 60 мегапикселей. Прикрепите фото обычного размера или снимок экрана.`,
   notAPicture: "Прикрепить можно только изображения PNG, JPEG и WebP.",
   pictureUnreadable: "Не удалось прочитать это изображение. Сохраните его заново или сделайте снимок экрана.",
-  tooManyPictures: (most) => `К одному сообщению можно прикрепить не больше ${most} изображений.`,
-  pictureNotFound: "Этого изображения больше нет. Прикрепите его заново.",
+  tooManyPictures: (most) => `К одному сообщению можно прикрепить не больше ${most} изображений или файлов.`,
+  pictureNotFound: "Этого файла больше нет. Прикрепите его заново.",
+  notText: "Прикрепить можно только изображения (PNG, JPEG, WebP) и текстовые файлы (.txt, .md, .csv и код).",
+  emptyFile: "Этот файл пустой.",
+  textTooLarge: (mb) => `Этот файл весит ${mb} МБ, а прикрепить можно текстовые файлы до 2 МБ.`,
+  fileNotAttached: "Не удалось прикрепить этот файл. Попробуйте ещё раз.",
+  filePartRead: (percent, words) =>
+    `Файл слишком длинный, чтобы прочитать его целиком: модель прочитала первые ${percent}%${words ? ` (примерно ${words.read} из ${words.total} ${words.count % 10 === 1 && words.count % 100 !== 11 ? "слова" : "слов"})` : ""}.`,
+  fileNotRead: "В этом сообщении не хватило места, чтобы прочитать этот файл, поэтому модель его не прочитала.",
+  saveFile: "Сохранить",
   cannotReadPictures: (model) => `${model} не умеет читать изображения.`,
   pictureFileLeftOut: (gb, model) =>
     `Для изображений нужно ещё примерно ${gb} ГБ свободной памяти. Закройте другие программы или переключитесь на ${model} для изображений.`,
@@ -120,17 +148,25 @@ const uz: Strings = {
   languageTitle: "Til",
   languageSystem: "Windows dagidek",
   memoryTight: "Bu kompyuter xotirasining katta qismini egallaydi: ishlatishdan oldin boshqa dasturlarni, masalan, brauzerni yoping.",
-  attachPicture: "Rasm biriktirish",
+  attachFile: "Rasm yoki matnli fayl biriktirish",
   removePicture: "Olib tashlash",
-  dropPictureHere: "Rasmni shu yerga tashlang",
+  dropFileHere: "Rasm yoki faylni shu yerga tashlang",
   pictureTooLarge: (mb) =>
     `Bu fayl ${mb} MB, 30 MB gacha boʻlgan rasmlarni biriktirish mumkin. Oddiy oʻlchamdagi surat yoki ekran rasmini biriktiring.`,
   pictureTooManyPixels: (w, h) =>
     `Bu rasm ${w} × ${h} piksel, 60 megapikselgacha boʻlgan rasmlarni biriktirish mumkin. Oddiy oʻlchamdagi surat yoki ekran rasmini biriktiring.`,
   notAPicture: "Faqat PNG, JPEG va WebP rasmlarini biriktirish mumkin.",
   pictureUnreadable: "Bu rasmni oʻqib boʻlmadi. Uni qaytadan saqlang yoki ekran rasmini oling.",
-  tooManyPictures: (most) => `Bitta xabarga ${most} tagacha rasm biriktirish mumkin.`,
-  pictureNotFound: "Bu rasm endi yoʻq. Uni qaytadan biriktiring.",
+  tooManyPictures: (most) => `Bitta xabarga ${most} tagacha rasm yoki fayl biriktirish mumkin.`,
+  pictureNotFound: "Bu fayl endi yoʻq. Uni qaytadan biriktiring.",
+  notText: "Faqat rasmlarni (PNG, JPEG, WebP) va matnli fayllarni (.txt, .md, .csv va kod) biriktirish mumkin.",
+  emptyFile: "Bu fayl boʻsh.",
+  textTooLarge: (mb) => `Bu fayl ${mb} MB. Faqat 2 MB gacha boʻlgan matnli fayllarni biriktirish mumkin.`,
+  fileNotAttached: "Bu faylni biriktirib boʻlmadi. Qaytadan urinib koʻring.",
+  filePartRead: (percent, words) =>
+    `Butunlay oʻqish uchun juda uzun: model birinchi ${percent}% qismini oʻqidi${words ? ` (taxminan ${words.total} soʻzdan ${words.read} tasi)` : ""}.`,
+  fileNotRead: "Bu xabarda faylni oʻqish uchun joy qolmadi, shuning uchun model uni oʻqimadi.",
+  saveFile: "Saqlash",
   cannotReadPictures: (model) => `${model} rasmlarni oʻqiy olmaydi.`,
   pictureFileLeftOut: (gb, model) =>
     `Rasmlar uchun yana taxminan ${gb} GB boʻsh xotira kerak. Boshqa dasturlarni yoping yoki rasmlar uchun ${model} ga oʻting.`,

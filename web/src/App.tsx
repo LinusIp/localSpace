@@ -51,6 +51,20 @@ export default function App() {
     return m ? decodeURIComponent(m[1]) : null;
   });
 
+  // A file dropped anywhere but the message box is not opened in place of
+  // the app (the desktop window takes drops since 2026-10-26).
+  useEffect(() => {
+    const keep = (e: DragEvent) => {
+      if (e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
+    };
+    window.addEventListener("dragover", keep);
+    window.addEventListener("drop", keep);
+    return () => {
+      window.removeEventListener("dragover", keep);
+      window.removeEventListener("drop", keep);
+    };
+  }, []);
+
   // A token in the URL is the desktop app signing its window in. It is
   // exchanged for the cookie and removed from the address at once.
   useEffect(() => {
