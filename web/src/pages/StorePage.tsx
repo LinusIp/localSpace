@@ -9,6 +9,7 @@ import type { CatalogEntry } from "../api/generated";
 import { useSession } from "../store";
 import type { InstallPrompt } from "../store";
 import { TopBar } from "../components/TopBar";
+import { useStrings } from "../useStrings";
 
 /** The first sentence of a description, for the tile. */
 function firstSentence(text: string): string {
@@ -24,6 +25,7 @@ export function StorePage() {
   const mayChange = me?.topology !== "organisation" || (me?.roles.includes("admin") ?? false);
   const [prompt, setPrompt] = useState<InstallPrompt | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const strings = useStrings();
 
   useEffect(() => {
     void refreshCatalog();
@@ -48,7 +50,7 @@ export function StorePage() {
         <div className="page-sub">Add tools to your workspace. Everything installs onto {where}.</div>
         {entries.length === 0 ? (
           <p className="ls-muted" style={{ marginTop: 32 }}>
-            {catalog.length === 0 ? "This server has no catalog of tools yet. Your administrator adds one." : "Nothing in the catalog is a tool to add."}
+            {catalog.length === 0 ? (me?.topology === "personal" ? strings.noToolsYet : "This server has no catalog of tools yet. Your administrator adds one.") : "Nothing in the catalog is a tool to add."}
           </p>
         ) : (
           <div className="tiles">
@@ -126,7 +128,7 @@ function Tile({ entry, installed, busy, mayChange, onInstall, onOpen, onRemove }
       <div className="tile-body">{firstSentence(entry.description) || "No description was given."}</div>
       <div className="tile-actions">
         {blocked ? (
-          <span className="ls-small ls-faint" style={{ fontWeight: 600 }}>
+          <span className="ls-small ls-muted" style={{ fontWeight: 600 }}>
             Not available here
           </span>
         ) : installed ? (
@@ -135,14 +137,14 @@ function Tile({ entry, installed, busy, mayChange, onInstall, onOpen, onRemove }
               Open
             </button>
           ) : (
-            <span className="ls-small ls-faint">Ready in the chat</span>
+            <span className="ls-small ls-muted">Ready in the chat</span>
           )
         ) : mayChange ? (
           <button type="button" className="btn solid" onClick={onInstall} disabled={busy}>
             {busy ? "Installing…" : "Install"}
           </button>
         ) : (
-          <span className="ls-small ls-faint">Your administrator adds tools.</span>
+          <span className="ls-small ls-muted">Your administrator adds tools.</span>
         )}
         <button type="button" className="link" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
           {open ? "Hide details" : "Details"}

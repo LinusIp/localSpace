@@ -336,6 +336,28 @@ pub async fn attachment(
             );
             response
         }
+        // A text file Core kept as UTF-8: plain text, never sniffed, and
+        // saved rather than shown in place (docs/DECISIONS.md, 2026-10-26).
+        Ok(proto::Response::DocBlob { name, mime, bytes }) if mime == "text/plain" => {
+            let mut response = (StatusCode::OK, bytes).into_response();
+            let h = response.headers_mut();
+            h.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("text/plain; charset=utf-8"),
+            );
+            h.insert(
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            );
+            h.insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, max-age=3600"),
+            );
+            if let Ok(value) = HeaderValue::from_str(&content_disposition(&name)) {
+                h.insert(header::CONTENT_DISPOSITION, value);
+            }
+            response
+        }
         Ok(_) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "no such attachment"})),

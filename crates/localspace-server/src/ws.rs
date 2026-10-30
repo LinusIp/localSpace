@@ -97,14 +97,6 @@ async fn serve(
     };
     let mut events = session.subscribe(&caller.user);
 
-    let hello = notice(
-        proto::NoticeLevel::Info,
-        format!("connected to localSpace {}", env!("CARGO_PKG_VERSION")),
-    );
-    if send(&mut socket, wire, &hello).await.is_err() {
-        return;
-    }
-
     // Answers to requests made on this socket arrive here, from their tasks.
     let (answers_tx, mut answers_rx) = tokio::sync::mpsc::channel::<proto::Envelope>(64);
 
