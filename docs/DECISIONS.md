@@ -13,6 +13,20 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-30, Onest behind the themes switch (themes, step 3)
+
+`docs/design/0.2.1-THEMES-AND-TRANSLATION.md` §3: Onest replaces Figtree for its Cyrillic, **only while `themes` is on**.
+
+- **The files:** the four variable-weight subsets (Latin, Latin extended, Cyrillic, Cyrillic extended) of `@fontsource-variable/onest` 5.3.1, about 88 KB in all, in `web/public/fonts/`. They're served from the bundle, never fetched from anywhere else. A subset loads only when a page shows one of its characters, so with `themes` off none of them loads. SHA-256:
+  - `onest-latin.woff2` `052df74533250c2e0ca0c4bdd32de594e107d99c1648e63820ef9c6142067828`
+  - `onest-latin-ext.woff2` `14e7d3079b75860e2ab50efc6c318c398fdb46ede9b56e625f12ae70a3c5d9a4`
+  - `onest-cyrillic.woff2` `68e5e01d6265bd68967746d4f5a9d18d0e6cbb5d15583c7082d6384ab1229b27`
+  - `onest-cyrillic-ext.woff2` `268f03691b3d06e57abcf20f9277e314ea8784298983aab5b40c1b91965027e1`
+- **Uzbek's ʻ (U+02BB) is in the font:** read from the Latin file's character map, with ʼ, ‘ and ’. So are the Russian letters and the Uzbek Cyrillic қ, ҳ, ғ and ө. How it looks on screen is checked in the screenshots.
+- **Settings → About names the typeface in use:** Onest with `themes` on, Figtree with it off.
+- **The third-party notices list both typefaces** (`packaging/licences/notices.json`, pointing at the OFL texts in `web/public/fonts/`). Figtree had been missing from them.
+- **The whiteboard still draws with Figtree.** The canvas names its font itself; it moves with the whiteboard's own look.
+
 ## 2026-10-30, the three palettes, light and dark (themes, step 2)
 
 `docs/design/0.2.1-THEMES-AND-TRANSLATION.md` §2. **Off by default:** nothing changes unless the `themes` switch is on.

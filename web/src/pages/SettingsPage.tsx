@@ -12,6 +12,7 @@ import type { SettingsPane } from "../store";
 import { TopBar } from "../components/TopBar";
 import { modelLabel, modelReason, sizeInWords, willNotFit } from "../lib/models";
 import { clock } from "../lib/time";
+import { featureOn } from "../lib/features";
 import type { Json, ToolOutcome } from "../api/generated";
 import { useStrings } from "../useStrings";
 import { LANGUAGE_NAMES, type Language, type LanguageChoice } from "../lib/strings";
@@ -490,7 +491,7 @@ function AboutPane() {
         <div className="row-item">
           <div className="row-main">
             <div className="row-title">Typeface</div>
-            <div className="row-body">Figtree, under the SIL Open Font License, served from this app.</div>
+            <div className="row-body">{featureOn("themes") ? "Onest" : "Figtree"}, under the SIL Open Font License, served from this app.</div>
           </div>
         </div>
       </div>
