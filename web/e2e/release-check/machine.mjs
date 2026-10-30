@@ -47,23 +47,25 @@ export function installedVersion() {
   return run.stdout.trim();
 }
 
-/** Lines of the app's log written from `fromLine` on. */
-export function logLines(fromLine = 0) {
-  if (!fs.existsSync(APP_LOG)) return [];
-  return fs.readFileSync(APP_LOG, "utf8").split(/\r?\n/).slice(fromLine);
-}
-
-export function logLength() {
-  return logLines().length;
+/**
+ * Lines of the app's log written at `ms` or later, by their own time. The
+ * app moves a long log to app.log.1 when it starts, so both are read.
+ */
+export function logSince(ms = 0) {
+  const read = (file) => (fs.existsSync(file) ? fs.readFileSync(file, "utf8").split(/\r?\n/) : []);
+  return [...read(`${APP_LOG}.1`), ...read(APP_LOG)].filter((line) => {
+    const at = Date.parse(`${line.slice(0, 23)}Z`);
+    return !Number.isNaN(at) && at >= ms;
+  });
 }
 
 /**
  * Starts the installed app as the Start menu would, and waits until its
  * server answers and its window is open. Returns the process, the client's
- * address and the log line the start began at.
+ * address and the time the start began.
  */
 export async function startApp() {
-  const from = logLength();
+  const since = Date.now() - 1000;
   const app = spawn(path.join(INSTALL_DIR, "localspace-app.exe"), [], { detached: true, stdio: "ignore" });
   let exited = false;
   app.on("exit", () => {
@@ -73,7 +75,7 @@ export async function startApp() {
     "the app's server and window",
     () => {
       if (exited) throw new Error("the app exited while starting");
-      const lines = logLines(from);
+      const lines = logSince(since);
       const at = lines.map((l) => l.match(/web client at (http:\/\/[0-9.:]+\/)/)).find(Boolean);
       const open = lines.some((l) => l.includes("the window is open"));
       return at && open ? at[1] : null;
@@ -81,7 +83,7 @@ export async function startApp() {
     120000,
   );
   await until("the server's health", async () => (await fetch(`${url}healthz`).catch(() => null))?.ok, 30000);
-  return { app, url, from };
+  return { app, url, since };
 }
 
 /** Ends the app and everything it started (the engine ends with it). */

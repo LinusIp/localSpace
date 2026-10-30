@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright-core";
 import { Report } from "./report.mjs";
-import { APP_LOG, DATA_DIR, INSTALL_DIR, fileIn, installSilently, logLines, sha256, sleep, startApp, stopApp, uninstallKeepingData, until } from "./machine.mjs";
+import { APP_LOG, DATA_DIR, INSTALL_DIR, fileIn, installSilently, logSince, sha256, sleep, startApp, stopApp, uninstallKeepingData, until } from "./machine.mjs";
 
 const args = Object.fromEntries(
   process.argv
@@ -56,7 +56,8 @@ async function download(api, id) {
       if (stage !== last) console.log(`  download of ${id}: ${stage || "(none)"}`);
       last = stage;
       if (stage.startsWith("failed")) throw new Error(`the download failed: ${stage}`);
-      return entry?.installed && !entry?.download;
+      // A finished download keeps its last stage ("done", then "checked").
+      return entry?.installed && (!entry.download || ["done", "checked"].includes(stage));
     },
     45 * MINUTE,
     3000,
@@ -85,13 +86,13 @@ async function answersDone(api, minutes = 15) {
 
 /** The engine's prompt size and our own count for every answer since `from`. */
 function promptSizes(from) {
-  return logLines(from)
+  return logSince(from)
     .map((l) => l.match(/answer: step \d+, .*prompt of (\d+) tokens \(we counted (\d+)\), (\d+) of (\d+) tokens written/))
     .filter(Boolean)
     .map((m) => ({ engine: Number(m[1]), counted: Number(m[2]), written: Number(m[3]), allowed: Number(m[4]) }));
 }
 
-const refusalsSince = (from) => logLines(from).filter((l) => /refused for want of room|the model could not answer/.test(l));
+const refusalsSince = (from) => logSince(from).filter((l) => /refused for want of room|the model could not answer/.test(l));
 
 /** The model's main file (the one that isn't the picture file) and its published SHA-256. */
 function mainFileOf(id) {
@@ -156,7 +157,7 @@ try {
     app = started.app;
     api = apiOf(started.url);
     // Both releases say "0.2.0"; the build id on the log's first line names the commit.
-    const first = logLines(started.from).find((l) => /localSpace \S+ \(/.test(l)) ?? "";
+    const first = logSince(started.since).find((l) => /localSpace \S+ \(/.test(l)) ?? "";
     const build = first.match(/localSpace (\S+) \((\w+)\)/);
     if (!build) throw new Error("the log does not name the build");
     if (packageSha && build[2] !== packageSha) throw new Error(`the running build is ${build[2]}, not the package's ${packageSha}`);
@@ -183,7 +184,7 @@ try {
   await report.item("The hardware check chooses a model for this machine", async () => {
     const computer = (await api.request("describe_computer")).computer;
     model = computer?.recommended ?? null;
-    const found = logLines().filter((l) => /computer: |the computer as found: /.test(l)).slice(-2).map((l) => l.replace(/^.*?: (computer|the computer)/, "$1"));
+    const found = logSince(started.since).filter((l) => /computer: |the computer as found: /.test(l)).slice(-2).map((l) => l.replace(/^.*?: (computer|the computer)/, "$1"));
     for (const line of found) report.note(`The hardware check: ${line.slice(0, 300)}`);
     if (!model) throw new Error("no model is recommended");
     return `${model} (${computer.sentence})`;
@@ -194,9 +195,9 @@ try {
     // Downloaded again by this release: what the last one fetched goes first.
     const removed = await api.request({ delete_model: { id: model } });
     if (errorOf(removed)) throw new Error(`deleting the earlier copy was refused: ${errorOf(removed)}`);
-    const from = logLines().length;
+    const from = Date.now() - 1000;
     await download(api, model);
-    if (!logLines(from).some((l) => l.includes(`the download of ${model} is done and checked`))) throw new Error("the app did not say the download was checked");
+    if (!logSince(from).some((l) => l.includes(`the download of ${model} is done and checked`))) throw new Error("the app did not say the download was checked");
     const { file, sha } = mainFileOf(model);
     const where = findFile(path.join(DATA_DIR, "models"), file);
     if (!where) throw new Error(`${file} is not in the data folder`);
@@ -207,7 +208,7 @@ try {
   await report.item("The model loads on the processor", async () => {
     await loadModel(api, model);
     const env = (await api.get("/environment")).environment;
-    const fit = logLines().filter((l) => l.includes("fit: ")).slice(-1)[0] ?? "";
+    const fit = logSince(started.since).filter((l) => l.includes("fit: ")).slice(-1)[0] ?? "";
     if (fit) report.note(`The fit: ${fit.replace(/^.*fit: /, "")}`);
     return `context ${env.model?.context_len}, pictures ${env.model?.supports_vision ? "on" : "off"}`;
   });
@@ -310,7 +311,7 @@ try {
   };
 
   await report.item("Item 12: a full Uzbek chat with a text file: no refusal", async () => {
-    const from = logLines().length;
+    const from = Date.now() - 1000;
     await p.locator(".rail-chat").first().click().catch(() => undefined);
     await p.locator(".rail-new").click();
     const text = path.join(here, "uzbek-text.txt");
@@ -338,7 +339,7 @@ try {
   });
 
   await report.item("Item 13: one picture's real prompt size", async () => {
-    const from = logLines().length;
+    const from = Date.now() - 1000;
     await p.locator(".rail-new").click();
     const answer = await ask("What is in this picture? Answer in two sentences.", path.join(repo, "docs", "screenshot.png"));
     if (!answer) throw new Error("no answer about the picture");
