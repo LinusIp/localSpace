@@ -503,6 +503,9 @@ impl OpenAiWorker {
             .config()
             .timeout_global(None)
             .timeout_recv_response(Some(silence.before_first_word))
+            // A refusal is read, as over plain http: the engine says in its
+            // body why, and a want of room is told apart.
+            .http_status_as_error(false)
             .build();
         if let Some(k) = &self.api_key {
             request = request.header("Authorization", &format!("Bearer {k}"));
@@ -511,6 +514,15 @@ impl OpenAiWorker {
             .send_json(body)
             .map_err(|e| anyhow::anyhow!("{e}"))
             .with_context(|| format!("POST {url}"))?;
+        let status = res.status().as_u16();
+        if status != 200 {
+            let mut refusal = Vec::new();
+            let _ = std::io::Read::read_to_end(
+                &mut std::io::Read::take(res.body_mut().as_reader(), crate::stream::REFUSAL_BYTES),
+                &mut refusal,
+            );
+            return Err(crate::stream::refused(status, &refusal));
+        }
         let reader = std::io::BufReader::new(res.body_mut().as_reader());
         read_sse(reader, on_delta, stop)
     }
@@ -679,6 +691,14 @@ fn tool_schema(t: &proto::ExposedTool) -> J {
             "parameters": t.params.0,
         }
     })
+}
+
+/// What the tools' declarations cost in what the model reads, by our
+/// count: the engine's template writes each one out, a line of its own.
+/// The template's own words around them are not counted here.
+pub fn declared_tokens(tools: &[proto::ExposedTool]) -> usize {
+    let lines: Vec<String> = tools.iter().map(|t| tool_schema(t).to_string()).collect();
+    crate::prompt::tokens_of(&lines.join("\n"))
 }
 
 pub fn parse_openai_reply(res: &J) -> Result<ChatReply> {

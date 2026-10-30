@@ -42,7 +42,35 @@ export interface Strings {
   languageSystem: string;
   /** A model that would load, but leaves no room to spare (the approved note). */
   memoryTight: string;
+  /** Under an answer that ended early: why, in the person's words, and what to do (docs/DECISIONS.md, 2026-10-26). */
+  answerStoppedHere: string;
+  continueAnswer: string;
+  atLimit: string;
+  repeated: string;
+  chatFull: string;
+  chatFullNoRoom: string;
+  tooLong: string;
+  tooLongNoRoom: string;
+  newChat: string;
+  thoughtTooLong: string;
+  modelFailed: string;
+  /** The same, for a person who cannot load a model: a member of an organisation. */
+  modelFailedAskAdmin: string;
+  noAnswer: string;
+  /** The top bar (plan 45 §5): each chip opens the part of Settings it speaks of. */
+  chooseModel: string;
+  onlineForDownloads: string;
+  offline: string;
   /** The composer. */
+  chooseModelToStart: string;
+  send: string;
+  stop: string;
+  /** The model's name under the message box, which opens Settings → Assistant. */
+  chooseModelLabel: string;
+  /** Said when the app on this computer can't reach its own Core. */
+  notResponding: string;
+  /** The Store on this computer, with no tools for this version. */
+  noToolsYet: string;
   attachFile: string;
   removePicture: string;
   dropFileHere: string;
@@ -106,6 +134,28 @@ const en: Strings = {
   pictureFileLeftOutAlone: (gb) => `Pictures need about ${gb} GB more memory than is free now. Close other programs, then try again.`,
   olderMessagesLeftOut: "Earlier messages are no longer read by the model. They stay here for you.",
   tryAgain: "Try again",
+  answerStoppedHere: "The answer stopped here.",
+  continueAnswer: "Continue",
+  atLimit: "The answer reached its length limit.",
+  repeated: "The answer started repeating itself, so it was stopped.",
+  chatFull: "This chat is full, so the answer was cut short. Start a new chat to go on.",
+  chatFullNoRoom: "This chat is full, so the model had no room to answer. Start a new chat to go on.",
+  tooLong: "This message is too long for this model, so the answer was cut short. Send a shorter message, or attach the text as a file.",
+  tooLongNoRoom: "This message is too long for this model, so it had no room to answer. Send a shorter message, or attach the text as a file.",
+  newChat: "New chat",
+  thoughtTooLong: "The model used all its room for thinking and wrote no answer.",
+  modelFailed: "The model couldn't answer. If it happens again, load the model again in Settings.",
+  modelFailedAskAdmin: "The model couldn't answer. If it happens again, tell your administrator.",
+  noAnswer: "The model gave no answer. Ask again.",
+  chooseModel: "Choose a model",
+  onlineForDownloads: "Online for downloads only",
+  offline: "Offline",
+  chooseModelToStart: "Choose a model to start, then ask here",
+  send: "Send",
+  stop: "Stop",
+  chooseModelLabel: "Choose a model",
+  notResponding: "localSpace isn't responding. Close it and open it again.",
+  noToolsYet: "No tools are available for this version yet.",
   switchForPictures: (model) => `Switch to ${model} for pictures`,
   downloadForPictures: (model) => `Download ${model} for pictures`,
 };
@@ -140,6 +190,28 @@ const ru: Strings = {
     `Для изображений нужно ещё примерно ${gb} ГБ свободной памяти. Закройте другие программы и попробуйте снова.`,
   olderMessagesLeftOut: "Более ранние сообщения модель больше не читает. Они остаются здесь для вас.",
   tryAgain: "Попробовать снова",
+  answerStoppedHere: "Ответ остановлен здесь.",
+  continueAnswer: "Продолжить",
+  atLimit: "Ответ достиг предела длины.",
+  repeated: "Ответ начал повторяться, поэтому он остановлен.",
+  chatFull: "Этот чат заполнен, поэтому ответ оборван. Чтобы продолжить, начните новый чат.",
+  chatFullNoRoom: "Этот чат заполнен, поэтому модели не хватило места для ответа. Чтобы продолжить, начните новый чат.",
+  tooLong: "Это сообщение слишком длинное для этой модели, поэтому ответ оборван. Отправьте сообщение покороче или прикрепите текст файлом.",
+  tooLongNoRoom: "Это сообщение слишком длинное для этой модели, поэтому ей не хватило места для ответа. Отправьте сообщение покороче или прикрепите текст файлом.",
+  newChat: "Новый чат",
+  thoughtTooLong: "Модель потратила всё место на размышления и не написала ответ.",
+  modelFailed: "Модели не удалось ответить. Если это повторится, загрузите модель заново в Settings.",
+  modelFailedAskAdmin: "Модели не удалось ответить. Если это повторится, сообщите администратору.",
+  noAnswer: "Модель не дала ответа. Спросите ещё раз.",
+  chooseModel: "Выберите модель",
+  onlineForDownloads: "В сети только для загрузок",
+  offline: "Не в сети",
+  chooseModelToStart: "Выберите модель, чтобы начать, а затем задайте вопрос здесь",
+  send: "Отправить",
+  stop: "Остановить",
+  chooseModelLabel: "Выбрать модель",
+  notResponding: "localSpace не отвечает. Закройте его и откройте снова.",
+  noToolsYet: "Для этой версии пока нет инструментов.",
   switchForPictures: (model) => `Переключиться на ${model} для изображений`,
   downloadForPictures: (model) => `Скачать ${model} для изображений`,
 };
@@ -174,6 +246,28 @@ const uz: Strings = {
     `Rasmlar uchun yana taxminan ${gb} GB boʻsh xotira kerak. Boshqa dasturlarni yoping va qayta urinib koʻring.`,
   olderMessagesLeftOut: "Oldingi xabarlarni model endi oʻqimaydi. Ular siz uchun shu yerda qoladi.",
   tryAgain: "Qayta urinib koʻrish",
+  answerStoppedHere: "Javob shu yerda toʻxtadi.",
+  continueAnswer: "Davom ettirish",
+  atLimit: "Javob uzunlik chegarasiga yetdi.",
+  repeated: "Javob takrorlana boshladi, shuning uchun u toʻxtatildi.",
+  chatFull: "Bu suhbat toʻldi, shuning uchun javob chala qoldi. Davom etish uchun yangi suhbat boshlang.",
+  chatFullNoRoom: "Bu suhbat toʻldi, shuning uchun modelga javob berish uchun joy qolmadi. Davom etish uchun yangi suhbat boshlang.",
+  tooLong: "Bu xabar ushbu model uchun juda uzun, shuning uchun javob chala qoldi. Qisqaroq xabar yuboring yoki matnni fayl sifatida biriktiring.",
+  tooLongNoRoom: "Bu xabar ushbu model uchun juda uzun, shuning uchun modelga javob berish uchun joy qolmadi. Qisqaroq xabar yuboring yoki matnni fayl sifatida biriktiring.",
+  newChat: "Yangi suhbat",
+  thoughtTooLong: "Model butun joyini oʻylashga sarfladi va javob yozmadi.",
+  modelFailed: "Model javob bera olmadi. Yana takrorlansa, modelni Settings boʻlimida qaytadan yuklang.",
+  modelFailedAskAdmin: "Model javob bera olmadi. Yana takrorlansa, administratoringizga xabar bering.",
+  noAnswer: "Model javob bermadi. Qaytadan soʻrang.",
+  chooseModel: "Modelni tanlang",
+  onlineForDownloads: "Faqat yuklab olish uchun onlayn",
+  offline: "Oflayn",
+  chooseModelToStart: "Boshlash uchun modelni tanlang, keyin shu yerda soʻrang",
+  send: "Yuborish",
+  stop: "Toʻxtatish",
+  chooseModelLabel: "Modelni tanlash",
+  notResponding: "localSpace javob bermayapti. Uni yoping va qaytadan oching.",
+  noToolsYet: "Bu versiya uchun hozircha vositalar yoʻq.",
   switchForPictures: (model) => `Rasmlar uchun ${model} ga oʻtish`,
   downloadForPictures: (model) => `Rasmlar uchun ${model} ni yuklab olish`,
 };

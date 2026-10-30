@@ -37,7 +37,7 @@ import type {
   WorkspaceInfo,
 } from "./api/generated";
 import { bus } from "./surfaces/bus";
-import type { LanguageChoice } from "./lib/strings";
+import { languageOf, stringsOf, type LanguageChoice } from "./lib/strings";
 
 /** An open view of a harness: the board page shows one at a time and keeps the rest mounted. */
 export type Panel = {
@@ -283,7 +283,9 @@ export const useSession = createStore<Session>((set, get) => {
     try {
       return await work();
     } catch (err) {
-      const text = err instanceof ApiError ? err.message : "The server could not be reached.";
+      // On this computer the server is localSpace itself; an organisation's
+      // sign-in keeps its own words.
+      const text = err instanceof ApiError ? err.message : get().me?.topology === "personal" ? stringsOf(languageOf(get().language, navigator.languages?.length ? navigator.languages : [navigator.language])).notResponding : "The server could not be reached.";
       get().notify("error", text);
       return undefined;
     }

@@ -13,6 +13,56 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-27, the message box keeps the cursor; small wording fixes (0.2.0)
+
+- **The message box keeps the cursor,** so people can type without clicking:
+  - when the app opens, on a new chat and when switching chats;
+  - after a message goes, whether sent with Enter or with the button;
+  - after leaving Settings, and when a dialog or a menu closes.
+
+  **Never while a dialog or a menu is open.** The composer watches for one, and gives the cursor back when the last one closes. A browser walk (`web/e2e/cursor.mjs`) tests each case.
+- **The top bar's chips are buttons into Settings:** "Choose a model" (to Settings → Assistant, for whoever may load one; members still read "No model — ask your administrator") and "Online for downloads only" / "Offline" (to Settings → Network).
+- **Other words:**
+  - the composer with no model: "Choose a model to start, then ask here";
+  - the composer's buttons are named "Send" and "Stop", and the model's name under the box is titled "Choose a model";
+  - on this computer, a request Core can't answer says "localSpace isn't responding. Close it and open it again." An organisation's sign-in keeps "The server could not be reached.";
+  - the Store on this computer, with nothing to add: "No tools are available for this version yet.";
+  - a model download that finishes says "{model} is ready". Core writes this sentence, so it stays English until Core sends codes instead.
+- **All of these lines are in English, Russian and Uzbek** (`strings.ts`), except Core's download sentence.
+- **The "connected to localSpace" notice at every start is gone.**
+- **Faint text is darker:** captions, placeholders, quiet links and labels use the muted grey (contrast 4.87:1 on white, from 2.59:1). Icons keep the faint grey.
+
+## 2026-10-26, a chat's messages leave the answer its room; why an answer ended is always said (0.2.0)
+
+- **The rule:** a chat's messages ≤ context − answer room − system part (`prompt::budget`, `agent::chat_budget`). The old working-set figure stays as an upper limit. The big step of `read_from` is to half of the result.
+  - **On a laptop** (8,192-token context, a 2,048-token answer), a plain chat keeps about 6,090 tokens of messages, not 8,000. With thinking on, the answer's room is 2,048 plus the thinking budget, so about 5,070.
+  - **With tools on offer,** the system part also holds the tools' declarations: the engine's template writes them out again beside our own text of them. The template's own words around them aren't counted yet.
+  - **Before, a full chat** left the answer almost no room in the engine, which then cut it short or refused the request.
+  - **The same figure** is used by the step, the divider, the text-file share and Settings' "This turn". So a text file read whole on a laptop drops from about 3,950 counted tokens to about 3,000.
+  - **On the reference tiers** (a 16,384-token context) it is about 14,280, where the working sets of 16,000 and 24,000 had gone over the context.
+- **What the count adds:**
+  - the chat template's frame: 3 tokens a message beyond the role word, and 12 for the template's own markers (measured from the Qwen3.5 and Gemma 4 templates). A stored tool call counts two frames, since it goes to the engine as the call and the reply;
+  - when an answer is carried on, the words handed back, which take room from the messages.
+- **What the rule does not do:** it prevents the refusal, not every cut. Text the count reads short can still leave the answer less room than it needs. Measured against the real tokenizers, Uzbek Latin counts at 0.79–0.86 of its real size on Qwen3.5 and 0.87–0.91 on Gemma 4. Counting with the engine's own figures comes later.
+- **Why an answer ended is told apart and said in the person's language** (`CutShort`; the words are the client's, in `web/src/lib/answers.ts` and `strings.ts`):
+  - **at its own length limit:** "The answer reached its length limit.", with Continue. With no words at all, the thinking used all the room: "Try again";
+  - **the chat is full** (`chat_full`): the engine stopped at the limit with fewer tokens than the answer was allowed, so the context ran out. Or it refused the request for want of room (llama-server's `exceed_context_size_error`, read over http and https alike). The line says the chat is full and offers a new chat, never Continue. An engine that gives no figure is taken to have reached the answer's own limit, so a chat is never called full when it isn't;
+  - **the message is too long** (`too_long`): the same, with nothing read but the person's newest message: no earlier message, no words of an answer carried on. A new chat would read the same, so none is offered: the line says to send a shorter message, or to attach the text as a file;
+  - **the model could not answer** (`failed`): any other error. The chat says so and offers to try again. The error itself goes to the log, never into the chat or a notice. Where the person can load a model, the line says to load it again in Settings if it happens again; an organisation's member is told to tell their administrator;
+  - **no words at all:** "The model gave no answer. Ask again." When the turn did tool work, the work is shown in the answer's place instead;
+  - "The answer stopped here." and "repeating itself" are unchanged, now translated.
+  - **A line with a button doesn't repeat the button's words.**
+- **Trying again after an answer with no words** answers afresh in its place: the empty answer leaves the chat when the new one begins, and the new one is kept after any calls it makes. Meanwhile the chat shows where the new answer stands ("Starting…", "Thinking…", a wait), as for any answer.
+- **The log** gives, for each answer, the engine's prompt size beside our own count of what was sent (pictures, a refused call and the tools' declarations included) and how many tokens were written of how many allowed. A refusal gives the engine's own count and its context.
+- **The measurement kit's results file** says why an answer ended short, and the error behind a missing reply, since testers send the file and not the log.
+- **Tests:**
+  - the budget, with thinking off and on;
+  - every way an answer ends, against the test engine, with no error notice and no raw error in the chat;
+  - the client's lines in all three languages;
+  - trying again after an empty answer, with a tool call on the way;
+  - a browser walk (`web/e2e/chat-full.mjs`): a full chat and a refusal said in Uzbek, then Russian and English, a new chat, one message too long with no new chat offered, and an answer at its own limit carried on.
+  - The test models declare an 8,192-token context, as every catalog model allows on a laptop. A model whose context can't hold the answer's room leaves its messages none.
+
 ## 2026-10-26, the security mailbox is the main reporting channel
 
 The founder's ruling of 26 October.
@@ -94,14 +144,12 @@ The founder's ruling of 25 October: fix it on `release/0.2`, with a test, before
   - the choice is kept across a restart;
   - malformed values are refused, and nothing is stored.
 
-
 ## 2026-10-26, no open-source licence: the `sdk/` Apache exception is withdrawn
 
 The founder's ruling of 26 October. It replaces the 25 October entries on the `sdk/` folder.
 
 - **Nothing in this repository is open source.** It's visible on GitHub, all rights reserved. The root `LICENSE` says so again, without the exception.
 - **`sdk/` is removed,** with its `LICENSE`, `NOTICE` and README, and so is `scripts/check-sdk-boundary.mjs` with its CI step, which only guarded the Apache folder.
-
 
 ## 2026-10-25, the plugin manifest is `plugin.toml`; plugins are `.lspkg` files
 

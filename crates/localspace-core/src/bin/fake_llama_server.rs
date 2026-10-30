@@ -45,6 +45,20 @@ struct Style {
     /// before the first word, as a model that thinks hands them through
     /// llama-server.
     thinks_first: bool,
+    /// Writes until the answer's own limit: `length`, with as many tokens
+    /// as the request allowed.
+    stops_at_the_limit: bool,
+    /// Runs out of context while it writes: `length`, with fewer tokens
+    /// than the request allowed. With "over N bytes", only for a request
+    /// whose body is longer: the earlier messages of a chat are answered.
+    fills_the_context: Option<usize>,
+    /// Thinks until the limit and writes no words.
+    thinks_until_the_limit: bool,
+    /// Ends normally with no words at all.
+    answers_nothing: bool,
+    /// Refuses, as llama-server does, a request whose body is over this
+    /// many bytes: the prompt alone would fill the context.
+    refuses_over: Option<usize>,
 }
 
 impl Style {
@@ -64,6 +78,13 @@ impl Style {
             maths: stub.contains("writes maths"),
             no_late_system: stub.contains("takes no late system message"),
             thinks_first: stub.contains("thinks first"),
+            stops_at_the_limit: stub.contains("stops at the limit"),
+            fills_the_context: stub
+                .contains("fills the context")
+                .then(|| count("fills the context over ").unwrap_or(0)),
+            thinks_until_the_limit: stub.contains("thinks until the limit"),
+            answers_nothing: stub.contains("answers nothing"),
+            refuses_over: count("refuses requests over "),
         }
     }
 }
@@ -191,6 +212,27 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
         return;
     }
 
+    if let Some(most) = style.refuses_over
+        && path.starts_with("/v1/chat/completions")
+        && body.len() > most
+    {
+        eprintln!(
+            "fake llama-server: refused a request of {} bytes for want of room",
+            body.len()
+        );
+        let json = format!(
+            r#"{{"error":{{"code":400,"message":"request ({} tokens) exceeds the available context size (8192 tokens), try increasing it","type":"exceed_context_size_error","n_prompt_tokens":{},"n_ctx":8192}}}}"#,
+            body.len() / 4,
+            body.len() / 4
+        );
+        let _ = write!(
+            stream,
+            "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{json}",
+            json.len()
+        );
+        return;
+    }
+
     if style.chat_fails && path.starts_with("/v1/chat/completions") {
         let json = r#"{"error":{"code":500,"message":"on purpose","type":"server_error"}}"#;
         let _ = write!(
@@ -251,6 +293,9 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
         messages.count(),
         if earlier_thinking { "yes" } else { "no" }
     );
+    let fills = style
+        .fills_the_context
+        .is_some_and(|most| body.len() > most);
     let begun = request["messages"]
         .as_array()
         .and_then(|messages| messages.last())
@@ -278,6 +323,12 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
             .to_vec()
         } else if style.slowly || style.stall_after.is_some() || style.die_after.is_some() {
             (1..=20).map(|i| format!("word{i} ")).collect()
+        } else if style.answers_nothing || style.thinks_until_the_limit {
+            Vec::new()
+        } else if style.stops_at_the_limit || fills {
+            ["The first part ", "of a long answer"]
+                .map(String::from)
+                .to_vec()
         } else {
             ["hello ", "from the fake engine"]
                 .map(String::from)
@@ -293,7 +344,7 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
             std::thread::sleep(STALL);
             return;
         }
-        if style.thinks_first {
+        if style.thinks_first || style.thinks_until_the_limit {
             for thought in ["Let me ", "think ", "about it. "] {
                 let delta = serde_json::json!({"reasoning_content": thought});
                 let event = format!("{}\n\n", chunk(&delta.to_string(), "null"));
@@ -345,12 +396,21 @@ fn handle(mut stream: TcpStream, ready: bool, alias: &str, style: &Style) {
             }
         }
         // The last event carries the usage and, as llama-server's does, the
-        // engine's timings for the request.
+        // engine's timings for the request. At the answer's own limit the
+        // engine wrote all it was allowed; out of context, fewer.
+        let allowed = request["max_tokens"].as_u64().unwrap_or(2048) as usize;
+        let (finish, written) = if style.stops_at_the_limit || style.thinks_until_the_limit {
+            (r#""length""#, allowed)
+        } else if fills {
+            (r#""length""#, pieces.len().max(1))
+        } else {
+            (r#""stop""#, pieces.len())
+        };
         let tail = [
-            chunk("{}", r#""stop""#),
+            chunk("{}", finish),
             format!(
                 r#"data: {{"id":"chatcmpl-fake","object":"chat.completion.chunk","model":"{alias}","choices":[],"usage":{{"prompt_tokens":12,"completion_tokens":{n},"total_tokens":18}},"timings":{{"prompt_n":12,"prompt_ms":10.0,"predicted_n":{n},"predicted_ms":{ms}.0}}}}"#,
-                n = pieces.len(),
+                n = written,
                 ms = pieces.len() * 50
             ),
             "data: [DONE]".to_string(),
