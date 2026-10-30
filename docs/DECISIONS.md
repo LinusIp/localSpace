@@ -31,7 +31,7 @@ moved with them.
   - **Notice**: one sentence, at most one action, the technical text folded under "Details";
   - **Progress**, always with its words.
 - **The screens use them only while `themes` is on,** through `web/src/components/Themed.tsx`. Off, it renders the shell's old pill, error line and bar, exactly as before. That file is the one place to drop the old half when the switch goes. It's used in Settings → Assistant, the first run, the Store, Admin, sign-in and the invitation page.
-- **The `@localspace/ui` size limit goes from 10.4 KB to 12 KB gzipped** (approved 2026-10-30), for these components and the ones still to come. The highlight tokens join the bare `:root` with the indigo palette's amber, so every token is defined in every block.
+- **The `@localspace/ui` size limit goes from 10.4 KB to 12 KB gzipped** (approved 2026-10-30), for these components and the ones still to come. Measured in CI with them: 10.9 KB. The highlight tokens join the bare `:root` with the indigo palette's amber, so every token is defined in every block.
 
 ## 2026-10-30, a browser walk through the looks, with screenshots (themes, step 4)
 
