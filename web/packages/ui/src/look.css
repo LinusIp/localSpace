@@ -127,3 +127,10 @@
 :root[data-palette] .toast,
 :root[data-palette] .ls-toast { border-radius: var(--ls-radius-lg); font-size: 13px; }
 :root[data-palette] .progress { height: 8px; background: var(--ls-accent-soft); }
+
+/* -- text in the accent, never in its fill shade -------------------------- */
+
+/* --ls-accent-strong is a fill (hover); in dark mode it is too dark to read
+   on the page, so text that used it takes --ls-accent. */
+:root[data-palette] .cite,
+:root[data-palette] .first-run-verdict { color: var(--ls-accent); }
