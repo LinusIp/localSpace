@@ -73,6 +73,19 @@ moved with them.
   - a browser walk (`web/e2e/chat-full.mjs`): a full chat and a refusal said in Uzbek, then Russian and English, a new chat, one message too long with no new chat offered, and an answer at its own limit carried on.
   - The test models declare an 8,192-token context, as every catalog model allows on a laptop. A model whose context can't hold the answer's room leaves its messages none.
 
+## 2026-10-26, CLAUDE.md: the architecture, the working rules and the engineering practice
+
+The founder's ruling of 26 October.
+
+- **CLAUDE.md is rewritten** as three parts: the product architecture, the working rules, and the engineering practice kept from the previous file (coding standards, tests and gates, commits and PRs, decision logs, build, test and release).
+- **The rest of the founder's brief is kept privately,** and it wins where the two differ.
+- **Dropped from the old file:**
+  - the asking rule on every small thing, replaced by a list of what needs the founder's yes;
+  - the MVP definition of done and the build order;
+  - the kickoff message.
+- **Kept as budgets:** the 2 MB bundle (checked in CI), Core at idle ≤ 50 MB, and the shell's JS heap ≤ 80 MB.
+
+
 ## 2026-10-26, the security mailbox is the main reporting channel
 
 The founder's ruling of 26 October.
