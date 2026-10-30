@@ -13,6 +13,14 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-31, a picture counts as 900 tokens (0.2.0)
+
+- **What changed:** `prompt::PICTURE_TOKENS` goes from 400 to **900**.
+- **Why:** the release check on a fresh Windows machine measured it. A screenshot, made ready at 1,280 × 705 pixels, cost the engine **882 tokens**: 947 with a short question, 65 for the same question without it. Rounded up, that's 900.
+- **What it changes:** a chat with pictures leaves the answer more room. Older messages are left out sooner, and the text-file share is smaller beside a picture.
+- **What it doesn't fix:** the cost follows the picture's size, about one token for each 1,024 pixels. A smaller picture costs less than 900; a large square one about 1,600. Counting each picture by its own size comes later, with counting from the engine's own figures.
+- **The release notes** also say that in very long chats, especially in some languages, an answer may be cut short, and that a new chat helps. Some languages are counted short against the real tokenizers.
+
 ## 2026-10-27, the message box keeps the cursor; small wording fixes (0.2.0)
 
 - **The message box keeps the cursor,** so people can type without clicking:
