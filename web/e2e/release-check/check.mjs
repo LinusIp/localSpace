@@ -317,6 +317,10 @@ try {
       await p.locator('input[type="file"]').setInputFiles(file);
       await until("the file's chip", async () => (await chips.count()) > before, MINUTE);
       await until("the file to attach", async () => (await p.locator(".composer-pictures .uploading").count()) === 0, 2 * MINUTE);
+      if ((await chips.count()) <= before) {
+        const said = await p.locator(".composer-said").allInnerTexts();
+        throw new Error(`the file was not attached: ${said.join(" ") || "nothing said"}`);
+      }
     }
     await box.fill(text);
     await box.press("Enter");
@@ -353,9 +357,17 @@ try {
   });
 
   await report.item("Item 13: one picture's real prompt size", async () => {
+    const picture = path.join(repo, "docs", "screenshot.png");
+    // What the app says of the file when it's sent to it directly.
+    const direct = await fetch(`${started.url}api/v1/attachments?name=screenshot.png`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${api.token()}`, "content-type": "image/png" },
+      body: fs.readFileSync(picture),
+    }).then((r) => r.text());
+    report.note(`The picture sent to the app directly: ${direct.slice(0, 300)}`);
     const from = Date.now() - 1000;
     await p.locator(".rail-new").click();
-    const answer = await ask("What is in this picture? Answer in two sentences.", path.join(repo, "docs", "screenshot.png"));
+    const answer = await ask("What is in this picture? Answer in two sentences.", picture);
     if (!answer) throw new Error("no answer about the picture");
     await shot("en-chat-picture");
     const size = promptSizes(from).slice(-1)[0];
