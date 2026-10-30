@@ -18,15 +18,15 @@ body { font-family: var(--ls-font-sans, system-ui, sans-serif); font-size: 14px;
   box-sizing: border-box;
   background: var(--ls-surface, #fff);
   border: 1px solid var(--ls-line, #e6e4e1);
-  box-shadow: 0 2px 4px rgba(28, 30, 32, 0.05), 0 10px 26px rgba(28, 30, 32, 0.07);
+  box-shadow: var(--ls-shadow-float, 0 2px 4px rgba(28, 30, 32, 0.05), 0 10px 26px rgba(28, 30, 32, 0.07));
 }
 .palette { left: 22px; top: 50%; transform: translateY(-50%); width: 48px; flex-direction: column; gap: 2px; padding: 6px; border-radius: 13px; }
 .palette-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: 9px; background: transparent; color: var(--ls-ink-soft, #43464a); cursor: pointer; padding: 0; }
 .palette-btn:hover { background: var(--ls-hover, #efedea); color: var(--ls-ink, #1c1e20); }
-.palette-btn.on { background: var(--ls-ink, #1c1e20); color: #fff; }
+.palette-btn.on { background: var(--ls-ink, #1c1e20); color: var(--ls-on-ink, #fff); }
 
 .selbar { left: 50%; top: 16px; transform: translateX(-50%); height: 40px; gap: 4px; padding: 0 8px; border-radius: 11px; }
-.swatch { width: 18px; height: 18px; margin: 0 1px; border: 1px solid rgba(28, 30, 32, 0.14); border-radius: 6px; padding: 0; cursor: pointer; }
+.swatch { width: 18px; height: 18px; margin: 0 1px; border: 1px solid var(--ls-swatch-line, rgba(28, 30, 32, 0.14)); border-radius: 6px; padding: 0; cursor: pointer; }
 .swatch:hover { border-color: var(--ls-ink, #1c1e20); }
 .selbar-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--ls-line, #e6e4e1); }
 .selbar-btn, .pill-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--ls-ink-soft, #43464a); cursor: pointer; padding: 0; }

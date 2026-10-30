@@ -223,7 +223,7 @@ function Footnote() {
 function AssistantAvatar({ thinking }: { thinking?: boolean }) {
   return (
     <span className={`avatar small soft${thinking ? " thinking" : ""}`} aria-hidden="true">
-      <Mark size={16} color="#1D7A55" />
+      <Mark size={16} color="var(--ls-accent)" />
     </span>
   );
 }

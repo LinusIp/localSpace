@@ -812,7 +812,7 @@ export function outcomeLine(outcome: ToolOutcome): string {
 
 /** The initials shown for a person: two letters from their name, or their email. */
 /** The colours the screens give people's initials, one per person, the same everywhere they appear. */
-const AVATAR_COLOURS = ["#1D7A55", "#8A5A2B", "#3E5C8A", "#6B4E8A", "#8A3E4E"];
+const AVATAR_COLOURS = [1, 2, 3, 4, 5].map((n) => `var(--ls-avatar-${n})`);
 export function avatarColour(id: string): string {
   let h = 0;
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
