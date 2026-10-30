@@ -41,8 +41,6 @@ on:
         description: "The last public release, installed first and updated from."
         type: string
         default: "v0.2.0-preview.1"
-  push:
-    branches: [release-check]
 
 permissions:
   contents: read
@@ -72,7 +70,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
-          RUN: ${{ inputs.package_run || (github.event_name == 'push' && '41077138581') || '' }}
+          RUN: ${{ inputs.package_run }}
         run: |
           set -euo pipefail
           if [ -n "$TAG" ]; then
@@ -96,7 +94,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PREVIOUS: ${{ inputs.previous || 'v0.2.0-preview.1' }}
+          PREVIOUS: ${{ inputs.previous }}
         run: |
           set -euo pipefail
           gh release download "$PREVIOUS" --repo LinusIp/localSpace-releases --pattern '*-setup.exe' --pattern 'SHA256SUMS.txt' --dir previous
@@ -105,7 +103,7 @@ jobs:
       - name: installed, updated, used and uninstalled
         shell: bash
         env:
-          PREVIOUS: ${{ inputs.previous || 'v0.2.0-preview.1' }}
+          PREVIOUS: ${{ inputs.previous }}
         run: node web/e2e/release-check/check.mjs --package package --previous previous --out results
       - name: the summary
         if: always()
