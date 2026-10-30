@@ -107,6 +107,236 @@
   --font-mono: var(--ls-font-mono);
 }
 
+/* The three palettes, behind the `themes` switch (docs/design/
+   0.2.1-THEMES-AND-TRANSLATION.md §2). <html data-palette> picks the colours
+   and data-theme="light|dark" the mode; with the switch off neither is set
+   and the bare :root above stays as it is. The contrast test
+   (tokens.test.ts) reads these blocks, so each holds every palette token. */
+
+:root[data-palette="indigo"] {
+  --ls-page: #f8f8fb;
+  --ls-rail: #f0f0f6;
+  --ls-surface: #ffffff;
+  --ls-surface-muted: #fafafd;
+  --ls-ink: #1a1b26;
+  --ls-ink-soft: #3d3f50;
+  --ls-muted: #5d6073;
+  --ls-faint: #8b8ea2;
+  --ls-line: #e3e3ec;
+  --ls-line-strong: #d3d3e0;
+  --ls-hover: #ebebf3;
+  --ls-accent: #4338ca;
+  --ls-accent-fill: #4338ca;
+  --ls-accent-strong: #3730a3;
+  --ls-accent-soft: #eceafb;
+  --ls-accent-line: #cfcbf4;
+  --ls-on-accent: #ffffff;
+  --ls-highlight: #a35400;
+  --ls-highlight-fill: #f5a524;
+  --ls-highlight-soft: #fdf0d8;
+  --ls-on-highlight: #1a1b26;
+  --ls-ok: #1d7a4c;
+  --ls-ok-soft: #e5f4ec;
+  --ls-warn: #8a5a00;
+  --ls-warn-soft: #fdf3dc;
+  --ls-danger: #b3263e;
+  --ls-danger-soft: #fbe9ec;
+}
+
+:root[data-palette="indigo"][data-theme="dark"] {
+  --ls-page: #11121c;
+  --ls-rail: #161724;
+  --ls-surface: #1b1c2b;
+  --ls-surface-muted: #181927;
+  --ls-ink: #ececf5;
+  --ls-ink-soft: #c8c9d9;
+  --ls-muted: #9fa1b7;
+  --ls-faint: #717389;
+  --ls-line: #2a2b3e;
+  --ls-line-strong: #36374d;
+  --ls-hover: #232436;
+  --ls-accent: #a7a2ff;
+  --ls-accent-fill: #5b52e8;
+  --ls-accent-strong: #4b42d6;
+  --ls-accent-soft: #25234a;
+  --ls-accent-line: #3a376e;
+  --ls-on-accent: #ffffff;
+  --ls-highlight: #f7b955;
+  --ls-highlight-fill: #f5a524;
+  --ls-highlight-soft: #33280f;
+  --ls-on-highlight: #1a1b26;
+  --ls-ok: #62d49c;
+  --ls-ok-soft: #14301f;
+  --ls-warn: #e9b34f;
+  --ls-warn-soft: #33270f;
+  --ls-danger: #ff8394;
+  --ls-danger-soft: #3b1a21;
+}
+
+:root[data-palette="violet"] {
+  --ls-page: #faf8fb;
+  --ls-rail: #f3eff6;
+  --ls-surface: #ffffff;
+  --ls-surface-muted: #fcfafc;
+  --ls-ink: #1f1a24;
+  --ls-ink-soft: #453c4d;
+  --ls-muted: #665d6f;
+  --ls-faint: #958b9d;
+  --ls-line: #ebe4ee;
+  --ls-line-strong: #ddd2e2;
+  --ls-hover: #f1eaf4;
+  --ls-accent: #8e24aa;
+  --ls-accent-fill: #8e24aa;
+  --ls-accent-strong: #6d1b83;
+  --ls-accent-soft: #f6e8f9;
+  --ls-accent-line: #e6c6ee;
+  --ls-on-accent: #ffffff;
+  --ls-highlight: #8e24aa;
+  --ls-highlight-fill: #8e24aa;
+  --ls-highlight-soft: #f6e8f9;
+  --ls-on-highlight: #ffffff;
+  --ls-ok: #1d7a4c;
+  --ls-ok-soft: #e5f4ec;
+  --ls-warn: #8a5a00;
+  --ls-warn-soft: #fdf3dc;
+  --ls-danger: #b3263e;
+  --ls-danger-soft: #fbe9ec;
+}
+
+:root[data-palette="violet"][data-theme="dark"] {
+  --ls-page: #151118;
+  --ls-rail: #1a151e;
+  --ls-surface: #211b26;
+  --ls-surface-muted: #1d1822;
+  --ls-ink: #f2ebf5;
+  --ls-ink-soft: #d4c9d9;
+  --ls-muted: #ac9fb3;
+  --ls-faint: #7a6e82;
+  --ls-line: #322a38;
+  --ls-line-strong: #3f3447;
+  --ls-hover: #2a2231;
+  --ls-accent: #e591f5;
+  --ls-accent-fill: #a12ec0;
+  --ls-accent-strong: #8a24a6;
+  --ls-accent-soft: #35193d;
+  --ls-accent-line: #56285f;
+  --ls-on-accent: #ffffff;
+  --ls-highlight: #e591f5;
+  --ls-highlight-fill: #a12ec0;
+  --ls-highlight-soft: #35193d;
+  --ls-on-highlight: #ffffff;
+  --ls-ok: #62d49c;
+  --ls-ok-soft: #14301f;
+  --ls-warn: #e9b34f;
+  --ls-warn-soft: #33270f;
+  --ls-danger: #ff8394;
+  --ls-danger-soft: #3b1a21;
+}
+
+:root[data-palette="teal"] {
+  --ls-page: #f6f9f9;
+  --ls-rail: #edf3f3;
+  --ls-surface: #ffffff;
+  --ls-surface-muted: #f9fbfb;
+  --ls-ink: #152022;
+  --ls-ink-soft: #374648;
+  --ls-muted: #56686b;
+  --ls-faint: #7f8f91;
+  --ls-line: #dfe7e7;
+  --ls-line-strong: #cfdada;
+  --ls-hover: #e8efef;
+  --ls-accent: #0b6b72;
+  --ls-accent-fill: #0b6b72;
+  --ls-accent-strong: #08525a;
+  --ls-accent-soft: #e2f2f2;
+  --ls-accent-line: #bde0e1;
+  --ls-on-accent: #ffffff;
+  --ls-highlight: #0b6b72;
+  --ls-highlight-fill: #0b6b72;
+  --ls-highlight-soft: #e2f2f2;
+  --ls-on-highlight: #ffffff;
+  --ls-ok: #1d7a4c;
+  --ls-ok-soft: #e5f4ec;
+  --ls-warn: #8a5a00;
+  --ls-warn-soft: #fdf3dc;
+  --ls-danger: #b3263e;
+  --ls-danger-soft: #fbe9ec;
+}
+
+:root[data-palette="teal"][data-theme="dark"] {
+  --ls-page: #0e1517;
+  --ls-rail: #121a1c;
+  --ls-surface: #172123;
+  --ls-surface-muted: #141d1f;
+  --ls-ink: #e5eff0;
+  --ls-ink-soft: #c1cfd1;
+  --ls-muted: #91a4a6;
+  --ls-faint: #617476;
+  --ls-line: #243234;
+  --ls-line-strong: #2f4042;
+  --ls-hover: #1c282a;
+  --ls-accent: #5fd3cc;
+  --ls-accent-fill: #0b7a7a;
+  --ls-accent-strong: #096666;
+  --ls-accent-soft: #0f2f2f;
+  --ls-accent-line: #1b4a49;
+  --ls-on-accent: #ffffff;
+  --ls-highlight: #5fd3cc;
+  --ls-highlight-fill: #0b7a7a;
+  --ls-highlight-soft: #0f2f2f;
+  --ls-on-highlight: #ffffff;
+  --ls-ok: #62d49c;
+  --ls-ok-soft: #14301f;
+  --ls-warn: #e9b34f;
+  --ls-warn-soft: #33270f;
+  --ls-danger: #ff8394;
+  --ls-danger-soft: #3b1a21;
+}
+
+/* What every palette derives from its own colours, in both modes. */
+:root[data-palette] {
+  color-scheme: light;
+  --ls-on-ink: var(--ls-page);
+  --ls-ok-line: color-mix(in srgb, var(--ls-ok) 20%, transparent);
+  --ls-accent-ring: color-mix(in srgb, var(--ls-accent) 35%, transparent);
+  --ls-accent-wash: color-mix(in srgb, var(--ls-accent) 25%, transparent);
+  --ls-warn-line: color-mix(in srgb, var(--ls-warn) 20%, transparent);
+  --ls-warn-soft-line: color-mix(in srgb, var(--ls-warn) 25%, var(--ls-warn-soft));
+  --ls-warn-fill: var(--ls-warn);
+  --ls-danger-line: color-mix(in srgb, var(--ls-danger) 20%, transparent);
+  --ls-danger-line-strong: color-mix(in srgb, var(--ls-danger) 30%, transparent);
+  --ls-selected: var(--ls-line);
+  --ls-neutral-soft: var(--ls-hover);
+  --ls-control-line: var(--ls-faint);
+  --ls-swatch-line: color-mix(in srgb, var(--ls-ink) 14%, transparent);
+  --ls-avatar-1: #1d7a55;
+  --ls-avatar-2: #8a5a2b;
+  --ls-avatar-3: #3e5c8a;
+  --ls-avatar-4: #6b4e8a;
+  --ls-avatar-5: #8a3e4e;
+}
+
+/* Dark mode draws edges with lines, not shadows; only what floats over the
+   page (menus, toasts, dialogs) keeps one. Avatars turn light, under dark
+   initials. */
+:root[data-palette][data-theme="dark"] {
+  color-scheme: dark;
+  --ls-avatar-1: #62d49c;
+  --ls-avatar-2: #e9b34f;
+  --ls-avatar-3: #8fb4ff;
+  --ls-avatar-4: #c4a5ff;
+  --ls-avatar-5: #ff9fb0;
+  --ls-shadow: none;
+  --ls-shadow-card: none;
+  --ls-shadow-raised: none;
+  --ls-shadow-side: none;
+  --ls-shadow-float: none;
+  --ls-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --ls-shadow-toast: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --ls-shadow-dialog: 0 16px 48px rgba(0, 0, 0, 0.55);
+  --ls-backdrop: rgba(0, 0, 0, 0.55);
+}
+
 .ls-root {
   font-family: var(--ls-font-sans);
   font-size: 14px;

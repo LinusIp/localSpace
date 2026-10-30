@@ -63,3 +63,87 @@ test("the stripping keeps what it should catch", () => {
   assert.doesNotMatch(stripAllowed(".a { box-shadow: var(--ls-x, 0 1px rgba(0, 0, 0, 0.1)); }"), COLOUR);
   assert.match(stripAllowed(".a { box-shadow: var(--ls-x, 0 1px rgba(0, 0, 0, 0.1)); color: #000; }"), COLOUR);
 });
+
+// The contrast check (docs/design/0.2.1-THEMES-AND-TRANSLATION.md §2): every
+// palette passes WCAG AA in light and dark. Text needs 4.5:1; controls and
+// the decorative `faint` need 3:1.
+
+type Tokens = Record<string, string>;
+
+/** The --ls-* colours a rule in ui.css sets, by the rule's exact selector. */
+function block(css: string, selector: string): Tokens {
+  const start = css.indexOf(`${selector} {`);
+  assert.notEqual(start, -1, `ui.css has no rule for ${selector}`);
+  const body = css.slice(start, css.indexOf("}", start));
+  const tokens: Tokens = {};
+  for (const m of body.matchAll(/--ls-([\w-]+):\s*(#[0-9a-f]{6});/gi)) tokens[m[1]] = m[2];
+  return tokens;
+}
+
+function luminance(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** [foreground, background, minimum]: the pairs the design brief checks. */
+const PAIRS: [string, string, number][] = [
+  ["ink", "page", 4.5], ["ink-soft", "page", 4.5], ["muted", "page", 4.5],
+  ["ink", "surface", 4.5], ["muted", "surface", 4.5], ["muted", "rail", 4.5],
+  ["accent", "page", 4.5], ["accent", "surface", 4.5], ["accent", "accent-soft", 4.5], ["ink", "accent-soft", 4.5],
+  ["on-accent", "accent-fill", 4.5], ["on-accent", "accent-strong", 4.5],
+  ["highlight", "page", 4.5], ["highlight", "highlight-soft", 4.5], ["on-highlight", "highlight-fill", 4.5],
+  ["ok", "ok-soft", 4.5], ["warn", "warn-soft", 4.5], ["danger", "danger-soft", 4.5], ["danger", "page", 4.5],
+  // Text on ink (avatars, the send button, toasts) is the page colour.
+  ["page", "ink", 4.5], ["page", "warn", 4.5],
+  ["faint", "page", 3], ["faint", "surface", 3],
+];
+
+const PALETTE_NAMES = ["indigo", "violet", "teal"];
+
+test("every palette, light and dark, passes the contrast pairs", () => {
+  const css = read("packages/ui/src/ui.css");
+  const failures: string[] = [];
+  for (const name of PALETTE_NAMES) {
+    for (const [mode, selector] of [["light", `:root[data-palette="${name}"]`], ["dark", `:root[data-palette="${name}"][data-theme="dark"]`]]) {
+      const t = block(css, selector);
+      for (const [fg, bg, min] of PAIRS) {
+        assert.ok(t[fg] && t[bg], `${name} ${mode} lacks --ls-${fg} or --ls-${bg}`);
+        const ratio = contrast(t[fg], t[bg]);
+        if (ratio < min) failures.push(`${name} ${mode}: ${fg} on ${bg} is ${ratio.toFixed(2)}:1, needs ${min}:1`);
+      }
+    }
+  }
+  assert.deepEqual(failures, []);
+});
+
+test("the initials on every avatar colour pass in every palette", () => {
+  const css = read("packages/ui/src/ui.css");
+  const failures: string[] = [];
+  const avatars = { light: block(css, ":root[data-palette]"), dark: block(css, `:root[data-palette][data-theme="dark"]`) };
+  for (const name of PALETTE_NAMES) {
+    for (const mode of ["light", "dark"] as const) {
+      const selector = mode === "light" ? `:root[data-palette="${name}"]` : `:root[data-palette="${name}"][data-theme="dark"]`;
+      const page = block(css, selector).page;
+      for (const n of [1, 2, 3, 4, 5]) {
+        const colour = avatars[mode][`avatar-${n}`];
+        assert.ok(colour, `${mode} lacks --ls-avatar-${n}`);
+        const ratio = contrast(page, colour);
+        if (ratio < 4.5) failures.push(`${name} ${mode}: initials on avatar-${n} are ${ratio.toFixed(2)}:1`);
+      }
+    }
+  }
+  assert.deepEqual(failures, []);
+});
+
+test("the contrast maths matches WCAG's own examples", () => {
+  assert.equal(contrast("#000000", "#ffffff").toFixed(1), "21.0");
+  assert.equal(contrast("#777777", "#ffffff").toFixed(2), "4.48");
+});
