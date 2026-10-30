@@ -13,6 +13,66 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-27, the message box keeps the cursor; small wording fixes (0.2.0)
+
+- **The message box keeps the cursor,** so people can type without clicking:
+  - when the app opens, on a new chat and when switching chats;
+  - after a message goes, whether sent with Enter or with the button;
+  - after leaving Settings, and when a dialog or a menu closes.
+
+  **Never while a dialog or a menu is open.** The composer watches for one, and gives the cursor back when the last one closes. A browser walk (`web/e2e/cursor.mjs`) tests each case.
+- **The top bar's chips are buttons into Settings:** "Choose a model" (to Settings → Assistant, for whoever may load one; members still read "No model — ask your administrator") and "Online for downloads only" / "Offline" (to Settings → Network).
+- **Other words:**
+  - the composer with no model: "Choose a model to start, then ask here";
+  - the composer's buttons are named "Send" and "Stop", and the model's name under the box is titled "Choose a model";
+  - on this computer, a request Core can't answer says "localSpace isn't responding. Close it and open it again." An organisation's sign-in keeps "The server could not be reached.";
+  - the Store on this computer, with nothing to add: "No tools are available for this version yet.";
+  - a model download that finishes says "{model} is ready". Core writes this sentence, so it stays English until Core sends codes instead.
+- **All of these lines are in English, Russian and Uzbek** (`strings.ts`), except Core's download sentence.
+- **The "connected to localSpace" notice at every start is gone.**
+- **Faint text is darker:** captions, placeholders, quiet links and labels use the muted grey (contrast 4.87:1 on white, from 2.59:1). Icons keep the faint grey.
+
+## 2026-10-27, an address range matches addresses, never names
+
+- **The gateway's range patterns** (`10.0.0.0/8`, `fd00::/8`) used to match the start of the host's text, so `10.evil.com` counted as inside `10.0.0.0/8`, even with the network set to air-gapped. Now:
+  - an address range matches only an address, parsed and compared by its leading bits, IPv4 and IPv6. An IPv4 address written as IPv6 (`::ffff:10.0.0.1`) counts as the IPv4 one;
+  - **a name never matches a range;**
+  - `*.example.com` matches `example.com` and every name under it, and a bare name matches itself alone, as before;
+  - a range that can't be read (`10.0.0/8`, `/33`) matches nothing.
+- **A URL with an IPv6 address** (`http://[fd00::5]:8080/`) now gives its whole address as the host; it used to give `[fd00`.
+- **Tests:** addresses inside and outside each private range, names that begin like an address, unreadable ranges, and an air-gapped gateway that reaches an intranet address but not a name that only looks like one.
+
+## 2026-10-26, a chat's messages leave the answer its room; why an answer ended is always said (0.2.0)
+
+- **The rule:** a chat's messages ≤ context − answer room − system part (`prompt::budget`, `agent::chat_budget`). The old working-set figure stays as an upper limit. The big step of `read_from` is to half of the result.
+  - **On a laptop** (8,192-token context, a 2,048-token answer), a plain chat keeps about 6,090 tokens of messages, not 8,000. With thinking on, the answer's room is 2,048 plus the thinking budget, so about 5,070.
+  - **With tools on offer,** the system part also holds the tools' declarations: the engine's template writes them out again beside our own text of them. The template's own words around them aren't counted yet.
+  - **Before, a full chat** left the answer almost no room in the engine, which then cut it short or refused the request.
+  - **The same figure** is used by the step, the divider, the text-file share and Settings' "This turn". So a text file read whole on a laptop drops from about 3,950 counted tokens to about 3,000.
+  - **On the reference tiers** (a 16,384-token context) it is about 14,280, where the working sets of 16,000 and 24,000 had gone over the context.
+- **What the count adds:**
+  - the chat template's frame: 3 tokens a message beyond the role word, and 12 for the template's own markers (measured from the Qwen3.5 and Gemma 4 templates). A stored tool call counts two frames, since it goes to the engine as the call and the reply;
+  - when an answer is carried on, the words handed back, which take room from the messages.
+- **What the rule does not do:** it prevents the refusal, not every cut. Text the count reads short can still leave the answer less room than it needs. Measured against the real tokenizers, Uzbek Latin counts at 0.79–0.86 of its real size on Qwen3.5 and 0.87–0.91 on Gemma 4. Counting with the engine's own figures comes later.
+- **Why an answer ended is told apart and said in the person's language** (`CutShort`; the words are the client's, in `web/src/lib/answers.ts` and `strings.ts`):
+  - **at its own length limit:** "The answer reached its length limit.", with Continue. With no words at all, the thinking used all the room: "Try again";
+  - **the chat is full** (`chat_full`): the engine stopped at the limit with fewer tokens than the answer was allowed, so the context ran out. Or it refused the request for want of room (llama-server's `exceed_context_size_error`, read over http and https alike). The line says the chat is full and offers a new chat, never Continue. An engine that gives no figure is taken to have reached the answer's own limit, so a chat is never called full when it isn't;
+  - **the message is too long** (`too_long`): the same, with nothing read but the person's newest message: no earlier message, no words of an answer carried on. A new chat would read the same, so none is offered: the line says to send a shorter message, or to attach the text as a file;
+  - **the model could not answer** (`failed`): any other error. The chat says so and offers to try again. The error itself goes to the log, never into the chat or a notice. Where the person can load a model, the line says to load it again in Settings if it happens again; an organisation's member is told to tell their administrator;
+  - **no words at all:** "The model gave no answer. Ask again." When the turn did tool work, the work is shown in the answer's place instead;
+  - "The answer stopped here." and "repeating itself" are unchanged, now translated.
+  - **A line with a button doesn't repeat the button's words.**
+- **Trying again after an answer with no words** answers afresh in its place: the empty answer leaves the chat when the new one begins, and the new one is kept after any calls it makes. Meanwhile the chat shows where the new answer stands ("Starting…", "Thinking…", a wait), as for any answer.
+- **The log** gives, for each answer, the engine's prompt size beside our own count of what was sent (pictures, a refused call and the tools' declarations included) and how many tokens were written of how many allowed. A refusal gives the engine's own count and its context.
+- **The measurement kit's results file** says why an answer ended short, and the error behind a missing reply, since testers send the file and not the log.
+- **Tests:**
+  - the budget, with thinking off and on;
+  - every way an answer ends, against the test engine, with no error notice and no raw error in the chat;
+  - the client's lines in all three languages;
+  - trying again after an empty answer, with a tool call on the way;
+  - a browser walk (`web/e2e/chat-full.mjs`): a full chat and a refusal said in Uzbek, then Russian and English, a new chat, one message too long with no new chat offered, and an answer at its own limit carried on.
+  - The test models declare an 8,192-token context, as every catalog model allows on a laptop. A model whose context can't hold the answer's room leaves its messages none.
+
 ## 2026-10-26, CLAUDE.md: the architecture, the working rules and the engineering practice
 
 The founder's ruling of 26 October.
@@ -24,6 +84,7 @@ The founder's ruling of 26 October.
   - the MVP definition of done and the build order;
   - the kickoff message.
 - **Kept as budgets:** the 2 MB bundle (checked in CI), Core at idle ≤ 50 MB, and the shell's JS heap ≤ 80 MB.
+
 
 ## 2026-10-26, the security mailbox is the main reporting channel
 
@@ -38,13 +99,80 @@ The founder's ruling of 26 October: a written vulnerability-handling process now
 - **The time aims:** confirm receipt within 5 working days; a severity within 10 more; critical fixes as soon as we can; for high-severity issues, "we aim to fix high-severity issues within 30 days and will tell you if it takes longer" (the founder's wording); the rest in the next release; an advisory when the fix is out, within 90 days of the report.
 - **Only the newest release and preview** get fixes.
 
+## 2026-10-26, text files in chat (0.2.0)
+
+Internal plan 38, F1 and a smaller F4. It is part of the frozen 0.2.0 scope on `release/0.2`, so it isn't behind a switch (the switch rule covers later work on `main`). A fresh-eyes review of the first version found 27 problems, all fixed here. Two more checks of the fixes found 11 and then 12 smaller ones, also fixed.
+
+- **What is taken:** any file that isn't a picture goes to Core, whatever its name (a `README` or a `Dockerfile` too). Core reads it as text or refuses it. The file chooser offers pictures, text and code files as a hint only.
+  - **Read as they are:** UTF-8 (with or without a byte-order mark) and UTF-16 (with a mark, or found by its zero bytes).
+  - **Nearly UTF-8 counts as UTF-8:** a character cut at the end, or a stray byte, when the file has more good characters beyond ASCII than invalid sequences. Without this, the whole file would be read as Windows-1251.
+  - **Anything else is read as Windows-1251,** the usual encoding of Russian and Uzbek Cyrillic files on Windows.
+  - **Refused as not text:** a file with a zero byte anywhere in it, or with more than 1% control characters in its first 65,536. Escape doesn't count, so a coloured log is text.
+  - **Also refused:** an empty file, and one over 2 MiB. A large file is told "too large", with its size to one decimal ("2.1 MB"), only when its start reads as text. Anything else, like a PDF or a zip, is told it isn't text. The composer says both at once, without sending the file. It judges by the name first, then the type: "too large" unless they say the file is something else, such as a PDF, an archive, an Office file, a model, a database, audio or video. A name the chooser offers wins, since Windows gives some text files other types (`.ts` as video, `.csv` as Excel). Core judges by the bytes.
+  - **A folder dropped or pasted** is never sent.
+- **No new library.** The Windows-1251 table is ours (`text_file.rs`), since `encoding_rs` would be a new dependency.
+- **Kept as UTF-8,** as `<id>.txt` beside the pictures, and deleted with its chat.
+  - **The id is the hash of the file's name and bytes,** so two files that read the same stay two, each with its own name. The same file attached twice goes once.
+  - **Taking a message's files is all or nothing:** if one can't move into the chat, those already moved go back. A file the chat already has from an earlier message is never moved, so nothing it uses is ever taken back.
+  - **Served back** as `text/plain; charset=utf-8`, with `nosniff`, as a download, never shown as a page.
+- **How the prompt counts:** `prompt::tokens_of` counts by the pieces the models' tokenizers cut text into (Qwen, Gemma).
+  - **A token each:** a digit, the space before a digit, the Uzbek ʻ and ʼ, and a line break.
+  - **A word** is at least a token, one for every four bytes of it.
+  - **A run of punctuation** is one token, or more when it is long.
+  - **Never less** than the old estimate of a token for every four bytes.
+  - **Spaces before a figure:** the last space is a token, and the others one more for every twenty (the models' vocabularies hold runs of spaces as single tokens). A no-break space counts its two bytes, as Gemma reads it.
+  - **Digits beyond ASCII** (Arabic-Indic, full-width) count a token for each of their bytes.
+  - **Why:** the old count read a table of figures as a third of its real size or less.
+  - **Measured against the real tokenizers** of Qwen2.5, Qwen3.5 and Gemma 4 (their vocabularies, through the engine's own tokenizer):
+    - tables of figures count at 1.0 to 1.25 times their real size;
+    - English prose about 1.4 times;
+    - Russian 1.5 to 1.9 times;
+    - code and Markdown 1.2 to 1.5 times;
+    - **Uzbek Latin prose counts short, at 0.76 to 0.87 of its real size, and so does Uzbek Cyrillic on Qwen2.5 (0.89).**
+  - **What that means:** a long Uzbek chat on a laptop can go over the engine's 8,192-token context before the divider moves. This was so before text files too: the old count was shorter still. It is a question of the context budget (plan 41), and the founder decides it.
+  - **The same count everywhere:** the conversation's costs, its trimming, and the cut of a file.
+- **How much the model reads:**
+  - **The budget:** the text files of one message share half the working set, less the person's own words and each file's header.
+  - **Each file takes what it needs, or an equal share of what is left,** so a long file never leaves a short one nothing.
+  - **A longer file is cut by the same count,** at a line end when there is one in the last tenth of what fits.
+  - **The cut is decided once,** when the message is sent, and kept with the file, so every later prompt reads the same part.
+- **The divider matches what the model reads:** the chat's `read_from` is worked out on the chat as the model reads it, files and all (`agent::with_text_files`). Only the part of each file the model reads is read from the disk for this. Settings → "This turn" shows the files the same way.
+- **The person's request is always read:** when a turn's own tool calls fill the working set, the request is kept with the newest calls that fit beside it, so the model never works on without it. If not even the newest call fits beside it, the working set holds, and the newest calls are read as before.
+- **Never cut silently:**
+  - **The model is told** when only the start fits, or when there was no room for a file at all.
+  - **The person sees how much was read:** "the model read the first 23% (about 5,000 of 22,000 words)". Below 1% the figure has one decimal, below 0.1% it says "<0.1", and it is never "0%". The word counts are left out when a file has fewer than 100 words, or when the share of words read and the share of characters read differ by more than twice. A long line of data, or a picture inside a Markdown file, can make them differ.
+  - **Russian agrees with the number:** "из 22 001 слова".
+  - **A file read none of** says so in its own sentence.
+- **Four attachments a message,** pictures and files together. Only pictures are refused for a model that can't read them.
+- **The desktop window takes dragged files:** Tauri's own drag-drop handler is off (`disable_drag_drop_handler`), since on Windows it keeps drops from the page. A file dropped outside the message box doesn't open in place of the app. A pasted file is taken like a dropped one.
+- **Later:**
+  - **counting with the engine's `/tokenize`** instead of the estimate. This matters most for Uzbek, which is counted short (above);
+  - PDF and DOCX (preview.3).
+- **Walked in CI:** `web/e2e/text-files.mjs`, with the test engine that can't read pictures.
+  - Core refuses a `.txt` that isn't text.
+  - A Windows-1251 file is taken; added again, it goes once. A file with no extension is taken too.
+  - Both reach the engine as words, and the first saves back as the same words in UTF-8.
+  - A 1.5 MB file says how much was read.
+  - Deleting the chat removes the files.
+
+## 2026-10-26, the language chosen in Settings is remembered (0.2.0)
+
+The founder's ruling of 25 October: fix it on `release/0.2`, with a test, before the 4 November cut-off.
+
+- **The bug:** the 18 October entry says the choice is "kept as the `language` preference". Core accepted only `rail_collapsed` (`PREFERENCE_KEYS`), so choosing a language in Settings showed "`language` is not something the shell remembers", and the choice was gone after a restart. It was in preview.1. The language shown still followed Windows.
+- **The fix:** `language` joins `PREFERENCE_KEYS`.
+  - **What it accepts:** "system" or a short language tag (letters, digits and hyphens, starting with a letter, at most 35 characters). A language added to the client later needs no change in Core.
+  - **What it refuses:** anything else, with "`…` is not a language".
+- **Tested** (`tests/preferences.rs`):
+  - the choice is kept across a restart;
+  - malformed values are refused, and nothing is stored.
+
 ## 2026-10-26, no open-source licence: the `sdk/` Apache exception is withdrawn
 
 The founder's ruling of 26 October. It replaces the 25 October entries on the `sdk/` folder.
 
 - **Nothing in this repository is open source.** It's visible on GitHub, all rights reserved. The root `LICENSE` says so again, without the exception.
 - **`sdk/` is removed,** with its `LICENSE`, `NOTICE` and README, and so is `scripts/check-sdk-boundary.mjs` with its CI step, which only guarded the Apache folder.
-
 
 ## 2026-10-25, the plugin manifest is `plugin.toml`; plugins are `.lspkg` files
 

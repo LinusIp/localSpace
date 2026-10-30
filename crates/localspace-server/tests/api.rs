@@ -249,14 +249,8 @@ async fn the_json_socket_streams_events_and_answers_requests_under_their_id() {
         .await
         .expect("connect");
 
-    // The first frame is the welcome notice, an Event.
-    let first = socket.next().await.unwrap().unwrap();
-    let hello: proto::Envelope = serde_json::from_str(first.to_text().unwrap()).unwrap();
-    assert!(matches!(
-        hello.body,
-        proto::Body::Event(proto::Event::Notice { .. })
-    ));
-
+    // No welcome notice: the first frame is what Core has to say, or the
+    // answer to a request.
     let request = proto::Envelope {
         id: 7,
         body: proto::Body::Request(proto::Request::GetEnvironment),

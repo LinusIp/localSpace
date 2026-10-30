@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use localspace_proto as proto;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::net::IpAddr;
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
@@ -248,7 +249,11 @@ pub fn host_of(url: &str) -> Option<String> {
     let rest = url.split_once("://")?.1;
     let authority = rest.split(['/', '?', '#']).next()?;
     let host = authority.rsplit('@').next()?;
-    let host = host.split(':').next()?;
+    // An IPv6 address is written in brackets, with colons of its own.
+    let host = match host.strip_prefix('[') {
+        Some(inside) => inside.split(']').next()?,
+        None => host.split(':').next()?,
+    };
     if host.is_empty() {
         None
     } else {
@@ -256,21 +261,58 @@ pub fn host_of(url: &str) -> Option<String> {
     }
 }
 
-/// `*.example.com` matches `a.example.com` and `example.com`.
-/// A bare `10.0.0.0/8` matches by prefix, which is enough for intranet ranges.
+/// `*.example.com` matches `a.example.com` and `example.com`; a bare
+/// name matches itself alone. An address range (`10.0.0.0/8`, `fd00::/8`)
+/// matches an address inside it, compared as numbers: a name never matches a
+/// range, so `10.evil.com` is not in `10.0.0.0/8` (docs/DECISIONS.md,
+/// 2026-10-27). A pattern that can't be read matches nothing.
 pub fn matches_any(host: &str, patterns: &[String]) -> bool {
+    let host = unbracket(host).to_ascii_lowercase();
+    let address = host.parse::<IpAddr>().ok().map(plain);
     patterns.iter().any(|p| {
-        let p = p.to_ascii_lowercase();
+        let p = p.trim().to_ascii_lowercase();
         if let Some(suffix) = p.strip_prefix("*.") {
             host == suffix || host.ends_with(&format!(".{suffix}"))
-        } else if let Some((prefix, _)) = p.split_once('/') {
-            // CIDR-ish: match the leading octets that are non-zero.
-            let lead: Vec<&str> = prefix.split('.').take_while(|o| *o != "0").collect();
-            !lead.is_empty() && host.starts_with(&lead.join("."))
+        } else if let Some((network, bits)) = p.split_once('/') {
+            address.is_some_and(|address| in_range(address, network, bits))
         } else {
-            host == p
+            host == unbracket(&p)
         }
     })
+}
+
+fn unbracket(host: &str) -> &str {
+    host.strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host)
+}
+
+/// An IPv4 address written as IPv6 (`::ffff:10.0.0.1`) is the IPv4 one.
+fn plain(address: IpAddr) -> IpAddr {
+    match address {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(address, IpAddr::V4),
+        v4 => v4,
+    }
+}
+
+/// Whether `address` is inside `network/bits`: its leading `bits` are the
+/// network's.
+fn in_range(address: IpAddr, network: &str, bits: &str) -> bool {
+    let (Ok(network), Ok(bits)) = (unbracket(network).parse::<IpAddr>(), bits.parse::<u32>())
+    else {
+        return false;
+    };
+    match (address, plain(network)) {
+        (IpAddr::V4(a), IpAddr::V4(n)) if bits <= 32 => {
+            let mask = u32::MAX.checked_shl(32 - bits).unwrap_or(0);
+            u32::from(a) & mask == u32::from(n) & mask
+        }
+        (IpAddr::V6(a), IpAddr::V6(n)) if bits <= 128 => {
+            let mask = u128::MAX.checked_shl(128 - bits).unwrap_or(0);
+            u128::from(a) & mask == u128::from(n) & mask
+        }
+        _ => false,
+    }
 }
 
 const TRACKING: &[&str] = &[
@@ -499,6 +541,85 @@ mod tests {
         let intranet = vec!["10.0.0.0/8".to_string()];
         assert!(matches_any("10.1.4.22", &intranet));
         assert!(!matches_any("192.168.1.1", &intranet));
+    }
+
+    /// An address range matches addresses inside it, by their numbers, and
+    /// never a name: `10.evil.com` is not in `10.0.0.0/8`.
+    #[test]
+    fn an_address_range_matches_addresses_never_names() {
+        let ranges: Vec<String> = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fd00::/8"]
+            .map(String::from)
+            .to_vec();
+        for inside in [
+            "10.0.0.1",
+            "10.255.255.255",
+            "172.16.0.1",
+            "172.31.255.254",
+            "192.168.1.5",
+            "fd00::1",
+            "[fd12::3]",
+            "::ffff:10.1.2.3",
+        ] {
+            assert!(matches_any(inside, &ranges), "{inside}");
+        }
+        for outside in [
+            "10.evil.com",
+            "10.0.0.1.evil.com",
+            "11.0.0.1",
+            "172.32.0.1",
+            "172.15.255.255",
+            "192.169.0.1",
+            "fe80::1",
+            "evil.com",
+            "167772161",
+            "",
+        ] {
+            assert!(!matches_any(outside, &ranges), "{outside}");
+        }
+        // A whole family, and a single address.
+        assert!(matches_any("8.8.8.8", &["0.0.0.0/0".to_string()]));
+        assert!(matches_any("10.1.2.3", &["10.1.2.3/32".to_string()]));
+        assert!(!matches_any("10.1.2.4", &["10.1.2.3/32".to_string()]));
+        // A range that can't be read matches nothing.
+        for broken in ["10.0.0.0/33", "10.0.0/8", "10.0.0.0/x", "fd00::/129"] {
+            assert!(!matches_any("10.0.0.1", &[broken.to_string()]), "{broken}");
+            assert!(!matches_any("fd00::1", &[broken.to_string()]), "{broken}");
+        }
+    }
+
+    /// Air-gapped with an intranet range: an address in it is reached; a
+    /// name that only begins like one is not.
+    #[test]
+    fn airgapped_reaches_an_intranet_range_by_address_only() {
+        let g = Gateway::new(GatewayConfig {
+            mode: proto::NetworkMode::Airgapped,
+            ceiling: proto::NetworkMode::Online,
+            intranet: vec!["10.0.0.0/8".into(), "fd00::/8".into()],
+            ..Default::default()
+        });
+        assert_eq!(g.check("http://10.1.2.3/wiki"), Egress::Allowed);
+        assert_eq!(g.check("http://[fd00::5]:8080/wiki"), Egress::Allowed);
+        assert!(matches!(
+            g.check("https://10.evil.com/x"),
+            Egress::Denied(_)
+        ));
+        assert!(matches!(
+            g.check("https://[2001:db8::1]/x"),
+            Egress::Denied(_)
+        ));
+    }
+
+    #[test]
+    fn a_host_is_read_from_a_url_with_an_ipv6_address_and_a_port() {
+        assert_eq!(
+            host_of("http://[FD00::5]:8080/x").as_deref(),
+            Some("fd00::5")
+        );
+        assert_eq!(
+            host_of("https://user@Example.COM:443/x").as_deref(),
+            Some("example.com")
+        );
+        assert_eq!(host_of("http://10.1.2.3/").as_deref(), Some("10.1.2.3"));
     }
 
     #[test]

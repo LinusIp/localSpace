@@ -5,6 +5,7 @@
 import { Menu, ShieldIcon } from "@localspace/ui";
 import { logout } from "../api/client";
 import { initialsOf, useSession } from "../store";
+import { useStrings } from "../useStrings";
 
 /**
  * The one indicator of whether this place can talk to the internet (plugin
@@ -15,26 +16,39 @@ import { initialsOf, useSession } from "../store";
 export function NetworkChip() {
   const environment = useSession((s) => s.environment);
   const personal = useSession((s) => s.me?.topology === "personal");
+  const goSettings = useSession((s) => s.goSettings);
+  const strings = useStrings();
   if (!environment) return null;
   const offline = environment.network === "airgapped";
   const where = personal ? "this computer" : "your organisation's server";
   return (
-    <span className={`chip ${offline ? "green" : "quiet"}`} title={offline ? `Nothing is downloaded, and nothing leaves ${where}.` : `localSpace goes online only to download a model that was asked for. Nothing typed here leaves ${where}.`}>
+    <button
+      type="button"
+      className={`chip ${offline ? "green" : "quiet"}`}
+      onClick={() => goSettings("network")}
+      title={offline ? `Nothing is downloaded, and nothing leaves ${where}.` : `localSpace goes online only to download a model that was asked for. Nothing typed here leaves ${where}.`}
+    >
       <ShieldIcon size={13} />
-      {offline ? "Offline" : "Online, model downloads only"}
-    </span>
+      {offline ? strings.offline : strings.onlineForDownloads}
+    </button>
   );
 }
 
 /** Shown only when the assistant is not ready: the one status besides the network. */
 export function ReadinessChip() {
-  const { environment, live, me } = useSession();
+  const { environment, live, me, goSettings } = useSession();
+  const strings = useStrings();
   if (!environment) return null;
   if (!live) return <span className="chip amber">Reconnecting…</span>;
   if (environment.engine.loading) return <span className="chip amber">Starting up…</span>;
   if (environment.model) return null;
   const admin = me?.roles.includes("admin") || me?.topology === "personal";
-  return <span className="chip amber">{admin ? "No model — choose one in Settings" : "No model — ask your administrator"}</span>;
+  if (!admin) return <span className="chip amber">No model — ask your administrator</span>;
+  return (
+    <button type="button" className="chip amber" onClick={() => goSettings("assistant")}>
+      {strings.chooseModel}
+    </button>
+  );
 }
 
 export function Person() {
