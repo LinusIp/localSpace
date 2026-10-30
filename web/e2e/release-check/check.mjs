@@ -122,6 +122,9 @@ const shot = async (name) => {
   await page.current.screenshot({ path: path.join(out, "screens", `${name}.png`), fullPage: false }).catch(() => undefined);
 };
 
+// A failed item leaves a picture of what the page showed.
+report.onFail = (n) => shot(`failed-item-${n}`);
+
 try {
   // ---- 1. The last public release, and a chat made in it ----------------
   const previousSetup = fileIn(path.resolve(args.previous), "-setup.exe");
@@ -254,9 +257,12 @@ try {
     await p.locator(".rail-new").click();
     await box.fill("Write a long essay about the history of tea, at least 600 words.");
     await box.press("Enter");
+    const stop = p.getByRole("button", { name: "Stop", exact: true });
+    await until("the Stop button", async () => (await stop.count()) === 1, MINUTE);
     await until("the first words", async () => (await p.locator(".prose-chat").count()) > 0, 10 * MINUTE, 1000);
     await sleep(3000);
-    await p.locator(".send.stop").click();
+    if ((await stop.count()) === 0) throw new Error("the answer ended before Stop could be pressed");
+    await stop.click({ timeout: 10000 });
     await until("the stopped line", async () => (await lines.last().innerText().catch(() => "")).includes("The answer stopped here."), MINUTE);
     const before = (await p.locator(".prose-chat").last().innerText()).length;
     await lines.last().getByRole("button", { name: "Continue", exact: true }).click();
@@ -318,7 +324,7 @@ try {
     const questions = [
       ["Bu matnning qisqacha mazmunini oʻzbek tilida, uch gap bilan ayting.", text],
       ["Bu matnni yana bir bor oʻqing: karvonsaroylar nima uchun kerak boʻlgan? Ikki gap bilan javob bering.", text],
-      ["Mirobning vazifasi nima edi? Ikki gap bilan javob bering.", null],
+      ["Matnni uchinchi marta oʻqing: mirobning vazifasi nima edi? Ikki gap bilan javob bering.", text],
       ["Bugungi Samarqand qanday vazifalarga duch kelmoqda? Ikki gap bilan javob bering.", null],
     ];
     let divider = false;

@@ -30,6 +30,7 @@ export class Report {
       this.row(item, true, typeof detail === "string" ? detail : "");
       return true;
     } catch (error) {
+      if (this.onFail) await this.onFail(this.rows.length + 1).catch(() => undefined);
       this.row(item, false, String(error?.message ?? error).split("\n")[0].slice(0, 300));
       return false;
     }
