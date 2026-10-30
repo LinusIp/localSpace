@@ -13,6 +13,15 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-30, a browser walk through the looks, with screenshots (themes, step 4)
+
+- **`web/e2e/looks.mjs`** opens the app in seven looks: `themes` off, and each palette in light and dark. In each it saves seven screens: a chat with an answer, a new chat, Settings → General, Assistant, Network and About, and Help.
+- **It checks what can be checked without eyes:**
+  - with `themes` off, the page carries no palette and is set in Figtree;
+  - with it on, `<html>` carries the palette and the mode, the page background is the palette's page colour, the text is set in Onest, and the Onest face holding Uzbek's ʻ loads.
+- **CI runs it in the e2e job** beside the other walks on the test engine, and keeps the 49 screenshots as the `looks-screenshots` artifact, whether the walk passed or not.
+- **The chat it shows mixes Uzbek (oʻ, gʻ), Russian and English,** so each screenshot shows how the typeface sets all three.
+
 ## 2026-10-30, Onest behind the themes switch (themes, step 3)
 
 `docs/design/0.2.1-THEMES-AND-TRANSLATION.md` §3: Onest replaces Figtree for its Cyrillic, **only while `themes` is on**.
