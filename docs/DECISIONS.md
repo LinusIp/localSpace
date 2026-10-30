@@ -13,6 +13,16 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-27, an address range matches addresses, never names
+
+- **The gateway's range patterns** (`10.0.0.0/8`, `fd00::/8`) used to match the start of the host's text, so `10.evil.com` counted as inside `10.0.0.0/8`, even with the network set to air-gapped. Now:
+  - an address range matches only an address, parsed and compared by its leading bits, IPv4 and IPv6. An IPv4 address written as IPv6 (`::ffff:10.0.0.1`) counts as the IPv4 one;
+  - **a name never matches a range;**
+  - `*.example.com` matches `example.com` and every name under it, and a bare name matches itself alone, as before;
+  - a range that can't be read (`10.0.0/8`, `/33`) matches nothing.
+- **A URL with an IPv6 address** (`http://[fd00::5]:8080/`) now gives its whole address as the host; it used to give `[fd00`.
+- **Tests:** addresses inside and outside each private range, names that begin like an address, unreadable ranges, and an air-gapped gateway that reaches an intranet address but not a name that only looks like one.
+
 ## 2026-10-26, the security mailbox is the main reporting channel
 
 The founder's ruling of 26 October.
