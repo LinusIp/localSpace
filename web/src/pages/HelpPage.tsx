@@ -2,27 +2,31 @@
 
 import { useSession } from "../store";
 import { TopBar } from "../components/TopBar";
+import { useStrings } from "../useStrings";
 
 /** localSpace's discussion group, opened in the person's browser; nothing is sent from the app. */
 const FEEDBACK = "https://t.me/localSpace_discussion";
 
 export function HelpPage() {
   const { me, environment } = useSession();
+  const strings = useStrings();
   const organisation = me?.topology === "organisation";
   const board = environment?.harnesses.some((h) => h.id === "io.localspace.whiteboard") ?? false;
   return (
     <>
       <TopBar />
       <div className="page">
-        <h1 className="page-title">Help</h1>
-        <div className="page-sub">{organisation ? "localSpace runs on your organisation's own server. Nothing you type leaves your network." : "localSpace runs on this computer."}</div>
+        <h1 className="page-title">{strings.helpTitle}</h1>
+        <div className="page-sub">{organisation ? strings.helpSubOrganisation : strings.helpSubPersonal}</div>
         <div className="row-list" style={{ maxWidth: 660 }}>
           <div className="row-item">
             <div className="row-main">
-              <div className="row-title">Ask in your own words</div>
-              <div className="row-body">Type what you want in the box and press Enter. Shift+Enter adds a line. The assistant answers, and asks you before it does anything that needs your say-so.</div>
+              <div className="row-title">{strings.helpAskTitle}</div>
+              <div className="row-body">{strings.helpAskBody}</div>
             </div>
           </div>
+          {/* Only where Core offers the whiteboard, which no release does; its
+              words leave with it rather than moving to the strings. */}
           {board && (
             <div className="row-item">
               <div className="row-main">
@@ -33,23 +37,23 @@ export function HelpPage() {
           )}
           <div className="row-item">
             <div className="row-main">
-              <div className="row-title">Choosing the assistant</div>
-              <div className="row-body">Settings → Assistant lists what is available and what each is good for. Settings → Network says whether localSpace may go online, which it only ever does to download a model that was asked for.</div>
+              <div className="row-title">{strings.helpChooseTitle}</div>
+              <div className="row-body">{strings.helpChooseBody}</div>
             </div>
           </div>
           <div className="row-item">
             <div className="row-main">
-              <div className="row-title">If something is wrong</div>
-              <div className="row-body">{organisation ? "Ask your IT team. They can see the server, add people, and send you a new sign-in link." : "Settings → Advanced shows what the app knows about itself."}</div>
+              <div className="row-title">{strings.helpWrongTitle}</div>
+              <div className="row-body">{organisation ? strings.helpWrongOrganisation : strings.helpWrongPersonal}</div>
             </div>
           </div>
           <div className="row-item">
             <div className="row-main">
-              <div className="row-title">Send feedback</div>
+              <div className="row-title">{strings.helpFeedbackTitle}</div>
               <div className="row-body">
-                Tell us what works and what doesn't in localSpace's Telegram group. The link opens in your browser; nothing is sent from the app.{" "}
+                {strings.helpFeedbackBody}{" "}
                 <a className="link green" href={FEEDBACK} target="_blank" rel="noreferrer">
-                  Open the Telegram group
+                  {strings.helpFeedbackLink}
                 </a>
               </div>
             </div>

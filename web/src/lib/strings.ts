@@ -109,6 +109,33 @@ export interface Strings {
   tryAgain: string;
   switchForPictures: (model: string) => string;
   downloadForPictures: (model: string) => string;
+  /** The top bar's network chip, hovered: what is true of this place. */
+  onlineHintPersonal: string;
+  onlineHintOrganisation: string;
+  offlineHintPersonal: string;
+  offlineHintOrganisation: string;
+  /** The top bar's status, when the assistant isn't ready. */
+  reconnecting: string;
+  startingUp: string;
+  noModelAskAdmin: string;
+  /** The account menu, in an organisation; on a person's own computer the initial opens Settings. */
+  account: string;
+  menuSettings: string;
+  signOut: string;
+  /** Help. */
+  helpTitle: string;
+  helpSubPersonal: string;
+  helpSubOrganisation: string;
+  helpAskTitle: string;
+  helpAskBody: string;
+  helpChooseTitle: string;
+  helpChooseBody: string;
+  helpWrongTitle: string;
+  helpWrongPersonal: string;
+  helpWrongOrganisation: string;
+  helpFeedbackTitle: string;
+  helpFeedbackBody: string;
+  helpFeedbackLink: string;
 }
 
 /** A language's file: any message it lacks shows in English. */
