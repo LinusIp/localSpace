@@ -333,7 +333,7 @@ It runs as a native process. Its stated reason: {reason}"
         use proto::Event as E;
         match ev {
             E::EnvironmentChanged(env) => {
-                self.env = Some(env);
+                self.env = Some(*env);
                 self.pending_env_refresh = true;
             }
             // Something shared moved: ask for this user's view again.
