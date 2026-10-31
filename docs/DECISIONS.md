@@ -13,6 +13,18 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-31, the looks walk covers every screen on this computer
+
+- **`web/e2e/looks.mjs`** now saves, in each of its seven looks:
+  - a chat, the "All chats" dialog and a new chat;
+  - Settings → General, Assistant, Network, Tools, About and Advanced;
+  - Help, and the Store where this build shows it.
+- **The screens only an organisation's server shows** have their own walk, `web/e2e/looks-org.mjs`. It runs after `org.mjs` on the same server, as the administrator `org.mjs` made, in the same seven looks:
+  - sign-in, the home page after it, and the account menu;
+  - Admin → People and Workspaces.
+
+  CI keeps these screenshots as `looks-org-screenshots`.
+
 ## 2026-10-31, a picture counts as 900 tokens (0.2.0)
 
 - **What changed:** `prompt::PICTURE_TOKENS` goes from 400 to **900**.

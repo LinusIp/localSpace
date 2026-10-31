@@ -36,7 +36,7 @@ export function SignInPage() {
   return (
     <div className="auth">
       <div className="auth-column">
-        <img src="/brand/localspace-lockup.png" alt="localSpace" style={{ width: 224, height: "auto", display: "block" }} />
+        <img className="brand-lockup" src="/brand/localspace-lockup.png" alt="localSpace" style={{ width: 224, height: "auto", display: "block" }} />
         {organisationName && <div className="auth-org">{organisationName}</div>}
         <form className="auth-card" onSubmit={submit}>
           <div className="auth-title">Sign in</div>

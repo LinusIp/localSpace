@@ -352,7 +352,7 @@ jobs:
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8449/healthz > /dev/null && break; sleep 1; done
           (cd web && node e2e/chat-full.mjs http://127.0.0.1:8449 ci-token) || { echo "--- the server's log"; tail -n 60 "$RUNNER_TEMP/full-serve.log"; exit 1; }
           kill "$FULL"; wait "$FULL" || true
-      - name: an organisation server; two people in two browsers; a viewer refused; the audit log verified
+      - name: an organisation server; two people in two browsers; a viewer refused; the audit log verified; the server's screens in every look, with screenshots
         run: |
           cat > "$RUNNER_TEMP/org.toml" <<EOF
           [organisation]
@@ -372,9 +372,16 @@ jobs:
           ORG=$!
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8446/healthz > /dev/null && break; sleep 1; done
           (cd web && node e2e/org.mjs http://127.0.0.1:8446 --data "$RUNNER_TEMP/orgdata")
+          (cd web && node e2e/looks-org.mjs http://127.0.0.1:8446 "$RUNNER_TEMP/looks-org")
           # The chain is checked with the server stopped: the database is the service's while it runs.
           kill "$ORG"; wait "$ORG" || true
           ./target/release/localspace audit verify --data "$RUNNER_TEMP/orgdata"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: looks-org-screenshots
+          path: ${{ runner.temp }}/looks-org
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
