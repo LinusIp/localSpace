@@ -993,7 +993,9 @@ impl Catalog {
     /// (`fit::picture_file_place`). One already on this computer comes
     /// first; failing that, one the disk has room for. Of those, the largest.
     /// `None` when none qualifies: the app then says only to close other
-    /// programs and try again.
+    /// programs and try again. Like the default, the suggestion is only ever
+    /// a model whose licence permits every commercial use
+    /// (docs/decisions/2026-10-31-lfm3-in-the-preview.md).
     pub fn picture_model(&self, current: &str, hardware: &Hardware) -> Option<String> {
         let size = self.get(current)?.params_b;
         let keeps_its_picture_file = |m: &CatalogModel| {
@@ -1011,6 +1013,7 @@ impl Catalog {
             .models
             .iter()
             .filter(|m| m.id != current && !m.retired && !m.hidden)
+            .filter(|m| m.commercial_use)
             .filter(|m| !m.vision_file.is_empty() && m.params_b <= size)
             .filter(|m| keeps_its_picture_file(m))
             .collect();

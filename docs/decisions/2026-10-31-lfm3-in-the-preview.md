@@ -8,7 +8,7 @@ Liquid AI's LFM3-1.7B and LFM3-VL-2B join the catalog behind a switch. They need
 - **`localspace measure`:** keeps every entry, as it keeps hidden ones.
 - **The licence (both repositories' LICENSE files):** LFM Open License v1.0. Its §5 licenses commercial use only below an annual revenue of $10,000,000.
   - The catalog's words: "LFM Open License: free for personal use and for organisations under $10M yearly revenue; larger organisations need a licence from Liquid AI."
-  - `commercial_use` is `false`, since not every commercial use is licensed. The default recommendation offers only `commercial_use` entries, so LFM3 is never anyone's default.
+  - `commercial_use` is `false`, since not every commercial use is licensed. The default recommendation offers only `commercial_use` entries, so LFM3 is never anyone's default, and never the smaller picture model Core suggests when the current one can't keep its picture file (`picture_model`).
 - **Files:**
   - Liquid AI's 4-bit-trained QAD-Q4_0 weights (1,049,615,680 and 1,049,615,648 bytes);
   - for LFM3-VL, the F16 vision file (378,996,032 bytes).
