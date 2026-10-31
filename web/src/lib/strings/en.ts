@@ -1,0 +1,58 @@
+// English: every message the app shows, the source the other languages
+// follow (docs/decisions/2026-10-31-strings-one-file-per-language.md).
+
+import type { Strings } from "../strings.ts";
+
+export const en: Strings = {
+  languageTitle: "Language",
+  languageSystem: "Same as Windows",
+  memoryTight: "Needs most of this computer's memory: close other programs, such as your browser, before you use it.",
+  attachFile: "Attach a picture or a text file",
+  removePicture: "Remove",
+  dropFileHere: "Drop the picture or file here",
+  pictureTooLarge: (mb) => `This file is ${mb} MB, and pictures up to 30 MB can be attached. Attach a normal-size photo or a screenshot instead.`,
+  pictureTooManyPixels: (w, h) =>
+    `This picture is ${w} by ${h} pixels, and pictures up to 60 megapixels can be attached. Attach a normal-size photo or a screenshot instead.`,
+  notAPicture: "Only PNG, JPEG and WebP pictures can be attached.",
+  pictureUnreadable: "This picture could not be read. Try saving it again, or take a screenshot of it.",
+  tooManyPictures: (most) => `Up to ${most} pictures or files can go with one message.`,
+  pictureNotFound: "That file is no longer here. Attach it again.",
+  notText: "Only pictures (PNG, JPEG, WebP) and text files (.txt, .md, .csv and code) can be attached.",
+  emptyFile: "This file is empty.",
+  textTooLarge: (mb) => `This file is ${mb} MB, and text files up to 2 MB can be attached.`,
+  fileNotAttached: "This file could not be attached. Try again.",
+  filePartRead: (percent, words) =>
+    `Too long to read whole: the model read the first ${percent}%${words ? ` (about ${words.read} of ${words.total} words)` : ""}.`,
+  fileNotRead: "No room was left in this message to read this file, so the model didn't read it.",
+  saveFile: "Save",
+  cannotReadPictures: (model) => `${model} can't read pictures.`,
+  pictureFileLeftOut: (gb, model) =>
+    `Pictures need about ${gb} GB more memory than is free now. Close other programs, or switch to ${model} for pictures.`,
+  pictureFileLeftOutAlone: (gb) => `Pictures need about ${gb} GB more memory than is free now. Close other programs, then try again.`,
+  olderMessagesLeftOut: "Earlier messages are no longer read by the model. They stay here for you.",
+  tryAgain: "Try again",
+  answerStoppedHere: "The answer stopped here.",
+  continueAnswer: "Continue",
+  atLimit: "The answer reached its length limit.",
+  repeated: "The answer started repeating itself, so it was stopped.",
+  chatFull: "This chat is full, so the answer was cut short. Start a new chat to go on.",
+  chatFullNoRoom: "This chat is full, so the model had no room to answer. Start a new chat to go on.",
+  tooLong: "This message is too long for this model, so the answer was cut short. Send a shorter message, or attach the text as a file.",
+  tooLongNoRoom: "This message is too long for this model, so it had no room to answer. Send a shorter message, or attach the text as a file.",
+  newChat: "New chat",
+  thoughtTooLong: "The model used all its room for thinking and wrote no answer.",
+  modelFailed: "The model couldn't answer. If it happens again, load the model again in Settings.",
+  modelFailedAskAdmin: "The model couldn't answer. If it happens again, tell your administrator.",
+  noAnswer: "The model gave no answer. Ask again.",
+  chooseModel: "Choose a model",
+  onlineForDownloads: "Online for downloads only",
+  offline: "Offline",
+  chooseModelToStart: "Choose a model to start, then ask here",
+  send: "Send",
+  stop: "Stop",
+  chooseModelLabel: "Choose a model",
+  notResponding: "localSpace isn't responding. Close it and open it again.",
+  noToolsYet: "No tools are available for this version yet.",
+  switchForPictures: (model) => `Switch to ${model} for pictures`,
+  downloadForPictures: (model) => `Download ${model} for pictures`,
+};

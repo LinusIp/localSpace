@@ -39,6 +39,7 @@ import type {
 import { bus } from "./surfaces/bus";
 import { languageOf, stringsOf, type LanguageChoice } from "./lib/strings";
 import { MODES, PALETTES, oneOf, type Mode, type Palette } from "./lib/look";
+import { featureIn } from "./lib/features";
 
 /** An open view of a harness: the board page shows one at a time and keeps the rest mounted. */
 export type Panel = {
@@ -291,7 +292,7 @@ export const useSession = createStore<Session>((set, get) => {
     } catch (err) {
       // On this computer the server is localSpace itself; an organisation's
       // sign-in keeps its own words.
-      const text = err instanceof ApiError ? err.message : get().me?.topology === "personal" ? stringsOf(languageOf(get().language, navigator.languages?.length ? navigator.languages : [navigator.language])).notResponding : "The server could not be reached.";
+      const text = err instanceof ApiError ? err.message : get().me?.topology === "personal" ? stringsOf(languageOf(get().language, navigator.languages?.length ? navigator.languages : [navigator.language]), featureIn(get().environment?.features, "translation")).notResponding : "The server could not be reached.";
       get().notify("error", text);
       return undefined;
     }
