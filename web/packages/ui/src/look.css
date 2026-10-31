@@ -134,3 +134,11 @@
    on the page, so text that used it takes --ls-accent. */
 :root[data-palette] .cite,
 :root[data-palette] .first-run-verdict { color: var(--ls-accent); }
+
+/* -- links ------------------------------------------------------------------ */
+
+/* A link outside the chat's own prose, such as Help's, takes the accent
+   rather than the browser's own blue, which reads poorly on a dark page. */
+:root[data-palette] a { color: var(--ls-accent); text-underline-offset: 2px; }
+:root[data-palette] a:hover { color: var(--ls-accent-strong); }
+:root[data-palette][data-theme="dark"] a:hover { color: var(--ls-ink); }
