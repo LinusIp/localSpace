@@ -323,10 +323,12 @@ pub fn build_within(
     }
 }
 
-/// What a picture costs in what the model reads, about: the engine counted
-/// 383 tokens for a question with one picture, its system part included
-/// (docs/DECISIONS.md, 2026-10-21).
-pub const PICTURE_TOKENS: usize = 400;
+/// What a picture costs in what the model reads, about: a screenshot made
+/// ready at 1,280 by 705 pixels cost the engine 882 tokens (947 with a short
+/// question, 65 without it), rounded up. A smaller picture costs less, a
+/// larger one more: about one token for each 1,024 pixels (docs/DECISIONS.md,
+/// 2026-10-31).
+pub const PICTURE_TOKENS: usize = 900;
 
 /// What words cost in what the model reads, counted by the pieces the
 /// models' tokenizers cut text into before they read it (Qwen's and Gemma's):
@@ -754,7 +756,7 @@ mod tests {
         huge.push(msg(Role::User, &"word ".repeat(20_000)));
         let start = read_from(&huge, 8000);
         assert_eq!(start, huge.len() - 1, "the person's newest, however long");
-        // A picture weighs PICTURE_TOKENS: forty pictures fill the 8,000.
+        // A picture weighs PICTURE_TOKENS: nine pictures fill the 8,000.
         let mut pictured = chat(20, 5);
         for m in pictured.iter_mut().filter(|m| m.role == Role::User) {
             m.attachments = vec![
