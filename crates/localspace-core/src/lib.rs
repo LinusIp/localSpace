@@ -80,8 +80,14 @@ pub const READ_ONLY_REASON: &str = "Your account can read here but not change an
 /// What the shell may remember per user, server-side, across their devices
 /// (the shell answers of 2026-09-12: the rail's state lives with the user),
 /// and the language the person chose in Settings (0.2.0; the client has
-/// asked to keep it since 2026-10-18, and Core refused it until now).
-pub const PREFERENCE_KEYS: &[&str] = &["rail_collapsed", "language"];
+/// asked to keep it since 2026-10-18, and Core refused it until now), and,
+/// for the new look, the palette and light or dark (docs/DECISIONS.md,
+/// 2026-10-31).
+pub const PREFERENCE_KEYS: &[&str] = &["rail_collapsed", "language", "theme", "mode"];
+
+/// The palettes the new look has, and its modes.
+const THEMES: &[&str] = &["indigo", "violet", "teal"];
+const MODES: &[&str] = &["system", "light", "dark"];
 
 /// A language choice is "system" or a short language tag (`ru`, `uz`,
 /// `pt-BR`): letters, digits and hyphens. Any tag is kept, so a language
@@ -2283,7 +2289,7 @@ impl Core {
                 .as_ref()
                 .and_then(|e| e.picture_file_left_out_mib),
             picture_model: self.engine.as_ref().and_then(|e| e.picture_model.clone()),
-            features: features::current(&self.store),
+            features: Box::new(features::current(&self.store)),
         }
     }
 
@@ -4194,6 +4200,16 @@ impl Core {
                 if key == "language" && !language_choice_ok(&value) {
                     return proto::Response::Error {
                         message: format!("`{value}` is not a language"),
+                    };
+                }
+                if key == "theme" && !THEMES.contains(&value.as_str()) {
+                    return proto::Response::Error {
+                        message: format!("`{value}` is not a palette"),
+                    };
+                }
+                if key == "mode" && !MODES.contains(&value.as_str()) {
+                    return proto::Response::Error {
+                        message: format!("`{value}` is not light, dark or system"),
                     };
                 }
                 if let Err(e) = self.store.set_preference(&self.active.user, &key, &value) {

@@ -222,9 +222,10 @@ pub struct EnvironmentState {
     #[serde(default)]
     pub picture_model: Option<String>,
     /// The switched features, as Core holds them: the client shows what is
-    /// on and hides what is off, and never decides alone.
+    /// on and hides what is off, and never decides alone. Boxed, so that the
+    /// environment stays about the size it was.
     #[serde(default)]
-    pub features: Features,
+    pub features: Box<Features>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]

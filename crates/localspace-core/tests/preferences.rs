@@ -183,3 +183,35 @@ fn a_member_may_not_turn_a_switched_feature() {
     }
     assert!(core.environment().features.on.is_empty());
 }
+
+/// The new look's palette and mode are remembered per user; any other value
+/// is refused and nothing is kept.
+#[test]
+fn the_palette_and_the_mode_are_remembered_and_only_known_values_kept() {
+    let data = tempfile::tempdir().unwrap();
+    let mut core = core(data.path());
+    let anna = member("anna");
+    for (key, value) in [("theme", "violet"), ("mode", "dark")] {
+        assert!(
+            matches!(
+                set(&mut core, &anna, key, value),
+                proto::Response::Preferences { .. }
+            ),
+            "{key}"
+        );
+    }
+    for (key, value) in [
+        ("theme", "pink"),
+        ("mode", "dim"),
+        ("theme", ""),
+        ("mode", "Light"),
+    ] {
+        match set(&mut core, &anna, key, value) {
+            proto::Response::Error { .. } => {}
+            other => panic!("{key} = {value:?} was kept: {other:?}"),
+        }
+    }
+    let kept = values(&mut core, &anna);
+    assert_eq!(kept.get("theme").map(String::as_str), Some("violet"));
+    assert_eq!(kept.get("mode").map(String::as_str), Some("dark"));
+}
