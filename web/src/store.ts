@@ -58,7 +58,7 @@ export const MAX_PANELS = 6;
 const PEER = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
 
 export type Page = "chat" | "board" | "documents" | "store" | "settings" | "admin" | "help";
-export type SettingsPane = "general" | "assistant" | "network" | "tools" | "about" | "advanced";
+export type SettingsPane = "general" | "appearance" | "assistant" | "network" | "tools" | "about" | "advanced";
 export type AdminPane = "people" | "workspaces";
 
 export type Notice = { level: NoticeLevel; text: string; at: number };
@@ -160,6 +160,8 @@ export type Session = {
   setRail: (collapsed: boolean) => Promise<void>;
   loadPreferences: () => Promise<void>;
   setLanguage: (choice: LanguageChoice) => Promise<void>;
+  setPalette: (palette: Palette) => Promise<void>;
+  setMode: (mode: Mode) => Promise<void>;
   /** Tell Core which board this window shows, or that it left; the people on it hear. */
   announcePresence: (board: string | null) => Promise<void>;
 
@@ -425,6 +427,14 @@ export const useSession = createStore<Session>((set, get) => {
     setLanguage: async (choice) => {
       set({ language: choice });
       await attempt(() => call({ set_preference: { key: "language", value: choice } }));
+    },
+    setPalette: async (palette) => {
+      set({ palette });
+      await attempt(() => call({ set_preference: { key: "theme", value: palette } }));
+    },
+    setMode: async (mode) => {
+      set({ mode });
+      await attempt(() => call({ set_preference: { key: "mode", value: mode } }));
     },
 
     onEvent: (event) => {

@@ -144,7 +144,15 @@ try {
     await until("an empty chat", async () => (await page.locator(".message").count()) === 0, 15000);
     await save("new-chat");
     await page.getByRole("button", { name: "Settings", exact: true }).first().click();
-    for (const pane of ["General", "Assistant", "Network", "Tools", "About", "Advanced"]) {
+    // Appearance is offered only while `themes` is on.
+    const appearance = await page.locator(".subnav .sub", { hasText: "Appearance" }).count();
+    if (appearance !== (look.palette ? 1 : 0)) throw new Error(`${look.name}: Settings offers Appearance ${appearance} times`);
+    if (look.palette) {
+      const chosen = page.locator(".opt.on", { hasText: { indigo: "Indigo and amber", violet: "Violet and magenta", teal: "Petrol teal" }[look.palette] });
+      await page.locator(".subnav .sub", { hasText: "Appearance" }).click();
+      await until("Appearance to show the palette in use", async () => (await chosen.count()) === 1, 10000);
+    }
+    for (const pane of ["General", ...(look.palette ? ["Appearance"] : []), "Assistant", "Network", "Tools", "About", "Advanced"]) {
       await page.locator(".subnav .sub", { hasText: pane }).click();
       await until(`Settings → ${pane}`, async () => (await page.locator(".pane-title", { hasText: pane }).count()) === 1, 15000);
       await save(`settings-${pane.toLowerCase()}`);
