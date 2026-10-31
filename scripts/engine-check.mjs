@@ -1,7 +1,9 @@
 // What a new engine pin does with one model, read from the engine itself
 // (docs/BUILD.md, "When the pin moves"; docs/decisions/2026-10-31-engine-test.md):
 //   - a picture's real cost: the prompt tokens of one message with the
-//     picture, less the same message without it;
+//     picture, less the same message without it. Give it the picture as the
+//     app sends it, already shrunk to a longer side of 1,280 pixels
+//     (picture::LONGEST_SIDE); the workflow does;
 //   - how `-c` is divided between the slots under `--parallel 1`,
 //     `--parallel 2` and no `--parallel`, from `/props` and `/slots`.
 //

@@ -91,7 +91,18 @@ jobs:
           $main = $entry.files | Where-Object { $_ -ne $entry.vision_file } | Select-Object -First 1
           $check = @('scripts/engine-check.mjs', $server, (Join-Path $models $main), '--out', "results/engine-$env:ID.json")
           if ($entry.vision_file) {
-            $check += @('--mmproj', (Join-Path $models $entry.vision_file), '--picture', 'docs/screenshot.png')
+            # The picture as the app sends it: Core shrinks the longer side to
+            # 1,280 pixels (picture::LONGEST_SIDE) before the model sees it.
+            Add-Type -AssemblyName System.Drawing
+            $original = [System.Drawing.Image]::FromFile((Resolve-Path 'docs/screenshot.png'))
+            $scale = [math]::Min(1.0, 1280 / [math]::Max($original.Width, $original.Height))
+            $w = [int][math]::Round($original.Width * $scale); $h = [int][math]::Round($original.Height * $scale)
+            $shrunk = New-Object System.Drawing.Bitmap $original, $w, $h
+            $picture = Join-Path $env:RUNNER_TEMP 'picture.png'
+            $shrunk.Save($picture, [System.Drawing.Imaging.ImageFormat]::Png)
+            $shrunk.Dispose(); $original.Dispose()
+            Write-Host "the picture, as the app sends it: $w x $h"
+            $check += @('--mmproj', (Join-Path $models $entry.vision_file), '--picture', $picture)
           }
           node @check
           if ($LASTEXITCODE -ne 0) { $failed += "the engine check ended with $LASTEXITCODE" }
