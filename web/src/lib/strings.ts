@@ -185,6 +185,41 @@ export interface Strings {
   assistantAsks: string;
   allow: string;
   dontAllow: string;
+  /** Settings: the panes' names, which are also their titles. */
+  paneGeneral: string;
+  paneAppearance: string;
+  paneAssistant: string;
+  paneNetwork: string;
+  paneTools: string;
+  paneAbout: string;
+  paneAdvanced: string;
+  advancedAdminsOnly: string;
+  advancedRowBody: string;
+  /** Settings → Appearance. */
+  appearanceSub: string;
+  colours: string;
+  modeTitle: string;
+  paletteIndigo: string;
+  paletteViolet: string;
+  paletteTeal: string;
+  modeSystem: string;
+  modeSystemBody: string;
+  modeLight: string;
+  modeLightBody: string;
+  modeDark: string;
+  modeDarkBody: string;
+  /** Settings → General. */
+  generalSubPersonal: string;
+  generalSubOrganisation: string;
+  noAccountNeeded: string;
+  roleAdmin: string;
+  roleMember: string;
+  roleViewer: string;
+  yourPersonalWorkspace: string;
+  /** A shared workspace, with how many others are in it. */
+  sharedWith: (others: number) => string;
+  onlyYouSee: string;
+  staysOnComputer: string;
   /** Help. */
   helpTitle: string;
   helpSubPersonal: string;
