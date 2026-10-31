@@ -15,6 +15,7 @@ import { HelpPage } from "./pages/HelpPage";
 import { FirstRunPage } from "./pages/FirstRunPage";
 import { SignInPage } from "./pages/SignInPage";
 import { InvitePage } from "./pages/InvitePage";
+import { useLook } from "./useFeature";
 
 /** How long a notice stands. */
 const NOTICE_MS = 8000;
@@ -39,6 +40,7 @@ function useNoticeToShow(latest: Notice | undefined): Notice | undefined {
 }
 
 export default function App() {
+  useLook();
   const session = useSession();
   const [checked, setChecked] = useState(false);
   const [invite, setInvite] = useState<string | null>(() => {

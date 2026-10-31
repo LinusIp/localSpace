@@ -38,6 +38,7 @@ import type {
 } from "./api/generated";
 import { bus } from "./surfaces/bus";
 import { languageOf, stringsOf, type LanguageChoice } from "./lib/strings";
+import { MODES, PALETTES, oneOf, type Mode, type Palette } from "./lib/look";
 
 /** An open view of a harness: the board page shows one at a time and keeps the rest mounted. */
 export type Panel = {
@@ -128,6 +129,9 @@ export type Session = {
   railCollapsed: boolean;
   /** Settings → Language: Windows' own, or one the person chose (docs/DECISIONS.md, 2026-10-18). */
   language: LanguageChoice;
+  /** The palette and mode shown while `themes` is on: Core's preferences `theme` and `mode`. */
+  palette: Palette;
+  mode: Mode;
   /** On the board the rail is icons unless opened for this visit. */
   boardRailOpen: boolean;
   users: UserInfo[];
@@ -320,6 +324,8 @@ export const useSession = createStore<Session>((set, get) => {
     live: false,
     railCollapsed: false,
     language: "system",
+    palette: "indigo",
+    mode: "system",
     boardRailOpen: false,
     ...EMPTY,
 
@@ -410,6 +416,8 @@ export const useSession = createStore<Session>((set, get) => {
           set({
             railCollapsed: preferences.values["rail_collapsed"] === "true",
             language: chosen === "en" || chosen === "ru" || chosen === "uz" ? chosen : "system",
+            palette: oneOf(preferences.values["theme"], PALETTES),
+            mode: oneOf(preferences.values["mode"], MODES),
           });
         }
       });
@@ -425,6 +433,10 @@ export const useSession = createStore<Session>((set, get) => {
         return;
       }
       if ("environment_changed" in event) set({ environment: event.environment_changed });
+      else if ("features_changed" in event) {
+        const { features } = event.features_changed;
+        set((s) => (s.environment ? { environment: { ...s.environment, features } } : {}));
+      }
       else if ("assistant_delta" in event) {
         const { conversation, text } = event.assistant_delta;
         set((s) => ({ streaming: { ...s.streaming, [conversation]: (s.streaming[conversation] ?? "") + text } }));

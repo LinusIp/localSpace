@@ -5,7 +5,7 @@
 
 import type { ReactNode } from "react";
 import { Badge, Notice, Progress } from "@localspace/ui";
-import { featureOn } from "../lib/features";
+import { useFeature } from "../useFeature";
 
 type StateTone = "neutral" | "ok" | "warn" | "danger";
 
@@ -13,13 +13,13 @@ const OLD_PILL: Record<StateTone, string> = { neutral: "pill", ok: "pill green",
 
 /** A short state beside a name: "In use", "Installed", "Disabled". */
 export function StatePill({ tone = "neutral", children }: { tone?: StateTone; children: ReactNode }) {
-  if (featureOn("themes")) return <Badge tone={tone}>{children}</Badge>;
+  if (useFeature("themes")) return <Badge tone={tone}>{children}</Badge>;
   return <span className={OLD_PILL[tone]}>{children}</span>;
 }
 
 /** Something that went wrong, said where it happened. */
 export function ErrorLine({ children }: { children: ReactNode }) {
-  if (featureOn("themes")) {
+  if (useFeature("themes")) {
     return (
       <div style={{ marginTop: 12 }}>
         <Notice tone="danger">{children}</Notice>
@@ -31,7 +31,7 @@ export function ErrorLine({ children }: { children: ReactNode }) {
 
 /** A download's bar and the words under it. */
 export function DownloadBar({ percent, label, labelClass }: { percent: number; label: string; labelClass: string }) {
-  if (featureOn("themes")) return <Progress value={percent / 100} label={label} />;
+  if (useFeature("themes")) return <Progress value={percent / 100} label={label} />;
   return (
     <>
       <div className="progress">
