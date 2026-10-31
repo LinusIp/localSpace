@@ -35,6 +35,9 @@ pub trait Backend: Send + Sync {
     }
 }
 
+// A response is the larger of the two by nature (the environment rides in
+// one); each is moved once through a channel, so it isn't boxed.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Incoming {
     Response { id: u64, response: proto::Response },
