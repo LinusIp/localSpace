@@ -13,6 +13,7 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+<<<<<<< HEAD
 ## 2026-10-31, the looks walk covers every screen on this computer
 
 - **`web/e2e/looks.mjs`** now saves, in each of its seven looks:
@@ -24,6 +25,15 @@ moved with them.
   - Admin → People and Workspaces.
 
   CI keeps these screenshots as `looks-org-screenshots`.
+=======
+## 2026-10-31, a picture counts as 900 tokens (0.2.0)
+
+- **What changed:** `prompt::PICTURE_TOKENS` goes from 400 to **900**.
+- **Why:** the release check on a fresh Windows machine measured it. A screenshot, made ready at 1,280 × 705 pixels, cost the engine **882 tokens**: 947 with a short question, 65 for the same question without it. Rounded up, that's 900.
+- **What it changes:** a chat with pictures leaves the answer more room. Older messages are left out sooner, and the text-file share is smaller beside a picture.
+- **What it doesn't fix:** the cost follows the picture's size, about one token for each 1,024 pixels. A smaller picture costs less than 900; a large square one about 1,600. Counting each picture by its own size comes later, with counting from the engine's own figures.
+- **The release notes** also say that in very long chats, especially in some languages, an answer may be cut short, and that a new chat helps. Some languages are counted short against the real tokenizers.
+>>>>>>> origin/main
 
 ## 2026-10-30, the components' new look, first pass (themes, step 5)
 
@@ -93,6 +103,7 @@ The first step towards the themes in `docs/design/0.2.1-THEMES-AND-TRANSLATION.m
 - **A test keeps it that way** (`web/packages/ui/src/tokens.test.ts`). It fails when a stylesheet names a colour outside the token definitions, or a component names one in a string.
 - **The shades stay as they are for now.** A few lines use a slightly different green from the accent (`rgba(31, 157, 91, …)`), so they get tokens of their own instead of being folded into `--ls-accent-line`. The palettes set them per theme.
 - **Not in this step:** the whiteboard's drawing colours (people's content, not the app's look), the palettes, dark mode, the highlight tokens and the focus ring. Each comes with the screen that uses it, behind the `themes` switch.
+
 
 ## 2026-10-27, the message box keeps the cursor; small wording fixes (0.2.0)
 
