@@ -144,14 +144,14 @@ mod tests {
         assert!(defaults("[channels]\nstable = [\"wings\"]", "stable").is_err());
     }
 
-    /// Only the preview has a feature on, LFM3
-    /// (docs/decisions/2026-10-31-lfm3-in-the-preview.md); the other channels
-    /// are off, and a build that names no channel is `stable`.
+    /// Only the preview has features on, the new look and LFM3, and never
+    /// translation (docs/decisions/2026-10-31-0.3.0-preview.1.md); the other
+    /// channels are off, and a build that names no channel is `stable`.
     #[test]
-    fn only_the_preview_turns_a_feature_on() {
+    fn only_the_preview_turns_features_on() {
         assert_eq!(
             defaults(FEATURES_TOML, "preview").unwrap(),
-            vec![Feature::Lfm3]
+            vec![Feature::Themes, Feature::Lfm3]
         );
         for channel in ["dev", "stable"] {
             assert_eq!(
