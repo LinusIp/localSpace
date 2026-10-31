@@ -7,7 +7,9 @@
 # its id, and checks:
 #   - the files against the SHA-256s `package.yml` wrote;
 #   - the last public release installed first, a chat made in it, then this
-#     package installed over it: the chat is kept and the app says its version;
+#     package installed over it: the chat is kept and the app says its version.
+#     Given `previous_run`, a package run is installed first instead, so that
+#     going back (a preview, then the release before it) is checked the same way;
 #   - the model the hardware check chooses for this machine, downloaded through
 #     the app and checked against the catalog's SHA-256;
 #   - the walk: the cursor, the wording, the language setting, the Help link,
@@ -41,6 +43,10 @@ on:
         description: "The last public release, installed first and updated from."
         type: string
         default: "v0.2.0-preview.1"
+      previous_run:
+        description: "Or: the id of a package run to install first instead of a release (for example a preview not yet published, to check going back from it). Used only when set."
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -95,16 +101,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PREVIOUS: ${{ inputs.previous }}
+          PREVIOUS_RUN: ${{ inputs.previous_run }}
         run: |
           set -euo pipefail
-          gh release download "$PREVIOUS" --repo LinusIp/localSpace-releases --pattern '*-setup.exe' --pattern 'SHA256SUMS.txt' --dir previous
-          (cd previous && sha256sum -c --ignore-missing SHA256SUMS.txt)
+          if [ -n "$PREVIOUS_RUN" ]; then
+            sha=$(gh run view "$PREVIOUS_RUN" --repo "$GITHUB_REPOSITORY" --json headSha,workflowName,conclusion --jq 'select(.workflowName == "package" and .conclusion == "success") | .headSha')
+            [ -n "$sha" ] || { echo "::error::run $PREVIOUS_RUN is not a successful package run"; exit 1; }
+            gh run download "$PREVIOUS_RUN" --repo "$GITHUB_REPOSITORY" --name "localSpace-windows-${sha:0:8}" --dir previous
+            (cd previous && sha256sum -c SHA256SUMS.txt)
+            echo "PREVIOUS_LABEL=the package of run $PREVIOUS_RUN (${sha:0:8})" >> "$GITHUB_ENV"
+          else
+            gh release download "$PREVIOUS" --repo LinusIp/localSpace-releases --pattern '*-setup.exe' --pattern 'SHA256SUMS.txt' --dir previous
+            (cd previous && sha256sum -c --ignore-missing SHA256SUMS.txt)
+            echo "PREVIOUS_LABEL=$PREVIOUS" >> "$GITHUB_ENV"
+          fi
           ls -l previous
       - name: installed, updated, used and uninstalled
         shell: bash
-        env:
-          PREVIOUS: ${{ inputs.previous }}
-        run: node web/e2e/release-check/check.mjs --package package --previous previous --out results
+        run: PREVIOUS="$PREVIOUS_LABEL" node web/e2e/release-check/check.mjs --package package --previous previous --out results
       - name: the summary
         if: always()
         shell: bash
