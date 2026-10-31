@@ -142,3 +142,9 @@
 :root[data-palette] a { color: var(--ls-accent); text-underline-offset: 2px; }
 :root[data-palette] a:hover { color: var(--ls-accent-strong); }
 :root[data-palette][data-theme="dark"] a:hover { color: var(--ls-ink); }
+
+/* -- the logo on the sign-in, invitation and first-run pages --------------- */
+
+/* The lockup is drawn in ink; on a dark page it takes the near-white one
+   made for dark backgrounds (web/public/brand/README.md). */
+:root[data-palette][data-theme="dark"] .brand-lockup { content: url("/brand/localspace-lockup-light.png"); }

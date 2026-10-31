@@ -52,7 +52,7 @@ export function FirstRunPage() {
   return (
     <div className="auth">
       <div className="auth-column" style={{ width: 520 }}>
-        <img src="/brand/localspace-lockup.png" alt="localSpace" style={{ width: 224, height: "auto", display: "block" }} />
+        <img className="brand-lockup" src="/brand/localspace-lockup.png" alt="localSpace" style={{ width: 224, height: "auto", display: "block" }} />
         <div className="auth-card">
           <div className="auth-title">This computer</div>
           <div className="first-run-computer">{computer.sentence}</div>
