@@ -229,15 +229,15 @@ function AssistantPane() {
   const current = environment?.model?.id ?? null;
   const here = catalogModels.filter((m) => m.installed);
   const known = here.some((m) => m.id === current);
-  const where = organisation ? "your organisation's server" : "this computer";
+  const strings = useStrings();
 
   return (
     <>
-      <h1 className="pane-title">Assistant</h1>
-      <div className="pane-sub">Choose how the assistant works. All of these run on {where}.</div>
+      <h1 className="pane-title">{strings.paneAssistant}</h1>
+      <div className="pane-sub">{organisation ? strings.assistantSubOrganisation : strings.assistantSubPersonal}</div>
       {here.length === 0 && !current ? (
         <p className="ls-muted" style={{ marginTop: 26 }}>
-          {admin ? `No model is on ${where} yet.` : "Your administrator has not set up a model yet."}
+          {admin ? (organisation ? strings.noModelYetOrganisation : strings.noModelYetPersonal) : strings.noModelSetUp}
         </p>
       ) : (
         <div className="options">
@@ -247,9 +247,9 @@ function AssistantPane() {
               <span style={{ flex: 1 }}>
                 <span className="opt-title">
                   {modelLabel(current, catalogModels)}
-                  <StatePill tone="ok">In use</StatePill>
+                  <StatePill tone="ok">{strings.inUse}</StatePill>
                 </span>
-                <div className="opt-body">A model on a server you connected under Advanced.</div>
+                <div className="opt-body">{strings.connectedModel}</div>
               </span>
             </div>
           )}
@@ -266,8 +266,8 @@ function AssistantPane() {
                     <span className="opt-title">
                       {m.title}
                       {m.maker && <StatePill>{m.maker}</StatePill>}
-                      {on && <StatePill tone="ok">In use</StatePill>}
-                      {starting && <StatePill tone="warn">Starting up…</StatePill>}
+                      {on && <StatePill tone="ok">{strings.inUse}</StatePill>}
+                      {starting && <StatePill tone="warn">{strings.startingUp}</StatePill>}
                     </span>
                     <div className="opt-body">
                       {modelReason(m)}
@@ -277,7 +277,7 @@ function AssistantPane() {
                 </button>
                 {admin && m.source !== "import" && (
                   <button type="button" className="btn danger" onClick={() => setDeleting(m)}>
-                    Delete
+                    {strings.deleteAction}
                   </button>
                 )}
               </div>
@@ -287,17 +287,17 @@ function AssistantPane() {
       )}
       <div className="note">
         <InfoIcon size={17} className="ls-muted" style={{ flexShrink: 0, marginTop: 1 }} />
-        <div>{organisation ? "Your administrator decides which of these are available. Changing this affects only you." : "Changing this affects only this computer."}</div>
+        <div>{organisation ? strings.assistantNoteOrganisation : strings.assistantNotePersonal}</div>
       </div>
       {admin && <GetAModel entries={catalogModels.filter((m) => !m.installed)} onDownload={(id) => void downloadModel(id)} onStop={(id) => void stopDownload(id)} onDelete={setDeleting} />}
       <Dialog
         open={deleting !== null}
-        title={deleting ? `Delete ${deleting.title}?` : ""}
+        title={deleting ? strings.deleteModelTitle(deleting.title) : ""}
         onClose={() => setDeleting(null)}
         actions={
           <>
             <button type="button" className="btn" onClick={() => setDeleting(null)}>
-              Keep it
+              {strings.keepIt}
             </button>
             <button
               type="button"
@@ -307,15 +307,14 @@ function AssistantPane() {
                 setDeleting(null);
               }}
             >
-              Delete
+              {strings.deleteAction}
             </button>
           </>
         }
       >
         {deleting && (
           <p style={{ margin: 0, lineHeight: 1.55 }}>
-            This removes {deleting.title} from {where} and frees {sizeInWords(deleting.installed ? deleting.bytes : (deleting.download?.done_bytes ?? 0))}.
-            {deleting.id === current ? " It is the model in use: the assistant stops until you choose another." : ""} You can download it again whenever you like.
+            {strings.deleteModelBody(deleting.title, sizeInWords(deleting.installed ? deleting.bytes : (deleting.download?.done_bytes ?? 0)), organisation, deleting.id === current)}
           </p>
         )}
       </Dialog>
@@ -327,34 +326,35 @@ function AssistantPane() {
 /** The groups of the models that can be added, in the order a person wants
  *  them: what runs well here first, what will not fit last and folded away
  *  (1.10 of the basics; document 34 §5, 2026-10-11). */
-const GROUPS: Array<{ title: string; holds: (verdict: string) => boolean }> = [
-  { title: "Runs well on this computer", holds: (v) => v === "runs_well" || v === "resident" },
-  { title: "Works, more slowly", holds: (v) => v === "works" || v === "hybrid" },
-  { title: "Too slow for everyday use", holds: (v) => v === "too_slow" || v === "streaming" },
-  { title: "Not sized for this computer yet", holds: (v) => v === "unknown" || v === "" },
+const GROUPS: Array<{ title: (s: Strings) => string; holds: (verdict: string) => boolean }> = [
+  { title: (s) => s.modelGroupRunsWell, holds: (v) => v === "runs_well" || v === "resident" },
+  { title: (s) => s.modelGroupWorks, holds: (v) => v === "works" || v === "hybrid" },
+  { title: (s) => s.modelGroupTooSlow, holds: (v) => v === "too_slow" || v === "streaming" },
+  { title: (s) => s.modelGroupUnsized, holds: (v) => v === "unknown" || v === "" },
 ];
 
 function GetAModel({ entries, onDownload, onStop, onDelete }: { entries: ModelCatalogEntry[]; onDownload: (id: string) => void; onStop: (id: string) => void; onDelete: (m: ModelCatalogEntry) => void }) {
   const [showUnfit, setShowUnfit] = useState(false);
   const environment = useSession((s) => s.environment);
   const personal = useSession((s) => s.me?.topology === "personal");
+  const strings = useStrings();
   if (entries.length === 0) return null;
   const offline = environment?.network === "airgapped";
   const unfit = entries.filter(willNotFit);
-  const groups = GROUPS.map((g) => ({ ...g, models: entries.filter((m) => !willNotFit(m) && g.holds(m.verdict)) })).filter((g) => g.models.length > 0);
+  const groups = GROUPS.map((g) => ({ title: g.title(strings), models: entries.filter((m) => !willNotFit(m) && g.holds(m.verdict)) })).filter((g) => g.models.length > 0);
   return (
     <div style={{ marginTop: 26 }}>
-      <div className="pane-section-title">Models that can be added</div>
-      {offline && <div className="row-item ls-muted" style={{ marginTop: 10 }}>{personal ? "Downloads need the network, and this computer is set to stay offline. Settings → Network changes that." : "Downloads need the network. This server is offline, so a model is brought in as a file by your administrator."}</div>}
+      <div className="pane-section-title">{strings.modelsToAdd}</div>
+      {offline && <div className="row-item ls-muted" style={{ marginTop: 10 }}>{personal ? strings.downloadsOfflinePersonal : strings.downloadsOfflineOrganisation}</div>}
       {groups.map((g) => (
         <ModelGroup key={g.title} title={g.title} models={g.models} offline={offline} onDownload={onDownload} onStop={onStop} onDelete={onDelete} />
       ))}
       {unfit.length > 0 &&
         (showUnfit ? (
-          <ModelGroup title="Will not fit on this computer" models={unfit} offline={offline} onDownload={onDownload} onStop={onStop} onDelete={onDelete} />
+          <ModelGroup title={strings.modelGroupUnfit} models={unfit} offline={offline} onDownload={onDownload} onStop={onStop} onDelete={onDelete} />
         ) : (
           <button type="button" className="link green" onClick={() => setShowUnfit(true)} style={{ fontSize: 14, marginTop: 16 }}>
-            {unfit.length === 1 ? "Show the 1 model that will not fit" : `Show the ${unfit.length} models that will not fit`}
+            {strings.showUnfit(unfit.length)}
           </button>
         ))}
     </div>
@@ -386,19 +386,19 @@ function ModelGroup({ title, models, offline, onDownload, onStop, onDelete }: { 
                   </div>
                   <div className="row-body">
                     {modelReason(m)}
-                    {m.license_words ? ` ${m.license_words}` : ""} About {sizeInWords(m.bytes)} to download.
+                    {m.license_words ? ` ${m.license_words}` : ""} {strings.aboutToDownload(sizeInWords(m.bytes))}
                   </div>
                   {(downloading || paused || checking) && m.download && (
                     <div style={{ marginTop: 8 }}>
                       <DownloadBar
                         percent={percent}
                         labelClass="row-body"
-                        label={checking ? "Checking that the file on this computer is the published one…" : paused ? `${percent.toFixed(0)}% is already here.` : `${percent.toFixed(0)}% downloaded`}
+                        label={checking ? strings.checkingFile : paused ? strings.alreadyHere(percent.toFixed(0)) : strings.downloadedPercent(percent.toFixed(0))}
                       />
                     </div>
                   )}
-                  {queued && <div className="row-body" style={{ marginTop: 8 }}>Waiting for the download before it to finish: one at a time, so that each is as fast as your connection.</div>}
-                  {failed && <ErrorLine>The download stopped. What came is kept: start it again and it continues from there.</ErrorLine>}
+                  {queued && <div className="row-body" style={{ marginTop: 8 }}>{strings.waitingForDownload}</div>}
+                  {failed && <ErrorLine>{strings.downloadStopped}</ErrorLine>}
                   {m.no_room && !downloading && !queued && !checking && <ErrorLine>{m.no_room}</ErrorLine>}
                   {/* It would load, but leaves no room to spare here (docs/DECISIONS.md, 2026-10-18). */}
                   {m.memory_tight && <div className="row-body">{strings.memoryTight}</div>}
@@ -406,19 +406,19 @@ function ModelGroup({ title, models, offline, onDownload, onStop, onDelete }: { 
                 <div className="row-actions">
                   {downloading || queued ? (
                     <button type="button" className="btn" onClick={() => onStop(m.id)}>
-                      Stop
+                      {strings.stopDownload}
                     </button>
                   ) : checking || willNotFit(m) ? null : (
                     <>
                       {/* Offline, the sentence above stands alone: no button that cannot work. */}
                       {!m.no_room && !offline && (
                         <button type="button" className="btn" onClick={() => onDownload(m.id)}>
-                          {paused || failed ? "Continue" : "Download"}
+                          {paused || failed ? strings.continueDownload : strings.download}
                         </button>
                       )}
                       {partly && (
                         <button type="button" className="btn danger" onClick={() => onDelete(m)}>
-                          Delete
+                          {strings.deleteAction}
                         </button>
                       )}
                     </>
