@@ -27,6 +27,8 @@ const CACHE_BYTES: usize = 64 * 1024 * 1024;
 
 /// Small key/value slots about the database itself.
 const SETTINGS: TableDefinition<&str, &[u8]> = TableDefinition::new("settings");
+/// In `settings`: the switched features this installation has on.
+const FEATURES_KEY: &str = "features";
 /// Document id -> `DocumentRecord`: every document Core knows by name — a
 /// harness's, an export, later an upload or a cached page.
 const DOCUMENTS: TableDefinition<&str, &[u8]> = TableDefinition::new("documents");
@@ -470,6 +472,27 @@ impl Store {
         {
             let mut t = txn.open_table(SETTINGS)?;
             t.insert(SCHEMA_KEY, version.to_le_bytes().as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// The switched features this installation has on, once someone turned
+    /// one; `None` until then, when the build's defaults hold.
+    pub fn features(&self) -> Result<Option<Vec<String>>> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(SETTINGS)?;
+        Ok(match t.get(FEATURES_KEY)? {
+            Some(bytes) => Some(serde_json::from_slice(bytes.value())?),
+            None => None,
+        })
+    }
+
+    pub fn set_features(&self, on: &[String]) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(SETTINGS)?;
+            t.insert(FEATURES_KEY, serde_json::to_vec(on)?.as_slice())?;
         }
         txn.commit()?;
         Ok(())

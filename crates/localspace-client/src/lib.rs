@@ -414,6 +414,7 @@ It runs as a native process. Its stated reason: {reason}"
             E::ModelProgress { .. }
             | E::EngineChanged(_)
             | E::ConversationChanged { .. }
+            | E::FeaturesChanged { .. }
             | E::ThinkingStarted { .. } => {}
             E::TraceLine { text } => {
                 self.trace.push(text);

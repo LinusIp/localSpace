@@ -19,6 +19,7 @@ pub mod docs;
 pub mod engine;
 pub mod evals;
 pub mod exposure;
+pub mod features;
 pub mod fit;
 // The one module that speaks to the operating system's process accounting
 // directly (`CLAUDE.md`: unsafe only in isolated, documented modules).
@@ -2282,6 +2283,7 @@ impl Core {
                 .as_ref()
                 .and_then(|e| e.picture_file_left_out_mib),
             picture_model: self.engine.as_ref().and_then(|e| e.picture_model.clone()),
+            features: features::current(&self.store),
         }
     }
 
@@ -4164,6 +4166,16 @@ impl Core {
             R::ListConversations => self.conversations_response(),
 
             R::GetPreferences => self.preferences_response(),
+            R::SetFeature { feature, on } => match features::set(&self.store, feature, on) {
+                Ok(features) => {
+                    self.emit_all(proto::Event::FeaturesChanged { features });
+                    self.broadcast_environment();
+                    proto::Response::Environment(self.environment())
+                }
+                Err(e) => proto::Response::Error {
+                    message: format!("{e:#}"),
+                },
+            },
             R::SetPreference { key, value } => {
                 if !PREFERENCE_KEYS.contains(&key.as_str()) {
                     return proto::Response::Error {
@@ -5439,6 +5451,7 @@ fn admin_only(req: &proto::Request) -> Option<&'static str> {
         R::ImportModel { .. } => "model.import",
         R::SelectModel { .. } => "model.select",
         R::EngineLog { .. } => "engine.log",
+        R::SetFeature { .. } => "features.set",
         R::PreviewContext { .. } => "context.preview",
         R::RunEvals { .. } => "evals.run",
         _ => return None,
