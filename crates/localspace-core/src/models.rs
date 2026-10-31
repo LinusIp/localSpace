@@ -158,6 +158,11 @@ pub struct CatalogModel {
     /// keeps hidden entries, reaches it (docs/DECISIONS.md, 2026-10-08).
     #[serde(default)]
     pub hidden: bool,
+    /// The switched feature the entry belongs to: while it is off, the
+    /// app's Core leaves the entry out as it starts, as it does a hidden one
+    /// (docs/decisions/2026-10-31-lfm3-in-the-preview.md).
+    #[serde(default)]
+    pub switch: Option<proto::Feature>,
     /// No longer offered (document 34, Qwen2.5; docs/DECISIONS.md,
     /// 2026-10-17): never recommended and never downloaded again. A copy
     /// already on the computer stays listed as an older model, which the
@@ -628,6 +633,12 @@ impl Catalog {
         self.models.retain(|m| !m.hidden);
     }
 
+    /// Leave out the entries whose switch is not among `on`.
+    pub fn drop_switched_off(&mut self, on: &[proto::Feature]) {
+        self.models
+            .retain(|m| m.switch.is_none_or(|feature| on.contains(&feature)));
+    }
+
     /// Fetch from somewhere else: a test's stand-in for Hugging Face.
     pub fn set_source(&mut self, source: Source) {
         self.source = source;
@@ -982,7 +993,9 @@ impl Catalog {
     /// (`fit::picture_file_place`). One already on this computer comes
     /// first; failing that, one the disk has room for. Of those, the largest.
     /// `None` when none qualifies: the app then says only to close other
-    /// programs and try again.
+    /// programs and try again. Like the default, the suggestion is only ever
+    /// a model whose licence permits every commercial use
+    /// (docs/decisions/2026-10-31-lfm3-in-the-preview.md).
     pub fn picture_model(&self, current: &str, hardware: &Hardware) -> Option<String> {
         let size = self.get(current)?.params_b;
         let keeps_its_picture_file = |m: &CatalogModel| {
@@ -1000,6 +1013,7 @@ impl Catalog {
             .models
             .iter()
             .filter(|m| m.id != current && !m.retired && !m.hidden)
+            .filter(|m| m.commercial_use)
             .filter(|m| !m.vision_file.is_empty() && m.params_b <= size)
             .filter(|m| keeps_its_picture_file(m))
             .collect();
@@ -1197,6 +1211,7 @@ impl Catalog {
             path: Some(path.to_path_buf()),
             verify: HashMap::new(),
             hidden: false,
+            switch: None,
             retired: false,
             vision_file: String::new(),
             published_as: HashMap::new(),
@@ -3491,5 +3506,30 @@ mod tests {
         let m = catalog.get("qwen2.5-3b-instruct-q4_k_m").unwrap();
         assert_eq!(m.title, "Our 3B");
         assert_eq!(m.repo, "org/mirror");
+    }
+
+    /// LFM3's entries are left out unless their switch is on, and nothing
+    /// else is touched (docs/decisions/2026-10-31-lfm3-in-the-preview.md).
+    #[test]
+    fn an_entry_behind_a_switch_is_left_out_while_it_is_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let lfm3 = |c: &Catalog| {
+            c.models
+                .iter()
+                .filter(|m| m.switch == Some(proto::Feature::Lfm3))
+                .count()
+        };
+        let full = Catalog::load(None, dir.path());
+        assert_eq!(lfm3(&full), 2, "the text model and the picture model");
+        let mut off = Catalog::load(None, dir.path());
+        off.drop_switched_off(&[proto::Feature::Themes]);
+        assert_eq!(lfm3(&off), 0);
+        assert_eq!(off.models.len(), full.models.len() - 2);
+        let mut on = Catalog::load(None, dir.path());
+        on.drop_switched_off(&[proto::Feature::Lfm3]);
+        assert_eq!(on.models.len(), full.models.len());
+        for m in full.models.iter().filter(|m| m.switch.is_some()) {
+            assert!(!m.commercial_use, "{} is never anyone's default", m.id);
+        }
     }
 }

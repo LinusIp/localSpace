@@ -27,7 +27,7 @@ pub fn channel() -> &'static str {
 }
 
 /// Every feature there is, in a fixed order.
-pub const ALL: [Feature; 2] = [Feature::Themes, Feature::Translation];
+pub const ALL: [Feature; 3] = [Feature::Themes, Feature::Translation, Feature::Lfm3];
 
 fn named(name: &str) -> Option<Feature> {
     ALL.into_iter().find(|f| name_of(*f) == name)
@@ -38,6 +38,7 @@ pub fn name_of(feature: Feature) -> &'static str {
     match feature {
         Feature::Themes => "themes",
         Feature::Translation => "translation",
+        Feature::Lfm3 => "lfm3",
     }
 }
 
@@ -143,11 +144,16 @@ mod tests {
         assert!(defaults("[channels]\nstable = [\"wings\"]", "stable").is_err());
     }
 
-    /// Until the founder says which features a release has on, every channel
-    /// is off, and a build that names no channel is `stable`.
+    /// Only the preview has a feature on, LFM3
+    /// (docs/decisions/2026-10-31-lfm3-in-the-preview.md); the other channels
+    /// are off, and a build that names no channel is `stable`.
     #[test]
-    fn every_channel_starts_off() {
-        for channel in ["dev", "preview", "stable"] {
+    fn only_the_preview_turns_a_feature_on() {
+        assert_eq!(
+            defaults(FEATURES_TOML, "preview").unwrap(),
+            vec![Feature::Lfm3]
+        );
+        for channel in ["dev", "stable"] {
             assert_eq!(
                 defaults(FEATURES_TOML, channel).unwrap(),
                 Vec::<Feature>::new(),
