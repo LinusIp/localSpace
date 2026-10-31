@@ -96,7 +96,7 @@ export function InvitePage({ token, onDone }: { token: string; onDone: () => voi
   return (
     <div className="auth">
       <div className="auth-column">
-        <img src="/brand/localspace-lockup.png" alt="localSpace" style={{ width: 224, height: "auto", display: "block" }} />
+        <img className="brand-lockup" src="/brand/localspace-lockup.png" alt="localSpace" style={{ width: 224, height: "auto", display: "block" }} />
         {organisationName && <div className="auth-org">{organisationName}</div>}
         <div className="auth-card">{body}</div>
         <div className="auth-promise">
