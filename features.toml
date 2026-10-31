@@ -1,5 +1,5 @@
-# Which switched features a build has on, by its channel (docs/DECISIONS.md,
-# 2026-10-31). Core reads this file when it is compiled; the channel comes
+# Which switched features a build has on, by its channel
+# (docs/decisions/2026-10-31-switched-features.md). Core reads this file when it is compiled; the channel comes
 # from LOCALSPACE_CHANNEL at build time, and a build that names none is
 # "stable". An installation can turn a switch itself afterwards.
 #

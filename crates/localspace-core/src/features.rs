@@ -1,4 +1,4 @@
-//! Switched features (docs/DECISIONS.md, 2026-10-31): a feature still being
+//! Switched features (docs/decisions/2026-10-31-switched-features.md): a feature still being
 //! built ships off, and is turned on per installation. A switch never turns
 //! off a protection.
 //!

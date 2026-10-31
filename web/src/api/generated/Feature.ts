@@ -2,7 +2,7 @@
 
 /**
  * A feature that is switched on or off for this installation, never a
- * protection (docs/DECISIONS.md, 2026-10-31). A variant is added with its
+ * protection (docs/decisions/2026-10-31-switched-features.md). A variant is added with its
  * feature's first code, and goes when the feature graduates.
  */
 export type Feature = "themes" | "translation";

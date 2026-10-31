@@ -81,8 +81,8 @@ pub const READ_ONLY_REASON: &str = "Your account can read here but not change an
 /// (the shell answers of 2026-09-12: the rail's state lives with the user),
 /// and the language the person chose in Settings (0.2.0; the client has
 /// asked to keep it since 2026-10-18, and Core refused it until now), and,
-/// for the new look, the palette and light or dark (docs/DECISIONS.md,
-/// 2026-10-31).
+/// for the new look, the palette and light or dark
+/// (docs/decisions/2026-10-31-theme-and-mode-preferences.md).
 pub const PREFERENCE_KEYS: &[&str] = &["rail_collapsed", "language", "theme", "mode"];
 
 /// The palettes the new look has, and its modes.
