@@ -13,7 +13,6 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
-<<<<<<< HEAD
 ## 2026-10-31, the looks walk covers every screen on this computer
 
 - **`web/e2e/looks.mjs`** now saves, in each of its seven looks:
@@ -25,7 +24,7 @@ moved with them.
   - Admin → People and Workspaces.
 
   CI keeps these screenshots as `looks-org-screenshots`.
-=======
+
 ## 2026-10-31, a picture counts as 900 tokens (0.2.0)
 
 - **What changed:** `prompt::PICTURE_TOKENS` goes from 400 to **900**.
@@ -33,7 +32,6 @@ moved with them.
 - **What it changes:** a chat with pictures leaves the answer more room. Older messages are left out sooner, and the text-file share is smaller beside a picture.
 - **What it doesn't fix:** the cost follows the picture's size, about one token for each 1,024 pixels. A smaller picture costs less than 900; a large square one about 1,600. Counting each picture by its own size comes later, with counting from the engine's own figures.
 - **The release notes** also say that in very long chats, especially in some languages, an answer may be cut short, and that a new chat helps. Some languages are counted short against the real tokenizers.
->>>>>>> origin/main
 
 ## 2026-10-30, the components' new look, first pass (themes, step 5)
 
