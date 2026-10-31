@@ -84,6 +84,14 @@ jobs:
           rustup default stable
           rustup target add wasm32-wasip2
           echo "LOCALSPACE_BUILD_ID=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_ENV"
+          # The switches a build has on come from its channel (features.toml):
+          # a v*-preview.N tag is a preview, anything else stable.
+          case "$GITHUB_REF" in
+            refs/tags/v*-preview.*) channel=preview ;;
+            *) channel=stable ;;
+          esac
+          echo "LOCALSPACE_CHANNEL=$channel" >> "$GITHUB_ENV"
+          echo "channel: $channel"
       - uses: actions/setup-node@v4
         with:
           node-version: 24

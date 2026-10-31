@@ -9,5 +9,5 @@
 
 [channels]
 dev = []
-preview = ["lfm3"]
+preview = ["themes", "lfm3"]
 stable = []
