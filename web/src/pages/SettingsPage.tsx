@@ -13,6 +13,7 @@ import { TopBar } from "../components/TopBar";
 import { modelLabel, modelReason, sizeInWords, willNotFit } from "../lib/models";
 import { clock } from "../lib/time";
 import { useFeature } from "../useFeature";
+import { useStoreShown } from "../useStoreShown";
 import type { Mode, Palette } from "../lib/look";
 import type { Json, ToolOutcome } from "../api/generated";
 import { useStrings } from "../useStrings";
@@ -502,16 +503,23 @@ function NetworkPane() {
 function ToolsPane() {
   const { environment, setEnabled, go } = useSession();
   const harnesses = environment?.harnesses ?? [];
+  // The way to the Store only where the Store is shown at all.
+  const store = useStoreShown();
   return (
     <>
       <h1 className="pane-title">Tools</h1>
       <div className="pane-sub">What the assistant can work with here. Turn one off and the assistant stops using it.</div>
       {harnesses.length === 0 ? (
         <p className="ls-muted" style={{ marginTop: 26 }}>
-          No tools are installed yet.{" "}
-          <button type="button" className="link green" style={{ fontSize: 14 }} onClick={() => go("store")}>
-            Add one from the Store.
-          </button>
+          No tools are installed yet.
+          {store && (
+            <>
+              {" "}
+              <button type="button" className="link green" style={{ fontSize: 14 }} onClick={() => go("store")}>
+                Add one from the Store.
+              </button>
+            </>
+          )}
         </p>
       ) : (
         <div className="row-list">

@@ -41,10 +41,10 @@ export function DocumentsPage() {
       <TopBar />
       <div className="page">
         <h1 className="page-title">Documents</h1>
-        <div className="page-sub">What is in this workspace: your boards, and the files made from them.</div>
+        <div className="page-sub">The documents in this workspace, and the files made from them.</div>
         {docs === null ? null : docs.length === 0 ? (
           <p className="ls-muted" style={{ marginTop: 32 }}>
-            No documents yet. A board appears here once you open it, and files you export from it follow.
+            No documents yet.
           </p>
         ) : (
           <div className="row-list">
