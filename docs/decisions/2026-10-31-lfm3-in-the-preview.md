@@ -18,4 +18,8 @@ Liquid AI's LFM3-1.7B and LFM3-VL-2B join the catalog behind a switch. They need
   - the template thinks unless told not to, so thinking is off by default, with a budget of 1,024 tokens;
   - sampling as the model cards give it: temperature 0.1, top-k 50, repeat penalty 1.1, and for thinking temperature 1.0, top-p 0.95, top-k 20.
 - **Tools:** offered. The template writes tool calls as `<tool_call><function=…>`. The engine test ([2026-10-31-engine-test.md](2026-10-31-engine-test.md)) shows whether the engine reads them; if it doesn't, `supports_tools` turns off before the preview.
+- **Languages:**
+  - No language is a gate for the preview.
+  - In the engine test, LFM3 1.7B answered well in English and Russian, but several of its Uzbek answers drifted into other languages, and one was stopped for repeating itself.
+  - So its entry says so with a new catalog field, `language_words`: "LFM3 1.7B works best in English and Russian; for Uzbek, Qwen3.5 is better." Core appends it to the small-model words, so it shows wherever the model is listed.
 - **Test:** `an_entry_behind_a_switch_is_left_out_while_it_is_off` (`models.rs`); `only_the_preview_turns_a_feature_on` (`features.rs`).
