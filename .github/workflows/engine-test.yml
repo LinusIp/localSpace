@@ -86,6 +86,8 @@ jobs:
           $failed = @()
           & (Join-Path $env:APP 'localspace.exe') measure --model $env:ID --models $models --data $data --out results --download --yes
           if ($LASTEXITCODE -ne 0) { $failed += "measure ended with $LASTEXITCODE" }
+          # The run's own logs (kit.log, app.log): why an answer stopped is there.
+          Copy-Item (Join-Path $data 'logs') "results/logs-$env:ID" -Recurse -ErrorAction SilentlyContinue
           $main = $entry.files | Where-Object { $_ -ne $entry.vision_file } | Select-Object -First 1
           $check = @('scripts/engine-check.mjs', $server, (Join-Path $models $main), '--out', "results/engine-$env:ID.json")
           if ($entry.vision_file) {
