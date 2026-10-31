@@ -120,8 +120,38 @@ export interface Strings {
   noModelAskAdmin: string;
   /** The account menu, in an organisation; on a person's own computer the initial opens Settings. */
   account: string;
-  menuSettings: string;
   signOut: string;
+  /**
+   * The sidebar. A message 0.2.0 shipped translated is never reused for a
+   * new place (the chat's own `newChat`, say): with `translation` off it
+   * would turn that place Russian or Uzbek too.
+   */
+  mainNav: string;
+  showSidebar: string;
+  showSidebarHint: string;
+  hideSidebar: string;
+  hideSidebarHint: string;
+  navChat: string;
+  navDocuments: string;
+  navStore: string;
+  navAdmin: string;
+  navSettings: string;
+  navHelp: string;
+  newChatButton: string;
+  chatsCap: string;
+  workspaceCap: string;
+  noChatsYet: string;
+  untitledChat: string;
+  chatBeingAnswered: (title: string) => string;
+  allChats: string;
+  deleteChat: string;
+  confirmDeleteChat: (title: string) => string;
+  personalWorkspace: string;
+  switchWorkspace: string;
+  stay: string;
+  switchAction: string;
+  anotherChat: string;
+  switchStopsAnswer: (chat: string) => string;
   /** Help. */
   helpTitle: string;
   helpSubPersonal: string;
