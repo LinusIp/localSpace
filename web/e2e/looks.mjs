@@ -124,21 +124,39 @@ try {
 
     await page.locator(".rail-chat", { hasText: "Looks walk" }).first().click();
     await until("the chat", async () => (await page.locator(".message").count()) >= 2, 15000);
-    await shoot(look, "1-chat");
+    let saved = 0;
+    const save = async (screen) => {
+      saved++;
+      await shoot(look, `${String(saved).padStart(2, "0")}-${screen}`);
+    };
+    await save("chat");
+    // The dialog that lists every chat: the earlier walks leave more chats
+    // than the rail shows.
+    await page.locator(".rail-chat.more").click();
+    await until("the dialog", async () => (await page.getByRole("dialog").count()) === 1, 5000);
+    await save("all-chats-dialog");
+    await page.keyboard.press("Escape");
+    await until("the dialog to close", async () => (await page.getByRole("dialog").count()) === 0, 5000);
     await page.locator(".rail-new").click();
     await until("an empty chat", async () => (await page.locator(".message").count()) === 0, 15000);
-    await shoot(look, "2-new-chat");
+    await save("new-chat");
     await page.getByRole("button", { name: "Settings", exact: true }).first().click();
-    for (const [n, pane] of [[3, "General"], [4, "Assistant"], [5, "Network"], [6, "About"]]) {
+    for (const pane of ["General", "Assistant", "Network", "Tools", "About", "Advanced"]) {
       await page.locator(".subnav .sub", { hasText: pane }).click();
       await until(`Settings → ${pane}`, async () => (await page.locator(".pane-title", { hasText: pane }).count()) === 1, 15000);
-      await shoot(look, `${n}-settings-${pane.toLowerCase()}`);
+      await save(`settings-${pane.toLowerCase()}`);
     }
     await page.getByRole("button", { name: "Help", exact: true }).click();
     await sleep(300);
-    await shoot(look, "7-help");
+    await save("help");
+    const store = page.getByRole("button", { name: "Store", exact: true });
+    if (await store.count()) {
+      await store.click();
+      await sleep(300);
+      await save("store");
+    }
     await page.context().close();
-    step(`${look.name}: ${look.palette ? "the palette, the mode and Onest are on the page" : "no palette, Figtree"}; 7 screens saved`);
+    step(`${look.name}: ${look.palette ? "the palette, the mode and Onest are on the page" : "no palette, Figtree"}; ${saved} screens saved`);
   }
   console.log(`looks walk: ok (${LOOKS.length} looks, in ${out})`);
 } catch (error) {

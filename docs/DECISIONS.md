@@ -13,6 +13,14 @@ a day that held both says so in one line at its end. `docs/AFTER-TEST-A.md`,
 `docs/test-a/SHOT-LIST.md` and `docs/PILOT-1.md`, named in older entries,
 moved with them.
 
+## 2026-10-31, the looks walk covers every screen on this computer
+
+- **`web/e2e/looks.mjs`** now saves, in each of its seven looks:
+  - a chat, the "All chats" dialog and a new chat;
+  - Settings → General, Assistant, Network, Tools, About and Advanced;
+  - Help, and the Store where this build shows it.
+- **The screens only an organisation's server shows** (sign-in, Admin, the account menu) come in a later step, from the organisation walk.
+
 ## 2026-10-30, the components' new look, first pass (themes, step 5)
 
 `docs/design/0.2.1-THEMES-AND-TRANSLATION.md` §3. **Off by default:** every rule starts with `:root[data-palette]`.
