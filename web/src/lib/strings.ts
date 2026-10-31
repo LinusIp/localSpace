@@ -244,6 +244,40 @@ export interface Strings {
   thisComputer: string;
   typeface: string;
   typefaceBody: (typeface: string) => string;
+  /** Settings → Assistant. */
+  assistantSubPersonal: string;
+  assistantSubOrganisation: string;
+  noModelYetPersonal: string;
+  noModelYetOrganisation: string;
+  noModelSetUp: string;
+  inUse: string;
+  connectedModel: string;
+  deleteAction: string;
+  assistantNotePersonal: string;
+  assistantNoteOrganisation: string;
+  deleteModelTitle: (model: string) => string;
+  keepIt: string;
+  /** What deleting a model frees, and whether the assistant stops. */
+  deleteModelBody: (model: string, size: string, organisation: boolean, inUse: boolean) => string;
+  modelsToAdd: string;
+  modelGroupRunsWell: string;
+  modelGroupWorks: string;
+  modelGroupTooSlow: string;
+  modelGroupUnsized: string;
+  modelGroupUnfit: string;
+  showUnfit: (count: number) => string;
+  downloadsOfflinePersonal: string;
+  downloadsOfflineOrganisation: string;
+  /** A model's download, here and on the first run. */
+  aboutToDownload: (size: string) => string;
+  checkingFile: string;
+  alreadyHere: (percent: string) => string;
+  downloadedPercent: (percent: string) => string;
+  waitingForDownload: string;
+  downloadStopped: string;
+  download: string;
+  stopDownload: string;
+  continueDownload: string;
   /** Help. */
   helpTitle: string;
   helpSubPersonal: string;
