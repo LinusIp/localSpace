@@ -19,7 +19,11 @@ moved with them.
   - a chat, the "All chats" dialog and a new chat;
   - Settings → General, Assistant, Network, Tools, About and Advanced;
   - Help, and the Store where this build shows it.
-- **The screens only an organisation's server shows** (sign-in, Admin, the account menu) come in a later step, from the organisation walk.
+- **The screens only an organisation's server shows** have their own walk, `web/e2e/looks-org.mjs`. It runs after `org.mjs` on the same server, as the administrator `org.mjs` made, in the same seven looks:
+  - sign-in, the home page after it, and the account menu;
+  - Admin → People and Workspaces.
+
+  CI keeps these screenshots as `looks-org-screenshots`.
 
 ## 2026-10-30, the components' new look, first pass (themes, step 5)
 
