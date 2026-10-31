@@ -220,6 +220,30 @@ export interface Strings {
   sharedWith: (others: number) => string;
   onlyYouSee: string;
   staysOnComputer: string;
+  /** Settings → Network: new keys, not the top bar's 0.2.0 "Offline". */
+  networkSub: string;
+  networkSubMember: string;
+  networkOffline: string;
+  networkOfflinePersonal: string;
+  networkOfflineOrganisation: string;
+  networkOnline: string;
+  networkOnlinePersonal: string;
+  networkOnlineOrganisation: string;
+  networkHeldOffline: string;
+  /** Settings → Tools. */
+  toolsSub: string;
+  noToolsInstalled: string;
+  addFromStore: string;
+  toolCount: (count: number) => string;
+  toolOn: (tool: string) => string;
+  /** Settings → About. */
+  aboutSubPersonal: string;
+  aboutSubOrganisation: string;
+  version: string;
+  theServer: string;
+  thisComputer: string;
+  typeface: string;
+  typefaceBody: (typeface: string) => string;
   /** Help. */
   helpTitle: string;
   helpSubPersonal: string;
