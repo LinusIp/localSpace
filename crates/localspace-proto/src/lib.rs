@@ -176,6 +176,9 @@ pub enum Feature {
     Themes,
     /// The app's words in the person's language, beyond the first lines.
     Translation,
+    /// The LFM3 models in the catalog, on the engine that runs them
+    /// (docs/decisions/2026-10-31-lfm3-in-the-preview.md).
+    Lfm3,
 }
 
 /// Which switched features are on here, and which of them an organisation's

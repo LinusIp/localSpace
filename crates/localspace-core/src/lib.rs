@@ -595,6 +595,7 @@ impl Core {
         let mut models = models::Catalog::load(cfg.models_dir.as_deref(), &models_store);
         if !cfg.show_hidden_models {
             models.drop_hidden();
+            models.drop_switched_off(&features::current(&store).on);
         }
 
         let conversations =

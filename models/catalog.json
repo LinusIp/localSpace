@@ -309,7 +309,8 @@
           "repeat_penalty": 1
         }
       },
-      "maker": "Alibaba (Qwen)"
+      "maker": "Alibaba (Qwen)",
+      "hidden": true
     },
     {
       "id": "gpt-oss-120b-mxfp4",
@@ -366,7 +367,8 @@
           "presence_penalty": 0,
           "repeat_penalty": 1
         }
-      }
+      },
+      "hidden": true
     },
     {
       "id": "qwen3.5-0.8b-q4_k_m",
@@ -983,6 +985,128 @@
           "repeat_penalty": 1
         }
       }
+    },
+    {
+      "id": "lfm3-1.7b-qad-q4_0",
+      "title": "LFM3 1.7B",
+      "family": "LFM3",
+      "maker": "Liquid AI",
+      "params_b": 1.73,
+      "active_params_b": 1.73,
+      "quant": "Q4_0 (Liquid AI's 4-bit-trained weights)",
+      "license": "LFM Open License v1.0",
+      "license_words": "LFM Open License: free for personal use and for organisations under $10M yearly revenue; larger organisations need a licence from Liquid AI.",
+      "commercial_use": false,
+      "license_url": "https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/blob/main/LICENSE",
+      "switch": "lfm3",
+      "thinking": {
+        "default": "off",
+        "budget": 1024
+      },
+      "bytes": 1049615680,
+      "context_len": 262144,
+      "repo": "LiquidAI/LFM3-1.7B-GGUF",
+      "revision": "bad5729bba61d076fff20d2548e62526665af215",
+      "files": [
+        "LFM3-1.7B-QAD-Q4_0.gguf"
+      ],
+      "verify": {
+        "LFM3-1.7B-QAD-Q4_0.gguf": {
+          "bytes": 1049615680,
+          "sha256": "43a7d09a0e9cba91b63eb7052488b9564569bddfd65754d2e426465e572a7452"
+        }
+      },
+      "supports_tools": true,
+      "notes": "Liquid AI's small model, from Liquid AI's own 4-bit-trained weights. About 1 GB. Thinks before answering only where its entry says so. In the preview only, not yet measured on a person's computer.",
+      "tensor": {
+        "core_bytes": 1049615680,
+        "routed_expert_bytes": 0,
+        "layers": 24,
+        "moe": null,
+        "kv_bytes_per_token_fp16": 22528
+      },
+      "sampling": {
+        "answer": {
+          "temperature": 0.1,
+          "top_p": 1,
+          "top_k": 50,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1.1
+        },
+        "thinking": {
+          "temperature": 1,
+          "top_p": 0.95,
+          "top_k": 20,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1.1
+        }
+      }
+    },
+    {
+      "id": "lfm3-vl-2b-qad-q4_0",
+      "title": "LFM3-VL 2B",
+      "family": "LFM3",
+      "maker": "Liquid AI",
+      "params_b": 1.92,
+      "active_params_b": 1.92,
+      "quant": "Q4_0 (Liquid AI's 4-bit-trained weights)",
+      "license": "LFM Open License v1.0",
+      "license_words": "LFM Open License: free for personal use and for organisations under $10M yearly revenue; larger organisations need a licence from Liquid AI.",
+      "commercial_use": false,
+      "license_url": "https://huggingface.co/LiquidAI/LFM3-VL-2B-GGUF/blob/main/LICENSE",
+      "switch": "lfm3",
+      "thinking": {
+        "default": "off",
+        "budget": 1024
+      },
+      "bytes": 1428611680,
+      "context_len": 128000,
+      "repo": "LiquidAI/LFM3-VL-2B-GGUF",
+      "revision": "b36554cfd35854b06429900131730cd80f092cdb",
+      "files": [
+        "LFM3-VL-2B-QAD-Q4_0.gguf",
+        "mmproj-LFM3-VL-2B-F16.gguf"
+      ],
+      "verify": {
+        "LFM3-VL-2B-QAD-Q4_0.gguf": {
+          "bytes": 1049615648,
+          "sha256": "621c455376cb96a20891697deb9975c6fb47dd5ea98ed3ad1f3b7e8f24f0b1e6"
+        },
+        "mmproj-LFM3-VL-2B-F16.gguf": {
+          "bytes": 378996032,
+          "sha256": "1d8e6e58eefc093e09d6332f081516e1ddbd5b35cfca7f35463fb270db230b1e"
+        }
+      },
+      "supports_tools": true,
+      "notes": "Liquid AI's small model that reads images, with its vision file. About 1.4 GB. Thinks before answering only where its entry says so. In the preview only, not yet measured on a person's computer.",
+      "tensor": {
+        "core_bytes": 1049615648,
+        "routed_expert_bytes": 0,
+        "layers": 24,
+        "moe": null,
+        "kv_bytes_per_token_fp16": 22528
+      },
+      "sampling": {
+        "answer": {
+          "temperature": 0.1,
+          "top_p": 1,
+          "top_k": 50,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1.1
+        },
+        "thinking": {
+          "temperature": 1,
+          "top_p": 0.95,
+          "top_k": 20,
+          "min_p": 0,
+          "presence_penalty": 0,
+          "repeat_penalty": 1.1
+        }
+      },
+      "vision_file": "mmproj-LFM3-VL-2B-F16.gguf"
     },
     {
       "id": "gemma-4-12b-q4_0",
