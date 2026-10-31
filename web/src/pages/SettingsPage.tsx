@@ -17,20 +17,27 @@ import { useStoreShown } from "../useStoreShown";
 import type { Mode, Palette } from "../lib/look";
 import type { Json, ToolOutcome } from "../api/generated";
 import { useStrings } from "../useStrings";
-import { LANGUAGE_NAMES, type Language, type LanguageChoice } from "../lib/strings";
+import { LANGUAGE_NAMES, type Language, type LanguageChoice, type Strings } from "../lib/strings";
 import { StatePill, ErrorLine, DownloadBar } from "../components/Themed";
 
-const PANES: Array<{ id: SettingsPane; label: string }> = [
-  { id: "general", label: "General" },
-  { id: "appearance", label: "Appearance" },
-  { id: "assistant", label: "Assistant" },
-  { id: "network", label: "Network" },
-  { id: "tools", label: "Tools" },
-  { id: "about", label: "About" },
-];
+const PANES: SettingsPane[] = ["general", "appearance", "assistant", "network", "tools", "about"];
+
+/** A pane's name, which is also its title. */
+function paneName(pane: SettingsPane, strings: Strings): string {
+  return {
+    general: strings.paneGeneral,
+    appearance: strings.paneAppearance,
+    assistant: strings.paneAssistant,
+    network: strings.paneNetwork,
+    tools: strings.paneTools,
+    about: strings.paneAbout,
+    advanced: strings.paneAdvanced,
+  }[pane];
+}
 
 export function SettingsPage() {
   const { me, settingsPane: chosenPane, goSettings } = useSession();
+  const strings = useStrings();
   const mayOpenAdvanced = me?.topology === "personal" || (me?.roles.includes("admin") ?? false);
   // Appearance is there only while `themes` is on; with it off, it was never offered.
   const themes = useFeature("themes");
@@ -39,12 +46,12 @@ export function SettingsPage() {
     <>
       <TopBar />
       <div className="settings">
-        <nav className="subnav" aria-label="Settings">
-          <div className="subnav-title">Settings</div>
+        <nav className="subnav" aria-label={strings.navSettings}>
+          <div className="subnav-title">{strings.navSettings}</div>
           <div className="ls-col" style={{ gap: 2 }}>
-            {PANES.filter((p) => p.id !== "appearance" || themes).map((p) => (
-              <button key={p.id} type="button" className={`sub${settingsPane === p.id ? " on" : ""}`} onClick={() => goSettings(p.id)}>
-                {p.label}
+            {PANES.filter((p) => p !== "appearance" || themes).map((p) => (
+              <button key={p} type="button" className={`sub${settingsPane === p ? " on" : ""}`} onClick={() => goSettings(p)}>
+                {paneName(p, strings)}
               </button>
             ))}
           </div>
@@ -54,9 +61,9 @@ export function SettingsPage() {
               className={`sub quiet${settingsPane === "advanced" ? " on" : ""}`}
               onClick={() => goSettings("advanced")}
               disabled={!mayOpenAdvanced}
-              title={mayOpenAdvanced ? undefined : "Only administrators can open Advanced."}
+              title={mayOpenAdvanced ? undefined : strings.advancedAdminsOnly}
             >
-              Advanced
+              {strings.paneAdvanced}
             </button>
           </div>
         </nav>
@@ -68,7 +75,7 @@ export function SettingsPage() {
             {settingsPane === "network" && <NetworkPane />}
             {settingsPane === "tools" && <ToolsPane />}
             {settingsPane === "about" && <AboutPane />}
-            {settingsPane === "advanced" && (mayOpenAdvanced ? <AdvancedPane /> : <p className="ls-muted">Only administrators can open Advanced.</p>)}
+            {settingsPane === "advanced" && (mayOpenAdvanced ? <AdvancedPane /> : <p className="ls-muted">{strings.advancedAdminsOnly}</p>)}
             {settingsPane !== "advanced" && <AdvancedRow enabled={mayOpenAdvanced} />}
           </div>
         </div>
@@ -77,28 +84,27 @@ export function SettingsPage() {
   );
 }
 
-const PALETTE_CHOICES: Array<{ id: Palette; title: string }> = [
-  { id: "indigo", title: "Indigo and amber" },
-  { id: "violet", title: "Violet and magenta" },
-  { id: "teal", title: "Petrol teal" },
-];
-
-const MODE_CHOICES: Array<{ id: Mode; title: string; body: string }> = [
-  { id: "system", title: "Same as Windows", body: "Light or dark, as Windows is set, and it changes when Windows does." },
-  { id: "light", title: "Light", body: "Dark text on a light page." },
-  { id: "dark", title: "Dark", body: "Light text on a dark page, easier on the eyes at night." },
-];
-
 /** Settings → Appearance, behind `themes`: the palette and the mode, kept by Core for this person. */
 function AppearancePane() {
   const { palette, mode, setPalette, setMode } = useSession();
+  const strings = useStrings();
+  const palettes: Array<{ id: Palette; title: string }> = [
+    { id: "indigo", title: strings.paletteIndigo },
+    { id: "violet", title: strings.paletteViolet },
+    { id: "teal", title: strings.paletteTeal },
+  ];
+  const modes: Array<{ id: Mode; title: string; body: string }> = [
+    { id: "system", title: strings.modeSystem, body: strings.modeSystemBody },
+    { id: "light", title: strings.modeLight, body: strings.modeLightBody },
+    { id: "dark", title: strings.modeDark, body: strings.modeDarkBody },
+  ];
   return (
     <>
-      <h1 className="pane-title">Appearance</h1>
-      <div className="pane-sub">How localSpace looks for you. Your choice is kept after a restart.</div>
-      <div className="pane-section-title">Colours</div>
-      <div className="options" role="radiogroup" aria-label="Colours">
-        {PALETTE_CHOICES.map((c) => {
+      <h1 className="pane-title">{strings.paneAppearance}</h1>
+      <div className="pane-sub">{strings.appearanceSub}</div>
+      <div className="pane-section-title">{strings.colours}</div>
+      <div className="options" role="radiogroup" aria-label={strings.colours}>
+        {palettes.map((c) => {
           const on = c.id === palette;
           return (
             <button key={c.id} type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} onClick={() => !on && void setPalette(c.id)}>
@@ -114,9 +120,9 @@ function AppearancePane() {
           );
         })}
       </div>
-      <div className="pane-section-title">Mode</div>
-      <div className="options" role="radiogroup" aria-label="Mode">
-        {MODE_CHOICES.map((c) => {
+      <div className="pane-section-title">{strings.modeTitle}</div>
+      <div className="options" role="radiogroup" aria-label={strings.modeTitle}>
+        {modes.map((c) => {
           const on = c.id === mode;
           return (
             <button key={c.id} type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} onClick={() => !on && void setMode(c.id)}>
@@ -135,22 +141,23 @@ function AppearancePane() {
 
 function AdvancedRow({ enabled }: { enabled: boolean }) {
   const goSettings = useSession((s) => s.goSettings);
+  const strings = useStrings();
   return (
-    <button type="button" className="advanced-row" onClick={() => goSettings("advanced")} disabled={!enabled} title={enabled ? undefined : "Only administrators can open Advanced."}>
+    <button type="button" className="advanced-row" onClick={() => goSettings("advanced")} disabled={!enabled} title={enabled ? undefined : strings.advancedAdminsOnly}>
       <span>
-        <div className="t">Advanced</div>
-        <div className="b">Connection details, diagnostics and logs. You do not need these for everyday use.</div>
+        <div className="t">{strings.paneAdvanced}</div>
+        <div className="b">{strings.advancedRowBody}</div>
       </span>
       <ChevronRightIcon size={19} className="ls-faint" />
     </button>
   );
 }
 
-function roleLabel(roles: string[] | undefined): string {
+function roleLabel(roles: string[] | undefined, strings: Strings): string {
   if (!roles) return "";
-  if (roles.includes("admin")) return "Administrator";
-  if (roles.includes("member")) return "Member";
-  if (roles.includes("viewer")) return "Can view only";
+  if (roles.includes("admin")) return strings.roleAdmin;
+  if (roles.includes("member")) return strings.roleMember;
+  if (roles.includes("viewer")) return strings.roleViewer;
   return "";
 }
 
@@ -161,33 +168,33 @@ function GeneralPane() {
   const workspace = workspaces.find((w) => w.id === environment?.workspace_id);
   return (
     <>
-      <h1 className="pane-title">General</h1>
-      <div className="pane-sub">{organisation ? "Your account and where you are working." : "You, and where you are working."}</div>
+      <h1 className="pane-title">{strings.paneGeneral}</h1>
+      <div className="pane-sub">{organisation ? strings.generalSubOrganisation : strings.generalSubPersonal}</div>
       <div className="row-list">
         <div className="row-item">
           <div className="row-main">
             <div className="row-title">{me?.name || me?.user}</div>
             <div className="row-body">
-              {organisation ? me?.email : "Your own computer needs no account."}
-              {organisation && roleLabel(me?.roles) ? ` · ${roleLabel(me?.roles)}` : ""}
+              {organisation ? me?.email : strings.noAccountNeeded}
+              {organisation && roleLabel(me?.roles, strings) ? ` · ${roleLabel(me?.roles, strings)}` : ""}
             </div>
           </div>
           {/* Only where there are accounts: see `Person` in the top bar. */}
           {organisation && (
             <button type="button" className="btn" onClick={() => void logout().then(signOut)}>
-              Sign out
+              {strings.signOut}
             </button>
           )}
         </div>
         <div className="row-item">
           <div className="row-main">
-            <div className="row-title">{environment ? (workspace?.personal_to ? "Your personal workspace" : environment.workspace) : "…"}</div>
+            <div className="row-title">{environment ? (workspace?.personal_to ? strings.yourPersonalWorkspace : environment.workspace) : "…"}</div>
             <div className="row-body">
               {organisation
                 ? workspace && !workspace.personal_to
-                  ? `Shared with ${workspace.members.length - 1 > 0 ? `${workspace.members.length - 1} other ${workspace.members.length - 1 === 1 ? "person" : "people"}` : "nobody else yet"}. What you write here, they see.`
-                  : "Only you see what is in it."
-                : "Everything here stays on this computer."}
+                  ? strings.sharedWith(workspace.members.length - 1)
+                  : strings.onlyYouSee
+                : strings.staysOnComputer}
             </div>
           </div>
         </div>

@@ -120,8 +120,106 @@ export interface Strings {
   noModelAskAdmin: string;
   /** The account menu, in an organisation; on a person's own computer the initial opens Settings. */
   account: string;
-  menuSettings: string;
   signOut: string;
+  /**
+   * The sidebar. A message 0.2.0 shipped translated is never reused for a
+   * new place (the chat's own `newChat`, say): with `translation` off it
+   * would turn that place Russian or Uzbek too.
+   */
+  mainNav: string;
+  showSidebar: string;
+  showSidebarHint: string;
+  hideSidebar: string;
+  hideSidebarHint: string;
+  navChat: string;
+  navDocuments: string;
+  navStore: string;
+  navAdmin: string;
+  navSettings: string;
+  navHelp: string;
+  newChatButton: string;
+  chatsCap: string;
+  workspaceCap: string;
+  noChatsYet: string;
+  untitledChat: string;
+  chatBeingAnswered: (title: string) => string;
+  allChats: string;
+  deleteChat: string;
+  confirmDeleteChat: (title: string) => string;
+  personalWorkspace: string;
+  switchWorkspace: string;
+  stay: string;
+  switchAction: string;
+  anotherChat: string;
+  switchStopsAnswer: (chat: string) => string;
+  /** The chat: an empty chat's greeting line and three things to try. */
+  heroSub: string;
+  starterSummariseTitle: string;
+  starterSummariseBody: string;
+  /** What a starter puts in the message box, ready for the person's text. */
+  starterSummariseText: string;
+  starterReplyTitle: string;
+  starterReplyBody: string;
+  starterReplyText: string;
+  starterExplainTitle: string;
+  starterExplainBody: string;
+  starterExplainText: string;
+  /** The message box. */
+  askAnything: string;
+  askFollowUp: string;
+  messageLabel: string;
+  /** Under the message box, once a model is chosen. */
+  footnotePersonal: string;
+  footnoteOrganisation: string;
+  footnoteChosen: string;
+  /** In the answer's place while it starts, thinks or waits. */
+  starting: string;
+  thinkingFor: (seconds: number) => string;
+  waitsForAnotherChat: string;
+  waitsForServer: string;
+  declined: string;
+  /** A tool's work, when Core gives no words of its own. */
+  working: string;
+  done: string;
+  /** A change the assistant asks to make. */
+  assistantAsks: string;
+  allow: string;
+  dontAllow: string;
+  /** Settings: the panes' names, which are also their titles. */
+  paneGeneral: string;
+  paneAppearance: string;
+  paneAssistant: string;
+  paneNetwork: string;
+  paneTools: string;
+  paneAbout: string;
+  paneAdvanced: string;
+  advancedAdminsOnly: string;
+  advancedRowBody: string;
+  /** Settings → Appearance. */
+  appearanceSub: string;
+  colours: string;
+  modeTitle: string;
+  paletteIndigo: string;
+  paletteViolet: string;
+  paletteTeal: string;
+  modeSystem: string;
+  modeSystemBody: string;
+  modeLight: string;
+  modeLightBody: string;
+  modeDark: string;
+  modeDarkBody: string;
+  /** Settings → General. */
+  generalSubPersonal: string;
+  generalSubOrganisation: string;
+  noAccountNeeded: string;
+  roleAdmin: string;
+  roleMember: string;
+  roleViewer: string;
+  yourPersonalWorkspace: string;
+  /** A shared workspace, with how many others are in it. */
+  sharedWith: (others: number) => string;
+  onlyYouSee: string;
+  staysOnComputer: string;
   /** Help. */
   helpTitle: string;
   helpSubPersonal: string;

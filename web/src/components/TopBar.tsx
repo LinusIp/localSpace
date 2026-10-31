@@ -62,7 +62,7 @@ export function Person() {
   // a second way into Settings, so the initial opens Settings itself.
   if (me?.topology === "personal") {
     return (
-      <button type="button" className="avatar" onClick={() => goSettings("general")} aria-label={strings.menuSettings} title={label}>
+      <button type="button" className="avatar" onClick={() => goSettings("general")} aria-label={strings.navSettings} title={label}>
         {initialsOf(label)}
       </button>
     );
@@ -77,7 +77,7 @@ export function Person() {
       )}
       items={[
         { id: "who", label: label, disabled: true, onSelect: () => undefined },
-        { id: "settings", label: strings.menuSettings, onSelect: () => goSettings("general") },
+        { id: "settings", label: strings.navSettings, onSelect: () => goSettings("general") },
         { id: "out", label: strings.signOut, onSelect: () => void logout().then(signOut) },
       ]}
     />

@@ -11,6 +11,7 @@ import { bus } from "../surfaces/bus";
 import { Brand } from "./Mark";
 import { timeAgo } from "../lib/time";
 import { useStoreShown } from "../useStoreShown";
+import { useStrings } from "../useStrings";
 
 const CHATS_SHOWN = 8;
 
@@ -37,8 +38,9 @@ function useHasDocuments(installed: number): boolean {
 /** Every conversation, when the rail shows only the latest few. */
 function AllChats({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { conversations, currentConversation, selectConversation, deleteConversation } = useSession();
+  const strings = useStrings();
   return (
-    <Dialog open={open} title="All chats" onClose={onClose}>
+    <Dialog open={open} title={strings.allChats} onClose={onClose}>
       <ul className="chat-list">
         {conversations.map((c) => (
           <li key={c.id}>
@@ -50,7 +52,7 @@ function AllChats({ open, onClose }: { open: boolean; onClose: () => void }) {
                 void selectConversation(c.id);
               }}
             >
-              {c.messages === 0 ? "New chat" : c.title}
+              {c.messages === 0 ? strings.untitledChat : c.title}
             </button>
             <span className="when">{timeAgo(c.updated_ms)}</span>
             {conversations.length > 1 && (
@@ -58,10 +60,10 @@ function AllChats({ open, onClose }: { open: boolean; onClose: () => void }) {
                 type="button"
                 className="link"
                 onClick={() => {
-                  if (window.confirm(`Delete "${c.title}"? This cannot be undone.`)) void deleteConversation(c.id);
+                  if (window.confirm(strings.confirmDeleteChat(c.title))) void deleteConversation(c.id);
                 }}
               >
-                Delete
+                {strings.deleteChat}
               </button>
             )}
           </li>
@@ -80,6 +82,7 @@ export function Rail() {
   const collapsed = page === "board" ? !boardRailOpen : railCollapsed;
   const harnesses = (environment?.harnesses ?? []).filter((h) => h.views.some((v) => v.kind === "web"));
   const store = useStoreShown();
+  const strings = useStrings();
   const [allChats, setAllChats] = useState(false);
   const hasDocuments = useHasDocuments(harnesses.length);
 
@@ -97,11 +100,11 @@ export function Rail() {
 
   if (collapsed) {
     return (
-      <nav className="rail collapsed" aria-label="Main">
-        <button type="button" className="rail-toggle" onClick={() => void setRail(false)} aria-label="Show the sidebar" title="Show the sidebar (Ctrl+B)">
+      <nav className="rail collapsed" aria-label={strings.mainNav}>
+        <button type="button" className="rail-toggle" onClick={() => void setRail(false)} aria-label={strings.showSidebar} title={strings.showSidebarHint}>
           <Brand size={22} nameless />
         </button>
-        <button type="button" className={`rail-icon${page === "chat" ? " on" : ""}`} onClick={() => go("chat")} aria-label="Chat" title="Chat">
+        <button type="button" className={`rail-icon${page === "chat" ? " on" : ""}`} onClick={() => go("chat")} aria-label={strings.navChat} title={strings.navChat}>
           <ChatIcon size={18} />
         </button>
         {harnesses.map((h) => (
@@ -117,26 +120,26 @@ export function Rail() {
           </button>
         ))}
         {hasDocuments && (
-          <button type="button" className={`rail-icon${page === "documents" ? " on" : ""}`} onClick={() => go("documents")} aria-label="Documents" title="Documents">
+          <button type="button" className={`rail-icon${page === "documents" ? " on" : ""}`} onClick={() => go("documents")} aria-label={strings.navDocuments} title={strings.navDocuments}>
             <FileIcon size={18} />
           </button>
         )}
         {store && (
-          <button type="button" className={`rail-icon${page === "store" ? " on" : ""}`} onClick={() => go("store")} aria-label="Store" title="Store">
+          <button type="button" className={`rail-icon${page === "store" ? " on" : ""}`} onClick={() => go("store")} aria-label={strings.navStore} title={strings.navStore}>
             <StoreIcon size={18} />
           </button>
         )}
         <div className="rail-spacer" />
         <div className="rail-bottom">
           {admin && (
-            <button type="button" className={`rail-icon${page === "admin" ? " on" : ""}`} onClick={() => goAdmin("people")} aria-label="Admin" title="Admin">
+            <button type="button" className={`rail-icon${page === "admin" ? " on" : ""}`} onClick={() => goAdmin("people")} aria-label={strings.navAdmin} title={strings.navAdmin}>
               <PeopleIcon size={18} />
             </button>
           )}
-          <button type="button" className={`rail-icon${page === "settings" ? " on" : ""}`} onClick={() => goSettings("general")} aria-label="Settings" title="Settings">
+          <button type="button" className={`rail-icon${page === "settings" ? " on" : ""}`} onClick={() => goSettings("general")} aria-label={strings.navSettings} title={strings.navSettings}>
             <SettingsIcon size={18} />
           </button>
-          <button type="button" className={`rail-icon${page === "help" ? " on" : ""}`} onClick={() => go("help")} aria-label="Help" title="Help">
+          <button type="button" className={`rail-icon${page === "help" ? " on" : ""}`} onClick={() => go("help")} aria-label={strings.navHelp} title={strings.navHelp}>
             <HelpIcon size={18} />
           </button>
         </div>
@@ -148,21 +151,21 @@ export function Rail() {
   const hidden = conversations.length - shown.length;
 
   return (
-    <nav className="rail" aria-label="Main">
+    <nav className="rail" aria-label={strings.mainNav}>
       <div className="rail-head">
         <Brand size={22} />
-        <button type="button" className="rail-toggle" onClick={() => void setRail(true)} aria-label="Hide the sidebar" title="Hide the sidebar (Ctrl+B)">
+        <button type="button" className="rail-toggle" onClick={() => void setRail(true)} aria-label={strings.hideSidebar} title={strings.hideSidebarHint}>
           <SidebarIcon size={18} />
         </button>
       </div>
       <button type="button" className="rail-new" onClick={() => void newConversation()}>
-        <PlusIcon size={16} /> New chat
+        <PlusIcon size={16} /> {strings.newChatButton}
       </button>
 
       <div className="rail-section chats">
-        <div className="rail-cap">Chats</div>
+        <div className="rail-cap">{strings.chatsCap}</div>
         {conversations.length === 0 || (conversations.length === 1 && conversations[0].messages === 0) ? (
-          <div className="rail-empty">Your conversations will appear here.</div>
+          <div className="rail-empty">{strings.noChatsYet}</div>
         ) : (
           <div className="rail-chats">
             {shown.map((c) => (
@@ -170,17 +173,17 @@ export function Rail() {
                 key={c.id}
                 type="button"
                 className={`rail-chat${c.id === currentConversation && page === "chat" ? " on" : ""}`}
-                title={turns[c.id] ? `${c.title} (an answer is being written)` : c.title}
+                title={turns[c.id] ? strings.chatBeingAnswered(c.title) : c.title}
                 onClick={() => void selectConversation(c.id)}
               >
                 {/* Its answer is being written, or waits: seen from any other chat. */}
                 {turns[c.id] && <SpinnerIcon size={12} className="ls-spin rail-writing" />}
-                {c.messages === 0 ? "New chat" : c.title}
+                {c.messages === 0 ? strings.untitledChat : c.title}
               </button>
             ))}
             {hidden > 0 && (
               <button type="button" className="rail-chat more" onClick={() => setAllChats(true)}>
-                All chats
+                {strings.allChats}
               </button>
             )}
           </div>
@@ -189,7 +192,7 @@ export function Rail() {
       <AllChats open={allChats} onClose={() => setAllChats(false)} />
 
       <div className="rail-section">
-        <div className="rail-cap">Workspace</div>
+        <div className="rail-cap">{strings.workspaceCap}</div>
         <WorkspaceName />
         {harnesses.map((h) => (
           <button key={h.id} type="button" className={`rail-item${page === "board" && board === h.id ? " on" : ""}`} onClick={() => openBoard(h.id)}>
@@ -198,12 +201,12 @@ export function Rail() {
         ))}
         {hasDocuments && (
           <button type="button" className={`rail-item${page === "documents" ? " on" : ""}`} onClick={() => go("documents")}>
-            <FileIcon size={17} /> Documents
+            <FileIcon size={17} /> {strings.navDocuments}
           </button>
         )}
         {store && (
           <button type="button" className={`rail-item${page === "store" ? " on" : ""}`} onClick={() => go("store")}>
-            <StoreIcon size={17} /> Store
+            <StoreIcon size={17} /> {strings.navStore}
           </button>
         )}
       </div>
@@ -211,14 +214,14 @@ export function Rail() {
       <div className="rail-bottom">
         {admin && (
           <button type="button" className={`rail-item${page === "admin" ? " on" : ""}`} onClick={() => goAdmin("people")}>
-            <PeopleIcon size={17} /> Admin
+            <PeopleIcon size={17} /> {strings.navAdmin}
           </button>
         )}
         <button type="button" className={`rail-item${page === "settings" ? " on" : ""}`} onClick={() => goSettings("general")}>
-          <SettingsIcon size={17} /> Settings
+          <SettingsIcon size={17} /> {strings.navSettings}
         </button>
         <button type="button" className={`rail-item${page === "help" ? " on" : ""}`} onClick={() => go("help")}>
-          <HelpIcon size={17} /> Help
+          <HelpIcon size={17} /> {strings.navHelp}
         </button>
       </div>
     </nav>
@@ -228,6 +231,7 @@ export function Rail() {
 /** In an organisation the workspace the user is in, and the way to another they belong to. */
 function WorkspaceName() {
   const { me, environment, workspaces, conversations, turns, refreshWorkspaces, selectWorkspace } = useSession();
+  const strings = useStrings();
   const organisation = me?.topology === "organisation";
   // The workspace asked for while an answer runs, until the person says.
   const [asking, setAsking] = useState<string | null>(null);
@@ -240,12 +244,12 @@ function WorkspaceName() {
   // A switch stops the person's answers, for now: it says so first, and
   // never stops one silently (ruled 2026-09-24).
   const running = Object.keys(turns)[0];
-  const runningIn = running === undefined ? null : (conversations.find((c) => c.id === running)?.title ?? "another chat");
+  const runningIn = running === undefined ? null : (conversations.find((c) => c.id === running)?.title ?? strings.anotherChat);
   return (
     <>
       <select
         className="rail-workspace"
-        aria-label="Workspace"
+        aria-label={strings.workspaceCap}
         value={environment.workspace_id}
         onChange={(e) => {
           const to = e.target.value;
@@ -256,18 +260,18 @@ function WorkspaceName() {
       >
         {mine.map((w) => (
           <option key={w.id} value={w.id}>
-            {w.personal_to ? "Personal" : w.name}
+            {w.personal_to ? strings.personalWorkspace : w.name}
           </option>
         ))}
       </select>
       <Dialog
         open={asking !== null}
-        title="Switch workspace"
+        title={strings.switchWorkspace}
         onClose={() => setAsking(null)}
         actions={
           <>
             <button type="button" className="btn" onClick={() => setAsking(null)}>
-              Stay
+              {strings.stay}
             </button>
             <button
               type="button"
@@ -278,12 +282,12 @@ function WorkspaceName() {
                 if (to !== null) void selectWorkspace(to);
               }}
             >
-              Switch
+              {strings.switchAction}
             </button>
           </>
         }
       >
-        <p style={{ marginTop: 0 }}>An answer is being written in "{runningIn}". Switching will stop it.</p>
+        <p style={{ marginTop: 0 }}>{runningIn !== null && strings.switchStopsAnswer(runningIn)}</p>
       </Dialog>
     </>
   );
