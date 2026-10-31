@@ -10,6 +10,7 @@ import { useSession } from "../store";
 import { bus } from "../surfaces/bus";
 import { Brand } from "./Mark";
 import { timeAgo } from "../lib/time";
+import { useStoreShown } from "../useStoreShown";
 
 const CHATS_SHOWN = 8;
 
@@ -78,12 +79,7 @@ export function Rail() {
   // what the person chose, remembered with them.
   const collapsed = page === "board" ? !boardRailOpen : railCollapsed;
   const harnesses = (environment?.harnesses ?? []).filter((h) => h.views.some((v) => v.kind === "web"));
-  // The Store is shown once it has a tool to offer, or one is installed:
-  // a Store with nothing in it promises what does not exist yet (ruled
-  // 2026-10-10, when 0.2 ships no tools).
-  const catalog = useSession((s) => s.catalog);
-  const store =
-    catalog.some((e) => e.kind === "harness" && e.tool_count > 0) || (environment?.harnesses ?? []).some((h) => h.tool_count > 0);
+  const store = useStoreShown();
   const [allChats, setAllChats] = useState(false);
   const hasDocuments = useHasDocuments(harnesses.length);
 

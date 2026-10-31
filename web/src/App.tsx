@@ -126,8 +126,9 @@ function Shell({ boardLink }: { boardLink: string | null }) {
       if (!boardLink) return;
       history.replaceState(null, "", "/");
       const s = useSession.get();
+      // A board this release sets aside isn't offered, so an old link to it
+      // opens the chat and says nothing of boards.
       if (s.environment?.harnesses.some((h) => h.id === boardLink)) s.openBoard(boardLink);
-      else s.notify("warn", "That board is not in this workspace.");
     });
     void refreshTranscript();
     void refreshModels();

@@ -130,6 +130,14 @@ try {
     let saved = 0;
     const save = async (screen) => {
       saved++;
+      // A default install (this server names no `set_aside`, so the release's
+      // applies) shows no whiteboard, planner, Documents or Store anywhere.
+      const shown = await page.evaluate(() => document.body.innerText);
+      const leak = /whiteboard|planner|\bboards?\b|\bStore\b/i.exec(shown);
+      if (leak) throw new Error(`${look.name} ${screen}: a default install shows "${leak[0]}"`);
+      for (const name of ["Whiteboard", "Documents", "Store"]) {
+        if (await page.getByRole("button", { name, exact: true }).count()) throw new Error(`${look.name} ${screen}: a default install offers ${name}`);
+      }
       await shoot(look, `${String(saved).padStart(2, "0")}-${screen}`);
     };
     await save("chat");
@@ -160,12 +168,12 @@ try {
     await page.getByRole("button", { name: "Help", exact: true }).click();
     await sleep(300);
     await save("help");
-    const store = page.getByRole("button", { name: "Store", exact: true });
-    if (await store.count()) {
-      await store.click();
-      await sleep(300);
-      await save("store");
-    }
+    // An old link to the whiteboard opens the chat and says nothing of boards.
+    await page.goto(`${origin}/board/io.localspace.whiteboard`);
+    await until("the chat after an old board link", async () => (await page.getByRole("textbox", { name: "Message" }).count()) === 1, 15000);
+    await sleep(1500);
+    if (await page.locator(".toast").count()) throw new Error(`${look.name}: an old board link shows a message: ${await page.locator(".toast").first().innerText()}`);
+    await save("old-board-link");
     await page.context().close();
     step(`${look.name}: ${look.palette ? "the palette, the mode and Onest are on the page" : "no palette, Figtree"}; ${saved} screens saved`);
   }
