@@ -441,23 +441,17 @@ function ModelGroup({ title, models, offline, onDownload, onStop, onDelete }: { 
  * tools do: a deferral. "Online" here is the mode `ask`; a server whose
  * settings say `online` reads as "Online" too.
  */
-const CHOICES: Array<{ set: NetworkMode; title: string; personal: string; organisation: string }> = [
-  {
-    set: "airgapped",
-    title: "Offline",
-    personal: "Nothing is downloaded either. The assistant works with the model that is already on this computer.",
-    organisation: "Nothing is downloaded either. The assistant works with the model that is already on your organisation's server.",
-  },
-  {
-    set: "ask",
-    title: "Online",
-    personal: "Only to download a model you ask for. Nothing you type leaves this computer.",
-    organisation: "Only to download a model an administrator asks for. Nothing anyone types leaves your organisation's server.",
-  },
-];
+function networkChoices(strings: Strings): Array<{ set: NetworkMode; title: string; personal: string; organisation: string }> {
+  return [
+    { set: "airgapped", title: strings.networkOffline, personal: strings.networkOfflinePersonal, organisation: strings.networkOfflineOrganisation },
+    { set: "ask", title: strings.networkOnline, personal: strings.networkOnlinePersonal, organisation: strings.networkOnlineOrganisation },
+  ];
+}
 
 function NetworkPane() {
   const { me, environment, setNetwork } = useSession();
+  const strings = useStrings();
+  const choices = networkChoices(strings);
   const organisation = me?.topology === "organisation";
   // The choice is the server's, one for everyone: an administrator makes it.
   // On a person's own computer there is no administrator, and nothing here
@@ -467,14 +461,14 @@ function NetworkPane() {
   // there to choose, and a sentence says why.
   const heldOffline = environment?.network_ceiling === "airgapped";
   const offline = environment?.network === "airgapped";
-  const chosen = CHOICES.find((c) => (c.set === "airgapped") === offline);
+  const chosen = choices.find((c) => (c.set === "airgapped") === offline);
   return (
     <>
-      <h1 className="pane-title">Network</h1>
-      <div className="pane-sub">Whether localSpace may go online.{organisation && !admin ? " Your administrator decides this for the whole server." : ""}</div>
+      <h1 className="pane-title">{strings.paneNetwork}</h1>
+      <div className="pane-sub">{organisation && !admin ? strings.networkSubMember : strings.networkSub}</div>
       {admin ? (
         <div className="options">
-          {CHOICES.filter((c) => c.set === "airgapped" || !heldOffline).map((c) => {
+          {choices.filter((c) => c.set === "airgapped" || !heldOffline).map((c) => {
             const on = c === chosen;
             return (
               <button key={c.set} type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} onClick={() => !on && void setNetwork(c.set)}>
@@ -500,7 +494,7 @@ function NetworkPane() {
       {organisation && heldOffline && (
         <div className="note">
           <InfoIcon size={17} className="ls-muted" style={{ flexShrink: 0, marginTop: 1 }} />
-          <div>This server's settings keep it offline. Whoever runs the server changes that.</div>
+          <div>{strings.networkHeldOffline}</div>
         </div>
       )}
     </>
@@ -512,18 +506,19 @@ function ToolsPane() {
   const harnesses = environment?.harnesses ?? [];
   // The way to the Store only where the Store is shown at all.
   const store = useStoreShown();
+  const strings = useStrings();
   return (
     <>
-      <h1 className="pane-title">Tools</h1>
-      <div className="pane-sub">What the assistant can work with here. Turn one off and the assistant stops using it.</div>
+      <h1 className="pane-title">{strings.paneTools}</h1>
+      <div className="pane-sub">{strings.toolsSub}</div>
       {harnesses.length === 0 ? (
         <p className="ls-muted" style={{ marginTop: 26 }}>
-          No tools are installed yet.
+          {strings.noToolsInstalled}
           {store && (
             <>
               {" "}
               <button type="button" className="link green" style={{ fontSize: 14 }} onClick={() => go("store")}>
-                Add one from the Store.
+                {strings.addFromStore}
               </button>
             </>
           )}
@@ -535,10 +530,11 @@ function ToolsPane() {
               <div className="row-main">
                 <div className="row-title">{h.title}</div>
                 <div className="row-body">
-                  {h.tool_count} things it can do{h.degraded ? ` · ${h.degraded}` : ""}
+                  {strings.toolCount(h.tool_count)}
+                  {h.degraded ? ` · ${h.degraded}` : ""}
                 </div>
               </div>
-              <Switch checked={h.enabled} label={`${h.title} on`} onChange={(on) => void setEnabled(h.id, on)} />
+              <Switch checked={h.enabled} label={strings.toolOn(h.title)} onChange={(on) => void setEnabled(h.id, on)} />
             </div>
           ))}
         </div>
@@ -550,28 +546,29 @@ function ToolsPane() {
 function AboutPane() {
   const { me, environment } = useSession();
   const themes = useFeature("themes");
+  const strings = useStrings();
   const organisation = me?.topology === "organisation";
   return (
     <>
-      <h1 className="pane-title">About</h1>
-      <div className="pane-sub">{organisation ? "localSpace runs on your organisation's own server. Nothing you type leaves your network." : "localSpace runs on this computer. Nothing you type leaves it unless you allow the network."}</div>
+      <h1 className="pane-title">{strings.paneAbout}</h1>
+      <div className="pane-sub">{organisation ? strings.aboutSubOrganisation : strings.aboutSubPersonal}</div>
       <div className="row-list">
         <div className="row-item">
           <div className="row-main">
-            <div className="row-title">Version</div>
+            <div className="row-title">{strings.version}</div>
             <div className="row-body">{me?.version ?? "…"}</div>
           </div>
         </div>
         <div className="row-item">
           <div className="row-main">
-            <div className="row-title">{organisation ? "The server" : "This computer"}</div>
+            <div className="row-title">{organisation ? strings.theServer : strings.thisComputer}</div>
             <div className="row-body">{environment?.machine ?? "…"}</div>
           </div>
         </div>
         <div className="row-item">
           <div className="row-main">
-            <div className="row-title">Typeface</div>
-            <div className="row-body">{themes ? "Onest" : "Figtree"}, under the SIL Open Font License, served from this app.</div>
+            <div className="row-title">{strings.typeface}</div>
+            <div className="row-body">{strings.typefaceBody(themes ? "Onest" : "Figtree")}</div>
           </div>
         </div>
       </div>
