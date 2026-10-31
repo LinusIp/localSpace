@@ -163,6 +163,11 @@ pub struct CatalogModel {
     /// (docs/decisions/2026-10-31-lfm3-in-the-preview.md).
     #[serde(default)]
     pub switch: Option<proto::Feature>,
+    /// What the message script showed of its languages, where a person
+    /// should know it, said wherever the model is listed after the
+    /// small-model words (docs/decisions/2026-10-31-lfm3-in-the-preview.md).
+    #[serde(default)]
+    pub language_words: String,
     /// No longer offered (document 34, Qwen2.5; docs/DECISIONS.md,
     /// 2026-10-17): never recommended and never downloaded again. A copy
     /// already on the computer stays listed as an older model, which the
@@ -471,14 +476,20 @@ impl CatalogModel {
             .map_or(0, |check| check.bytes)
     }
 
-    /// What a person is told about this model's answers, where its size calls
-    /// for a word: see [`SMALL_MODEL_WORDS`]. Empty for every larger model.
-    pub fn quality_words(&self) -> &'static str {
-        if self.params_b < SMALL_MODEL_BELOW_B {
+    /// What a person is told about this model's answers: where its size
+    /// calls for a word, [`SMALL_MODEL_WORDS`], then its `language_words`.
+    /// Empty for a larger model with nothing to say of its languages.
+    pub fn quality_words(&self) -> String {
+        let small = if self.params_b < SMALL_MODEL_BELOW_B {
             SMALL_MODEL_WORDS
         } else {
             ""
-        }
+        };
+        [small, self.language_words.as_str()]
+            .into_iter()
+            .filter(|words| !words.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// What `fit` is asked for this model.
@@ -948,7 +959,7 @@ impl Catalog {
                     memory_tight: placed.as_ref().zip(fitted).is_some_and(|(p, hw)| {
                         p.verdict != fit::Verdict::WillNotFit && !fit::fits_with_room(p, hw)
                     }),
-                    quality_words: m.quality_words().to_string(),
+                    quality_words: m.quality_words(),
                     estimated_tok_s: tok_s,
                     first_token_ms: first_ms,
                     plan_summary: summary,
@@ -1212,6 +1223,7 @@ impl Catalog {
             verify: HashMap::new(),
             hidden: false,
             switch: None,
+            language_words: String::new(),
             retired: false,
             vision_file: String::new(),
             published_as: HashMap::new(),
@@ -3531,5 +3543,13 @@ mod tests {
         for m in full.models.iter().filter(|m| m.switch.is_some()) {
             assert!(!m.commercial_use, "{} is never anyone's default", m.id);
         }
+        // Its weak Uzbek is said where it is listed, after the small-model words.
+        let text = full.get("lfm3-1.7b-qad-q4_0").unwrap();
+        assert_eq!(
+            text.quality_words(),
+            format!(
+                "{SMALL_MODEL_WORDS} LFM3 1.7B works best in English and Russian; for Uzbek, Qwen3.5 is better."
+            )
+        );
     }
 }

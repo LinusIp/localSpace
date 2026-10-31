@@ -1018,6 +1018,7 @@
       },
       "supports_tools": true,
       "notes": "Liquid AI's small model, from Liquid AI's own 4-bit-trained weights. About 1 GB. Thinks before answering only where its entry says so. In the preview only, not yet measured on a person's computer.",
+      "language_words": "LFM3 1.7B works best in English and Russian; for Uzbek, Qwen3.5 is better.",
       "tensor": {
         "core_bytes": 1049615680,
         "routed_expert_bytes": 0,
