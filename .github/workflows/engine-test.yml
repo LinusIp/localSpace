@@ -80,7 +80,7 @@ jobs:
           $catalog = Get-Content models/catalog.json -Raw | ConvertFrom-Json
           $entry = $catalog.models | Where-Object { $_.id -eq $env:ID }
           if (-not $entry) { throw "$env:ID is not in the catalog" }
-          $server = Join-Path $env:APP 'enginellama-server.exe'
+          $server = Join-Path $env:APP 'engine/llama-server.exe'
           $models = Join-Path $env:RUNNER_TEMP 'models'
           $data = Join-Path $env:RUNNER_TEMP 'data'
           $failed = @()
