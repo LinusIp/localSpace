@@ -47,7 +47,7 @@ localspace.exe       the command-line tool; "localspace doctor" describes
                      this computer for support
 measure.cmd          measures a model on this computer and writes one file
                      for you to send back; MEASURE.txt says how
-engine\              llama.cpp (release b10869, Vulkan), which runs the model
+engine\              llama.cpp (release b11960, Vulkan), which runs the model
 web\, registry\      the interface, and what the Store will offer
 licences\            THIRD-PARTY-NOTICES.txt: the licence of everything included
                      that is not localSpace's own

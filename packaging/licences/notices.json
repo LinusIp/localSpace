@@ -2,7 +2,7 @@
   "comment": "Components the package ships that are not in the Rust or JavaScript dependency graphs, each with its licence text in this folder (scripts/third-party-notices.mjs; internal plan 42 §3).",
   "components": [
     {
-      "name": "llama.cpp b10869 (the engine)",
+      "name": "llama.cpp b11960 (the engine)",
       "licence": "MIT",
       "where": "engine\\",
       "text": "llama.cpp.txt"
