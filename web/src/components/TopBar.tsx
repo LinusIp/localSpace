@@ -20,14 +20,15 @@ export function NetworkChip() {
   const strings = useStrings();
   if (!environment) return null;
   const offline = environment.network === "airgapped";
-  const where = personal ? "this computer" : "your organisation's server";
+  const hint = offline
+    ? personal
+      ? strings.offlineHintPersonal
+      : strings.offlineHintOrganisation
+    : personal
+      ? strings.onlineHintPersonal
+      : strings.onlineHintOrganisation;
   return (
-    <button
-      type="button"
-      className={`chip ${offline ? "green" : "quiet"}`}
-      onClick={() => goSettings("network")}
-      title={offline ? `Nothing is downloaded, and nothing leaves ${where}.` : `localSpace goes online only to download a model that was asked for. Nothing typed here leaves ${where}.`}
-    >
+    <button type="button" className={`chip ${offline ? "green" : "quiet"}`} onClick={() => goSettings("network")} title={hint}>
       <ShieldIcon size={13} />
       {offline ? strings.offline : strings.onlineForDownloads}
     </button>
@@ -39,11 +40,11 @@ export function ReadinessChip() {
   const { environment, live, me, goSettings } = useSession();
   const strings = useStrings();
   if (!environment) return null;
-  if (!live) return <span className="chip amber">Reconnecting…</span>;
-  if (environment.engine.loading) return <span className="chip amber">Starting up…</span>;
+  if (!live) return <span className="chip amber">{strings.reconnecting}</span>;
+  if (environment.engine.loading) return <span className="chip amber">{strings.startingUp}</span>;
   if (environment.model) return null;
   const admin = me?.roles.includes("admin") || me?.topology === "personal";
-  if (!admin) return <span className="chip amber">No model — ask your administrator</span>;
+  if (!admin) return <span className="chip amber">{strings.noModelAskAdmin}</span>;
   return (
     <button type="button" className="chip amber" onClick={() => goSettings("assistant")}>
       {strings.chooseModel}
@@ -53,6 +54,7 @@ export function ReadinessChip() {
 
 export function Person() {
   const { me, signOut, goSettings } = useSession();
+  const strings = useStrings();
   const label = me?.name || me?.email || me?.user || "?";
   // A person's own computer has no accounts, so nothing to sign out of: there,
   // "Sign out" led to a page asking for a token nobody can obtain, a locked
@@ -60,7 +62,7 @@ export function Person() {
   // a second way into Settings, so the initial opens Settings itself.
   if (me?.topology === "personal") {
     return (
-      <button type="button" className="avatar" onClick={() => goSettings("general")} aria-label="Settings" title={label}>
+      <button type="button" className="avatar" onClick={() => goSettings("general")} aria-label={strings.menuSettings} title={label}>
         {initialsOf(label)}
       </button>
     );
@@ -69,14 +71,14 @@ export function Person() {
     <Menu
       align="right"
       trigger={(open) => (
-        <button type="button" className="avatar" onClick={open} aria-label="Account" title={label}>
+        <button type="button" className="avatar" onClick={open} aria-label={strings.account} title={label}>
           {initialsOf(label)}
         </button>
       )}
       items={[
         { id: "who", label: label, disabled: true, onSelect: () => undefined },
-        { id: "settings", label: "Settings", onSelect: () => goSettings("general") },
-        { id: "out", label: "Sign out", onSelect: () => void logout().then(signOut) },
+        { id: "settings", label: strings.menuSettings, onSelect: () => goSettings("general") },
+        { id: "out", label: strings.signOut, onSelect: () => void logout().then(signOut) },
       ]}
     />
   );
