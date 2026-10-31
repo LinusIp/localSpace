@@ -1733,8 +1733,9 @@ pub struct EvalCase {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Event {
-    /// The environment as the user it is sent to sees it.
-    EnvironmentChanged(EnvironmentState),
+    /// The environment as the user it is sent to sees it. Boxed: it is far
+    /// larger than any other event.
+    EnvironmentChanged(Box<EnvironmentState>),
     /// Something shared changed — a harness installed, the network mode,
     /// the model — so every user's view of the environment is stale; each
     /// asks for its own again.

@@ -2290,13 +2290,13 @@ impl Core {
     /// The caller's own view, and a word to everyone else that theirs is
     /// stale: something shared moved.
     fn broadcast_environment(&self) {
-        self.emit(proto::Event::EnvironmentChanged(self.environment()));
+        self.emit(proto::Event::EnvironmentChanged(Box::new(self.environment())));
         self.emit_all(proto::Event::EnvironmentOutdated);
     }
 
     /// The caller's own view alone: focus and pins are theirs.
     fn emit_environment(&self) {
-        self.emit(proto::Event::EnvironmentChanged(self.environment()));
+        self.emit(proto::Event::EnvironmentChanged(Box::new(self.environment())));
     }
 
     // -- tool exposure ------------------------------------------------------
