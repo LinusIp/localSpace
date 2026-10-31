@@ -63,18 +63,15 @@ try {
   await until("the engine", async () => (await api("/environment")).environment.engine.running, 60000);
   await request({ set_preference: { key: "language", value: "en" } });
 
-  /** A fresh window in one look, at the chat. */
+  /** A fresh window in one look, at the chat: Core's switch and the person's palette and mode, set through the API. */
   const open = async (look) => {
+    const switched = await request({ set_feature: { feature: "themes", on: Boolean(look.palette) } });
+    if (!switched.environment?.features) throw new Error(`the themes switch was not turned: ${JSON.stringify(switched).slice(0, 200)}`);
+    if (look.palette) {
+      await request({ set_preference: { key: "theme", value: look.palette } });
+      await request({ set_preference: { key: "mode", value: look.mode } });
+    }
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    await context.addInitScript((l) => {
-      if (l.palette) {
-        localStorage.setItem("ls.features", "themes");
-        localStorage.setItem("ls.palette", l.palette);
-        localStorage.setItem("ls.mode", l.mode);
-      } else {
-        localStorage.removeItem("ls.features");
-      }
-    }, look);
     const p = await context.newPage();
     p.on("pageerror", (e) => console.log(`  [pageerror] ${e.message.slice(0, 200)}`));
     await p.goto(`${origin}/?token=${token}`);
@@ -105,6 +102,12 @@ try {
 
   for (const look of LOOKS) {
     page = await open(look);
+    // The palette comes with the person's preferences, a moment after the page.
+    await until(
+      `the page to carry ${look.palette ?? "no palette"}`,
+      async () => (await page.evaluate(() => document.documentElement.dataset.palette ?? null)) === (look.palette ?? null),
+      10000,
+    );
     const seen = await page.evaluate(() => ({
       palette: document.documentElement.dataset.palette ?? null,
       theme: document.documentElement.dataset.theme ?? null,
@@ -141,7 +144,15 @@ try {
     await until("an empty chat", async () => (await page.locator(".message").count()) === 0, 15000);
     await save("new-chat");
     await page.getByRole("button", { name: "Settings", exact: true }).first().click();
-    for (const pane of ["General", "Assistant", "Network", "Tools", "About", "Advanced"]) {
+    // Appearance is offered only while `themes` is on.
+    const appearance = await page.locator(".subnav .sub", { hasText: "Appearance" }).count();
+    if (appearance !== (look.palette ? 1 : 0)) throw new Error(`${look.name}: Settings offers Appearance ${appearance} times`);
+    if (look.palette) {
+      const chosen = page.locator(".opt.on", { hasText: { indigo: "Indigo and amber", violet: "Violet and magenta", teal: "Petrol teal" }[look.palette] });
+      await page.locator(".subnav .sub", { hasText: "Appearance" }).click();
+      await until("Appearance to show the palette in use", async () => (await chosen.count()) === 1, 10000);
+    }
+    for (const pane of ["General", ...(look.palette ? ["Appearance"] : []), "Assistant", "Network", "Tools", "About", "Advanced"]) {
       await page.locator(".subnav .sub", { hasText: pane }).click();
       await until(`Settings → ${pane}`, async () => (await page.locator(".pane-title", { hasText: pane }).count()) === 1, 15000);
       await save(`settings-${pane.toLowerCase()}`);
@@ -158,6 +169,7 @@ try {
     await page.context().close();
     step(`${look.name}: ${look.palette ? "the palette, the mode and Onest are on the page" : "no palette, Figtree"}; ${saved} screens saved`);
   }
+  await request({ set_feature: { feature: "themes", on: false } });
   console.log(`looks walk: ok (${LOOKS.length} looks, in ${out})`);
 } catch (error) {
   if (page) {

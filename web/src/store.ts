@@ -38,6 +38,7 @@ import type {
 } from "./api/generated";
 import { bus } from "./surfaces/bus";
 import { languageOf, stringsOf, type LanguageChoice } from "./lib/strings";
+import { MODES, PALETTES, oneOf, type Mode, type Palette } from "./lib/look";
 
 /** An open view of a harness: the board page shows one at a time and keeps the rest mounted. */
 export type Panel = {
@@ -57,7 +58,7 @@ export const MAX_PANELS = 6;
 const PEER = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
 
 export type Page = "chat" | "board" | "documents" | "store" | "settings" | "admin" | "help";
-export type SettingsPane = "general" | "assistant" | "network" | "tools" | "about" | "advanced";
+export type SettingsPane = "general" | "appearance" | "assistant" | "network" | "tools" | "about" | "advanced";
 export type AdminPane = "people" | "workspaces";
 
 export type Notice = { level: NoticeLevel; text: string; at: number };
@@ -128,6 +129,9 @@ export type Session = {
   railCollapsed: boolean;
   /** Settings → Language: Windows' own, or one the person chose (docs/DECISIONS.md, 2026-10-18). */
   language: LanguageChoice;
+  /** The palette and mode shown while `themes` is on: Core's preferences `theme` and `mode`. */
+  palette: Palette;
+  mode: Mode;
   /** On the board the rail is icons unless opened for this visit. */
   boardRailOpen: boolean;
   users: UserInfo[];
@@ -156,6 +160,8 @@ export type Session = {
   setRail: (collapsed: boolean) => Promise<void>;
   loadPreferences: () => Promise<void>;
   setLanguage: (choice: LanguageChoice) => Promise<void>;
+  setPalette: (palette: Palette) => Promise<void>;
+  setMode: (mode: Mode) => Promise<void>;
   /** Tell Core which board this window shows, or that it left; the people on it hear. */
   announcePresence: (board: string | null) => Promise<void>;
 
@@ -320,6 +326,8 @@ export const useSession = createStore<Session>((set, get) => {
     live: false,
     railCollapsed: false,
     language: "system",
+    palette: "indigo",
+    mode: "system",
     boardRailOpen: false,
     ...EMPTY,
 
@@ -410,6 +418,8 @@ export const useSession = createStore<Session>((set, get) => {
           set({
             railCollapsed: preferences.values["rail_collapsed"] === "true",
             language: chosen === "en" || chosen === "ru" || chosen === "uz" ? chosen : "system",
+            palette: oneOf(preferences.values["theme"], PALETTES),
+            mode: oneOf(preferences.values["mode"], MODES),
           });
         }
       });
@@ -418,6 +428,14 @@ export const useSession = createStore<Session>((set, get) => {
       set({ language: choice });
       await attempt(() => call({ set_preference: { key: "language", value: choice } }));
     },
+    setPalette: async (palette) => {
+      set({ palette });
+      await attempt(() => call({ set_preference: { key: "theme", value: palette } }));
+    },
+    setMode: async (mode) => {
+      set({ mode });
+      await attempt(() => call({ set_preference: { key: "mode", value: mode } }));
+    },
 
     onEvent: (event) => {
       if (typeof event === "string") {
@@ -425,6 +443,10 @@ export const useSession = createStore<Session>((set, get) => {
         return;
       }
       if ("environment_changed" in event) set({ environment: event.environment_changed });
+      else if ("features_changed" in event) {
+        const { features } = event.features_changed;
+        set((s) => (s.environment ? { environment: { ...s.environment, features } } : {}));
+      }
       else if ("assistant_delta" in event) {
         const { conversation, text } = event.assistant_delta;
         set((s) => ({ streaming: { ...s.streaming, [conversation]: (s.streaming[conversation] ?? "") + text } }));

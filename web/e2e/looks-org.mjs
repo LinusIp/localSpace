@@ -24,6 +24,32 @@ const LOOKS = [
 
 mkdirSync(out, { recursive: true });
 
+/** One request to Core as the person signed in on `p`. */
+const ask = (p, body) =>
+  p.evaluate(async (b) => {
+    const r = await fetch("/api/v1/request", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    return r.json();
+  }, body);
+
+/** Turns `themes` on or off for the server, and sets the palette and mode for the person. */
+async function setLook(p, look) {
+  const switched = await ask(p, { set_feature: { feature: "themes", on: Boolean(look.palette) } });
+  if (!switched.environment?.features) throw new Error(`the themes switch was not turned: ${JSON.stringify(switched).slice(0, 200)}`);
+  if (look.palette) {
+    await ask(p, { set_preference: { key: "theme", value: look.palette } });
+    await ask(p, { set_preference: { key: "mode", value: look.mode } });
+  }
+}
+
+/** Waits until the page carries the look's palette, or none with `themes` off. */
+async function waitForPalette(p, look) {
+  for (let start = Date.now(); ; await sleep(200)) {
+    const palette = await p.evaluate(() => document.documentElement.dataset.palette ?? null);
+    if (palette === (look.palette ?? null)) return;
+    if (Date.now() - start > 10000) throw new Error(`${look.name}: the page carries palette ${palette}`);
+  }
+}
+
 let browser;
 for (const channel of ["msedge", "chrome"]) {
   try {
@@ -40,14 +66,11 @@ let page;
 try {
   for (const look of LOOKS) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    // A browser that showed this look before keeps it, so the sign-in page,
+    // drawn before anyone is signed in, starts in it.
     await context.addInitScript((l) => {
-      if (l.palette) {
-        localStorage.setItem("ls.features", "themes");
-        localStorage.setItem("ls.palette", l.palette);
-        localStorage.setItem("ls.mode", l.mode);
-      } else {
-        localStorage.removeItem("ls.features");
-      }
+      if (l.palette) localStorage.setItem("ls.look", JSON.stringify({ palette: l.palette, mode: l.mode }));
+      else localStorage.removeItem("ls.look");
     }, look);
     page = await context.newPage();
     page.on("pageerror", (e) => console.log(`  [pageerror] ${e.message.slice(0, 200)}`));
@@ -68,7 +91,12 @@ try {
     await page.getByLabel("Password").fill(ANNA.password);
     await page.getByRole("button", { name: "Sign in" }).click();
     await page.getByRole("button", { name: "Admin", exact: true }).waitFor({ timeout: 15000 });
-    await sleep(300);
+    // Core's switch, which only an administrator may turn here, and the
+    // administrator's own palette and mode; then the page again.
+    await setLook(page, look);
+    await page.reload();
+    await page.getByRole("button", { name: "Admin", exact: true }).waitFor({ timeout: 15000 });
+    await waitForPalette(page, look);
     await save("home");
 
     await page.getByRole("button", { name: "Account", exact: true }).click();
@@ -83,6 +111,7 @@ try {
       await sleep(400);
       await save(`admin-${pane.toLowerCase()}`);
     }
+    if (look === LOOKS.at(-1)) await setLook(page, LOOKS[0]);
     await context.close();
     step(`${look.name}: ${saved} screens saved`);
   }

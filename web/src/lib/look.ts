@@ -2,9 +2,10 @@
 // TRANSLATION.md §2): one of three palettes, light or dark or the same as
 // Windows. ui.css holds the colours; this sets <html data-palette> and
 // <html data-theme> for them. With the switch off neither is set, and the
-// app keeps the look it had.
-
-import { featureOn } from "./features.ts";
+// app keeps the look it had. Core holds the switch and the person's choice
+// (preferences `theme` and `mode`); this browser keeps the last look it
+// showed, so a page drawn before Core answers (the sign-in page, a reload)
+// starts in it rather than flashing the old one.
 
 export type Palette = "indigo" | "violet" | "teal";
 export type Mode = "system" | "light" | "dark";
@@ -19,33 +20,56 @@ export function lookAttributes(palette: Palette, mode: Mode, systemDark: boolean
 }
 
 /** A stored value read as one of a list, or the first of the list. */
-function oneOf<T extends string>(value: string | null, list: readonly T[]): T {
+export function oneOf<T extends string>(value: string | null | undefined, list: readonly T[]): T {
   return (list as readonly string[]).includes(value ?? "") ? (value as T) : list[0];
 }
 
-function stored(key: string): string | null {
+/** The look to draw: off, or a palette and a mode. */
+export type Look = { on: false } | { on: true; palette: Palette; mode: Mode };
+
+const KEY = "ls.look";
+
+/** The look this browser showed last, if it kept one. */
+export function rememberedLook(): Look {
   try {
-    return globalThis.localStorage?.getItem(key) ?? null;
+    const kept = JSON.parse(globalThis.localStorage?.getItem(KEY) ?? "null") as { palette?: string; mode?: string } | null;
+    return kept ? { on: true, palette: oneOf(kept.palette, PALETTES), mode: oneOf(kept.mode, MODES) } : { on: false };
   } catch {
-    return null;
+    return { on: false };
   }
 }
 
-/**
- * Puts the look on the page when `themes` is on, and keeps "same as Windows"
- * in step when Windows changes mode. Until Settings → Appearance exists, the
- * palette and mode are read from localStorage ("ls.palette", "ls.mode").
- */
-export function startLook(root: HTMLElement = document.documentElement): void {
-  if (!featureOn("themes")) return;
-  const palette = oneOf(stored("ls.palette"), PALETTES);
-  const mode = oneOf(stored("ls.mode"), MODES);
-  const dark = window.matchMedia("(prefers-color-scheme: dark)");
-  const apply = () => {
-    const look = lookAttributes(palette, mode, dark.matches);
-    root.dataset.palette = look.palette;
-    root.dataset.theme = look.theme;
+function remember(look: Look): void {
+  try {
+    if (look.on) globalThis.localStorage?.setItem(KEY, JSON.stringify({ palette: look.palette, mode: look.mode }));
+    else globalThis.localStorage?.removeItem(KEY);
+  } catch {
+    // a browser that keeps nothing starts from the old look until Core answers
+  }
+}
+
+const darkQuery = () => window.matchMedia("(prefers-color-scheme: dark)");
+let following: (() => void) | null = null;
+
+/** Puts `look` on the page, keeps "same as Windows" in step, and remembers it. */
+export function applyLook(look: Look, root: HTMLElement = document.documentElement): void {
+  if (following) darkQuery().removeEventListener("change", following);
+  following = null;
+  remember(look);
+  if (!look.on) {
+    delete root.dataset.palette;
+    delete root.dataset.theme;
+    return;
+  }
+  const dark = darkQuery();
+  const draw = () => {
+    const attributes = lookAttributes(look.palette, look.mode, dark.matches);
+    root.dataset.palette = attributes.palette;
+    root.dataset.theme = attributes.theme;
   };
-  apply();
-  dark.addEventListener("change", apply);
+  draw();
+  if (look.mode === "system") {
+    following = draw;
+    dark.addEventListener("change", draw);
+  }
 }

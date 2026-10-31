@@ -1,17 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { featuresIn } from "./features.ts";
-import { lookAttributes } from "./look.ts";
+import { featureIn } from "./features.ts";
+import { MODES, PALETTES, lookAttributes, oneOf } from "./look.ts";
 
-test("a feature is on only when the flag names it", () => {
-  assert.deepEqual([...featuresIn(null)], []);
-  assert.deepEqual([...featuresIn("")], []);
-  assert.deepEqual([...featuresIn("themes")], ["themes"]);
-  assert.deepEqual([...featuresIn(" themes , translation ")].sort(), ["themes", "translation"]);
+test("a feature is on only when Core reports it on", () => {
+  assert.equal(featureIn(null, "themes"), false);
+  assert.equal(featureIn(undefined, "themes"), false);
+  assert.equal(featureIn({ on: [], locked: [] }, "themes"), false);
+  assert.equal(featureIn({ on: ["translation"], locked: [] }, "themes"), false);
+  assert.equal(featureIn({ on: ["themes"], locked: ["themes"] }, "themes"), true);
 });
 
-test("a name the client doesn't know turns nothing on", () => {
-  assert.deepEqual([...featuresIn("theme,everything,1")], []);
+test("a stored palette or mode the client doesn't know falls back to the default", () => {
+  assert.equal(oneOf("violet", PALETTES), "violet");
+  assert.equal(oneOf("green", PALETTES), "indigo");
+  assert.equal(oneOf(undefined, PALETTES), "indigo");
+  assert.equal(oneOf("dark", MODES), "dark");
+  assert.equal(oneOf("", MODES), "system");
 });
 
 test("same as Windows follows Windows; light and dark don't", () => {
