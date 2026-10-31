@@ -1,0 +1,131 @@
+# The engine test: what a new engine pin does with every model the app
+# offers, on a fresh Windows machine, before a build with it reaches anyone
+# (docs/BUILD.md, "When the pin moves"; docs/decisions/2026-10-31-engine-test.md).
+#
+# It takes a package run (the files `package.yml` built, engine included) and:
+#   - lists the engine folder, so that the keep list is read again;
+#   - runs `localspace measure` on each model named, each on a fresh data
+#     folder: the message script, thinking, Continue, the read time of short
+#     messages and, for a picture model, the picture;
+#   - reads from the engine itself each picture model's real cost of one
+#     picture, and how `-c` is divided between slots.
+#
+# What this machine cannot say: anything about a graphics card (it has none)
+# or speed on a person's computer. Its figures are for comparing one engine
+# with another here, never published. Started by hand only.
+
+name: engine-test
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_run:
+        description: "The id of the package run to test."
+        type: string
+        required: true
+      models:
+        description: "The catalog ids to test, as a JSON list; each runs on its own machine."
+        type: string
+        default: '["qwen3.5-4b-q4_k_m", "qwen3.5-9b-q4_k_m", "gemma-4-e2b-q4_0", "gemma-4-e4b-q4_0", "lfm3-1.7b-qad-q4_0", "lfm3-vl-2b-qad-q4_0"]'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: engine-test-${{ inputs.package_run }}
+  cancel-in-progress: true
+
+jobs:
+  model:
+    name: ${{ matrix.id }} on the package's engine
+    runs-on: windows-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        id: ${{ fromJSON(inputs.models) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: the package, checked against the SHA-256s it was built with
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ inputs.package_run }}
+        run: |
+          set -euo pipefail
+          sha=$(gh run view "$RUN" --repo "$GITHUB_REPOSITORY" --json headSha,workflowName,conclusion --jq 'select(.workflowName == "package" and .conclusion == "success") | .headSha')
+          [ -n "$sha" ] || { echo "::error::run $RUN is not a successful package run"; exit 1; }
+          gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name "localSpace-windows-${sha:0:8}" --dir package
+          (cd package && sha256sum -c SHA256SUMS.txt)
+          echo "PACKAGE_SHA=$sha" >> "$GITHUB_ENV"
+      - name: the portable copy, and its engine folder
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem package/*-portable.zip | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath app
+          $root = (Get-ChildItem app -Recurse -Filter localspace.exe | Select-Object -First 1).Directory.FullName
+          "APP=$root" | Out-File -Append $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force results | Out-Null
+          Get-ChildItem (Join-Path $root 'engine') | Select-Object Name, Length | Format-Table -AutoSize | Out-String -Width 200 | Tee-Object results/engine-folder.txt
+          & (Join-Path $root 'engine\llama-server.exe') --version 2>&1 | Tee-Object -Append results/engine-folder.txt
+      - name: the model, measured and read from the engine
+        shell: pwsh
+        env:
+          ID: ${{ matrix.id }}
+        run: |
+          $catalog = Get-Content models/catalog.json -Raw | ConvertFrom-Json
+          $entry = $catalog.models | Where-Object { $_.id -eq $env:ID }
+          if (-not $entry) { throw "$env:ID is not in the catalog" }
+          $server = Join-Path $env:APP 'enginellama-server.exe'
+          $models = Join-Path $env:RUNNER_TEMP 'models'
+          $data = Join-Path $env:RUNNER_TEMP 'data'
+          $failed = @()
+          & (Join-Path $env:APP 'localspace.exe') measure --model $env:ID --models $models --data $data --out results --download --yes
+          if ($LASTEXITCODE -ne 0) { $failed += "measure ended with $LASTEXITCODE" }
+          $main = $entry.files | Where-Object { $_ -ne $entry.vision_file } | Select-Object -First 1
+          $check = @('scripts/engine-check.mjs', $server, (Join-Path $models $main), '--out', "results/engine-$env:ID.json")
+          if ($entry.vision_file) {
+            $check += @('--mmproj', (Join-Path $models $entry.vision_file), '--picture', 'docs/screenshot.png')
+          }
+          node @check
+          if ($LASTEXITCODE -ne 0) { $failed += "the engine check ended with $LASTEXITCODE" }
+          if ($failed.Count) { "$env:ID: $($failed -join '; ')" | Out-File "results/failed-$env:ID.txt"; throw ($failed -join '; ') }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: engine-test-${{ matrix.id }}
+          path: results/
+          retention-days: 14
+          if-no-files-found: warn
+
+  summary:
+    name: the summary
+    needs: model
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: engine-test-*
+          path: results
+          merge-multiple: true
+      - name: the table
+        shell: pwsh
+        env:
+          RUN: ${{ inputs.package_run }}
+        run: |
+          $lines = @("## The engine test, package run $env:RUN", "", "| Model | Picture cost (tokens) | Slots: -c 8192 under --parallel 1 / 2 / none |", "|---|---|---|")
+          foreach ($f in Get-ChildItem results/engine-*.json -ErrorAction SilentlyContinue) {
+            $r = Get-Content $f.FullName -Raw | ConvertFrom-Json
+            $cost = if ($r.picture) { $r.picture.cost } else { '' }
+            $slots = ($r.slots.PSObject.Properties | ForEach-Object { ($_.Value.n_ctx_per_slot -join '+') }) -join ' / '
+            $lines += "| $($f.BaseName -replace '^engine-', '') | $cost | $slots |"
+          }
+          $failed = Get-ChildItem results/failed-*.txt -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName }
+          if ($failed) { $lines += ""; $lines += "**Failed:** $($failed -join '; ')" }
+          $lines += ""; $lines += "Each model's answers are in its measure file in the artifact; read them before the pin moves."
+          $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
