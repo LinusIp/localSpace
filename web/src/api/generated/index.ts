@@ -34,6 +34,8 @@ export type { EvalReport } from "./EvalReport";
 export type { Event } from "./Event";
 export type { ExposedTool } from "./ExposedTool";
 export type { ExposureReason } from "./ExposureReason";
+export type { Feature } from "./Feature";
+export type { Features } from "./Features";
 export type { HarnessSummary } from "./HarnessSummary";
 export type { Invite } from "./Invite";
 export type { Json } from "./Json";
