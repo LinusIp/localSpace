@@ -16,6 +16,7 @@ import { TopBar } from "../components/TopBar";
 import { greeting } from "../lib/time";
 import { endOfAnswer, workOf } from "../lib/answers";
 import { modelLabel } from "../lib/models";
+import type { Strings } from "../lib/strings";
 
 /** The answer in progress in the chat on screen: its words so far, where it
  *  stands, the tool calls at work for it, and whether it carries on a
@@ -31,24 +32,6 @@ function useChatInProgress() {
 }
 
 const NO_CALLS: LiveToolCall[] = [];
-
-/** Said in the answer's place from the send until the model's thinking or
- *  first word is heard of, and while it thinks, with the seconds (ruled
- *  2026-10-06 and 2026-10-09). */
-const STARTING = "Starting…";
-const THINKING = "Thinking…";
-
-/** Said while an answer waits for the person's other chat (ruled 2026-09-23):
- *  without the second sentence people send the message again. */
-const WAITS_FOR_ANOTHER_CHAT = "Waiting for the answer in your other chat to finish. This one will start by itself.";
-
-/** Said while every slot of the organisation's server is taken (ruled
- *  2026-09-24): "server", since the person has no choice to make about the
- *  model here. */
-const WAITS_FOR_THE_SERVER = "The server is answering other people right now. This one will start by itself.";
-
-/** Said where a proposal the person declined stood (ruled 2026-09-24). */
-const DECLINED = "You declined this change. The answer stopped here.";
 
 /** What the chat shows: the person's messages, the answers, and the
  *  proposals the person declined; other tool records are the model's. */
@@ -105,7 +88,7 @@ export function Conversation({ compact }: { compact?: boolean }) {
         <div className="chat-hero">
           <Hero compact={compact} onStarter={setDraft} />
           <div className="composer-column">
-            <Composer draft={draft} onDraft={setDraft} placeholder="Ask anything…" />
+            <Composer draft={draft} onDraft={setDraft} placeholder={strings.askAnything} />
             <Footnote />
           </div>
         </div>
@@ -139,7 +122,7 @@ export function Conversation({ compact }: { compact?: boolean }) {
                 ))}
                 {turn === "waits_for_another_chat" ? (
                   <span className="message-work">
-                    <SpinnerIcon size={14} className="ls-spin" /> {WAITS_FOR_ANOTHER_CHAT}
+                    <SpinnerIcon size={14} className="ls-spin" /> {strings.waitsForAnotherChat}
                   </span>
                 ) : streaming ? (
                   <div className="prose-chat">
@@ -150,7 +133,7 @@ export function Conversation({ compact }: { compact?: boolean }) {
                 ) : (
                   turn === "waits_for_the_model" && (
                     <span className="message-work">
-                      <SpinnerIcon size={14} className="ls-spin" /> {WAITS_FOR_THE_SERVER}
+                      <SpinnerIcon size={14} className="ls-spin" /> {strings.waitsForServer}
                     </span>
                   )
                 )}
@@ -165,7 +148,7 @@ export function Conversation({ compact }: { compact?: boolean }) {
       </div>
       <div className="chat-composer">
         <div className="composer-column">
-          <Composer draft={draft} onDraft={setDraft} placeholder="Ask a follow-up…" />
+          <Composer draft={draft} onDraft={setDraft} placeholder={strings.askFollowUp} />
         </div>
       </div>
     </div>
@@ -174,14 +157,17 @@ export function Conversation({ compact }: { compact?: boolean }) {
 
 function Hero({ compact, onStarter }: { compact?: boolean; onStarter: (text: string) => void }) {
   const { me, environment } = useSession();
+  const strings = useStrings();
   const first = (me?.name || me?.user || "").trim().split(/\s+/)[0] ?? "";
   const boardInstalled = environment?.harnesses.some((h) => h.id === "io.localspace.whiteboard") ?? false;
   const starters = [
-    { title: "Summarise text", body: "Paste a document's text and ask for the key points.", text: "Summarise the key points of the following text:\n\n" },
-    { title: "Draft a reply", body: "Paste a message and say how to answer it.", text: "Draft a reply to the following message. Keep it short and polite:\n\n" },
+    { title: strings.starterSummariseTitle, body: strings.starterSummariseBody, text: strings.starterSummariseText },
+    { title: strings.starterReplyTitle, body: strings.starterReplyBody, text: strings.starterReplyText },
+    // Only where Core offers the whiteboard, which no release does; its words
+    // leave with it rather than moving to the strings.
     boardInstalled
       ? { title: "Plan on the board", body: "Ask for a plan and it goes onto your whiteboard as notes.", text: "Put a plan for this on the whiteboard as sticky notes: " }
-      : { title: "Explain something", body: "Ask a question in your own words.", text: "Explain, in plain words: " },
+      : { title: strings.starterExplainTitle, body: strings.starterExplainBody, text: strings.starterExplainText },
   ];
   return (
     <>
@@ -190,7 +176,7 @@ function Hero({ compact, onStarter }: { compact?: boolean; onStarter: (text: str
           {greeting()}
           {first ? `, ${first}` : ""}
         </div>
-        <div className="hero-sub">What would you like to do?</div>
+        <div className="hero-sub">{strings.heroSub}</div>
       </div>
       {!compact && (
         <div className="starters">
@@ -209,12 +195,13 @@ function Hero({ compact, onStarter }: { compact?: boolean; onStarter: (text: str
 
 function Footnote() {
   const { me, environment } = useSession();
+  const strings = useStrings();
   if (!environment?.model) return null;
   const where = environment.engine.running
     ? me?.topology === "organisation"
-      ? "Answers come from the model running on your organisation's server."
-      : "Answers come from the model running on this computer."
-    : "Answers come from the model chosen in Settings.";
+      ? strings.footnoteOrganisation
+      : strings.footnotePersonal
+    : strings.footnoteChosen;
   return <div className="composer-note">{where}</div>;
 }
 
@@ -234,6 +221,7 @@ function AssistantAvatar({ thinking }: { thinking?: boolean }) {
 function ThinkingLine({ since }: { since: number | null }) {
   // Counted by the timer alone, from nought: the line is keyed on `since`
   // by its parent, so a new thinking starts a new count.
+  const strings = useStrings();
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
     if (since === null) return;
@@ -242,7 +230,7 @@ function ThinkingLine({ since }: { since: number | null }) {
   }, [since]);
   return (
     <span className="message-work">
-      <SpinnerIcon size={14} className="ls-spin" /> {since === null ? STARTING : `${THINKING} ${seconds}s`}
+      <SpinnerIcon size={14} className="ls-spin" /> {since === null ? strings.starting : strings.thinkingFor(seconds)}
     </span>
   );
 }
@@ -271,7 +259,7 @@ function Message({ message, joined, mayContinue, work }: { message: ChatMessage;
       <div className="message">
         <AssistantAvatar />
         <div className="message-body">
-          <div className="message-stopped">{DECLINED}</div>
+          <div className="message-stopped">{strings.declined}</div>
         </div>
       </div>
     );
@@ -332,27 +320,29 @@ function Message({ message, joined, mayContinue, work }: { message: ChatMessage;
 }
 
 /** What a tool call did, in the words Core gave back; never the tool's name. */
-function workLine(tool: string, outcome: ToolCallRecord["outcome"] | null): string {
-  if (!outcome) return "Working…";
+function workLine(tool: string, outcome: ToolCallRecord["outcome"] | null, strings: Strings): string {
+  if (!outcome) return strings.working;
   if ("ok" in outcome) {
     const summary = outcome.ok.diff_summary.trim();
-    return summary ? summary.charAt(0).toUpperCase() + summary.slice(1) : "Done";
+    return summary ? summary.charAt(0).toUpperCase() + summary.slice(1) : strings.done;
   }
   const line = outcomeLine(outcome);
   return line.charAt(0).toUpperCase() + line.slice(1) || tool;
 }
 
 function Work({ call }: { call: ToolCallRecord }) {
+  const strings = useStrings();
   const ok = "ok" in call.outcome;
   return (
     <div className="message-work">
       <span className={ok ? "ls-accent" : "ls-danger"}>{ok ? <CheckIcon size={14} /> : <CloseIcon size={14} />}</span>
-      {workLine(call.tool, call.outcome)}
+      {workLine(call.tool, call.outcome, strings)}
     </div>
   );
 }
 
 function LiveWork({ call }: { call: LiveToolCall }) {
+  const strings = useStrings();
   return (
     <div className="message-work">
       {call.outcome ? (
@@ -360,25 +350,26 @@ function LiveWork({ call }: { call: LiveToolCall }) {
       ) : (
         <SpinnerIcon size={14} className="ls-spin" />
       )}
-      {workLine(call.tool, call.outcome)}
+      {workLine(call.tool, call.outcome, strings)}
     </div>
   );
 }
 
 function ApprovalCard({ id, kind, prompt }: { id: string; kind: string; prompt: string }) {
   const approve = useSession((s) => s.approve);
+  const strings = useStrings();
   return (
     <div className="approval">
-      <div className="approval-kind">{kind === "tool_confirm" ? "The assistant asks" : kind.replace("_", " ")}</div>
+      <div className="approval-kind">{kind === "tool_confirm" ? strings.assistantAsks : kind.replace("_", " ")}</div>
       <p className="ls-mt-1" style={{ marginBottom: 0 }}>
         {prompt}
       </p>
       <div className="ls-row ls-gap-2 ls-mt-3">
         <button type="button" className="btn solid" onClick={() => void approve(id, true)}>
-          Allow
+          {strings.allow}
         </button>
         <button type="button" className="btn" onClick={() => void approve(id, false)}>
-          Don't allow
+          {strings.dontAllow}
         </button>
       </div>
     </div>
@@ -676,7 +667,7 @@ function Composer({ draft, onDraft, placeholder }: { draft: string; onDraft: (te
           }
         }}
         placeholder={model ? placeholder : strings.chooseModelToStart}
-        aria-label="Message"
+        aria-label={strings.messageLabel}
       />
       <div className="composer-row">
         <input

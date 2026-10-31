@@ -152,6 +152,39 @@ export interface Strings {
   switchAction: string;
   anotherChat: string;
   switchStopsAnswer: (chat: string) => string;
+  /** The chat: an empty chat's greeting line and three things to try. */
+  heroSub: string;
+  starterSummariseTitle: string;
+  starterSummariseBody: string;
+  /** What a starter puts in the message box, ready for the person's text. */
+  starterSummariseText: string;
+  starterReplyTitle: string;
+  starterReplyBody: string;
+  starterReplyText: string;
+  starterExplainTitle: string;
+  starterExplainBody: string;
+  starterExplainText: string;
+  /** The message box. */
+  askAnything: string;
+  askFollowUp: string;
+  messageLabel: string;
+  /** Under the message box, once a model is chosen. */
+  footnotePersonal: string;
+  footnoteOrganisation: string;
+  footnoteChosen: string;
+  /** In the answer's place while it starts, thinks or waits. */
+  starting: string;
+  thinkingFor: (seconds: number) => string;
+  waitsForAnotherChat: string;
+  waitsForServer: string;
+  declined: string;
+  /** A tool's work, when Core gives no words of its own. */
+  working: string;
+  done: string;
+  /** A change the assistant asks to make. */
+  assistantAsks: string;
+  allow: string;
+  dontAllow: string;
   /** Help. */
   helpTitle: string;
   helpSubPersonal: string;
