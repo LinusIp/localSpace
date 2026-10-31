@@ -13,6 +13,7 @@ import { TopBar } from "../components/TopBar";
 import { modelLabel, modelReason, sizeInWords, willNotFit } from "../lib/models";
 import { clock } from "../lib/time";
 import { useFeature } from "../useFeature";
+import type { Mode, Palette } from "../lib/look";
 import type { Json, ToolOutcome } from "../api/generated";
 import { useStrings } from "../useStrings";
 import { LANGUAGE_NAMES, type Language, type LanguageChoice } from "../lib/strings";
@@ -20,6 +21,7 @@ import { StatePill, ErrorLine, DownloadBar } from "../components/Themed";
 
 const PANES: Array<{ id: SettingsPane; label: string }> = [
   { id: "general", label: "General" },
+  { id: "appearance", label: "Appearance" },
   { id: "assistant", label: "Assistant" },
   { id: "network", label: "Network" },
   { id: "tools", label: "Tools" },
@@ -27,8 +29,11 @@ const PANES: Array<{ id: SettingsPane; label: string }> = [
 ];
 
 export function SettingsPage() {
-  const { me, settingsPane, goSettings } = useSession();
+  const { me, settingsPane: chosenPane, goSettings } = useSession();
   const mayOpenAdvanced = me?.topology === "personal" || (me?.roles.includes("admin") ?? false);
+  // Appearance is there only while `themes` is on; with it off, it was never offered.
+  const themes = useFeature("themes");
+  const settingsPane = chosenPane === "appearance" && !themes ? "general" : chosenPane;
   return (
     <>
       <TopBar />
@@ -36,7 +41,7 @@ export function SettingsPage() {
         <nav className="subnav" aria-label="Settings">
           <div className="subnav-title">Settings</div>
           <div className="ls-col" style={{ gap: 2 }}>
-            {PANES.map((p) => (
+            {PANES.filter((p) => p.id !== "appearance" || themes).map((p) => (
               <button key={p.id} type="button" className={`sub${settingsPane === p.id ? " on" : ""}`} onClick={() => goSettings(p.id)}>
                 {p.label}
               </button>
@@ -57,6 +62,7 @@ export function SettingsPage() {
         <div className="pane">
           <div className="pane-inner">
             {settingsPane === "general" && <GeneralPane />}
+            {settingsPane === "appearance" && <AppearancePane />}
             {settingsPane === "assistant" && <AssistantPane />}
             {settingsPane === "network" && <NetworkPane />}
             {settingsPane === "tools" && <ToolsPane />}
@@ -65,6 +71,62 @@ export function SettingsPage() {
             {settingsPane !== "advanced" && <AdvancedRow enabled={mayOpenAdvanced} />}
           </div>
         </div>
+      </div>
+    </>
+  );
+}
+
+const PALETTE_CHOICES: Array<{ id: Palette; title: string }> = [
+  { id: "indigo", title: "Indigo and amber" },
+  { id: "violet", title: "Violet and magenta" },
+  { id: "teal", title: "Petrol teal" },
+];
+
+const MODE_CHOICES: Array<{ id: Mode; title: string; body: string }> = [
+  { id: "system", title: "Same as Windows", body: "Light or dark, as Windows is set, and it changes when Windows does." },
+  { id: "light", title: "Light", body: "Dark text on a light page." },
+  { id: "dark", title: "Dark", body: "Light text on a dark page, easier on the eyes at night." },
+];
+
+/** Settings → Appearance, behind `themes`: the palette and the mode, kept by Core for this person. */
+function AppearancePane() {
+  const { palette, mode, setPalette, setMode } = useSession();
+  return (
+    <>
+      <h1 className="pane-title">Appearance</h1>
+      <div className="pane-sub">How localSpace looks for you. Your choice is kept after a restart.</div>
+      <div className="pane-section-title">Colours</div>
+      <div className="options" role="radiogroup" aria-label="Colours">
+        {PALETTE_CHOICES.map((c) => {
+          const on = c.id === palette;
+          return (
+            <button key={c.id} type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} onClick={() => !on && void setPalette(c.id)}>
+              <span className={`radio${on ? " on" : ""}`} />
+              <span style={{ flex: 1 }}>
+                <span className="opt-title">{c.title}</span>
+              </span>
+              <span className="palette-preview" data-preview={c.id} aria-hidden="true">
+                <span />
+                <span />
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="pane-section-title">Mode</div>
+      <div className="options" role="radiogroup" aria-label="Mode">
+        {MODE_CHOICES.map((c) => {
+          const on = c.id === mode;
+          return (
+            <button key={c.id} type="button" className={`opt${on ? " on" : ""}`} role="radio" aria-checked={on} onClick={() => !on && void setMode(c.id)}>
+              <span className={`radio${on ? " on" : ""}`} />
+              <span style={{ flex: 1 }}>
+                <span className="opt-title">{c.title}</span>
+                <div className="opt-body">{c.body}</div>
+              </span>
+            </button>
+          );
+        })}
       </div>
     </>
   );

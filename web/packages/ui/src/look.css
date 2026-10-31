@@ -148,3 +148,25 @@
 /* The lockup is drawn in ink; on a dark page it takes the near-white one
    made for dark backgrounds (web/public/brand/README.md). */
 :root[data-palette][data-theme="dark"] .brand-lockup { content: url("/brand/localspace-lockup-light.png"); }
+
+/* -- Settings → Appearance ------------------------------------------------- */
+
+/* Each palette's two colours, to preview the ones not shown now. */
+:root[data-palette] {
+  --ls-preview-indigo: #4338ca;
+  --ls-preview-indigo-2: #f5a524;
+  --ls-preview-violet: #8e24aa;
+  --ls-preview-violet-2: #e591f5;
+  --ls-preview-teal: #0b6b72;
+  --ls-preview-teal-2: #5fd3cc;
+}
+:root[data-palette] .pane-section-title { margin-top: 32px; }
+:root[data-palette] .pane-section-title + .options { margin-top: 12px; }
+:root[data-palette] .palette-preview { display: inline-flex; gap: 4px; align-self: center; }
+:root[data-palette] .palette-preview > span { width: 20px; height: 20px; border-radius: 999px; border: 1px solid var(--ls-swatch-line); }
+:root[data-palette] .palette-preview[data-preview="indigo"] > span:first-child { background: var(--ls-preview-indigo); }
+:root[data-palette] .palette-preview[data-preview="indigo"] > span:last-child { background: var(--ls-preview-indigo-2); }
+:root[data-palette] .palette-preview[data-preview="violet"] > span:first-child { background: var(--ls-preview-violet); }
+:root[data-palette] .palette-preview[data-preview="violet"] > span:last-child { background: var(--ls-preview-violet-2); }
+:root[data-palette] .palette-preview[data-preview="teal"] > span:first-child { background: var(--ls-preview-teal); }
+:root[data-palette] .palette-preview[data-preview="teal"] > span:last-child { background: var(--ls-preview-teal-2); }
