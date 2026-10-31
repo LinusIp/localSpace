@@ -35,6 +35,9 @@ pub trait Backend: Send + Sync {
     }
 }
 
+// A response is the larger of the two by nature (the environment rides in
+// one); each is moved once through a channel, so it isn't boxed.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Incoming {
     Response { id: u64, response: proto::Response },
@@ -333,7 +336,7 @@ It runs as a native process. Its stated reason: {reason}"
         use proto::Event as E;
         match ev {
             E::EnvironmentChanged(env) => {
-                self.env = Some(env);
+                self.env = Some(*env);
                 self.pending_env_refresh = true;
             }
             // Something shared moved: ask for this user's view again.
@@ -414,6 +417,7 @@ It runs as a native process. Its stated reason: {reason}"
             E::ModelProgress { .. }
             | E::EngineChanged(_)
             | E::ConversationChanged { .. }
+            | E::FeaturesChanged { .. }
             | E::ThinkingStarted { .. } => {}
             E::TraceLine { text } => {
                 self.trace.push(text);

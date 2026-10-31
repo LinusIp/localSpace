@@ -136,3 +136,82 @@ fn a_language_that_is_not_a_language_tag_is_refused() {
     }
     assert!(!values(&mut core, &anna).contains_key("language"));
 }
+
+/// A switched feature is turned on and off by whoever may manage the app,
+/// and is reported in the environment; an organisation's member may not
+/// turn one (docs/DECISIONS.md, 2026-10-31).
+#[test]
+fn a_switched_feature_is_turned_by_whoever_manages_the_app() {
+    let mut core = Core::ephemeral("anna").unwrap();
+    assert!(
+        core.environment().features.on.is_empty(),
+        "every feature starts off"
+    );
+    match core.handle(proto::Request::SetFeature {
+        feature: proto::Feature::Themes,
+        on: true,
+    }) {
+        proto::Response::Environment(env) => {
+            assert_eq!(env.features.on, vec![proto::Feature::Themes])
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(core.environment().features.on, vec![proto::Feature::Themes]);
+    core.handle(proto::Request::SetFeature {
+        feature: proto::Feature::Themes,
+        on: false,
+    });
+    assert!(core.environment().features.on.is_empty());
+}
+
+/// On an organisation's server only an administrator turns a switch: a
+/// member is refused, and the switch stays where it was.
+#[test]
+fn a_member_may_not_turn_a_switched_feature() {
+    let data = tempfile::tempdir().unwrap();
+    let mut core = core(data.path());
+    let anna = member("anna");
+    match core.handle_as(
+        &anna,
+        proto::Request::SetFeature {
+            feature: proto::Feature::Themes,
+            on: true,
+        },
+    ) {
+        proto::Response::Error { .. } => {}
+        other => panic!("a member turned a switch: {other:?}"),
+    }
+    assert!(core.environment().features.on.is_empty());
+}
+
+/// The new look's palette and mode are remembered per user; any other value
+/// is refused and nothing is kept.
+#[test]
+fn the_palette_and_the_mode_are_remembered_and_only_known_values_kept() {
+    let data = tempfile::tempdir().unwrap();
+    let mut core = core(data.path());
+    let anna = member("anna");
+    for (key, value) in [("theme", "violet"), ("mode", "dark")] {
+        assert!(
+            matches!(
+                set(&mut core, &anna, key, value),
+                proto::Response::Preferences { .. }
+            ),
+            "{key}"
+        );
+    }
+    for (key, value) in [
+        ("theme", "pink"),
+        ("mode", "dim"),
+        ("theme", ""),
+        ("mode", "Light"),
+    ] {
+        match set(&mut core, &anna, key, value) {
+            proto::Response::Error { .. } => {}
+            other => panic!("{key} = {value:?} was kept: {other:?}"),
+        }
+    }
+    let kept = values(&mut core, &anna);
+    assert_eq!(kept.get("theme").map(String::as_str), Some("violet"));
+    assert_eq!(kept.get("mode").map(String::as_str), Some("dark"));
+}

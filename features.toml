@@ -1,0 +1,12 @@
+# Which switched features a build has on, by its channel
+# (docs/decisions/2026-10-31-switched-features.md). Core reads this file when it is compiled; the channel comes
+# from LOCALSPACE_CHANNEL at build time, and a build that names none is
+# "stable". An installation can turn a switch itself afterwards.
+#
+# Every channel is off until the founder decides which features a release
+# has on. A name here must be a feature Core knows (`features::ALL`).
+
+[channels]
+dev = []
+preview = []
+stable = []

@@ -19,6 +19,7 @@ pub mod docs;
 pub mod engine;
 pub mod evals;
 pub mod exposure;
+pub mod features;
 pub mod fit;
 // The one module that speaks to the operating system's process accounting
 // directly (`CLAUDE.md`: unsafe only in isolated, documented modules).
@@ -79,8 +80,14 @@ pub const READ_ONLY_REASON: &str = "Your account can read here but not change an
 /// What the shell may remember per user, server-side, across their devices
 /// (the shell answers of 2026-09-12: the rail's state lives with the user),
 /// and the language the person chose in Settings (0.2.0; the client has
-/// asked to keep it since 2026-10-18, and Core refused it until now).
-pub const PREFERENCE_KEYS: &[&str] = &["rail_collapsed", "language"];
+/// asked to keep it since 2026-10-18, and Core refused it until now), and,
+/// for the new look, the palette and light or dark
+/// (docs/decisions/2026-10-31-theme-and-mode-preferences.md).
+pub const PREFERENCE_KEYS: &[&str] = &["rail_collapsed", "language", "theme", "mode"];
+
+/// The palettes the new look has, and its modes.
+const THEMES: &[&str] = &["indigo", "violet", "teal"];
+const MODES: &[&str] = &["system", "light", "dark"];
 
 /// A language choice is "system" or a short language tag (`ru`, `uz`,
 /// `pt-BR`): letters, digits and hyphens. Any tag is kept, so a language
@@ -2282,19 +2289,24 @@ impl Core {
                 .as_ref()
                 .and_then(|e| e.picture_file_left_out_mib),
             picture_model: self.engine.as_ref().and_then(|e| e.picture_model.clone()),
+            features: Box::new(features::current(&self.store)),
         }
     }
 
     /// The caller's own view, and a word to everyone else that theirs is
     /// stale: something shared moved.
     fn broadcast_environment(&self) {
-        self.emit(proto::Event::EnvironmentChanged(self.environment()));
+        self.emit(proto::Event::EnvironmentChanged(Box::new(
+            self.environment(),
+        )));
         self.emit_all(proto::Event::EnvironmentOutdated);
     }
 
     /// The caller's own view alone: focus and pins are theirs.
     fn emit_environment(&self) {
-        self.emit(proto::Event::EnvironmentChanged(self.environment()));
+        self.emit(proto::Event::EnvironmentChanged(Box::new(
+            self.environment(),
+        )));
     }
 
     // -- tool exposure ------------------------------------------------------
@@ -4164,6 +4176,16 @@ impl Core {
             R::ListConversations => self.conversations_response(),
 
             R::GetPreferences => self.preferences_response(),
+            R::SetFeature { feature, on } => match features::set(&self.store, feature, on) {
+                Ok(features) => {
+                    self.emit_all(proto::Event::FeaturesChanged { features });
+                    self.broadcast_environment();
+                    proto::Response::Environment(self.environment())
+                }
+                Err(e) => proto::Response::Error {
+                    message: format!("{e:#}"),
+                },
+            },
             R::SetPreference { key, value } => {
                 if !PREFERENCE_KEYS.contains(&key.as_str()) {
                     return proto::Response::Error {
@@ -4178,6 +4200,16 @@ impl Core {
                 if key == "language" && !language_choice_ok(&value) {
                     return proto::Response::Error {
                         message: format!("`{value}` is not a language"),
+                    };
+                }
+                if key == "theme" && !THEMES.contains(&value.as_str()) {
+                    return proto::Response::Error {
+                        message: format!("`{value}` is not a palette"),
+                    };
+                }
+                if key == "mode" && !MODES.contains(&value.as_str()) {
+                    return proto::Response::Error {
+                        message: format!("`{value}` is not light, dark or system"),
                     };
                 }
                 if let Err(e) = self.store.set_preference(&self.active.user, &key, &value) {
@@ -5439,6 +5471,7 @@ fn admin_only(req: &proto::Request) -> Option<&'static str> {
         R::ImportModel { .. } => "model.import",
         R::SelectModel { .. } => "model.select",
         R::EngineLog { .. } => "engine.log",
+        R::SetFeature { .. } => "features.set",
         R::PreviewContext { .. } => "context.preview",
         R::RunEvals { .. } => "evals.run",
         _ => return None,

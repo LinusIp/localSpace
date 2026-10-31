@@ -1,5 +1,7 @@
 # Decisions
 
+**Frozen since 2026-10-31.** New decisions go in their own files in [`docs/decisions/`](decisions/), one per decision.
+
 Every answered question and every decision made during the build, newest
 first, with the date and the section of the specification it affects. Part of
 the source of truth once written (`CLAUDE.md`, "Source of truth").

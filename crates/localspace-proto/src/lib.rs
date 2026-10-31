@@ -153,6 +153,41 @@ impl NetworkMode {
     }
 }
 
+/// A feature that is switched on or off for this installation, never a
+/// protection (docs/decisions/2026-10-31-switched-features.md). A variant is added with its
+/// feature's first code, and goes when the feature graduates.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
+    ts_rs::TS,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Feature {
+    /// The new look: palettes, light and dark, Onest, the components.
+    Themes,
+    /// The app's words in the person's language, beyond the first lines.
+    Translation,
+}
+
+/// Which switched features are on here, and which of them an organisation's
+/// policy holds where they are, so that nobody can change them.
+#[derive(
+    Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS,
+)]
+pub struct Features {
+    pub on: Vec<Feature>,
+    pub locked: Vec<Feature>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 pub struct EnvironmentState {
     pub user: String,
@@ -186,6 +221,11 @@ pub struct EnvironmentState {
     /// docs/DECISIONS.md, 2026-10-19). None when none would.
     #[serde(default)]
     pub picture_model: Option<String>,
+    /// The switched features, as Core holds them: the client shows what is
+    /// on and hides what is off, and never decides alone. Boxed, so that the
+    /// environment stays about the size it was.
+    #[serde(default)]
+    pub features: Box<Features>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
@@ -1477,6 +1517,13 @@ pub enum Request {
         key: String,
         value: String,
     },
+    /// Turn a switched feature on or off for this installation; refused for
+    /// one the organisation's policy holds, and for anyone who may not
+    /// manage the app.
+    SetFeature {
+        feature: Feature,
+        on: bool,
+    },
     NewConversation,
     SelectConversation {
         id: String,
@@ -1687,8 +1734,9 @@ pub struct EvalCase {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Event {
-    /// The environment as the user it is sent to sees it.
-    EnvironmentChanged(EnvironmentState),
+    /// The environment as the user it is sent to sees it. Boxed: it is far
+    /// larger than any other event.
+    EnvironmentChanged(Box<EnvironmentState>),
     /// Something shared changed — a harness installed, the network mode,
     /// the model — so every user's view of the environment is stale; each
     /// asks for its own again.
@@ -1785,6 +1833,10 @@ pub enum Event {
     /// Another client, or this one, switched, created or deleted a conversation.
     ConversationChanged {
         current: String,
+    },
+    /// A switched feature was turned on or off, for everyone here.
+    FeaturesChanged {
+        features: Features,
     },
     /// Who has a board open, sent to everyone on it whenever that changes.
     Presence {

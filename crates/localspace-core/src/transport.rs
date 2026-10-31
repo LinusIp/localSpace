@@ -15,6 +15,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
+// A response is the larger of the two by nature (the environment rides in
+// one); each is moved once through a channel, so it isn't boxed.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Incoming {
     Response { id: u64, response: proto::Response },
@@ -155,6 +158,9 @@ impl InProcess {
 
 /// What the server's Core hands back: an answer under its request's id, or
 /// an event with whom it is for.
+// A response is the larger of the two by nature (the environment rides in
+// one); each is moved once through a channel, so it isn't boxed.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Outgoing {
     Response { id: u64, response: proto::Response },
